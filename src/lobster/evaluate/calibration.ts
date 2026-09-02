@@ -63,7 +63,7 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    */
   room: 3,
   /** Health as a movement budget, not a clock. */
-  healthEconomy: 0.5,
+  energyEconomy: 0.5,
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
   /**
@@ -239,7 +239,7 @@ export interface CriterionProfile {
    * bind, for kinds that may DECLINE to spend it (`stayLegal`). `undefined`
    * keeps the linear reading for every kind — today's behaviour.
    */
-  readonly healthReserveRatio?: number;
+  readonly energyReserveRatio?: number;
 }
 
 /** What a piece's next-turn command set is counted for, and for whom. */
@@ -265,7 +265,7 @@ export interface CommandKnobs {
    * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
    * and placement by +0.052 [-0.104, +0.188] — i.e. the flag is close to inert
    * and what signal there is points the other way. The king's real activation
-   * under this profile comes from `healthReserveRatio`, which applies to every
+   * under this profile comes from `energyReserveRatio`, which applies to every
    * stay-legal kind: its stay share falls 80.4% -> 59.3% with THIS flag already
    * off.
    *
@@ -290,11 +290,11 @@ export interface CommandKnobs {
  * sweeping ONE piece across its own legal options with the joint context fixed:
  *
  *   the weighted spread of `reach` over a slider's own options   0.0000–0.0076
- *   the weighted spread of `healthEconomy` over the same options 0.2300–0.3700
+ *   the weighted spread of `energyEconomy` over the same options 0.2300–0.3700
  *
  * Inside the material-tie class — which is exactly the class `est` orders — the
  * median spread of `reach` is ZERO for the rook, the knight, the king and the
- * pawn and ONE BOARD CELL for the queen, while `healthEconomy` spreads
+ * pawn and ONE BOARD CELL for the queen, while `energyEconomy` spreads
  * 0.030–0.045. Read directly off the partition: `ours` and `theirs` do not move
  * by a single cell across all 71 of a queen's legal actions.
  *
@@ -302,7 +302,7 @@ export interface CommandKnobs {
  * where `arrival_p(c) ≤ D(c)`, and a slider's arrival is ≤ 2 turns to nearly
  * every cell FROM ANYWHERE — so the displacement set is saturated and carries
  * no gradient in the slider's own position. `room` is plane 1 only, so it is
- * identically zero for a piece. That leaves `healthEconomy` as the ONLY term
+ * identically zero for a piece. That leaves `energyEconomy` as the ONLY term
  * with dynamic range over a slider's move, and it is a linear travel tax: the
  * territory profile's est-argmax is the shortest-travel option among material
  * ties in 73–96% of positions. The evaluator is not indifferent to slider
@@ -314,7 +314,7 @@ export interface CommandKnobs {
  *   1. `command` — the gradient plane 2 structurally cannot carry. A piece is
  *      worth the CONTESTED ground it can act on next turn plus the food it can
  *      take, which is position-dependent where arrival-by-D is not.
- *   2. `healthReserveRatio` — health is a movement budget for a kind that may
+ *   2. `energyReserveRatio` — health is a movement budget for a kind that may
  *      decline to spend it, and a budget's marginal value rises as it runs out.
  *      A linear `health/max` prices the 98th health point exactly like the 2nd,
  *      which is what turned a survival term into a travel tax. Below the
@@ -366,7 +366,7 @@ export const TERRITORY_PROFILE: CriterionProfile = {
   // gated on class properties the rules already carry, so a board with no piece
   // on it is unaffected by either.
   command: COMMAND_KNOBS,
-  healthReserveRatio: HEALTH_RESERVE_RATIO,
+  energyReserveRatio: HEALTH_RESERVE_RATIO,
 };
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
@@ -392,7 +392,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     material: 10,
     reach: 0,
     room: 0,
-    healthEconomy: 0,
+    energyEconomy: 0,
     kingMargin: 0,
     command: 0,
     food: 0,

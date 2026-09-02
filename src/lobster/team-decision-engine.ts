@@ -43,7 +43,6 @@ import { defaultBotSpecFrom } from '../config/bot-binding';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { MAX_BATCH_DOCS } from '../wire/team-submitter';
-import { MAX_FROZEN, NEVER } from '../partial-engine/index';
 import type {
   Assumption,
   Candidate,
@@ -67,7 +66,7 @@ import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
 import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
-import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, standingOf } from './evaluate';
 import type { CriterionProfile } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -896,82 +895,27 @@ export class TeamDecisionEngine {
     });
   }
 
-  private planCapacity(input: TeamTurnInput): {
+  /**
+   * WHO MUST BE MODELLED FOR THE HELD SET TO FIT — which is now nobody.
+   *
+   * The engine used to carry claims in a fixed field of 32 slots, so a board
+   * with more uncontrolled units than that forced the decision to MODEL the
+   * nearest of them at their defaults and declare the narrowing. Claims are
+   * keyed by unit id now and there is no field and no capacity: every
+   * uncontrolled unit carries its own claim however many there are, so the
+   * whole overflow path — the arrival-ranked probe that chose whom to model,
+   * and the declared narrowing that paid for it — has no subject left.
+   *
+   * The seam stays as one function returning nothing so the caller's
+   * replacement-and-declaration machinery keeps its shape for the one case it
+   * still handles: a modelling choice that names a unit the substrate does not
+   * have.
+   */
+  private planCapacity(_input: TeamTurnInput): {
     wireIds: ReadonlyArray<string>;
-    /** The whole arrival-ranked candidate list, nearest first — the pool a
-     * replacement is drawn from when a choice cannot be named. */
     ranked: ReadonlyArray<string>;
   } {
-    const ourIds = new Set(input.units.map((u) => u.snakeId));
-    const others = (input.board.snakes ?? []).filter(
-      (s) => !ourIds.has(s.id) && s.health > 0 && s.body.length > 0
-    );
-    const overflow = others.length - MAX_FROZEN;
-    if (overflow <= 0) return { wireIds: [], ranked: [] };
-
-    const allIds = (input.board.snakes ?? []).map((s) => s.id);
-    const probe = makeSubstrate({
-      gameId: input.gameId,
-      board: input.board,
-      turn: input.turn,
-      asTeam: input.ourTeamId,
-      modeled: allIds,
-    });
-    try {
-      const engine = probe.engine;
-      const horizon = input.turn + (this.options.arrivalHorizonTurns ?? 8);
-      const ourCells: number[] = [];
-      for (const u of probe.roster()) {
-        if (ourIds.has(u.wireId)) ourCells.push(u.cells[0] as number);
-      }
-      const distance = new Map<string, number>();
-      const candidates = probe.roster().filter((u) => !ourIds.has(u.wireId));
-      for (let i = 0; i < candidates.length; i += MAX_FROZEN) {
-        const group = candidates.slice(i, i + MAX_FROZEN);
-        const fork = engine.fork(probe.state);
-        try {
-          const slots = group
-            .map((u) => engine.slotOfUnit(fork, u.unitId))
-            .filter((slot) => slot >= 0);
-          const held = engine.holdMany(fork, slots, input.turn);
-          for (const slot of held.field.slots) {
-            const wireId = probe.unitOf(slot.record.unitId)?.wireId;
-            if (wireId === undefined) continue;
-            // The SHELLS, not `arrival()`: the grid is read at a handful of
-            // cells and the eager whole-board Dijkstra behind that call is
-            // read by nothing. This is the last consumer in the lobster layer
-            // that used to trigger it.
-            const earliest = earliestShells(
-              slot.timeline,
-              slot.record.heldAtTurn,
-              horizon,
-              probe.grid
-            );
-            let d = NEVER;
-            for (const cell of ourCells) {
-              const at = earliest[cell] as number;
-              if (at >= 0 && at < d) d = at;
-            }
-            distance.set(wireId, d);
-          }
-        } finally {
-          engine.release(fork);
-        }
-      }
-      const ranked = [...distance.entries()].sort(
-        (a, b) => a[1] - b[1] || a[0].localeCompare(b[0])
-      );
-      const order = ranked.map(([wireId]) => wireId);
-      const chosen = order.slice(0, overflow);
-      this.log(
-        `[team-engine] ${input.gameId} turn ${input.turn}: ${others.length} uncontrolled units ` +
-          `exceed the held capacity of ${MAX_FROZEN} — modelling the ${chosen.length} nearest ` +
-          `at their defaults (declared): ${chosen.join(', ')}`
-      );
-      return { wireIds: chosen, ranked: order };
-    } finally {
-      probe.release();
-    }
+    return { wireIds: [], ranked: [] };
   }
 
   /**

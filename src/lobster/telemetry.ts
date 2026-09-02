@@ -110,7 +110,7 @@ export interface TelemetryEvaluation {
   readonly tier: AssessedCandidate['tier'];
   readonly capture: AssessedCandidate['capture'];
   readonly captureValue: number;
-  readonly healthSpent: { readonly lo: number; readonly hi: number };
+  readonly energySpent: { readonly lo: number; readonly hi: number };
   readonly exhaustionFatal: AssessedCandidate['exhaustionFatal'];
   /** How many held units' claims this move's outcome rests on. */
   readonly contingencies: number;
@@ -554,7 +554,7 @@ function buildRow(
       tier: s.entry.tier,
       capture: s.entry.capture,
       captureValue: s.entry.captureValue,
-      healthSpent: { lo: s.entry.healthSpent.lo, hi: s.entry.healthSpent.hi },
+      energySpent: { lo: s.entry.energySpent.lo, hi: s.entry.energySpent.hi },
       exhaustionFatal: s.entry.exhaustionFatal,
       contingencies: s.entry.contingencies,
       chosen: s.chosen,
@@ -596,7 +596,7 @@ function buildRow(
       snakeName: view.you?.name ?? unit.wireId,
       turn: input.turn + 1,
       position: view.you?.head ?? cellCoord(unit.cells[0] as number),
-      health: view.you?.health ?? unit.health,
+      health: view.you?.health ?? unit.energy,
       // `safe_moves` is the offerable set. For a snake those are directions,
       // exactly as before; for a piece they are its destination ids as strings,
       // which is what the column (text[]) can hold and what the viewer's
@@ -627,7 +627,7 @@ function degradedRow(
     snakeName: view.you?.name ?? unit.wireId,
     turn: input.turn + 1,
     position: view.you?.head ?? { x: 0, y: 0 },
-    health: view.you?.health ?? unit.health,
+    health: view.you?.health ?? unit.energy,
     safeMoves: [],
     botRecommendation: forwardedMove ?? 'up',
     moveEvaluations: [],

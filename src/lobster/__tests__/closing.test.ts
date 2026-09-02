@@ -551,12 +551,12 @@ describe('approach reads the food map the fold otherwise ignores', () => {
       try {
         for (const unit of sub.roster()) {
           const plan = defaultPlan(sub);
-          for (const action of sub.enumerate(unit.unitId).slice(0, 6)) {
+          for (const action of sub.actionsOf(unit.unitId).slice(0, 6)) {
             plan.set(unit.unitId, {
               unitId: unit.unitId,
-              from: -1,
-              to: action.dest,
-              path: action.action.kind === 'move' ? [...action.action.path] : [],
+              from: action.from,
+              to: action.to,
+              path: action.path,
             });
             const parts = i3TerritoryEvaluator.evaluatePlan(sub, plan, asTeam).parts;
             const a = parts.approach as { lo: number; hi: number } | undefined;

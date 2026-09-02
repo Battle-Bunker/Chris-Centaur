@@ -72,7 +72,7 @@ function makeSetup(): TTGameSetup {
 
 function makeTurn(): TTTurn {
   return {
-    playerHealth: { centA: 90, 'centA#2': 80, centB: 70 },
+    playerEnergy: { centA: 90, 'centA#2': 80, centB: 70 },
     startTime: null as any,
     endTime: null as any,
     moves: {},

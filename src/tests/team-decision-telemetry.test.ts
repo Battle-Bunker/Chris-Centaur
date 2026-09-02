@@ -242,7 +242,7 @@ describe('what one candidate row says', () => {
     expect(typeof row.captureValue).toBe('number');
     expect(typeof row.contingencies).toBe('number');
     expect(row.rank).toBeGreaterThanOrEqual(0);
-    expect(row.healthSpent.lo).toBeLessThanOrEqual(row.healthSpent.hi);
+    expect(row.energySpent.lo).toBeLessThanOrEqual(row.energySpent.hi);
 
     // A bounds engine's answer is a BRACKET, and the row carries the whole of
     // it plus the channel `score` reports.

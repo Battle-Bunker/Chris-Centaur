@@ -334,16 +334,16 @@ describe('the cliff', () => {
     // Now name the queen's move that actually takes the rook there, if one
     // exists: the confirmed death may not score below the feared one.
     let worstConfirmed = Number.POSITIVE_INFINITY;
-    for (const action of sub.enumerate(queen)) {
+    for (const action of sub.actionsOf(queen)) {
       const plan = new Map<UnitId, Candidate>([
         [rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }],
         [
           queen,
           {
             unitId: queen,
-            from: -1,
-            to: action.dest,
-            path: action.action.kind === 'move' ? [...action.action.path] : [],
+            from: action.from,
+            to: action.to,
+            path: action.path,
           },
         ],
       ]);
@@ -1053,7 +1053,7 @@ describe('the discharge theorem, locally', () => {
       piece('r', { x: 5, y: 5 }, 'rook', 2, { teamID: 'blue', health: 50 }),
     ]);
     const free = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['R'] });
-    const target = free.enumerate(free.unitOfWireId('r')?.unitId as UnitId)[0]?.dest as number;
+    const target = free.actionsOf(free.unitOfWireId('r')?.unitId as UnitId)[0]?.to as number;
     free.release();
 
     const sub = makeSubstrate({
@@ -1131,7 +1131,7 @@ describe('calibration is data', () => {
       'energy',
       // The distance gradient to the nearest meal, and the anti-dither term.
       'food',
-      'healthEconomy',
+      'energyEconomy',
       'kingMargin',
       'material',
       'momentum',

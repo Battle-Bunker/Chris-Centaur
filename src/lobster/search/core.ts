@@ -424,7 +424,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
     let best = start;
-    for (const unitId of dangerOrder(s.ours, best.worstResolution, s.pinned)) {
+    for (const unitId of dangerOrder(s.sub, s.ours, best.worstResolution, s.pinned)) {
       if (budget.shouldStop()) break;
       const set = s.sets.get(unitId) as CandidateSet;
       const current = best.plan.get(unitId) as Candidate;
@@ -451,7 +451,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     start: BankResult,
   ): BankResult => {
     let best = start;
-    const pairs = selfInflictedPairs(best.worstResolution, s.ourSet, best.plan);
+    const pairs = selfInflictedPairs(s.sub, best.worstResolution, s.ourSet, best.plan);
     for (const [a, b] of pairs) {
       if (budget.shouldStop()) break;
       if (s.pinned.has(a) && s.pinned.has(b)) continue;
@@ -485,7 +485,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     start: BankResult,
   ): BankResult => {
     let best = start;
-    const units = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
+    const units = contestedUnits(s.sub, s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
     if (units.length === 0) return best;
     const lists = units.map((id) =>
       topCandidates((s.sets.get(id) as CandidateSet).candidates, cfg.polishPerUnit),
@@ -703,7 +703,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const ourCasualties = (s: Session, result: BankResult): ReadonlyArray<UnitId> => {
     const resolution = result.worstResolution;
-    const dead = deadIn(resolution);
+    const dead = deadIn(s.sub, resolution);
+    const idOf = (wireId: string): UnitId | undefined => s.sub.unitIdOf(wireId);
     const out: UnitId[] = [];
     const seen = new Set<UnitId>();
     const push = (id: UnitId): void => {
@@ -712,8 +713,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       out.push(id);
     };
     for (const clash of resolution.clashes) {
-      if (!clash.victimIDs.some((id) => s.ourSet.has(id))) continue;
-      for (const id of clash.playerIDs) push(id);
+      const victims = clash.victimIDs.map(idOf);
+      if (!victims.some((id) => id !== undefined && s.ourSet.has(id))) continue;
+      for (const wireId of clash.playerIDs) {
+        const id = idOf(wireId);
+        if (id !== undefined) push(id);
+      }
     }
     for (const id of dead) push(id);
     return out;

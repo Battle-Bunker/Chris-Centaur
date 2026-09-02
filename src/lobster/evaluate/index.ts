@@ -58,7 +58,7 @@ export {
   budgetShare,
   buildArrivals,
   commandFeature,
-  healthEconomyFeature,
+  energyEconomyFeature,
   kingMarginFeature,
   makeContext,
   materialBounds,
@@ -71,7 +71,8 @@ export {
   trailScaleOf,
 } from './features';
 export type { EvalContext, Standing, UnitShells } from './features';
-export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
+export { NEVER, ShellTable, buildShells, earliestShells } from './shells';
+export type { ShellRequest } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export { CONTEST_LOSS, contestFeature, contestField, winsContest } from './contest';
 export type { ContestField } from './contest';
@@ -152,7 +153,7 @@ export class BoundEvaluator implements Evaluator {
         asTeam,
         this.profile.reachHorizonTurns,
         // One bag, carrying I1's royalReachers and I2's command /
-        // healthReserveRatio. See makeContext's signature.
+        // energyReserveRatio. See makeContext's signature.
         this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
@@ -261,7 +262,7 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
   // tighten an interval, never invert it — asserted rather than assumed.
   const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
 
-  const basis = ctx.resolution.state.field.assumptions();
+  const basis = ctx.engineMaterial.assumptions;
   return {
     bound: {
       lo: clamped.lo,

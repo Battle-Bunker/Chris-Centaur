@@ -45,14 +45,13 @@
  * file only chooses the horizon and reads the answer.
  */
 
-import { Fate, profileOf } from '../../partial-engine/index';
-import type {
-  Board,
-  FieldSlot,
-  Resolution,
-  ScoreBounds,
-  UnitKind,
-} from '../../partial-engine/index';
+import { isPieceType, leavesTrail } from '../../engine-vendor/engine/moveGrammar';
+import type { UnitType } from '../../engine-vendor/shared/types/Game';
+import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
+import { boardOf } from '../bits';
+import type { Bitboard } from '../bits';
+import type { MaterialBounds } from '../bounds/material';
+import { claimSurvival, moverSurvival, reachedByMovers } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
@@ -76,8 +75,8 @@ import { tierFeature } from './tier';
 export interface Standing {
   readonly unitId: UnitId;
   readonly team: number;
-  /** The rules' own kind index. Read for CLASS properties, never by name. */
-  readonly kind: UnitKind;
+  /** The rules' own kind. Read for CLASS properties through the grammar. */
+  readonly kind: UnitType;
   readonly isKing: boolean;
   /** True for a unit carried as a CLAIM rather than as a mover. */
   readonly held: boolean;
@@ -86,13 +85,16 @@ export interface Standing {
   /** Invulnerability tier, as an interval: a held unit's is not known exactly. */
   readonly tierMin: number;
   readonly tierMax: number;
-  /** The turn the tier reverts toward 0, when known. Contests read tier at the
-   * ARRIVAL turn, so a claim's tier ceiling drops at the expiry. */
+  /** The tier this unit carries into the ARRIVAL turn if nothing moves it —
+   * the engine's own lapse of the effect schedule, for a claim; its own frozen
+   * tier for a mover. */
+  readonly tierAtArrival: number;
+  /** The turn the tier reverts toward 0, when known. */
   readonly tierExpiresAtTurn: number | null;
   /** Weight a trail unit could lose to a sever without dying. */
   readonly partialLossMax: number;
-  /** Observed health. A held unit's true health is at most this. */
-  readonly health: number;
+  /** Observed energy. A held unit's true energy is at most this. */
+  readonly energy: number;
   readonly cell: number;
   /** Alive in the subject's WORST world. */
   readonly worstAlive: boolean;
@@ -103,9 +105,9 @@ export interface Standing {
 export interface EvalContext {
   readonly sub: EngineSubstrate;
   readonly asTeam: number;
-  readonly resolution: Resolution;
-  /** The ENGINE's own subject-frame fold, carried for comparison and telemetry. */
-  readonly engineMaterial: ScoreBounds;
+  readonly resolution: PartialSettlement;
+  /** The subject-frame material fold, carried for comparison and telemetry. */
+  readonly engineMaterial: MaterialBounds;
   readonly standing: ReadonlyArray<Standing>;
   readonly horizonTurns: number;
   /**
@@ -151,11 +153,11 @@ export interface EvalContext {
   readonly royalReachers: boolean;
   /** The command term's multipliers, or null when the feature is switched off. */
   readonly command: CommandKnobs | null;
-  /** The health-budget reserve fraction, or null for the linear reading. */
-  readonly healthReserveRatio: number | null;
+  /** The energy-budget reserve fraction, or null for the linear reading. */
+  readonly energyReserveRatio: number | null;
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
-  food(): Board;
+  food(): Bitboard;
 }
 
 /**
@@ -169,69 +171,74 @@ export interface EvalContext {
  */
 export function standingOf(
   sub: EngineSubstrate,
-  resolution: Resolution,
+  settlement: PartialSettlement,
   asTeam: number
 ): Standing[] {
-  const fates = new Map(resolution.fates.map((f) => [f.unitId, f.fate]));
   const out: Standing[] = [];
+  const claimById = new Map(settlement.claims.map((c) => [c.id, c]));
+  // ONE READING OF SURVIVAL, shared with the material fold: the peril this
+  // plan cannot change, united with the peril it just made. See
+  // `bounds/material.ts` — a fold that disagreed with the bank about who is
+  // alive would be a second scoring pipeline in the one place it matters.
+  const peril = sub.perilOf();
+  const reached = reachedByMovers(settlement);
 
-  for (const view of sub.engine.units(resolution.state)) {
-    const mine = view.team === asTeam;
-    const fate = fates.get(view.unitId);
-    const dead = fate === Fate.Dead || !view.alive;
-    const contingent = fate === Fate.Contingent;
+  for (const unit of sub.roster()) {
+    const mine = unit.team === asTeam;
+    const claim = claimById.get(unit.wireId);
+    if (claim !== undefined) {
+      // A HELD unit, bracketed by what could have become of it.
+      const contested = claimSurvival(claim, peril, reached) === 'maybe';
+      out.push({
+        unitId: unit.unitId,
+        team: unit.team,
+        kind: claim.kinds[0] ?? unit.type,
+        isKing: unit.isKing,
+        held: true,
+        weightMin: claim.weightMin,
+        weightMax: claim.weightMax,
+        tierMin: claim.tierMin,
+        tierMax: claim.tierMax,
+        tierAtArrival: claim.tierAtArrival,
+        tierExpiresAtTurn: unit.tierExpiresAtTurn,
+        partialLossMax: Math.max(0, unit.weight - claim.weightMin),
+        energy: claim.energyMax,
+        cell: unit.cells[0] as number,
+        worstAlive: !claim.certainlyGone && (!mine || !contested),
+        bestAlive: !claim.certainlyGone && (mine || !contested),
+      });
+      continue;
+    }
+
+    // A MOVER. The settlement says where it ended and what it weighs; the
+    // ledger says whether anything unknown could have TAKEN it — which is not
+    // the same as whether anything unknown could have changed its turn.
+    const settled = settlement.board[unit.wireId];
+    const survival = moverSurvival(settlement, unit.wireId);
+    const dead = survival === 'no';
+    const contingent = survival === 'maybe';
+    const weight = settled?.occupancy.length ?? 0;
+    // `tiers` is the engine's own answer for "tier as the next turn starts",
+    // which is what `tierAtArrival` means for a held unit too — so a mover that
+    // drank a potion this turn is read at the tier it will actually fight at.
+    const tier = settlement.tiers[unit.wireId] ?? unit.tier;
     out.push({
-      unitId: view.unitId,
-      team: view.team,
-      kind: view.kind,
-      isKing: sub.unitOf(view.unitId)?.isKing === true,
+      unitId: unit.unitId,
+      team: unit.team,
+      kind: settlement.unitTypes[unit.wireId] ?? unit.type,
+      isKing: unit.isKing,
       held: false,
-      weightMin: view.weight,
-      weightMax: view.weight,
-      tierMin: view.tier,
-      tierMax: view.tier,
-      tierExpiresAtTurn: view.tierExpiresAtTurn,
+      weightMin: weight,
+      weightMax: weight,
+      tierMin: tier,
+      tierMax: tier,
+      tierAtArrival: tier,
+      tierExpiresAtTurn: unit.tierExpiresAtTurn,
       partialLossMax: 0,
-      health: view.health,
-      cell: view.cells[0] as number,
+      energy: settled?.energy ?? 0,
+      cell: settled?.occupancy[0] ?? (unit.cells[0] as number),
       worstAlive: !dead && (!mine || !contingent),
       bestAlive: !dead && (mine || !contingent),
-    });
-  }
-
-  for (const slot of resolution.state.field.slots) {
-    const mine = slot.record.team === asTeam;
-    const cloud = slot.cloud;
-    // A cloud's `deathPossible` is derived from terrain and from the other
-    // CLAIMS — mobile units never narrow a cloud — so on its own it still
-    // reports a held unit that would walk straight into one of this turn's
-    // movers as certainly alive. That is harmless in a FLOOR (an enemy we
-    // assume survives is the pessimistic reading anyway) and a false proof in
-    // a CEILING: the world where the enemy blunders into us really exists.
-    //
-    // This file used to widen it here, by intersecting the cloud with a
-    // snapshot of every cell a mover touched. THE ENGINE ANSWERS IT NOW:
-    // `Resolution.mayHaveDied` is exactly that question, computed inside the
-    // resolution that knows it, and the engine's own reading of a slot's fate
-    // is `deathPossible || mayHaveDied`. Reading the engine's answer instead
-    // of recomputing it is what stops the two drifting apart.
-    const contested = cloud.deathPossible || (resolution.mayHaveDied & (1 << slot.slot)) !== 0;
-    out.push({
-      unitId: slot.record.unitId,
-      team: slot.record.team,
-      kind: slot.record.kind,
-      isKing: sub.unitOf(slot.record.unitId)?.isKing === true,
-      held: true,
-      weightMin: slot.bounds.weightMin,
-      weightMax: slot.bounds.weightMax,
-      tierMin: slot.bounds.tierMin,
-      tierMax: slot.bounds.tierMax,
-      tierExpiresAtTurn: slot.record.tierExpiresAtTurn ?? null,
-      partialLossMax: Math.max(0, slot.record.weight - slot.bounds.weightMin),
-      health: slot.record.health,
-      cell: slot.record.occupancy[0] as number,
-      worstAlive: !cloud.certainlyGone && (!mine || !contested),
-      bestAlive: !cloud.certainlyGone && (mine || !contested),
     });
   }
   return out;
@@ -252,9 +259,9 @@ export function standingOf(
  */
 export function buildArrivals(
   sub: EngineSubstrate,
-  resolution: Resolution,
+  resolution: PartialSettlement,
   horizonTurns: number,
-  table: ShellTable = new ShellTable(sub.grid)
+  table: ShellTable = new ShellTable(sub)
 ): Map<UnitId, Int32Array> {
   const out = new Map<UnitId, Int32Array>();
   for (const [unitId, sh] of buildShells(sub, resolution, horizonTurns, table)) {
@@ -265,8 +272,8 @@ export function buildArrivals(
 
 export function makeContext(
   sub: EngineSubstrate,
-  resolution: Resolution,
-  engineMaterial: ScoreBounds,
+  resolution: PartialSettlement,
+  engineMaterial: MaterialBounds,
   asTeam: number,
   horizonTurns: number = REACH_HORIZON_TURNS,
   /**
@@ -282,7 +289,7 @@ export function makeContext(
    * `CriterionProfile` field that I1 itself added. Both defaults are preserved
    * exactly; see the context construction below.
    */
-  profile?: Pick<CriterionProfile, 'command' | 'healthReserveRatio' | 'royalReachers'>
+  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const teams = new Set(sub.roster().map((u) => u.team));
@@ -291,7 +298,7 @@ export function makeContext(
   const pieceScale = pieceScaleOf(sub);
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
-  let foodCache: Board | null = null;
+  let foodCache: Bitboard | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
     lo: null,
     hi: null,
@@ -312,7 +319,7 @@ export function makeContext(
     royalReachers: profile?.royalReachers ?? royalMargin(),
     pieceScale,
     command: profile?.command ?? null,
-    healthReserveRatio: profile?.healthReserveRatio ?? null,
+    energyReserveRatio: profile?.energyReserveRatio ?? null,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -343,9 +350,9 @@ export function makeContext(
     },
     food() {
       if (foodCache === null) {
-        const board = ws.foodOut;
-        sub.engine.foodBoard(resolution.state, board);
-        foodCache = board;
+        // The food the turn CLOSED with: what a reach term should reach for is
+        // what is still on the board once every eater has eaten.
+        foodCache = boardOf(sub.grid, resolution.food);
       }
       return foodCache;
     },
@@ -399,7 +406,7 @@ export function makeContext(
 export function trailScaleOf(sub: EngineSubstrate): number {
   let total = 0;
   for (const u of sub.roster()) {
-    if (!profileOf(u.kind).leavesTrail) continue;
+    if (!leavesTrail(u.type)) continue;
     total += 1;
   }
   return Math.max(1, total);
@@ -412,7 +419,7 @@ export function trailScaleOf(sub: EngineSubstrate): number {
 export function pieceScaleOf(sub: EngineSubstrate): number {
   const byTeam = new Map<number, number>();
   for (const u of sub.roster()) {
-    if (profileOf(u.kind).leavesTrail) continue;
+    if (leavesTrail(u.type)) continue;
     byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
   }
   return Math.max(1, ...byTeam.values());
@@ -589,35 +596,35 @@ function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
 }
 
 // ---------------------------------------------------------------------------
-// F4 — health economy
+// F4 — energy economy
 // ---------------------------------------------------------------------------
 
 /**
- * Health is a movement budget, not a clock: a unit loses health only by
+ * Energy is a movement budget, not a clock: a unit loses energy only by
  * entering cells, and a piece that stands still spends nothing and can stand
  * still forever. So this term is "how many cells may my side still enter",
  * normalised, minus theirs.
  *
- * A HELD unit's health is bounded above by what we last observed and below by
+ * A HELD unit's energy is bounded above by what we last observed and below by
  * zero, and nothing cheaper than a world enumeration tightens that. So the
  * worst reading gives our held units nothing and theirs everything, and the
  * best reading the reverse — loose, sound, and collapsing the moment nothing is
  * held.
  */
-export const healthEconomyFeature: Feature<EvalContext> = {
-  key: 'healthEconomy',
+export const energyEconomyFeature: Feature<EvalContext> = {
+  key: 'energyEconomy',
   defaultWeight: 0.5,
   contract: {
     reads: [
-      { input: 'held-health', monotone: 'up' },
+      { input: 'held-energy', monotone: 'up' },
       { input: 'contingent-survival', monotone: 'down' },
     ],
     cliff: false,
     dischargeable: true,
   },
   evaluate(ctx) {
-    const cap = Math.max(1, ctx.sub.engine.config.maxHealth);
-    const reserve = ctx.healthReserveRatio;
+    const cap = Math.max(1, ctx.sub.defaultMaxEnergy);
+    const reserve = ctx.energyReserveRatio;
     let lo = 0;
     let hi = 0;
     for (const s of ctx.standing) {
@@ -640,11 +647,11 @@ export const healthEconomyFeature: Feature<EvalContext> = {
 /**
  * A UNIT'S SHARE OF THE MOVEMENT BUDGET.
  *
- * `health / max` is the reading for a kind that has no choice: a trail unit
- * must step every turn, so its health really is a clock and every point of it
+ * `energy / max` is the reading for a kind that has no choice: a trail unit
+ * must step every turn, so its energy really is a clock and every point of it
  * is worth the same. A kind that may DECLINE to spend — `stayLegal`, which is a
  * rule and not a taxonomy — is in a different situation, and the linear reading
- * misprices it badly: it charges the 98th health point exactly as much as the
+ * misprices it badly: it charges the 98th energy point exactly as much as the
  * 2nd, which turns a survival term into a per-cell travel tax. Measured on the
  * budget ladder's own replays, that tax was the ONLY term with dynamic range
  * over a slider's own options — 0.23–0.37 weighted against `reach`'s
@@ -655,17 +662,17 @@ export const healthEconomyFeature: Feature<EvalContext> = {
  * do in one turn brings the budget near binding, so the term says nothing about
  * where it should go. Below it the term slides to zero over the reserve rather
  * than over the whole maximum, so exhaustion is priced MORE sharply than before,
- * not less. Monotone increasing in health either way, so both bound endpoints
+ * not less. Monotone increasing in energy either way, so both bound endpoints
  * keep the direction the contract declares.
  */
 export function budgetShare(
-  s: Pick<Standing, 'health' | 'kind'>,
+  s: Pick<Standing, 'energy' | 'kind'>,
   cap: number,
   reserveRatio: number | null
 ): number {
-  if (reserveRatio === null || !profileOf(s.kind).stayLegal) return s.health / cap;
+  if (reserveRatio === null || !isPieceType(s.kind)) return s.energy / cap;
   const reserve = Math.max(1, reserveRatio * cap);
-  return Math.min(1, s.health / reserve);
+  return Math.min(1, s.energy / reserve);
 }
 
 // ---------------------------------------------------------------------------
@@ -756,10 +763,10 @@ function commandSum(
   for (let i = 0; i < words; i++) any |= domain[i] as number;
   if (any === 0) domain = partition.openBoard;
   const food = ctx.food();
-  const nextTurn = ctx.resolution.state.turn + 1;
+  const nextTurn = ctx.sub.arrivalTurn + 1;
   let total = 0;
   for (const s of ctx.standing) {
-    if (profileOf(s.kind).leavesTrail) continue;
+    if (leavesTrail(s.kind)) continue;
     // A royal unit is not paid for activity: see CommandKnobs.royal.
     if (s.isKing && !knobs.royal) continue;
     const mine = s.team === ctx.asTeam;
@@ -848,7 +855,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
     // is "can this unit be on that ONE square by next turn".
     const shells = ctx.shells();
     const cap = Math.max(1, ...ctx.standing.map((s) => s.weightMax));
-    const nextTurn = ctx.resolution.state.turn + 1;
+    const nextTurn = ctx.sub.arrivalTurn + 1;
 
     const friendlyReachers = ctx.royalReachers;
 
@@ -930,7 +937,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   materialFeature,
   reachFeature,
   roomFeature,
-  healthEconomyFeature,
+  energyEconomyFeature,
   kingMarginFeature,
   commandFeature,
   foodFeature,
@@ -940,8 +947,6 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   energyFeature,
 ];
 
-/** Re-exported so a consumer can read a held unit's interval without the engine. */
-export type { FieldSlot };
 export type { Bound };
 export type { UnitShells } from './shells';
 export type { Partition, TrailRoom } from './territory';

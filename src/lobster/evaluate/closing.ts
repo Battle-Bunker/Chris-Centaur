@@ -209,7 +209,7 @@ function approachSum(ctx: EvalContext, reading: 'lo' | 'hi'): number {
   // `ctx.shells()` and not `ctx.arrivals()`: the latter builds a fresh Map per
   // evaluation to hold grids the shells already own and memoise.
   const shells = ctx.shells();
-  const turn = ctx.resolution.state.turn;
+  const turn = ctx.sub.arrivalTurn;
   const horizon = ctx.horizonTurns;
   let total = 0;
   for (const s of ctx.standing) {
@@ -317,7 +317,7 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     material: 10,
     reach: 0,
     room: 0,
-    healthEconomy: 0,
+    energyEconomy: 0,
     kingMargin: 0,
     command: 0,
     food: 0,

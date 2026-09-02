@@ -1,170 +1,202 @@
 /**
- * THE DILATION SHELLS, READ DIRECTLY.
+ * THE DILATION SHELLS — where a unit could be, turn by turn, out to a horizon.
  *
- * `CloudTimeline.arrival(h)` publishes two things together: `earliest` — the
- * per-cell absolute arrival turn, stamped from the dilation shells the timeline
- * already holds — and `minCost`, a two-phase Dijkstra over the whole board with
- * a binary heap, built EAGERLY on the first call. Every consumer in this
- * repository reads `earliest`; nothing reads `minCost`. Measured on a 13×13
- * board at 26 units, `minCost` is 94% of the cost of a cold arrival grid: 407 µs
- * of 431 µs, thrown away.
+ * The territory sweep and the reach terms need one thing the settlement does
+ * not carry: not "where could this unit be at each SUB-STEP of the turn being
+ * settled" (that is `Claim.headPossible`, and the engine computes it), but
+ * "where could it be in one turn, two, three, four" — the front at each
+ * ABSOLUTE turn out to `REACH_HORIZON_TURNS`.
  *
- * So this module reads the shells and stops. It is the SAME loop `arrival()`
- * runs — same shells, same stamping order, same NEVER sentinel — because
- * `cloud.ts` is vendored under a byte-identity gate and cannot grow a
- * cost-free entry point on our schedule.
+ * ── THIS IS NOT A SECOND GRAMMAR, AND THE DISTINCTION IS THE WHOLE POINT ────
  *
- * ── THE RISK THIS CARRIES, AND WHAT PAYS FOR IT ────────────────────────────
+ * Nothing here decides what a unit may do. Every step of every front comes
+ * from `queries.legalTargets` + `queries.actionOf` — the same two calls
+ * `claims.ts` makes, in the same order, against the same two board shapes:
+ * the real board for the first unknown turn, and the PERMISSIVE board (every
+ * cell a pawn target) for the turns after it, because after one unknown turn
+ * nobody knows where the bodies are and over-approximating is the only
+ * direction a reach may be wrong in. What this file adds is ITERATION and a
+ * cache: it applies the engine's own step relation n times and remembers the
+ * fronts.
  *
- * A second encoding of `earliest` is exactly the thing the one-pipeline rule
- * forbids, and the failure mode is silent: if upstream changes how a shell is
- * derived, this copy drifts, and it drifts only in a soft positional signal
- * nobody watches. The price of admission is therefore a DIFFERENTIAL that runs
- * whenever the vendor drift gate runs — `src/tests/arrival-shell-differential.ts`,
- * wired into `src/tests/partial-engine-vendor-sync.test.ts` — asserting cell for
- * cell, on random boards, over every kind, held and live, that this stamping and
- * `CloudTimeline.arrival().earliest` are the same array.
+ * A file that decided for itself which cells a queen may reach would be the
+ * grammar written twice, which is the one thing the vendored engine exists to
+ * prevent. Read `queries`; this only calls it.
  *
  * ── WHY A TABLE, AND WHY IT IS DECISION-SCOPED ─────────────────────────────
  *
- * The engine's own `CloudSource` keeps 128 timelines by value, shared with
- * every other consumer. One decision's working set at 26 units is 96–97
- * distinct records; two overlapping decisions of the same game fill that cache
- * exactly and begin evicting, and an evicted timeline is a 24 µs rebuild — or,
- * through `arrival()`, a 431 µs one. Keeping the SHELLS in a table sized to the
- * decision's own working set means a miss in the engine's cache costs a
- * dilation, never a Dijkstra, and a hit costs nothing at all.
+ * The dilation is a pure function of (kind, head cell, facing, span) against
+ * one board, and one decision evaluates thousands of plans over the same
+ * roster — so a unit's fronts are computed once and read tens of thousands of
+ * times. The step relation underneath them is cached harder still: `(type,
+ * cell, facing, phase)` is what `legalTargets` is actually keyed on, and it is
+ * shared by every unit of that kind on the board.
  */
 
-import {
-  NEVER,
-  bbForEach,
-  bbTest,
-  frozenRecordKey,
-} from '../../partial-engine/index';
-import type {
-  Board,
-  CloudSource,
-  CloudTimeline,
-  FrozenRecord,
-  Grid,
-  Resolution,
-  UnitView,
-} from '../../partial-engine/index';
+import { NEVER } from '../../engine-vendor/engine/claims';
+import { ORTHOGONALS } from '../../engine-vendor/engine/moveGrammar';
+import type { Orientation } from '../../engine-vendor/engine/moveGrammar';
+import { actionOf, legalTargets, rotationTargets } from '../../engine-vendor/engine/queries';
+import type { BoardShape, GrammarUnit } from '../../engine-vendor/engine/queries';
+import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
+import type { UnitType } from '../../engine-vendor/shared/types/Game';
+import { bbForEach, bbSet, bbTest, newBoard } from '../bits';
+import type { Bitboard, Grid } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 
+export { NEVER };
+
 /**
  * One unit's reach over a horizon: the arriving front at each absolute turn,
- * as POINTERS into boards the timeline already owns, plus the stamped
- * `earliest` grid on demand.
+ * plus the stamped `earliest` grid on demand.
  */
 export interface UnitShells {
   readonly unitId: UnitId;
-  /** Absolute turn of `fronts[0]` — the record's own freeze turn. */
-  readonly heldAtTurn: number;
-  /** `fronts[i]` is the head-possible board at absolute turn `heldAtTurn + i`. */
-  readonly fronts: ReadonlyArray<Board>;
+  /** Absolute turn of `fronts[0]` — the turn this unit was last OBSERVED. */
+  readonly fromTurn: number;
+  /** `fronts[i]` is the head-possible board at absolute turn `fromTurn + i`. */
+  readonly fronts: ReadonlyArray<Bitboard>;
   /** The absolute turn `fronts` currently reaches. */
   readonly horizonTurn: number;
   /** The front at an ABSOLUTE turn, or null when the horizon does not cover it. */
-  frontAt(turn: number): Board | null;
+  frontAt(turn: number): Bitboard | null;
   /** True when this unit can be on `cell` at or before absolute turn `turn`. */
   reachesBy(cell: number, turn: number): boolean;
-  /**
-   * `earliest[c]`, stamped from the same shells in the same order
-   * `CloudTimeline.arrival` stamps them. Built once, on demand: the bitboard
-   * sweep never needs it, so a snake-only decision never pays for it.
-   */
+  /** `earliest[c]`: the first absolute turn the head could hold `c`, or NEVER. */
   earliest(): Int32Array;
 }
 
-/**
- * `earliest[c]` for a timeline, to absolute turn `horizonTurn`.
- *
- * This is `CloudTimeline.arrival`'s stamping loop with the `minCost` build
- * removed: for each absolute turn from the record's own `heldAtTurn` up to the
- * horizon, stamp the cells of that turn's arriving front with the turn, keeping
- * the smallest. `out` is reused when given.
- */
-export function earliestShells(
-  timeline: CloudTimeline,
-  heldAtTurn: number,
-  horizonTurn: number,
-  grid: Grid,
-  out: Int32Array | null = null
-): Int32Array {
-  const earliest = out ?? new Int32Array(grid.cells);
-  earliest.fill(NEVER);
-  for (let stamp = heldAtTurn; stamp <= horizonTurn; stamp++) {
-    const front = timeline.at(Math.max(0, stamp - heldAtTurn)).headPossible;
-    bbForEach(front, grid.words, (c) => {
-      if ((earliest[c] as number) > stamp) earliest[c] = stamp;
-    });
-  }
-  return earliest;
+/** What a shell is asked for: a unit, where it was, and when it was seen. */
+export interface ShellRequest {
+  readonly unitId: UnitId;
+  readonly type: UnitType;
+  /** Head first. Only the head drives the dilation. */
+  readonly occupancy: ReadonlyArray<number>;
+  readonly orientation: Orientation;
+  /** The absolute turn this record was observed. */
+  readonly fromTurn: number;
 }
 
-/** The same stamping, from fronts already collected. */
-function stampFronts(
-  fronts: ReadonlyArray<Board>,
-  heldAtTurn: number,
-  words: number,
-  cells: number
-): Int32Array {
-  const earliest = new Int32Array(cells).fill(NEVER);
-  for (let i = 0; i < fronts.length; i++) {
-    const stamp = heldAtTurn + i;
-    bbForEach(fronts[i] as Board, words, (c) => {
-      if ((earliest[c] as number) > stamp) earliest[c] = stamp;
-    });
-  }
-  return earliest;
+/** A dilation state: where the head is, and which way it faces. */
+interface State {
+  readonly cell: number;
+  readonly ori: number;
+}
+
+const oriIndex = (orientation: Orientation): number => {
+  const i = ORTHOGONALS.findIndex(
+    (o) => o.dx === Math.sign(orientation.dx) && o.dy === Math.sign(orientation.dy)
+  );
+  return i === -1 ? 0 : i;
+};
+
+/**
+ * The board the second and later unknown turns are asked against — the same
+ * over-approximation `claims.ts` makes, for the same reason: a pawn's diagonal
+ * is legal onto food or a body, and after one unknown turn nobody knows where
+ * the bodies are.
+ */
+function permissiveShapeOf(shape: BoardShape): BoardShape {
+  const cells = shape.boardWidth * shape.boardHeight;
+  const food: number[] = [];
+  for (let cell = 0; cell < cells; cell++) food.push(cell);
+  return { ...shape, food };
 }
 
 class Shells implements UnitShells {
   readonly unitId: UnitId;
-  readonly heldAtTurn: number;
-  readonly fronts: Board[] = [];
+  readonly fromTurn: number;
+  readonly fronts: Bitboard[] = [];
   horizonTurn: number;
-  private readonly timeline: CloudTimeline;
+  /** The frontier as STATES — only for a kind whose facing changes its
+   *  legality, which is the one kind that needs more than a cell to step. */
+  private states: Map<number, State> | null;
+  private readonly type: UnitType;
+  private readonly table: ShellTable;
   private readonly grid: Grid;
   private stamped: Int32Array | null = null;
 
-  constructor(unitId: UnitId, timeline: CloudTimeline, heldAtTurn: number, grid: Grid) {
-    this.unitId = unitId;
-    this.timeline = timeline;
-    this.heldAtTurn = heldAtTurn;
+  constructor(request: ShellRequest, table: ShellTable, grid: Grid) {
+    this.unitId = request.unitId;
+    this.type = request.type;
+    this.fromTurn = request.fromTurn;
+    this.table = table;
     this.grid = grid;
-    this.horizonTurn = heldAtTurn - 1;
+    const cell = request.occupancy[0] as number;
+    const facing = table.facingMatters(request.type);
+    const start: State = { cell, ori: facing ? oriIndex(request.orientation) : 0 };
+    this.states = facing ? new Map([[start.cell * 4 + start.ori, start]]) : null;
+    const front = newBoard(grid);
+    bbSet(front, cell);
+    this.fronts.push(front);
+    this.horizonTurn = request.fromTurn;
   }
 
   /** Collect fronts out to an absolute turn. Idempotent and extending. */
   extendTo(horizonTurn: number): void {
     while (this.horizonTurn < horizonTurn) {
-      const stamp = this.horizonTurn + 1;
-      this.fronts.push(this.timeline.at(Math.max(0, stamp - this.heldAtTurn)).headPossible);
-      this.horizonTurn = stamp;
+      const step = this.horizonTurn - this.fromTurn; // 0 for the first unknown turn
+      const previous = this.fronts[this.fronts.length - 1] as Bitboard;
+      const front = newBoard(this.grid);
+      if (this.states === null) {
+        // A kind that reads no facing: the whole step is a board union, which
+        // is what makes a four-turn reach a handful of word ORs rather than a
+        // walk over a set of states.
+        const words = this.grid.words;
+        bbForEach(previous, words, (cell) => {
+          const reach = this.table.stepBoard(this.type, cell);
+          for (let w = 0; w < words; w++) {
+            front[w] = ((front[w] as number) | (reach[w] as number)) >>> 0;
+          }
+        });
+      } else {
+        const next = new Map<number, State>();
+        for (const state of this.states.values()) {
+          for (const to of this.table.stepsFrom(this.type, state, step === 0)) {
+            next.set(to.cell * 4 + to.ori, to);
+            bbSet(front, to.cell);
+          }
+        }
+        this.states = next;
+      }
+      // A unit with nowhere legal to go stays where it is — which is also what
+      // "it may simply have held" means.
+      let any = 0;
+      for (let w = 0; w < this.grid.words; w++) any |= front[w] as number;
+      if (any === 0) {
+        for (let w = 0; w < this.grid.words; w++) front[w] = previous[w] as number;
+        if (this.states !== null && this.states.size === 0) this.states = null;
+      }
+      this.fronts.push(front);
+      this.horizonTurn++;
       this.stamped = null;
     }
   }
 
-  frontAt(turn: number): Board | null {
-    const i = turn - this.heldAtTurn;
-    return i < 0 || i >= this.fronts.length ? null : (this.fronts[i] as Board);
+  frontAt(turn: number): Bitboard | null {
+    const i = turn - this.fromTurn;
+    return i < 0 || i >= this.fronts.length ? null : (this.fronts[i] as Bitboard);
   }
 
   reachesBy(cell: number, turn: number): boolean {
     const last = Math.min(turn, this.horizonTurn);
-    for (let t = this.heldAtTurn; t <= last; t++) {
-      if (bbTest(this.fronts[t - this.heldAtTurn] as Board, cell)) return true;
+    for (let t = this.fromTurn; t <= last; t++) {
+      if (bbTest(this.fronts[t - this.fromTurn] as Bitboard, cell)) return true;
     }
     return false;
   }
 
   earliest(): Int32Array {
     if (this.stamped === null) {
-      this.stamped = stampFronts(this.fronts, this.heldAtTurn, this.grid.words, this.grid.cells);
+      const out = new Int32Array(this.grid.cells).fill(NEVER);
+      for (let i = 0; i < this.fronts.length; i++) {
+        const stamp = this.fromTurn + i;
+        bbForEach(this.fronts[i] as Bitboard, this.grid.words, (c) => {
+          if ((out[c] as number) > stamp) out[c] = stamp;
+        });
+      }
+      this.stamped = out;
     }
     return this.stamped;
   }
@@ -174,67 +206,160 @@ class Shells implements UnitShells {
 // The decision-scoped table
 // ---------------------------------------------------------------------------
 
-/**
- * A `CloudSource` is keyed on its PREMISE (the state's item boards), so two
- * resolutions that ate different food get different sources and must not share
- * shells. The id is part of every table key rather than a comment saying they
- * cannot collide.
- */
-const sourceIds = new WeakMap<CloudSource, number>();
-let nextSourceId = 1;
-function sourceIdOf(src: CloudSource): number {
-  let id = sourceIds.get(src);
-  if (id === undefined) {
-    id = nextSourceId++;
-    sourceIds.set(src, id);
-  }
-  return id;
-}
-
 export class ShellTable {
+  private readonly sub: EngineSubstrate;
   private readonly grid: Grid;
   private readonly map = new Map<string, Shells>();
-  /**
-   * The identity tier. A held unit's record is one stable object for the whole
-   * decision, so recognising it by identity skips `frozenRecordKey` — which
-   * builds a string, joins the occupancy array, and is otherwise paid once per
-   * unit per evaluation at ten thousand evaluations a second.
-   */
-  private readonly byIdentity = new WeakMap<FrozenRecord, Shells>();
+  /** The engine's step relation, memoised per (type, cell, facing, phase). */
+  private readonly steps = new Map<string, ReadonlyArray<State>>();
+  private readonly oriented = new Map<UnitType, boolean>();
+  private permissive: BoardShape | null = null;
   private readonly capacity: number;
   hits = 0;
   misses = 0;
-  identityHits = 0;
   evictions = 0;
 
-  constructor(grid: Grid, capacity = 4096) {
-    this.grid = grid;
+  constructor(sub: EngineSubstrate, capacity = 4096) {
+    this.sub = sub;
+    this.grid = sub.grid;
     this.capacity = Math.max(1, capacity);
   }
 
-  /** Entries currently retained. A working set larger than this is a warning. */
   get size(): number {
     return this.map.size;
   }
 
-  private intern(
-    record: FrozenRecord,
-    prefix: string,
-    make: () => CloudTimeline,
-    horizonTurn: number
-  ): UnitShells {
-    const known = this.byIdentity.get(record);
-    if (known !== undefined) {
-      this.hits++;
-      this.identityHits++;
-      known.extendTo(horizonTurn);
-      return known;
+  /**
+   * One legal step of the engine's own grammar, from a state.
+   *
+   * `start` picks the board shape: the real one for the first unknown turn,
+   * the permissive one after it.
+   *
+   * TWO CACHES, AND THE SPLIT IS A PROPERTY OF THE GRAMMAR RATHER THAN AN
+   * OPTIMISATION. `planUnitAction` reads the board's CONTENTS for exactly one
+   * kind — a pawn, whose diagonal is legal only onto food or a body — so for
+   * every other kind the answer at a cell is a function of the board's SHAPE
+   * alone: the same on turn 1 and turn 40, on the real board and on the
+   * permissive one. Those entries live in the geometry cache and are shared by
+   * every decision of the game; the pawn's live in this table and die with the
+   * decision. Which kinds are which is asked of the grammar (`rotationTargets`
+   * is non-empty exactly for the kind that has a facing to change), never
+   * asserted by name.
+   */
+  stepsFrom(type: UnitType, state: State, start: boolean): ReadonlyArray<State> {
+    // The permissive board is every cell a pawn target, which is a function of
+    // the board's shape alone — so those entries are shared with every other
+    // decision of the game. Only the FIRST unknown turn reads this board's
+    // contents, and only those entries are decision-scoped.
+    const cache = start ? this.steps : this.sub.orientedStepCache();
+    const key = `${type}|${state.cell}|${state.ori}`;
+    const hit = cache.get(key);
+    if (hit !== undefined) return hit as ReadonlyArray<State>;
+    const made = this.orientedStepsOf(
+      type,
+      state,
+      start ? this.sub.shape() : this.permissiveShape()
+    );
+    cache.set(key, made);
+    return made;
+  }
+
+  /**
+   * Where a kind whose legality reads no board contents can step from a cell,
+   * as a board.
+   *
+   * Every legal target IS a destination for such a kind, because the one
+   * action that is not a move is a rotation and only the kind with a facing
+   * has one. Holding is in the set for the kind that may hold, which is what
+   * makes its front grow rather than march.
+   *
+   * Cached in the GEOMETRY: it is a function of the board's shape alone, so it
+   * is as true on turn 40 as on turn 1 and is shared by every decision of the
+   * game. This is the difference between a four-turn reach costing a handful
+   * of word ORs and costing a grammar query per cell per plan.
+   */
+  stepBoard(type: UnitType, cell: number): Bitboard {
+    const key = `${type}|${cell}`;
+    const shared = this.sub.stepCache();
+    const hit = shared.get(key);
+    if (hit !== undefined) return hit;
+    const unit: GrammarUnit = {
+      type,
+      occupancy: [cell],
+      orientation: ORTHOGONALS[0] as Orientation,
+    };
+    const board = newBoard(this.grid);
+    for (const to of legalTargets(unit, this.sub.shape())) bbSet(board, to);
+    shared.set(key, board);
+    return board;
+  }
+
+  /** The step set of a kind that has a facing: every action, asked in full. */
+  private orientedStepsOf(type: UnitType, state: State, shape: BoardShape): ReadonlyArray<State> {
+    const unit: GrammarUnit = {
+      type,
+      occupancy: [state.cell],
+      orientation: ORTHOGONALS[state.ori] as Orientation,
+    };
+    const out: State[] = [];
+    const seen = new Set<number>();
+    for (const target of legalTargets(unit, shape)) {
+      const action = actionOf(unit, target, shape);
+      if (action === null) continue;
+      let next: State;
+      if (action.kind === 'move') {
+        next = { cell: action.path[action.path.length - 1] as number, ori: state.ori };
+      } else if (action.kind === 'rotate') {
+        next = { cell: state.cell, ori: oriIndex(action.orientation) };
+      } else {
+        next = state;
+      }
+      const id = next.cell * 4 + next.ori;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(next);
     }
-    const key = prefix + frozenRecordKey(record);
+    return out;
+  }
+
+  /**
+   * Does this kind's legality depend on which way it is facing? Asked of the
+   * grammar: a rotation is an action only a kind with a facing to change has,
+   * and it has one wherever it stands.
+   */
+  private permissiveShape(): BoardShape {
+    if (this.permissive === null) this.permissive = permissiveShapeOf(this.sub.shape());
+    return this.permissive;
+  }
+
+  facingMatters(type: UnitType): boolean {
+    return this.orientationSensitive(type);
+  }
+
+  private orientationSensitive(type: UnitType): boolean {
+    const hit = this.oriented.get(type);
+    if (hit !== undefined) return hit;
+    const shape = this.sub.shape();
+    const probe = Math.floor(shape.boardWidth * shape.boardHeight / 2);
+    const unit: GrammarUnit = {
+      type,
+      occupancy: [probe],
+      orientation: ORTHOGONALS[0] as Orientation,
+    };
+    const sensitive = rotationTargets(unit, shape).length > 0;
+    this.oriented.set(type, sensitive);
+    return sensitive;
+  }
+
+  /** Shells for one record, interned by value and extended on demand. */
+  forUnit(request: ShellRequest, horizonTurn: number): UnitShells {
+    const key = `${request.unitId}|${request.type}|${request.occupancy[0]}|${oriIndex(
+      request.orientation
+    )}|${request.fromTurn}`;
     let entry = this.map.get(key);
     if (entry === undefined) {
       this.misses++;
-      entry = new Shells(record.unitId, make(), record.heldAtTurn, this.grid);
+      entry = new Shells(request, this, this.grid);
       this.map.set(key, entry);
       if (this.map.size > this.capacity) {
         const oldest = this.map.keys().next();
@@ -246,79 +371,76 @@ export class ShellTable {
     } else {
       this.hits++;
     }
-    this.byIdentity.set(record, entry);
     entry.extendTo(horizonTurn);
     return entry;
   }
-
-  /** Shells for a record whose timeline the caller already holds. */
-  forTimeline(timeline: CloudTimeline, record: FrozenRecord, horizonTurn: number): UnitShells {
-    return this.intern(record, 'H|', () => timeline, horizonTurn);
-  }
-
-  /** Shells for a record the engine must dilate — never through `arrival()`. */
-  forRecord(source: CloudSource, record: FrozenRecord, horizonTurn: number): UnitShells {
-    return this.intern(record, `${sourceIdOf(source)}|`, () => source.timelineFor(record), horizonTurn);
-  }
 }
 
 /**
- * A frozen-record descriptor for a LIVE unit view, exactly as `holdMany` would
- * build one — WITHOUT the fork, the hold set, or the state it would allocate.
- * A hold that exists only to read a dilation is 8–19 µs of ceremony per
- * evaluation, and the record is a pure function of the view.
- */
-export function recordOfView(view: UnitView, turn: number): FrozenRecord {
-  return {
-    unitId: view.unitId,
-    kind: view.kind,
-    team: view.team,
-    occupancy: view.cells,
-    heldAtTurn: turn,
-    health: view.health,
-    tier: view.tier,
-    tierExpiresAtTurn: view.tierExpiresAtTurn,
-    weight: view.weight,
-    orientation: view.orientation as FrozenRecord['orientation'],
-    narrowedTo: null,
-  };
-}
-
-/**
- * Shells for every unit on a resolved board.
+ * Shells for every unit on a SETTLED board.
  *
- * Already-claimed units keep their OWN timeline off the resolution's field, so
- * their `heldAtTurn` seed rides in exactly as it does in the engine's own
- * reading; live units get a record built the way `holdMany` would have built
- * one, and the table interns it by value.
+ * A mover is dilated from where the settlement left it, at the arrival turn:
+ * the reach terms are about the position the plan produces, which is the whole
+ * reason two plans score differently. A HELD unit has no settled position by
+ * construction, so it is dilated from where it was OBSERVED, at the turn it
+ * was observed — its head start rides in as a seed rather than as an
+ * inexpressible negative delay. Anything the settlement killed has no reach at
+ * all and is absent from the map.
  */
 export function buildShells(
   sub: EngineSubstrate,
-  resolution: Resolution,
+  settlement: PartialSettlement,
   horizonTurns: number,
   table: ShellTable,
   into: Map<UnitId, UnitShells> = new Map()
 ): Map<UnitId, UnitShells> {
   into.clear();
   if (horizonTurns <= 0) return into;
-  const horizon = resolution.state.turn + horizonTurns;
-
-  for (const slot of resolution.state.field.slots) {
-    into.set(slot.record.unitId, table.forTimeline(slot.timeline, slot.record, horizon));
-  }
-
-  const engine = sub.engine;
-  const live = engine.liveSlots(resolution.state);
-  if (live.length === 0) return into;
-  const source = engine.sourceOf(resolution.state);
-  for (const slot of live) {
-    const view = engine.unitAt(resolution.state, slot);
-    if (view === null || !view.alive) continue;
-    if (into.has(view.unitId)) continue;
+  const horizon = sub.arrivalTurn + horizonTurns;
+  const held = new Set(settlement.claims.map((c) => c.id));
+  for (const unit of sub.roster()) {
+    const record = sub.recordOf(unit.unitId);
+    if (record === undefined) continue;
+    if (held.has(unit.wireId)) {
+      into.set(
+        unit.unitId,
+        table.forUnit(
+          {
+            unitId: unit.unitId,
+            type: unit.type,
+            occupancy: record.occupancy,
+            orientation: unit.orientation,
+            fromTurn: sub.turn - unit.staleness,
+          },
+          horizon
+        )
+      );
+      continue;
+    }
+    const settled = settlement.board[unit.wireId];
+    if (settled === undefined) continue; // it died; a corpse has no reach
     into.set(
-      view.unitId,
-      table.forRecord(source, recordOfView(view, resolution.state.turn), horizon)
+      unit.unitId,
+      table.forUnit(
+        {
+          unitId: unit.unitId,
+          type: settlement.unitTypes[unit.wireId] ?? unit.type,
+          occupancy: settled.occupancy,
+          orientation: settlement.orientation[unit.wireId] ?? unit.orientation,
+          fromTurn: sub.arrivalTurn,
+        },
+        horizon
+      )
     );
   }
   return into;
+}
+
+/** The stamped arrival grid for one request — the shells, read once. */
+export function earliestShells(
+  table: ShellTable,
+  request: ShellRequest,
+  horizonTurn: number
+): Int32Array {
+  return table.forUnit(request, horizonTurn).earliest();
 }

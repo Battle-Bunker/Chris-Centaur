@@ -73,8 +73,8 @@ import type {
   Witness,
 } from "../contracts";
 import type { BudgetHandle } from "../contracts";
-import type { Resolution } from "../../partial-engine/index";
-import { evaluatorResidueEntry, ledgerOf, residueOf } from "./ledger";
+import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
+import { evaluatorResidueEntry, residueOf } from "./ledger";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
@@ -114,7 +114,7 @@ export interface BankConfig {
   readonly declareTruncatedFloor: boolean;
   /** Restrict B1/B3 to units the staged paths are actually entangled with. */
   readonly gateOnEntanglement: boolean;
-  /** Resolutions cached per decision context. */
+  /** PartialSettlements cached per decision context. */
   readonly memoCapacity: number;
   /**
    * EVALUATIONS cached per decision context — a different budget from the one
@@ -177,7 +177,7 @@ export interface BankResult extends PlanScore {
    * The resolution of the branch that justified the FLOOR — the world the
    * search must repair, because it is the one the promise is made against.
    */
-  readonly worstResolution: Resolution;
+  readonly worstResolution: PartialSettlement;
   /** The est channel — ordering only, never adjudication. */
   readonly est: number;
   /**
@@ -227,7 +227,7 @@ interface Branch {
   readonly replies: ReadonlyMap<UnitId, Candidate> | null;
   /** The world this branch actually resolved — what the search reads to find
    *  its own casualties and to order the next sweep. */
-  readonly resolution: Resolution;
+  readonly resolution: PartialSettlement;
 }
 
 /**
@@ -408,11 +408,12 @@ export class BoundBank {
     evalNs: string,
   ): Branch {
     const pk = planKey(plan);
-    const { resolution } = view.sub.resolveBoundedFor(plan, this.input.asTeam);
+    const bounded = view.sub.resolveBoundedFor(plan, this.input.asTeam);
+    const resolution = bounded.resolution;
     const bound: Bound = this.evalMemo.score(`${evalNs}|${view.key}|${pk}`, () =>
       this.input.evaluate.scorePlan(view.sub, plan, this.input.asTeam),
     );
-    let ledger: ReadonlyArray<LedgerEntry> = ledgerOf(resolution);
+    let ledger: ReadonlyArray<LedgerEntry> = bounded.ledger;
     if (ledger.length === 0 && bound.hi - bound.lo > BOUND_EPSILON) {
       // The engine proved nothing held could have changed this outcome, and
       // the evaluator still reports a gap. Something narrowed that is not an
@@ -514,7 +515,7 @@ export class BoundBank {
     // weights and reach horizon), which BASIS, and which frame the value is
     // denominated in. Recomputed rather than captured — see evalmemo.ts.
     const evalNs = evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam);
-    const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: Resolution }> = [];
+    const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }> = [];
     const ceilingBranches: Branch[] = [];
     const members: MemberReport[] = [];
     let finished = true;
@@ -649,7 +650,7 @@ export class BoundBank {
     // are allowed to come from different members. Only the WINNER's basis
     // conditions the result — a losing conditional member asserted something
     // the answer does not use.
-    let floorPick = floorMembers[0] as { bounds: ScoreBounds; report: MemberReport; resolution: Resolution };
+    let floorPick = floorMembers[0] as { bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement };
     for (const m of floorMembers) {
       if (m.bounds.worst > floorPick.bounds.worst) floorPick = m;
       else if (
@@ -733,7 +734,7 @@ export class BoundBank {
     leaves: ReadonlyArray<Branch>,
     swept: boolean,
     complete: boolean,
-    floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: Resolution }>,
+    floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }>,
   ): MemberReport {
     const group = backupMin(
       leaves.map((l) => l.bounds),
