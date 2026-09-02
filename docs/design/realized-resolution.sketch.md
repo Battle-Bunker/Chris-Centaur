@@ -89,6 +89,34 @@ table above. Each is exactly what we want surfaced per-turn in production —
 at the price of one bounded `resolve` call per turn (~ms; one fully-ordered
 resolution, no enumeration).
 
+## The stochastic-rule seduction (red-team lens §5, answered)
+
+Their attack: the first random rule beyond spawn (a teleport potion, a
+misfire chance) makes replay diverge every turn, and the marshal fallback
+silently converts the free differential test into a permanently-firing
+alarm everyone learns to ignore. The answer is a classification duty plus
+a counter taxonomy, both cheap:
+
+- **Every new rule is classified at vendor-sync time** into the replayed
+  half or the copied half. Game-state randomness (like spawns) joins the
+  copied half — zero impact. Movement/collision randomness genuinely
+  removes its PHASE from the replayed half: the phase is copied, the
+  checksum's declared coverage shrinks by exactly that phase, and the
+  door's premise machinery treats the phase's outcome as it treats
+  spawns — a doc fact no premise predicted.
+- **The counters are typed**: `replay-divergence` (checksummed replayed
+  content disagreed — a bug, page someone) vs `unreplayable-phase`
+  (declared, expected, counted per phase — a coverage statement, not an
+  alarm). Alarm fatigue is a symptom of one counter meaning two things;
+  the split is the same refuse-don't-default discipline the miners
+  already learned.
+- **The full repair is one additive wire field**: if the server publishes
+  the phase's random draws (outcome record or seed — the same class of
+  polish as `stateDigest`), the phase rejoins the replayed half. So the
+  design degrades by DECLARED COVERAGE per random rule, never by silent
+  rot, and each rule's coverage is individually recoverable at the price
+  of one published field.
+
 ## Optional TacticToes polish (additive, non-blocking)
 
 `Turn.subStepCount`, `Turn.exhaustions` (settled events verbatim), and a
