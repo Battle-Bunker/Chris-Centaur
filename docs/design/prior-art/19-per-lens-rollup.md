@@ -1805,3 +1805,116 @@ active collaborator, which weakens the vigilance read-across but **strengthens**
 load-driven complacency one (an active player has more attentional competition, not
 less); and the 5.2% is from clinical prescribing — cite it as evidence the effect is
 real and measurable, not as a rate to expect.
+
+---
+
+**TIME / SEARCH / VALUE — domain 45: real-time heuristic search, and pathology's
+third cause is our COMMITMENT RULE.** d40 asked whether depth helps. This is the
+same question in the family whose defining constraint is ours — *a constant bound
+on planning per move, act before you have finished thinking, repeatedly, carrying
+what you learned*. The pathology has been measured directly and **decomposed into
+three causes**, and one of them is not about the evaluator at all.
+
+**The headline.** Percentage of problems on which a **deeper** lookahead produced a
+**worse** result:
+
+| experiment | pathological |
+|---|---|
+| **on-policy** (walk the path you plan, updating as you go) | **57.7%** |
+| **off-policy** (no learning) | **4.3%** |
+
+**C92 — the dominant cause is ON-POLICY LEARNING, and our architecture is
+on-policy by design.** A factor of thirteen, the largest effect in the domain. The
+bounds carry, ADVANCE carries, attention carries, the market carries its state, the
+memo persists — **every one of those is learning concentrated on the trajectory the
+agent actually took**, and a different rung would have taken a different trajectory
+and learned different things. So d40's C77 (which needs sibling-value independence)
+is **not the only route in**: this is a second, mechanically different route that
+requires *nothing* about our evaluator's error structure, and it is the route the
+design's central efficiency claim is most exposed to. The mechanism is quantified
+and transfers: **the volume of updates falls from 4.1 at `d=1` to 1.4 at `d=10`**,
+so comparing rungs compares two different amounts of **accumulated learning**, not
+two amounts of search. (Removing learning from the error measure drops pathology
+57.7% → 20.2%.)
+
+**C93 — the third cause IS our commitment rule, and it says the CPP is comparing
+the wrong thing.** This one is arithmetic, not psychology:
+
+  > a depth-`d` search performed **every `d` moves** generates `off(d)/d` states
+  > per move — so **deeper lookahead with longer commitment is the same compute
+  > rearranged, not more compute.**
+
+  Their control experiment is decisive: **searching every move instead of every `d`
+  moves cut pathology from 57.7% to 13.1%**, and the node counts show why — about 8
+  at `d=1` in every condition, but at `d=10`, off-policy and search-every-move reach
+  **~1,550** while basic on-policy reaches only **146.3**. Much of "deeper is worse"
+  was **"deeper was given the same budget spread thinner"**.
+
+  **We have exactly this structure**: the re-base window, the commitment horizon and
+  ADVANCE all decide how many turns a plan is committed for, and longer commitment
+  with a deeper search *is* the on-policy arrangement. So:
+
+  > **The CPP must compare rungs at equal TOTAL WORK across the committed span, not
+  > at equal per-decision depth.** A profile showing deeper rungs saturating may be
+  > showing that deeper rungs are re-planned less often — an artifact of the
+  > commitment rule, not a fact about the search.
+
+  **This is a second, independent argument for C68's work-unit denominator**,
+  reached from a completely different direction: C68 said wall-clock is
+  machine-dependent; this says per-decision depth is commitment-dependent. **One fix
+  answers both**, and two independent arguments for one cheap change is the
+  strongest case the survey can make.
+
+**C94 — TIME/OWNER: the best FIXED depth was 1, and per-instance selection was
+worth 38%.**
+
+| policy | average path length |
+|---|---|
+| best **fixed** depth (which was **`d = 1`**) | **175.4** |
+| optimal depth **per problem** | **107.9** |
+| optimal depth **per move** | 113.3 — *and* nodes/move fall **59.3 → 34.0** |
+
+  Three readings. **(a) "Buy depth" may be the wrong verb**: on this benchmark the
+  best *constant* depth was the shallowest available and the entire benefit came
+  from **varying** it by instance — which is what the CPP's premise conditioning is
+  for and what a single saturation point cannot express. **(b) That 38% is a
+  VBS−SBS gap, for depth** — d14's C42 instrument pointed at a new axis, with a
+  published value for a comparable problem class, and **measurable on our archive**:
+  replay each decision at every rung, take the per-decision best, compare against
+  the best single rung. Large ⟹ the conditioning is where the value is; small ⟹ a
+  fixed rung is fine and the allocation machinery is overhead. Either answer
+  redirects real work. **(c) The adaptive policy was CHEAPER as well as better** —
+  the shape the economy hopes for, with evidence for the first time.
+
+**M114 — VALUE/SEARCH: we already hold a depression map, computed for another
+purpose.** A **heuristic depression** is *"a bounded area of the search space in
+which the heuristic function is inaccurate compared to the actual cost"*, in which
+an LRTA*-style agent *"easily become[s] trapped … since the heuristic values of
+their states may need to be updated multiple times"*. **d31 §31.5's king-present
+cells — mean |residual| 1.946 against 0.201, `corr(king, residual) = +0.954` — are
+exactly that**, measured and named for a different reason.
+
+  The literature's response is a **behaviour**, not an evaluator fix:
+  `mark-and-avoid` (prefer plans that do not enter the depression) and
+  `move-to-border` (if inside, head for the edge rather than re-deriving in place).
+  Two readings held apart: defensible as an **interim** measure while the wipe
+  closure is unfixed — but **avoiding the cells where we evaluate badly means
+  avoiding the cells where the game is decided** (d40's C77), so **mark-and-avoid on
+  a decisive region is a policy, not a search heuristic**, and belongs in ACTION
+  with a stated cost rather than quietly in the search.
+
+**M115 — TIME: state abstraction makes per-instance depth selection affordable, and
+it is the instance space we already have.** Computing the optimal depth for every
+state pair is infeasible (7.6 × 10⁷ pairs on an 8,743-state map); computing it per
+**abstract** state recovers most of the benefit at **0.004% of state pairs**. Our
+abstraction is **the cell** (d26), already the CPP's key — so C94(b) reduces to
+**one optimal-rung value per cell**: the CPP with one more column, on a key that
+exists.
+
+**Scoping.** Single-agent path-finding has no opponent and an admissible initial
+heuristic, so the **depression** results are suggestive rather than direct. But the
+**learning** cause (C92) and the **compute-normalisation** cause (C93) are about the
+agent's own update and budget structure, independent of any adversary, and they
+transfer. And `d = 1` being the best fixed depth is a property of their benchmark —
+**the transferable claim is the GAP between best-fixed and per-instance-optimal**,
+which is why C94 says measure ours rather than adopt theirs.
