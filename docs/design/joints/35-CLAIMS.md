@@ -22,6 +22,7 @@ check.
 | four reduction/ratchet mechanisms never fire | **0 in 192 games** | value lens, `23` | Law R's first exhibit |
 | the declared config space is largely unexercised | **6 of 41** coordinates set in an emitted spec; 13 of 41 named anywhere; **28 never named outside their own definition** | this lens, `36` | counts the recorded corpus, not command-line arms nobody wrote down |
 | the validator key-checks one of three nested objects | **30 of 42 leaves (71%)** accept an arbitrary key and an arbitrary type | this lens, `36` | run against the shipped `botConfigFromJson`, not read |
+| the registry's resolved arity is one | 16 entries, 13 seated, **4 of 5 sockets hold exactly 1 entry and vary in no slate**; with `slate` never set, one slate has ever resolved | this lens, `37` | executed against `ALL_ENTRIES` and the three slates |
 
 ## 2. Verified against source (not measured — read)
 
