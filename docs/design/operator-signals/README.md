@@ -20,6 +20,13 @@ provenance caveats (ruling 49).
 | `02-AGGREGATION.md` | the aggregation algebra, and which folds destroy the causal vocabulary (the flows law's teeth) |
 | `03-API.md` | the versioned wire surface: frames, per-team view docs, the attention budget as a first-class parameter, priority under the obligation law, push/pull/turn-boundary cadence |
 | `04-MISMATCHES-AND-OPEN-QUESTIONS.md` | where sibling lenses' objects resist this surface, and what is unresolved |
+| `05-IN-OUT-HANDSHAKE.md` | the seam with `design/operator-guidance`: the echo theorem (PORT determines echo shape), the frustration composite, ask↔utterance closure, the no-mix law |
+| `06-PRIOR-ART-SURFACES.md` | UCI, KataGo, ISA-18.2/EEMUA-191, solver explorers — validations and the six alarm-hygiene amendments |
+| `07-WORKED-FRAME.md` | the schema exercised on a real probe board, three moments (revised to search doc-09 v2) |
+| `08-THE-SECOND-SCALE.md` | the landscape OF strategies: same shapes at the per-experiment scale; three currencies, zero exchange rates; the owner's decision queue as the ask surface |
+| `09-REFUTATION-AND-AUTHORITY.md` | refutation-led presentation and the authority-collapse ask (the machine's own leverage map) |
+| `10-SELF-RED-TEAM.md` | nine attacks on this design; five amendments; the what-if hole and `signals.quote` |
+| `contracts.sketch.ts` | the whole wire in one builder-facing file |
 
 ## Inputs (branch @ tip, at time of writing)
 
