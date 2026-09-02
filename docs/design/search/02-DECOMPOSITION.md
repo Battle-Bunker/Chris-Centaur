@@ -378,7 +378,7 @@ the composition lens catalogues as `CandidateKnobs is three kinds in one bag`.
 | `graph` | interaction-components + slider-fiat. **A good member and probably the right default** — the 16.1% → 96.5% rescue is real |
 | `schedule` | **once-per-decision, memoised at the first refinement slice.** The null member of the schedule sub-joint |
 | `focus` | **fixed order**: `cluster.cursor` walks `proposals` monotonically in the order the sampler permuted them at enumeration time, and `offerClusterJoints` never revisits. Adaptive on *nothing* |
-| `size` | `maxClusterCells: 8000` — a ration set 4.5× above the worst observed cluster, so **inert on every board measured** |
+| `size` | `maxClusterCells: 8000` — a ration set 4.5× above the worst observed cluster, so **inert on every board measured**. Beside it `maxClustersSolved: 64` against a measured 1.0–5.5 clusters per decision, also inert; and `budgetFraction: 0.35`, which is very much not inert |
 
 Read together: three of the four sub-joints are at their null member, and the
 one that is not (`graph`) is at a well-chosen one. That is a clean statement of
@@ -465,8 +465,10 @@ measurable — so the capability survives as a member while the field itself goe
 
 ### C-T2 — the enumeration's budget should be conditional on the partition (TIME lens)
 
-`enumDeadline` rations the enumeration by a fraction of the turn
-(`tuning.budgetFraction`). Finding D-2 says the enumeration is worthless on
+`enumDeadline` rations the enumeration by a fraction of the turn —
+and the shipped fraction is **`budgetFraction: 0.35`**, i.e. **just over a third
+of the whole decision** is reserved for the proposal generator before the anytime
+kernel refines anything. Finding D-2 says the enumeration is worthless on
 scattered boards (88.7% singletons → the composed joint is the per-unit argmax →
 `minHamming` filters it out) and valuable on the crowded tail. The ration is
 blind to that.
