@@ -105,6 +105,20 @@ accumulated while hidden. Properties that keep it honest:
    jointly per game with within-game timing; residency predicted to rise at
    most LINEARLY with demotion count (citation-scoped vacuity); superlinear
    rise indicts the demotion policy, not the posture governor.
+9. **The set-valued law-suite case** (search lens C-B2.5, routed here
+   because this line owns when the observation model changes): the
+   evaluator law harness (R1 soundness / R2 monotonicity / R3 collapse)
+   gains a standing PROPHYLACTIC case that feeds every law-certified
+   evaluator a SET-VALUED position — a board with at least one held unit
+   whose cloud is non-degenerate — and asserts the laws hold over the
+   worlds of the set, not just at a point. Runs from fog step 5 onward on
+   every entry that can write a bound, BEFORE any fog game exists: an
+   evaluator whose soundness certificate silently assumed point positions
+   is caught at admission, not at the first invisible enemy. Store-level
+   instrument rider (14-doc §3): this case is also where the
+   conditioning-effect instrument's store-level counters (constraints
+   held, coupled-subset sizes, compilation hits) get their fixture
+   numbers, so the production columns land pre-calibrated.
 
 ## 5. What this doc deliberately does not add
 

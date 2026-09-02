@@ -172,6 +172,36 @@ on replays already on disk:
 Zero games, zero strategy work, and the day ruling 13 lifts, the ladder's
 next rung starts from a measured baseline instead of a debate.
 
+### 4c. Solution counting — the canonical weight, made literal (fourth pass, librarian M36/C40)
+
+With the constraint store in place (01-doc §5c: the conditioning ladder IS a
+CSP), the supplier ladder's "derived, zero learned content" rung acquires
+its principled general form: **uniform over the constraint system's
+SOLUTIONS** — weight per hypothesis ∝ its model count. This makes two
+earlier statements literally true instead of approximately true:
+
+- "Cover-counting is the canonical weight S induces" (00-doc §4) was
+  per-cell counting on one constraint; solution counting is the same
+  operation over the whole store. `opp/cover@1` becomes the one-constraint
+  special case of `opp/solutions@1`.
+- Plain `uniform` (the harness's current reference row) is uniform over a
+  SUPPORT — which is itself the store's hull, so "uniform" was always
+  solution-counting under a store holding only C0. The reference row was
+  the degenerate case all along; the harness's finding 1 ("the support is
+  the model") is the measured statement that the store's C0 solutions
+  already carry most of the information.
+
+**C40, the caveat that becomes a feature:** model counting is #P-hard, so
+`opp/solutions@1` must DECLARE its approximation scheme — exact enumeration
+within small coupled subsets (the store's own partition bounds subset size),
+sampling above a declared size. And that declaration is
+**advisoryPrecision's first concrete producer** (§3's field, which until now
+had only the shape and no inhabitant): the counting error of the declared
+scheme per coupled subset is a computable variance, entering the quadrature
+exactly as §3 specifies. The supplier that generalizes the canonical weight
+arrives carrying its own earned precision, which is the pattern every later
+supplier is now held to.
+
 ## 5. The one risk dial: ε-contamination closes open question 5
 
 D3 needs a computable interpolation between maximin (α at full paranoia) and

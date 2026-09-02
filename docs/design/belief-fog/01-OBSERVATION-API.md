@@ -225,6 +225,33 @@ small UNION of boxes, and the (S, w) laws admit it without amendment:
   unwind the weakest evidence class first (C2, then C1, never C0), rebuild,
   log, count. An empty support is a mis-attribution alarm, not a theorem.
 
+### 5c. The store is a CSP, and minesweeper is its solved special case (fourth pass, librarian M36)
+
+Not an analogy — an identification, and it retro-types the ladder: C0's
+visible-occupancy exclusions and item-board differences are CARDINALITY
+constraints; C1's multi-explanation deductions are DISJUNCTIONS; C2's
+non-event exclusions are NEGATIVE JOINT constraints. The constraint store
+(§5b's adoption, now with its literature) is exactly the shape the
+minesweeper-inference line converged on: keep the constraints, PARTITION
+THEM INTO COUPLED SUBSETS by shared variables — constraints sharing no
+hidden-state variables decompose EXACTLY, which is the tractability move —
+and serve marginals as the query surface. The coupled-subset partition is
+the store's native index (each C-entry lists the unit-coordinates it
+touches — the same citation pattern as everything else), and compilation
+into scenario boxes (§5b's bounded view) happens per coupled subset, never
+across them.
+
+**M37, stated as a law rider before anyone crosses the regimes:** the word
+"decomposition" now appears in two places with OPPOSITE soundness
+characters. Decomposing the INFERENCE into coupled constraint subsets is
+EXACT — no shared variables, no lost worlds, a theorem. Decomposing the
+GAME by geometric proximity (cluster partition, R-5's finding) is an
+APPROXIMATION whose error is un-modeled interference. A future builder who
+reuses the game's cluster partition as the store's coupled-subset partition
+(or vice versa) has silently crossed an exact decomposition with a lossy
+one; the two partitions share code shapes and must never share an
+authority. The store's partition is BY SHARED VARIABLES ONLY.
+
 ## 6. The mirror: Belief is observer-indexed, and invisibility's payoff needs the enemy's S
 
 Everything above is Belief(us). The same object, parameterized by observer,
