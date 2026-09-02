@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-seven domains, surveyed against the four lens syntheses as they stood at
+Twenty-eight domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -42,6 +42,7 @@ finding by whose design it changes. This index is organised by domain.
 | 25 | response to the second round of measurements — **the game is NOT transitive**, and the VBS−SBS null may be a pooling artifact | `25-response-to-the-second-round-of-measurements.md` |
 | 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | 27 | few-run statistics — what to report when you cannot afford many games | `27-few-run-statistics.md` |
+| 28 | fitting a stochastic choice model to a deterministic agent — the V-alignment meter needs an order statistic | `28-fitting-a-stochastic-model-to-a-deterministic-agent.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
@@ -201,6 +202,15 @@ cost by this in one session: raw win probability saturates against a dominant ar
 and manufactures a cycle where a transitive triple exists, which is why
 Balduzzi's whole decomposition is defined on **logit** matrices. `sharePar` is a
 bounded share, so the hazard is live beyond ratings. See domain 25.
+
+**R-8b (the other half of R-8). A boundary-saturating estimator cannot rank.**
+R-8 warns about statistics bounded from above, which saturate and manufacture
+structure. The dual is a statistic pinned at a boundary from below: β̂ reads 0 for
+a nearly-right `V` and for a completely wrong one alike, so a "V-alignment meter"
+built on it cannot do the one thing a meter is for. When the quantity of interest
+is an **ordering**, use an **order statistic** — our comparator needs a `V` correct
+only *up to monotone transform*, and pairwise order agreement tests exactly that
+where log-loss does not. See domain 28.
 
 **R-6. Every soundness argument names a hypothesis, and that hypothesis must be
 an executable assertion — or the argument will outlive its truth.** Five recorded
