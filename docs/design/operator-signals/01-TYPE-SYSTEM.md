@@ -181,6 +181,13 @@ edge(σ: SignalRef, predicate: PredicateId): Event                        // a d
   wire schema stays closed.
 - Operators compose: `edge(trace(...))` = a saturation crossing ("thinking
   stopped buying anything this turn" — the CPP-saturation alarm).
+- **Edge-predicate members carry alarm hygiene** (imported from the
+  process-industry standards, doc 06 §3): `operatorAction: AffordanceId |
+  'awareness'` (the rationalization law — a predicate that names no
+  operator action may never carry a class above ambient) and optional
+  `{minDwell, deadband}` hysteresis so scalar predicates (posture bands,
+  floor bands) cannot chatter. Chatter is killed at the predicate, not by
+  the selector — the selection law sees redundancy, not flapping.
 
 ## 4. The two roles
 

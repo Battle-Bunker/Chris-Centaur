@@ -60,7 +60,11 @@ interface AttentionPolicy {                   // operator-authored; versioned li
   readonly v: 1
   readonly budget: number                     // items per frame; THE dial
   readonly pins: ReadonlyArray<SignalClassId>   // delivered always, off-budget (bottom element)
-  readonly mutes: ReadonlyArray<SignalClassId>  // never delivered (soundness edges exempt)
+  readonly shelves: ReadonlyArray<{ class: SignalClassId; until: TurnStamp }>
+      // temporary suppression WITH EXPIRY (ISA shelving, doc 06 §3) — a
+      // permanent mute does not exist; expiry restores delivery;
+      // soundness classes are unshelvable. Default shelf life is a
+      // policy constant with provenance.
   readonly cursors: { look: Cursor; commit: Cursor }   // client-maintained, sent up
   readonly askAppetite: 'eager' | 'normal' | 'quiet'   // multiplies the ask price, never zero
 }
@@ -122,6 +126,11 @@ Cadence rules:
   to stop *display* thrash in a human's eyes. Different failure modes,
   different constants, deliberately not one mechanism — coupling them
   would let a starving emission window silence alarms.
+- **Flood mode** (doc 06 §3): each class declares a rate band; when firing
+  exceeds it, frame assembly degrades that class to first-out-led bundles
+  with counts — never a scroll of individual items. The band values are
+  members with provenance; nothing numeric transfers from other industries,
+  only the shape (a declared band + a defined degradation).
 - **The turn boundary is the digest point.** ADVANCE transports the
   sinceTurn cursor; the turn note is assembled once, at resolution, when
   the machine knows what actually happened (realized resolution, replay-

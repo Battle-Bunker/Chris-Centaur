@@ -81,11 +81,12 @@ is genuinely a dial, not a re-plan.
 
 **The bottom element (humans always win).** The selection meet has the
 operator's own subscriptions as its bottom: a **pinned signal class is
-delivered off-budget, always**; a muted class is suppressed regardless of
-gain (except hard-soundness edges — the reappearance-oracle violation class
-is not mutable, the one paternalism this surface keeps, because a soundness
-break invalidates every other signal shown). The scheduler never overrides
-either direction: the budget governs only the unpinned, unmuted middle.
+delivered off-budget, always**; a shelved class is suppressed until its
+shelf expires (03 §2 — suppression always has an expiry; hard-soundness
+edges are unshelvable, the one paternalism this surface keeps, because a
+soundness break invalidates every other signal shown). The scheduler never
+overrides either direction: the budget governs only the unpinned,
+unshelved middle.
 
 **Asks are selected, not queued.** An ask enters the same selection with
 its role's price multiplier (an ask costs more attention than an offer of
@@ -108,6 +109,12 @@ current squeezed traces. Three cursors, three products:
 
 Design decisions:
 
+- **The furniture rule** (doc 06 §3): an edge item re-selected for N
+  consecutive frames converts to a HELD — it has become a *condition*, not
+  an *event* — and stops costing alarm-class attention; its clearing is
+  itself an edge ("the standing threat lifted"). This is the standards'
+  stale-alarm discipline, and it is what keeps a long siege from pinning
+  the same threat item at the top of every frame for thirty turns.
 - **Digests fold edges, not states.** Edges are discrete and concatenable;
   `digest(a→c) = digest(a→b) ⧺ digest(b→c)` up to re-selection. States are
   re-read fresh. This is what makes cursors cheap and idempotent.
@@ -160,3 +167,7 @@ earn their place:
   three drills, costing one attention unit instead of three. This is where
   "intelligently aggregated" pays hardest, and it is a pure join on
   `EventAnchor` — cheap because the anchors were kept (AGG-2's dividend).
+  When sub-step structure gives the anchors a causal order, the bundle
+  leads with the initiating event (first-out alarming, doc 06 §3): "the
+  reveal" headlines; "plan flipped" and "pin invalidated" are its
+  consequences, not peers.
