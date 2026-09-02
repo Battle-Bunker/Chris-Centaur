@@ -4133,3 +4133,13 @@ final synthesis prematurely.
   influenceOf; real gap = point-reach under staleness; strong public-cut
   reading retracted). Corrected S0 spec: lead with pureDuality; solver
   only when >0.
+- THIRD STANDING EXTRACTION RULE (R-8, librarian, minted from three
+  in-session instances): NEVER test for a residual in a BOUNDED statistic —
+  transform to the scale on which the null model is additive first (logit
+  for win rates; sharePar is itself bounded, hazard live beyond ratings).
+  Joins conservation-in-extraction and the saturation rule.
+- M64 OPEN TEST (may reverse "hygiene, not strength"): per-cell VBS−SBS on
+  the cyclic triples {material,territory,reflex} / {parentDefault,
+  potionIntel,reflex} — positive where pooled was zero = the first
+  empirically-identified conditional-selector feature (board family).
+  Assigned to value lens.
