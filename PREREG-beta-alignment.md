@@ -120,3 +120,72 @@ strata) carry content.** I register that I will not report a bare A(V_fold) as a
    bots' actual objective rather than a description of it.
 3. **Nothing about the terminal boundary**, which is where 100% of my residual lives and which no
    per-action V contains.
+
+---
+
+# AMENDMENT 1 — β̂ IS FLOOR-SATURATING; THE METER MUST BE RANK-BASED
+
+**Registered before any fit was run** (the hold was satisfiable — nothing had been executed).
+Against librarian C58 (`design/prior-art` @ b649c7d), written against version 5681d42 of this
+document. **The correction is right and it invalidates my primary/secondary ordering, not just my
+expectations.**
+
+## What I got wrong
+
+I registered β̂ = 0 as "expected and weakly informative" and treated the rank statistic as a
+robustness companion. C58 shows the failure is worse and more structural than "weakly
+informative":
+
+> Under MaxEnt-IRL identification with a **near-deterministic expert**, the temperature λ and the
+> value V are **entangled**. If V misranks the played action *at all*, log-loss is **monotone
+> increasing** in λ, so β̂ pins at 0 — and it stays at 0 for a **nearly-right V and a
+> completely-wrong V alike.**
+
+So **β̂ = 0 is the signature of MISALIGNMENT, not of randomness**, and the belief lens's monotone
+table is exactly that signature rather than a fact about the Gibbs family. As registered my test
+could only return 0/not-0, and a null would have been read as *"the fold does not explain policy"*
+when it may only mean *"β̂ cannot gradate"*. **That is R-8's trap approached from the floor side
+(R-8b): a saturating estimator, this time saturating at its lower bound.** I had recorded R-8 for
+bounded *residuals* one cycle earlier and then walked into the same shape from below.
+
+## The principled reason the rank statistic is not merely a fallback
+
+I under-argued this. **Our comparator is an ORDERING** — `gainOrderKey` is a comparator and the
+search takes an argmax — so **V need only be correct up to a monotone transform.** Log-loss is
+sensitive to V's cardinal scale and therefore tests a stronger claim than the system makes. An
+order statistic tests exactly the claim that is actually being made, and returns a **graded**
+answer where β̂ returns a boundary.
+
+## Amended statistics
+
+| rank | statistic |
+|---|---|
+| **PRIMARY** | **Pairwise order agreement** (Kendall-τ shaped): over sampled pairs from the legal set, the fraction of `(played, not-played)` pairs on which V's order agrees with `played ≻ not-played`. Ties in V counted as ½. 0.5 = chance. |
+| **SECONDARY** | **Mean normalised rank** of the played action under V: **0 = always ranked first**, 0.5 = random. (Note the orientation is the belief lens's, inverted from version 1 of this document.) |
+| **TERTIARY, reported not relied on** | β̂ on the `{0,.25,.5,1,2}` grid and its log-loss, for comparability with their table — now explicitly expected to pin at 0 for every V, and **registered as uninformative in advance** so that a null cannot be re-described as a finding. |
+
+Predictions **Q1, Q3, Q4, Q5, Q6 carry over unchanged** with the rank statistic substituted for A(V).
+**Q2 is withdrawn and replaced**: β̂ = 0 is now predicted for all V *as a property of the estimator*,
+and is registered as carrying no information about the fold either way.
+
+## M72 folded into the same run — it settles which failure this is
+
+The belief lens's two hypotheses — (i) the V is wrong, (ii) the population is deterministic so no
+smooth likelihood can fit — are separable in one pass, and cheaply:
+
+> **Empirical entropy of the played action conditioned on progressively richer state
+> descriptions.** Level 0: marginal over directions. 1: + unit kind. 2: + immediate-neighbour
+> occupancy. 3: + nearest-food direction. 4: + a local occupancy window. 5: + unit identity and
+> turn (approaching full state).
+
+- **Collapse toward zero as the description richens ⇒ deterministic population + state pooling.**
+  The finding then becomes *"this corpus cannot identify a smooth supplier; the meter must be
+  rank-based"* — a statement about **the instrument**, which is worth more than another zero
+  because it retires the whole smooth-supplier programme on this data rather than one V.
+- **Plateau above zero ⇒ genuinely stochastic**, and a smooth supplier remains identifiable, so
+  β̂'s pinning would then be evidence about V after all.
+
+**Registered prediction (M72):** collapse toward zero. Our bots are deterministic mod seed, and the
+seed is fixed within a game, so conditioning on enough state should drive H → 0. A plateau would be
+the surprise and would mean something in the pipeline injects action-level randomness that nobody
+has documented.
