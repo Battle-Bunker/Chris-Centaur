@@ -1,0 +1,105 @@
+# The spine, as compiling code — cost in lines, and three things running it taught
+
+`manifest.ts` + `demo.ts`. Type-checks under `--strict`, runs under
+`node --experimental-strip-types`, imports nothing from the repo.
+
+```
+npx tsc --noEmit --strict --target es2022 --module nodenext \
+        --moduleResolution nodenext --allowImportingTsExtensions manifest.ts demo.ts
+node --experimental-strip-types demo.ts
+```
+
+## Why this exists
+
+The dedicated red team's sharpest structural objection was not about
+correctness: *"a generator is a compiler; it will have bugs and it is upstream of
+everything"*, and the carve *"trades duplication for prerequisites"*. That
+deserves a number rather than a reassurance.
+
+| piece | lines |
+|---|---|
+| identity (`structural`, `hash`, `botId`, `behaviourId`, `Name`, traces) | ~90 |
+| manifest types (kinds, laws, joints, members, data entries, constraints, coordinates) | ~150 |
+| choices, bots, specs, `normalise` | ~80 |
+| `botDiff` | ~20 |
+| the checks (Law R both clauses, Law S, codecs, arity, identifiability, ambiguity) | ~120 |
+| transfer variance + earned precision + edge credits | ~70 |
+| **spine total** | **531** |
+| the demo that exercises all of it (toy manifest, 10 members, 3 roster bots) | 334 |
+
+**What this does not include, and where the real risk is.** The spine is small;
+the *generator* — emitting the config codec, the stamp, the manifest columns,
+the docs table and the operator knob schema from these declarations — is not
+here. That is the part that is a compiler, and the risk note in
+`07-SYNTHESIS.md` §7 stands: when the manifest is wrong, five artifact classes
+are wrong in agreement, so one class must be produced by an independent path and
+compared. 531 lines is the cost of the *concepts*; it is not the cost of the
+*migration*.
+
+## What the demo shows
+
+Real output, abbreviated:
+
+```
+shipped      3272ff9c46dae85a
+potion-aware 79784d30e5ff8858
+the arm claim, generated: [{"joint":"value/terms", a: fixed(territory), b: composed(territory, potion-seek)}]
+
+checks:
+  [S] model/replies (model) may not be chosen dynamically
+  [R] value/potion-seek@3 never engaged in a validated run
+  [R] model/observation-fog@1 is reachable from no roster bot
+  [ambiguity] order/gain@1 writes order.rank also touched by reduce/floor-led@1
+              (reduce/accept), and no constraint row covers order/candidates|reduce/accept
+
+transfer variance vs humans at production budget: 4.5
+  earned precision in-corpus : 4.000
+  earned precision vs humans : 0.211
+
+carried line: line/3.7:queen->d4
+  valid within turn   : true
+  valid after a spawn : false   (name still finds it; the trace refuses it)
+
+edge credits for one shared evaluation:
+  cluster/3.7 → three consumers, 3 quanta each
+```
+
+Every claim the design makes about being *mechanical* is exercised there: the
+arm's treatment claim is generated rather than written; a dynamic choice on a
+MODEL joint is a load-time error rather than a review comment; an unplayed
+member fails; the transfer penalty is computed from two premise records by the
+framework; and a carried line survives `advance` by name while its trace refuses
+the stale result.
+
+## Three things that only came out of running it
+
+**1. The ambiguity detector needs a discharge rule, or it is noise.** The first
+version flagged two evaluators writing the same fold — which is precisely what
+the `mobius` law says they do. Fixed: ambiguity is reported only **between
+members of different joints**; within a joint, the composition law *is* the
+declared ordering. Bevy's detector has the same shape and the same need — a
+report that fires on legitimate structure gets muted, and a muted detector is
+worse than an absent one.
+
+**2. The detector then found, from declarations alone, the coupling that took a
+week of code reading to find by hand.** The surviving finding is
+`order/candidates` × `reduce/accept` both touching `order.rank` — the
+admission-versus-valuation coupling of `02-JOINT-INVENTORY.md` §2.3, which I
+derived by reading `gainOrderKey`, the candidate cap and `accept()`. It falls
+out of two `writes` declarations. That is the strongest argument I have for the
+declaration discipline: it finds couplings *before* someone spends a week
+finding them, or worse, never does.
+
+**3. A waiver covers engagement, not reachability — and that is right.**
+`model/observation-fog@1` carries a self-retiring waiver for a game mode that
+does not exist, and it still failed: no roster bot seats it. Correct, and the
+consequence is a good forcing function — **work that is early still needs a
+named future bot**, so "which configured bot will play this when the mode
+ships?" has to be answered when the member is written rather than when the mode
+arrives. That is the same discipline as the capability ledger, one level down.
+
+## What the sketch deliberately does not do
+
+No joint semantics. A manifest row carries a codec and a law; what a move
+selector or an evaluator *does* is the member's business and lives in the
+kernel. The sketch is the spine, and the spine is supposed to be boring.
