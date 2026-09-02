@@ -92,7 +92,13 @@ The 10×-budget invariance of the evaluator ladder is evidence about
 breadth-at-horizon-1 and confirms the base rate against plumbing-only
 claims; the queen board's 16× throughput collapse is the motivating case.
 
-**THE CPP HAS NOW ARBITRATED (first v0 compile, `cpp/READING.md`):**
+**THE CPP HAS NOW ARBITRATED — CONDITIONALLY (first v0 compile +
+librarian C48 amendment, `cpp/READING.md`):** the arbitration below
+awaits the margin-at-deciding-rung column (M47) before any budget moves:
+wide margin + saturation confirms it; near-zero margin + saturation
+inverts the snake6 reading to fix-the-evaluator-first (weak-evaluator
+masking, Thompson's lesson — and our snake6/queen split matches that
+signature). Profiles are keyed on evalVersion (M48). As measured:
 snake6 saturates at ≤ 500 ms (0.95 agreement at 125 ms; zero staging
 changes from 500 ms to 4 s across 9,000+ extra priced plans — the
 invariance, now a curve); the queen cell CLIMBS THROUGH THE TOP RUNG
@@ -112,10 +118,22 @@ Build order (each a feature branch; two-lane compliant; no flags):
 
 1. **feature/allowance-ledger** — quanta accounting, exchange rate,
    ledger replay rows, harness virtual clock, sync-test gate (every
-   decision run twice from the ledger, byte-compared), and the first
-   v0 CPPs compiled from the archive. Claims: measurement quality
-   (floors tighten; sync-test holds) — immune to the outcome objection,
-   prerequisite to every later claim.
+   decision run twice from the ledger, byte-compared), the first
+   v0 CPPs compiled from the archive, AND (search-theory doc 07 fold):
+   the `gapCurve` emitted field — per-emission (atQuanta, maxGap) pairs,
+   the RECOGNIZABLE quality axis the ratchet already enforces and
+   nothing plots — giving quality-vs-time curves from every future live
+   game at zero re-decision cost, beside agreement (the two axes'
+   disagreement is itself diagnostic: plans-changing-while-gap-flat =
+   wandering; gap-shrinking-while-plans-fixed = confirmation).
+   Prefix determinism is registered under their Law I′ as a CROSS-CUTTING
+   INVARIANT with its sites listed — the counting cut is the seventh
+   site paying for it — and property-tested: the b-vs-2b
+   emission-prefix assertion under `countingBudget` (a 2b-quanta run's
+   emission sequence extends the b run's byte-for-byte) is increment 2's
+   gate for that invariant. Claims: measurement quality (floors tighten;
+   sync-test holds; prefix test green) — immune to the outcome
+   objection, prerequisite to every later claim.
 2. **feature/replay-rebase** — realizedResolution (replay + checksum +
    `replay-divergence` / `mask-divergence` counters); the depth-engagement
    enabler and a standing live differential test.

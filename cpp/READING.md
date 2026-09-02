@@ -65,6 +65,43 @@ least this large. Live queen-cell games at 2,000 ms were staged
 measurably off-curve; every strength conclusion drawn from piece cells at
 ≤ 2 s budgets carries this caveat.
 
+## AMENDMENT (librarian C48, before any budget reallocation): the arbitration is CONDITIONAL ON MARGIN
+
+A saturating profile is not self-interpreting. Two readings, opposite
+remedies: (a) the search extracted what is there → shorten the contract,
+fund ponder (the reading above); (b) the EVALUATOR is too coarse for
+depth to bite — leaf values do not separate the compared plans, so more
+search returns the same ordering, and the remedy is FIX THE EVALUATOR,
+after which the saturation LIFTS. Chess history says (b) masquerades as
+(a) (Thompson's constant-returns puzzle resolved as weak-evaluator
+masking), and our own evidence points at (b) on exactly the board that
+saturates: the evaluator is measured weight-blind/mis-scaled (VALUE
+lens), snake6's undifferentiated weight accounts are where a coarse
+evaluator separates nothing, and the queen board — one dominant account
+the evaluator CAN separate — is where the curve climbs. That is (b)'s
+signature pattern.
+
+So, until the margin axis is compiled (M47 — cheap:
+`Pr(margin at deciding rung | quanta, premise)`; wide margin +
+saturation ⇒ reading (a) stands; near-zero margin + saturation ⇒ the
+arbitration INVERTS to fix-evaluator-first):
+
+- Reading 1's "production is 20× past saturation on snake boards" is
+  DOWNGRADED to evaluator-conditioned: past saturation FOR THIS
+  EVALUATOR. It licenses no budget cut on its own.
+- Reading 2's queen conclusion survives in weakened form — a climbing
+  curve is not saturation under either reading, so carried compute on
+  piece cells pays under (a) AND (b); but WHAT to carry differs
+  ((b) would redirect part of the window budget to evaluator work), so
+  the ponder-funding decision also waits on the margin column.
+- M48 adopted: every CPP is KEYED ON evalVersion — saturation is a
+  property of the evaluator, and reusing a profile across evaluators is
+  the silent premise crossing the refusal law exists to catch. These two
+  profiles are stamped: evaluator = b5 default (`lobster-territory`).
+  v0.1 must also capture `telemetry.chosen` and the mechanism advisory
+  rows per rung (recorded but discarded by the v0 script), which is
+  where the margin column comes from without new machinery.
+
 ## Limitations (stamped in provenance)
 
 Agreement conflates "converged" with "matches the 4,000 ms draw" — safe

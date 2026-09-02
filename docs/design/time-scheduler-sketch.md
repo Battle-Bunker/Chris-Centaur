@@ -91,6 +91,24 @@ Phase rows, in the order the agent/worldline consults them:
       draw by seeded weighted sample over eligible rows (the existing
       Gumbel machinery; the draw is ledger-replayable by construction)
 
+    THE BID TYPE (search-theory C-T2, answered): a bid is a SHORT
+    PROFILE, never a scalar. Zilberstein/Russell's composition result
+    says optimal allocation across components REQUIRES per-component
+    performance profiles — a scalar bid cannot express "improves fast
+    for 40ms then flattens", which is almost certainly the enumeration's
+    shape (the v0 CPP confirms it: joints/plies saturate by 500ms while
+    plan pricing keeps climbing). Minimum viable bid:
+
+        bid = { marginalAtSmall,      // quality/quantum at one min-tranche
+                marginalAtLarge,      // ... at the saturating grant
+                saturationQuanta }    // where the component flattens
+
+    read off the component's CPP slice (their doc 07 supplies the
+    y-axis; this market is the mechanism; neither works alone). The
+    scheduler then solves a small knapsack over bids per grant instead
+    of an argmax over scalars — same seeded draw for ties, still
+    ledger-replayable.
+
 ## 4. Falsifier deltas introduced by this sketch
 
 - commit-agree cutoff: measured time-to-conform ≈ 0 AND zero killed

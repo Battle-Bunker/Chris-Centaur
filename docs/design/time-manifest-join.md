@@ -24,7 +24,11 @@ column and law this branch introduced, expressed against `00-CORE.md`
   member params cite a world coordinate (the codec reads the ReadSet).
 - `interruptibility: contract | interruptible` — librarian C6; the
   incumbent-witness law rides the ACTION/ECONOMY rows that carry
-  `contract`.
+  `contract`. With the price tag on the column (search-theory doc 07):
+  contract→interruptible costs AT MOST an acceleration ratio of 4,
+  provably optimal — so "this component is a contract algorithm" is
+  never a reason to give up interruptibility, only a bounded, known
+  price the schedule pays.
 - `calibrationClass: none | K(a)-ledger-fold | K(b)-spend-only` — Law K as
   a declared column, so the anti-latch restatement is checkable: a
   K(b) member whose outputs reach an order/bound/refusal fails admission.

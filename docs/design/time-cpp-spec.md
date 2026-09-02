@@ -32,6 +32,48 @@ For a sampled (game, turn, seat): re-decide at rungs
   makes the ladder cheap (a larger rung's decision sequence EXTENDS the
   smaller's, so one top-rung run with checkpoints yields every rung).
 
+## 2½. The second quality axis: maxGap (search-theory doc 07, adopted)
+
+`maxGap` — the ratchet's proved hi−floor gap — is a RECOGNIZABLE quality
+measure in Zilberstein's checklist sense: most anytime algorithms can only
+estimate their current quality; our bounds layer BOUNDS it, and the
+ratchet already enforces its monotonicity. It is also the hand-built
+proxy for the shrinking option set (what Γ-maximin refuses to produce).
+So the CPP carries TWO quality axes:
+
+- **agreement** (decision changes — §3): did more work change what we
+  stage;
+- **maxGap-vs-quanta** (proved discrimination): how fast the proved gap
+  closes.
+
+They can disagree informatively, and the disagreement is a diagnostic:
+plans changing while the gap stays flat = WANDERING (belief-decided
+churn); gap shrinking while the staged plan is fixed = CONFIRMATION work
+(buying certainty, not change). Report both per stratum. Cost: the gap
+curve needs no re-decisions at all — ONE EMITTED FIELD (per-emission
+(atQuanta, maxGap) pairs in the replay telemetry, bounded by the
+emission count) yields quality-vs-time curves per board class from every
+future live game; the existing corpus already carries the endpoint
+(`telemetry.chosen.lo/hi` at the played budget). The field joins
+increment 2's ledger schema.
+
+## 2¾. The third axis, and the key (librarian C48/M47/M48, adopted)
+
+- **Margin at the deciding rung**, `Pr(margin | quanta, premise)` — the
+  discriminator between "saturated because extracted" and "saturated
+  because the evaluator cannot separate the plans" (Thompson's
+  constant-returns lesson: weak-evaluator masking masquerades as
+  diminishing returns). Wide margin + flat agreement ⇒ fund-ponder
+  stands; near-zero margin + flat agreement ⇒ the remedy is the
+  evaluator, and the profile's saturation is expected to LIFT when it
+  improves. The column is shared with three other consumers (contrastive
+  foils, P(flip) pricing, the spread instrument). v0.1: capture
+  `telemetry.chosen` and the mechanism advisory rows per rung — recorded
+  by the harness, discarded by the v0 script.
+- **Every CPP is keyed on evalVersion** (M48): saturation is a property
+  of the evaluator; profile reuse across evaluators is a silent premise
+  crossing, and the coordinate already exists in the declaration record.
+
 ## 3. Quality, scored two ways (both reported, neither alone)
 
 - **Agreement** (ordinal, model-free): staged(q) == staged(Q). The CPP's
