@@ -18,6 +18,9 @@ no shipping code on this branch. Anchors verified against
 | `05-ADVANCE-AND-COMMITMENTS.md` | the memoryless-across-turns finding; `advance` as the third operation; the two purchase columns (and why ponder needs both); the carried premise as one object for pins, reference actions, commitments, roles and stances |
 | `06-SELECTION-AND-SKETCH.md` | within-bot dynamic selection as a premise change; Law S; the concrete types; the three CI checks; the byte-identity path; the refusal list |
 | `07-SYNTHESIS.md` | the whole factorization, the build order across lenses, the risks, and a checker-clean owner summary |
+| `08-FIT-PROVENANCE.md` | ruling 49: a fitted number is a value with the premise it was fitted under; transfer penalty, the two fit laws, and six degrees of freedom the machine expresses that we never tried |
+| `09-REDTEAM-RESPONSE.md` | the TIME lens's six breaks against this carve: all six adopted, three with sharper forms (obligation composes by min-deadline; Law K for calibration; per-site reduction bindings that default to broadcast) |
+| `10-REDTEAM-BELIEF.md` | adversarial pass on the EPISTEMICS carve: the "touches nothing" claim is a diff test against a regime shift, plus lever preconditions, frozen-slot contention, the tag's non-partition, fog-tracking fear, the oracle's sampling bias and the observer-belief cost model |
 
 Cross-lens: this set adopts the EPISTEMICS lens's support/weight vocabulary
 (`design/belief-fog`), the TIME lens's `advance` and anticipatory meet
