@@ -252,8 +252,14 @@ per-game provenance for free).
 1. **Empty-table identity**: `GuidanceContext` with no utterances compiles
    to the empty object and every path is byte-identical to today. (The L0
    standard — the object proves itself by changing nothing.)
-2. **A0 purity**: bounty-only guidance changes work distribution, never a
-   staged plan (§3.2).
+2. **A0 purity** (AMENDED by 04-doc §6 — the MCTS-priors correction):
+   bounty-only guidance never re-orders a priced comparison and never moves
+   a bound; byte-identical staged plans are expected only on *saturated*
+   cells (snake6 ≥ 500ms per the CPP curves). On starved cells attention
+   changes which comparisons get priced by the deadline and may change the
+   plan — that is its value, not a leak. Tested per-stratum: byte-identity
+   on saturated cells; work-distribution shift + emit-record provenance on
+   starved ones.
 3. **The pin demotion** (G1): on a seeded board where `goto` points a unit
    at a cell the joint plan needs elsewhere, today's wiring stages the
    waypoint and re-plans around it; the integrated wiring prices both and
