@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twelve domains, surveyed against the four lens syntheses as they stood at
+Thirteen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -25,6 +25,7 @@ case.*
 | 10 | the Centaur surface: mixed-initiative control and explanation | `10-centaur-mixed-initiative-and-explanation.md` |
 | 11 | game-rules architecture: one description, many consumers | `11-game-rules-architecture.md` |
 | 12 | **decomposition under imperfect information** — the result that invalidates a hypothesis three lenses share | `12-decomposition-under-imperfect-information.md` |
+| 13 | two engineering literatures our ladders should be members of (constraint propagation; progressive widening) | `13-inference-and-admission-schedules.md` |
 
 ---
 
@@ -146,6 +147,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 |---|---|
 | **M24** | "Is this member worth keeping?" gets a formal, ungameable answer: **it has support in the meta-game's Nash equilibrium**. Stronger than the reachability law's intent and immune to the counter it already worries about (a roster bot that exists only to keep a member alive). |
 | **M26** | mElo's **latent-skill decomposition** of the cell × arm matrix answers "what does this cell actually test?" — the dead knight cell would appear as a near-zero singular value automatically, without anyone reading `moveGrammar.ts:27`. Subsumes the value lens's M5. |
+| **M36** | **The constructive answer to C26:** the conditioning ladder IS a constraint satisfaction problem and Minesweeper is its solved special case — C0 is a cardinality constraint, C1 a disjunction, C2 a negative joint. Keep a **constraint store partitioned into coupled subsets**; derive marginals by query; and get the canonical weight from **solution counting**, which makes the design's own cover-counting claim literally true. |
+| **M39** | **The cheapest principled replacement for `sliderCandidateCap`: progressive widening**, `⌊c·N^α⌋`. Natively anytime, monotone, needs no value model (so it ships before the performance profile), and turns "4 forever" into "4 at the first tranche, more as tranches are spent" on the unit holding 80–91% of team weight. |
 | **M11** | **Paired seat-swapped scenarios + pentanomial scoring** (Fishtest). The pentanomial-vs-trinomial gap is *itself an estimate of the population's bias* — the closest thing found to an instrument for ruling 49's distortion worry. |
 | **M13** | **Per-unit flows as standing telemetry.** KataGo's ownership head exists for credit assignment from few samples. Promoting our mining scripts to a per-game column turns 144 games into thousands of unit-observations at zero play cost — the cheapest answer to "the space is explored at low density". |
 | **V-3** | **The checkerboard parity bound** (a1k0n) — sound, free, strictly tighter than a cell count, and we lack it. |
