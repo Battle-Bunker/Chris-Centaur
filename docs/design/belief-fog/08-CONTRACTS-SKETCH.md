@@ -44,6 +44,14 @@ interface BankResult extends PlanScore {
 // belief.ts: ObservationKind gains 'advisory'. Fold order:
 //   bank-price → evaluation(estSound, interval precision)
 //   → advisory(estAdvised, advisoryPrecision) → deep-findings (unchanged).
+//
+// SAME TREATMENT FOR DeepObservation (search lens doc 04 finding B-2 — the
+// mirror defect one layer down): deepen() currently publishes the deep
+// line's PROVED FLOOR (scored.best.lo) into the belief's mean slot while
+// its est is computed and dropped — a floor consumed as an unbiased mean.
+// DeepObservation carries {envelope, estSound} of the advanced board and
+// the fold reads estSound as the mean, the envelope as provenance; a floor
+// is never a center, at any depth.
 ```
 
 ## 3. The weight-supplier slot (02-doc §4, corrected domain per 03-doc §2/T13)

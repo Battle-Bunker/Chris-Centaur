@@ -293,15 +293,22 @@ written against ObservationRecord runs UNCHANGED on the full-information game.
   (evidence). Over-approximation is the only permitted error, in the known
   direction. (Already the cloud engine's own covenant.)
 - **L2 Weight law.** Weights live inside S. Any evidence moves them, at earned
-  precision. No caps. (Already belief.ts + ruling 12.) RE-CENTERING RIDER
-  (second pass, 06-doc §1): any credal set built around w — the ε-ball — is
-  re-erected around the current w at each reading and is NEVER conditioned as
-  a set; w moves only by point updates (precision merge), S only by
-  intersection. This is what excludes the imprecise-probability literature's
-  dilation pathology (conditioning a credal set can WIDEN every posterior
-  interval — Seidenfeld & Wasserman 1993) and its vacuous-prior inertia
-  (generalized Bayes cannot learn from a vacuous prior — Gong & Meng 2017)
-  from ever entering the design.
+  precision. No caps. (Already belief.ts + ruling 12.) **GUARD L2-G**
+  (promoted from the second-pass rider after the prior-art lens's C9/C10;
+  the full argument against Seidenfeld-Wasserman is 14-doc §1): *no code
+  path may form a conditional of a credal set* — weights move by
+  point-update, supports by intersection, ε-balls by re-erection around the
+  current w. The IP literature's dilation pathology (element-wise
+  conditioning can widen the credal interval under EVERY partition element
+  — S&W 1993; the linear-vacuous class our ε form belongs to dilates) is
+  excluded because its generating operation is typed out, not because we
+  hoped; residual ball-widening rides only the stratum-indexed ε̂ table,
+  where it is a partition-asymmetric measured fact with a CI (13-doc
+  finding 4), never conditioning arithmetic. Vacuous-prior inertia (GBR
+  cannot learn from a vacuous prior — Gong & Meng 2017) is excluded by the
+  same split. TERMINOLOGY (14-doc §1): dynamics-driven cloud growth is
+  SPREAD in these docs; DILATION is reserved for the IP pathology — the
+  vendored engine's `dilate` identifiers are a rename-on-next-sync item.
 - **L3 Projection law.** Every number carries (horizon, quantifier-or-weight,
   basis). Sound = envelope over S; advised = expectation under a named weight.
 - **L4 Refusal law.** Numbers differing in any projection tag never compare
