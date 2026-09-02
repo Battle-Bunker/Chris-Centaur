@@ -1,0 +1,316 @@
+# Supplier log-loss harness v0 — 1412 games, 1155029 decisions
+LAMBDA=0.25 JEFFREYS=0.5 WBAR_MIN=0.01
+support-miss by kind: bishop: 37/7746 (0.48%), king: 3/24770 (0.01%), knight: 0/11482 (0.00%), queen: 379/19784 (1.92%), rook: 222/15863 (1.40%), snake: 16121/1075384 (1.50%)
+cover-fallback-to-uniform: 1005753/1155029 (87.1%)
+solutions (C40 declaration): components exact=30964 sampled=12061 unresolved-to-uniform=0; played same-team same-dest joints (constraint contamination): 0
+
+## stratum ('ALL',)  (n=1155029)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.1436 | 0.0011 | +0.0000 | 0.088 [0.084,0.091] | retreat (0.155 vs 0.170) |
+| solutions | 1.1455 | 0.0011 | +0.0019 | 0.086 [0.082,0.090] | retreat (0.155 vs 0.170) |
+| default | 1.4674 | 0.0021 | +0.3238 | 0.568 [0.567,0.570] | straight (0.234 vs 0.542) |
+| food | 1.8256 | 0.0023 | +0.6820 | 0.433 [0.431,0.434] | toward-food (0.373 vs 0.657) |
+| cover | 1.2442 | 0.0015 | +0.1006 | 0.090 [0.086,0.093] | toward-enemy (0.175 vs 0.192) |
+| advpoint | 1.2669 | 0.0017 | +0.1233 | 0.109 [0.105,0.112] | toward-enemy (0.175 vs 0.196) |
+
+## stratum ('branch', 'b4-8')  (n=46439)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.4857 | 0.0018 | +0.0000 | 0.333 [0.316,0.350] | toward-enemy (0.110 vs 0.166) |
+| solutions | 1.4959 | 0.0021 | +0.0102 | 0.333 [0.316,0.350] | toward-enemy (0.110 vs 0.166) |
+| default | 1.9376 | 0.0112 | +0.4519 | 0.711 [0.705,0.716] | straight (0.181 vs 0.625) |
+| food | 2.4192 | 0.0093 | +0.9335 | 0.546 [0.540,0.552] | toward-food (0.314 vs 0.691) |
+| cover | 1.7200 | 0.0054 | +0.2342 | 0.433 [0.418,0.447] | toward-enemy (0.110 vs 0.195) |
+| advpoint | 1.7315 | 0.0055 | +0.2458 | 0.427 [0.412,0.442] | toward-enemy (0.110 vs 0.193) |
+
+## stratum ('branch', 'b<=3')  (n=1039696)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 0.9931 | 0.0004 | +0.0000 | 0.049 [0.044,0.053] | retreat (0.156 vs 0.164) |
+| solutions | 0.9931 | 0.0004 | +0.0001 | 0.047 [0.043,0.051] | retreat (0.156 vs 0.164) |
+| default | 1.3838 | 0.0019 | +0.3907 | 0.561 [0.560,0.563] | straight (0.252 vs 0.574) |
+| food | 1.6306 | 0.0021 | +0.6375 | 0.399 [0.397,0.400] | toward-food (0.387 vs 0.643) |
+| cover | 1.0519 | 0.0008 | +0.0588 | 0.033 [0.029,0.037] | toward-enemy (0.183 vs 0.189) |
+| advpoint | 1.0573 | 0.0008 | +0.0642 | 0.033 [0.029,0.037] | toward-enemy (0.183 vs 0.189) |
+
+## stratum ('branch', 'b>=9')  (n=68894)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.1846 | 0.0062 | +0.0000 | 0.574 [0.564,0.583] | retreat (0.105 vs 0.246) |
+| solutions | 3.2087 | 0.0065 | +0.0241 | 0.573 [0.564,0.583] | retreat (0.105 vs 0.246) |
+| default | 2.4123 | 0.0175 | -0.7723 | 0.307 [0.302,0.312] | stay (0.530 vs 0.764) |
+| food | 4.3681 | 0.0093 | +1.1835 | 0.763 [0.759,0.766] | toward-food (0.200 vs 0.842) |
+| cover | 3.8252 | 0.0093 | +0.6406 | 0.584 [0.574,0.593] | toward-enemy (0.098 vs 0.236) |
+| advpoint | 4.1175 | 0.0105 | +0.9329 | 0.679 [0.672,0.686] | toward-enemy (0.098 vs 0.306) |
+
+## stratum ('contact', 'contact')  (n=182620)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.1316 | 0.0027 | +0.0000 | 0.145 [0.134,0.155] | toward-enemy (0.119 vs 0.139) |
+| solutions | 1.1339 | 0.0027 | +0.0023 | 0.145 [0.134,0.155] | toward-enemy (0.119 vs 0.139) |
+| default | 1.5463 | 0.0055 | +0.4147 | 0.676 [0.664,0.688] | stay (0.014 vs 0.044) |
+| food | 1.7724 | 0.0058 | +0.6408 | 0.421 [0.418,0.425] | toward-food (0.375 vs 0.649) |
+| cover | 1.5442 | 0.0048 | +0.4125 | 0.457 [0.450,0.463] | toward-enemy (0.119 vs 0.219) |
+| advpoint | 1.6044 | 0.0052 | +0.4728 | 0.469 [0.463,0.476] | toward-enemy (0.119 vs 0.225) |
+
+## stratum ('contact', 'quiet')  (n=972409)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.1458 | 0.0012 | +0.0000 | 0.129 [0.124,0.133] | retreat (0.141 vs 0.162) |
+| solutions | 1.1477 | 0.0012 | +0.0018 | 0.127 [0.123,0.131] | retreat (0.141 vs 0.161) |
+| default | 1.4525 | 0.0023 | +0.3067 | 0.568 [0.566,0.570] | straight (0.233 vs 0.539) |
+| food | 1.8356 | 0.0025 | +0.6897 | 0.435 [0.433,0.436] | toward-food (0.372 vs 0.658) |
+| cover | 1.1878 | 0.0015 | +0.0420 | 0.115 [0.110,0.119] | retreat (0.141 vs 0.159) |
+| advpoint | 1.2035 | 0.0017 | +0.0577 | 0.101 [0.097,0.106] | retreat (0.141 vs 0.157) |
+
+## stratum ('coupling', 'coupled')  (n=117235)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.1936 | 0.0073 | +0.0000 | 0.350 [0.341,0.359] | retreat (0.137 vs 0.210) |
+| solutions | 2.2124 | 0.0075 | +0.0188 | 0.354 [0.348,0.360] | toward-food (0.269 vs 0.416) |
+| default | 1.8611 | 0.0111 | -0.3325 | 0.550 [0.543,0.557] | straight (0.109 vs 0.243) |
+| food | 3.1463 | 0.0103 | +0.9527 | 0.644 [0.641,0.648] | toward-food (0.269 vs 0.755) |
+| cover | 2.5900 | 0.0097 | +0.3964 | 0.427 [0.418,0.436] | toward-enemy (0.119 vs 0.207) |
+| advpoint | 2.7508 | 0.0108 | +0.5571 | 0.515 [0.508,0.523] | toward-enemy (0.119 vs 0.245) |
+
+## stratum ('coupling', 'detached')  (n=1037794)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0250 | 0.0005 | +0.0000 | 0.050 [0.046,0.054] | retreat (0.157 vs 0.166) |
+| solutions | 1.0250 | 0.0005 | +0.0000 | 0.050 [0.046,0.054] | retreat (0.157 vs 0.166) |
+| default | 1.4229 | 0.0019 | +0.3979 | 0.569 [0.568,0.571] | straight (0.248 vs 0.576) |
+| food | 1.6764 | 0.0021 | +0.6514 | 0.405 [0.403,0.406] | toward-food (0.384 vs 0.646) |
+| cover | 1.0921 | 0.0009 | +0.0671 | 0.048 [0.044,0.052] | toward-enemy (0.181 vs 0.190) |
+| advpoint | 1.0993 | 0.0010 | +0.0743 | 0.050 [0.046,0.054] | toward-enemy (0.181 vs 0.190) |
+
+## stratum ('kind', 'bishop')  (n=7746)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.1957 | 0.0073 | +0.0000 | 0.819 [0.797,0.839] | retreat (0.036 vs 0.197) |
+| solutions | 3.2093 | 0.0081 | +0.0136 | 0.818 [0.796,0.839] | retreat (0.036 vs 0.196) |
+| default | 1.4546 | 0.0429 | -1.7411 | 0.277 [0.189,0.357] | retreat (0.036 vs 0.049) |
+| food | 4.2410 | 0.0271 | +1.0453 | 0.883 [0.875,0.891] | toward-food (0.092 vs 0.782) |
+| cover | 4.3552 | 0.0144 | +1.1595 | 0.837 [0.820,0.852] | toward-enemy (0.051 vs 0.311) |
+| advpoint | 4.4977 | 0.0122 | +1.3020 | 0.874 [0.862,0.886] | toward-enemy (0.051 vs 0.404) |
+
+## stratum ('kind', 'king')  (n=24770)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.1010 | 0.0023 | +0.0000 | 0.713 [0.696,0.729] | toward-enemy (0.044 vs 0.153) |
+| solutions | 2.1018 | 0.0025 | +0.0007 | 0.713 [0.696,0.729] | toward-enemy (0.044 vs 0.153) |
+| default | 1.4605 | 0.0196 | -0.6405 | 0.200 [0.192,0.208] | stay (0.625 vs 0.781) |
+| food | 3.2803 | 0.0102 | +1.1792 | 0.812 [0.806,0.817] | toward-food (0.157 vs 0.833) |
+| cover | 2.3992 | 0.0077 | +0.2982 | 0.765 [0.751,0.779] | toward-enemy (0.044 vs 0.187) |
+| advpoint | 2.4157 | 0.0080 | +0.3147 | 0.789 [0.777,0.801] | toward-enemy (0.044 vs 0.208) |
+
+## stratum ('kind', 'knight')  (n=11482)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.0515 | 0.0039 | +0.0000 | 0.770 [0.752,0.788] | retreat (0.053 vs 0.233) |
+| solutions | 2.0484 | 0.0041 | -0.0031 | 0.769 [0.751,0.787] | retreat (0.053 vs 0.232) |
+| default | 0.9682 | 0.0246 | -1.0833 | 0.081 [0.009,0.150] | retreat (0.053 vs 0.058) |
+| food | 3.0912 | 0.0186 | +1.0397 | 0.852 [0.845,0.859] | toward-food (0.118 vs 0.795) |
+| cover | 2.3593 | 0.0122 | +0.3078 | 0.802 [0.785,0.817] | toward-enemy (0.049 vs 0.247) |
+| advpoint | 2.3784 | 0.0124 | +0.3269 | 0.795 [0.778,0.811] | toward-enemy (0.049 vs 0.239) |
+
+## stratum ('kind', 'queen')  (n=19784)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 4.1122 | 0.0031 | +0.0000 | 0.433 [0.413,0.452] | retreat (0.141 vs 0.248) |
+| solutions | 4.1655 | 0.0049 | +0.0534 | 0.432 [0.412,0.451] | retreat (0.141 vs 0.248) |
+| default | 4.3682 | 0.0300 | +0.2560 | 0.714 [0.706,0.721] | stay (0.216 vs 0.754) |
+| food | 5.3170 | 0.0136 | +1.2048 | 0.613 [0.605,0.620] | toward-food (0.337 vs 0.871) |
+| cover | 4.7028 | 0.0117 | +0.5907 | 0.328 [0.315,0.341] | toward-food (0.337 vs 0.502) |
+| advpoint | 5.3985 | 0.0096 | +1.2864 | 0.475 [0.459,0.490] | toward-enemy (0.187 vs 0.356) |
+
+## stratum ('kind', 'rook')  (n=15863)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.6061 | 0.0044 | +0.0000 | 0.646 [0.628,0.664] | retreat (0.084 vs 0.237) |
+| solutions | 3.6364 | 0.0056 | +0.0303 | 0.646 [0.627,0.664] | retreat (0.084 vs 0.237) |
+| default | 2.1258 | 0.0358 | -1.4804 | 0.199 [0.189,0.209] | stay (0.607 vs 0.757) |
+| food | 4.8644 | 0.0127 | +1.2583 | 0.775 [0.768,0.782] | toward-food (0.197 vs 0.877) |
+| cover | 4.5938 | 0.0122 | +0.9877 | 0.629 [0.617,0.640] | toward-food (0.197 vs 0.531) |
+| advpoint | 4.8956 | 0.0099 | +1.2895 | 0.716 [0.702,0.730] | toward-enemy (0.092 vs 0.326) |
+
+## stratum ('kind', 'snake')  (n=1075384)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0061 | 0.0004 | +0.0000 | 0.037 [0.033,0.041] | retreat (0.159 vs 0.166) |
+| solutions | 1.0067 | 0.0004 | +0.0005 | 0.035 [0.031,0.040] | retreat (0.159 vs 0.165) |
+| default | 1.4099 | 0.0019 | +0.4037 | 0.568 [0.567,0.570] | straight (0.251 vs 0.582) |
+| food | 1.6521 | 0.0020 | +0.6460 | 0.400 [0.399,0.402] | toward-food (0.386 vs 0.643) |
+| cover | 1.0702 | 0.0008 | +0.0641 | 0.043 [0.039,0.047] | toward-enemy (0.181 vs 0.189) |
+| advpoint | 1.0758 | 0.0008 | +0.0697 | 0.042 [0.038,0.046] | toward-enemy (0.181 vs 0.189) |
+
+## stratum ('kind+contact', 'bishop', 'contact')  (n=790)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.0964 | 0.0289 | +0.0000 | 0.754 [0.697,0.803] | retreat (0.095 vs 0.387) |
+| solutions | 3.1124 | 0.0294 | +0.0161 | 0.753 [0.696,0.802] | retreat (0.095 vs 0.386) |
+| default | 2.4552 | 0.1500 | -0.6412 | 0.362 [0.315,0.407] | stay (0.486 vs 0.763) |
+| food | 4.0842 | 0.0927 | +0.9878 | 0.777 [0.742,0.809] | toward-food (0.179 vs 0.801) |
+| cover | 3.8991 | 0.0619 | +0.8028 | 0.741 [0.681,0.793] | retreat (0.095 vs 0.368) |
+| advpoint | 4.3919 | 0.0529 | +1.2955 | 0.848 [0.774,0.902] | toward-enemy (0.027 vs 0.178) |
+
+## stratum ('kind+contact', 'bishop', 'quiet')  (n=6956)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.2070 | 0.0073 | +0.0000 | 0.835 [0.812,0.857] | retreat (0.029 vs 0.176) |
+| solutions | 3.2203 | 0.0083 | +0.0133 | 0.834 [0.811,0.856] | retreat (0.029 vs 0.175) |
+| default | 1.3409 | 0.0439 | -1.8661 | 0.341 [0.247,0.426] | retreat (0.029 vs 0.044) |
+| food | 4.2588 | 0.0283 | +1.0518 | 0.895 [0.887,0.903] | toward-food (0.082 vs 0.780) |
+| cover | 4.4070 | 0.0139 | +1.2000 | 0.842 [0.826,0.857] | toward-enemy (0.054 vs 0.339) |
+| advpoint | 4.5097 | 0.0122 | +1.3028 | 0.875 [0.863,0.887] | toward-enemy (0.054 vs 0.429) |
+
+## stratum ('kind+contact', 'king', 'contact')  (n=3369)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.0950 | 0.0065 | +0.0000 | 0.861 [0.823,0.893] | toward-enemy (0.018 vs 0.127) |
+| solutions | 2.0964 | 0.0069 | +0.0014 | 0.862 [0.824,0.893] | toward-enemy (0.018 vs 0.128) |
+| default | 2.4771 | 0.0510 | +0.3821 | 0.600 [0.580,0.620] | stay (0.312 vs 0.781) |
+| food | 3.1123 | 0.0355 | +1.0173 | 0.648 [0.630,0.666] | toward-food (0.294 vs 0.835) |
+| cover | 3.3177 | 0.0192 | +1.2227 | 0.925 [0.904,0.942] | toward-enemy (0.018 vs 0.235) |
+| advpoint | 3.4028 | 0.0177 | +1.3078 | 0.952 [0.939,0.963] | toward-enemy (0.018 vs 0.369) |
+
+## stratum ('kind+contact', 'king', 'quiet')  (n=21401)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.1020 | 0.0025 | +0.0000 | 0.694 [0.675,0.712] | toward-enemy (0.048 vs 0.157) |
+| solutions | 2.1026 | 0.0027 | +0.0006 | 0.694 [0.675,0.711] | toward-enemy (0.048 vs 0.156) |
+| default | 1.3005 | 0.0204 | -0.8015 | 0.137 [0.129,0.145] | stay (0.674 vs 0.781) |
+| food | 3.3067 | 0.0103 | +1.2047 | 0.838 [0.832,0.843] | toward-food (0.135 vs 0.833) |
+| cover | 2.2547 | 0.0065 | +0.1527 | 0.732 [0.716,0.748] | toward-enemy (0.048 vs 0.179) |
+| advpoint | 2.2603 | 0.0067 | +0.1583 | 0.737 [0.721,0.752] | toward-enemy (0.048 vs 0.182) |
+
+## stratum ('kind+contact', 'knight', 'contact')  (n=801)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.0133 | 0.0169 | +0.0000 | 0.437 [0.234,0.598] | toward-enemy (0.044 vs 0.079) |
+| solutions | 2.0138 | 0.0180 | +0.0005 | 0.437 [0.233,0.597] | toward-enemy (0.044 vs 0.078) |
+| default | 1.8294 | 0.1093 | -0.1839 | 0.371 [0.326,0.414] | stay (0.493 vs 0.785) |
+| food | 2.9933 | 0.0760 | +0.9800 | 0.690 [0.651,0.726] | toward-food (0.251 vs 0.809) |
+| cover | 2.8375 | 0.0684 | +0.8243 | 0.771 [0.688,0.836] | toward-enemy (0.044 vs 0.193) |
+| advpoint | 2.9692 | 0.0663 | +0.9560 | 0.751 [0.661,0.822] | toward-enemy (0.044 vs 0.177) |
+
+## stratum ('kind+contact', 'knight', 'quiet')  (n=10681)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.0544 | 0.0039 | +0.0000 | 0.808 [0.790,0.824] | retreat (0.043 vs 0.226) |
+| solutions | 2.0510 | 0.0042 | -0.0034 | 0.807 [0.789,0.823] | retreat (0.043 vs 0.224) |
+| default | 0.9037 | 0.0247 | -1.1507 | 0.230 [0.160,0.297] | retreat (0.043 vs 0.056) |
+| food | 3.0985 | 0.0192 | +1.0442 | 0.865 [0.857,0.872] | toward-food (0.108 vs 0.794) |
+| cover | 2.3234 | 0.0118 | +0.2691 | 0.804 [0.787,0.819] | toward-enemy (0.049 vs 0.251) |
+| advpoint | 2.3341 | 0.0120 | +0.2797 | 0.798 [0.780,0.814] | toward-enemy (0.049 vs 0.244) |
+
+## stratum ('kind+contact', 'queen', 'contact')  (n=3500)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 4.0231 | 0.0075 | +0.0000 | 0.443 [0.407,0.478] | retreat (0.212 vs 0.381) |
+| solutions | 4.0641 | 0.0113 | +0.0410 | 0.443 [0.406,0.477] | retreat (0.212 vs 0.380) |
+| default | 5.0142 | 0.0458 | +0.9911 | 0.898 [0.886,0.909] | stay (0.077 vs 0.755) |
+| food | 5.1796 | 0.0358 | +1.1565 | 0.533 [0.514,0.551] | toward-food (0.410 vs 0.877) |
+| cover | 4.4462 | 0.0231 | +0.4231 | 0.405 [0.366,0.442] | retreat (0.212 vs 0.356) |
+| advpoint | 5.3072 | 0.0248 | +1.2842 | 0.237 [0.187,0.284] | retreat (0.212 vs 0.278) |
+
+## stratum ('kind+contact', 'queen', 'quiet')  (n=16284)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 4.1313 | 0.0034 | +0.0000 | 0.429 [0.405,0.451] | retreat (0.125 vs 0.220) |
+| solutions | 4.1873 | 0.0054 | +0.0560 | 0.428 [0.405,0.451] | retreat (0.125 vs 0.219) |
+| default | 4.2293 | 0.0347 | +0.0980 | 0.674 [0.665,0.683] | stay (0.246 vs 0.754) |
+| food | 5.3465 | 0.0146 | +1.2152 | 0.630 [0.622,0.638] | toward-food (0.322 vs 0.870) |
+| cover | 4.7580 | 0.0132 | +0.6267 | 0.350 [0.336,0.364] | toward-food (0.322 vs 0.495) |
+| advpoint | 5.4182 | 0.0103 | +1.2868 | 0.528 [0.513,0.542] | toward-enemy (0.191 vs 0.405) |
+
+## stratum ('kind+contact', 'rook', 'contact')  (n=2102)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.4651 | 0.0145 | +0.0000 | 0.493 [0.448,0.536] | retreat (0.194 vs 0.383) |
+| solutions | 3.4879 | 0.0167 | +0.0228 | 0.494 [0.448,0.536] | retreat (0.194 vs 0.383) |
+| default | 3.7263 | 0.0855 | +0.2613 | 0.674 [0.649,0.698] | stay (0.247 vs 0.758) |
+| food | 4.6987 | 0.0383 | +1.2336 | 0.582 [0.559,0.605] | toward-food (0.366 vs 0.877) |
+| cover | 4.1019 | 0.0347 | +0.6368 | 0.455 [0.406,0.501] | retreat (0.194 vs 0.356) |
+| advpoint | 4.7506 | 0.0322 | +1.2855 | 0.352 [0.203,0.478] | other (0.039 vs 0.060) |
+
+## stratum ('kind+contact', 'rook', 'quiet')  (n=13761)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 3.6277 | 0.0044 | +0.0000 | 0.688 [0.668,0.707] | retreat (0.067 vs 0.215) |
+| solutions | 3.6591 | 0.0058 | +0.0314 | 0.687 [0.667,0.706] | retreat (0.067 vs 0.214) |
+| default | 1.8813 | 0.0375 | -1.7464 | 0.126 [0.115,0.136] | stay (0.662 vs 0.757) |
+| food | 4.8897 | 0.0134 | +1.2620 | 0.804 [0.797,0.812] | toward-food (0.171 vs 0.877) |
+| cover | 4.6689 | 0.0126 | +1.0413 | 0.694 [0.677,0.711] | toward-enemy (0.083 vs 0.272) |
+| advpoint | 4.9178 | 0.0103 | +1.2901 | 0.762 [0.749,0.775] | toward-enemy (0.083 vs 0.350) |
+
+## stratum ('kind+contact', 'snake', 'contact')  (n=172058)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0123 | 0.0012 | +0.0000 | 0.161 [0.151,0.172] | toward-enemy (0.121 vs 0.144) |
+| solutions | 1.0136 | 0.0012 | +0.0012 | 0.161 [0.150,0.172] | toward-enemy (0.121 vs 0.144) |
+| default | 1.4254 | 0.0048 | +0.4131 | 0.570 [0.567,0.574] | straight (0.254 vs 0.592) |
+| food | 1.6249 | 0.0052 | +0.6125 | 0.406 [0.402,0.410] | toward-food (0.378 vs 0.636) |
+| cover | 1.4023 | 0.0041 | +0.3900 | 0.465 [0.458,0.472] | toward-enemy (0.121 vs 0.225) |
+| advpoint | 1.4363 | 0.0042 | +0.4240 | 0.464 [0.457,0.471] | toward-enemy (0.121 vs 0.225) |
+
+## stratum ('kind+contact', 'snake', 'quiet')  (n=903326)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0050 | 0.0004 | +0.0000 | 0.075 [0.070,0.079] | retreat (0.146 vs 0.157) |
+| solutions | 1.0054 | 0.0005 | +0.0004 | 0.073 [0.069,0.078] | retreat (0.146 vs 0.157) |
+| default | 1.4069 | 0.0020 | +0.4020 | 0.568 [0.566,0.570] | straight (0.251 vs 0.580) |
+| food | 1.6573 | 0.0022 | +0.6524 | 0.399 [0.398,0.401] | toward-food (0.387 vs 0.644) |
+| cover | 1.0069 | 0.0005 | +0.0020 | 0.074 [0.069,0.078] | retreat (0.146 vs 0.157) |
+| advpoint | 1.0071 | 0.0005 | +0.0022 | 0.074 [0.069,0.078] | retreat (0.146 vs 0.157) |
+
+## stratum ('potion', 'potions-off')  (n=234606)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.6515 | 0.0045 | +0.0000 | 0.233 [0.225,0.240] | retreat (0.146 vs 0.190) |
+| solutions | 1.6580 | 0.0046 | +0.0066 | 0.231 [0.224,0.239] | retreat (0.146 vs 0.189) |
+| default | 1.6379 | 0.0065 | -0.0136 | 0.537 [0.533,0.541] | straight (0.174 vs 0.376) |
+| food | 2.4927 | 0.0067 | +0.8412 | 0.550 [0.548,0.553] | toward-food (0.319 vs 0.710) |
+| cover | 1.8894 | 0.0060 | +0.2379 | 0.262 [0.255,0.269] | toward-enemy (0.146 vs 0.198) |
+| advpoint | 1.9791 | 0.0066 | +0.3277 | 0.332 [0.325,0.338] | toward-enemy (0.146 vs 0.219) |
+
+## stratum ('potion', 'potions-on')  (n=920423)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0141 | 0.0005 | +0.0000 | 0.045 [0.041,0.050] | retreat (0.158 vs 0.165) |
+| solutions | 1.0149 | 0.0005 | +0.0007 | 0.044 [0.039,0.048] | retreat (0.158 vs 0.165) |
+| default | 1.4239 | 0.0020 | +0.4098 | 0.574 [0.572,0.575] | straight (0.249 vs 0.584) |
+| food | 1.6556 | 0.0022 | +0.6414 | 0.399 [0.398,0.401] | toward-food (0.386 vs 0.643) |
+| cover | 1.0797 | 0.0009 | +0.0655 | 0.044 [0.040,0.048] | toward-enemy (0.182 vs 0.190) |
+| advpoint | 1.0854 | 0.0009 | +0.0712 | 0.043 [0.039,0.048] | toward-enemy (0.182 vs 0.190) |
+
+## stratum ('roster', 'mix')  (n=10006)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0554 | 0.0108 | +0.0000 | 0.257 [0.235,0.278] | toward-food (0.314 vs 0.422) |
+| solutions | 1.0465 | 0.0109 | -0.0089 | 0.259 [0.237,0.280] | toward-food (0.314 vs 0.423) |
+| default | 1.1459 | 0.0209 | +0.0905 | 0.481 [0.461,0.501] | straight (0.206 vs 0.396) |
+| food | 1.8062 | 0.0239 | +0.7507 | 0.552 [0.539,0.565] | toward-food (0.314 vs 0.700) |
+| cover | 1.1712 | 0.0149 | +0.1158 | 0.260 [0.238,0.281] | toward-food (0.314 vs 0.424) |
+| advpoint | 1.1952 | 0.0153 | +0.1397 | 0.264 [0.243,0.285] | toward-food (0.314 vs 0.426) |
+
+## stratum ('roster', 'mix-slider')  (n=98032)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 2.6024 | 0.0072 | +0.0000 | 0.452 [0.443,0.461] | retreat (0.123 vs 0.225) |
+| solutions | 2.6216 | 0.0074 | +0.0192 | 0.452 [0.442,0.461] | retreat (0.123 vs 0.225) |
+| default | 2.0932 | 0.0132 | -0.5092 | 0.611 [0.600,0.622] | straight (0.045 vs 0.115) |
+| food | 3.6845 | 0.0100 | +1.0821 | 0.700 [0.697,0.704] | toward-food (0.238 vs 0.795) |
+| cover | 3.1094 | 0.0098 | +0.5070 | 0.517 [0.508,0.525] | toward-enemy (0.107 vs 0.221) |
+| advpoint | 3.3196 | 0.0109 | +0.7172 | 0.605 [0.597,0.612] | toward-enemy (0.107 vs 0.271) |
+
+## stratum ('roster', 'snakes')  (n=1046991)
+| supplier | log-loss | ±CI | vs uniform | eps_min^coarse [CI] | argmin cat (p vs wbar) |
+|---|---|---|---|---|---|
+| uniform | 1.0078 | 0.0004 | +0.0000 | 0.041 [0.037,0.045] | retreat (0.158 vs 0.165) |
+| solutions | 1.0082 | 0.0004 | +0.0004 | 0.040 [0.035,0.044] | retreat (0.158 vs 0.165) |
+| default | 1.4118 | 0.0019 | +0.4040 | 0.568 [0.567,0.570] | straight (0.252 vs 0.583) |
+| food | 1.6517 | 0.0021 | +0.6439 | 0.400 [0.399,0.402] | toward-food (0.386 vs 0.643) |
+| cover | 1.0702 | 0.0008 | +0.0624 | 0.043 [0.039,0.047] | toward-enemy (0.181 vs 0.189) |
+| advpoint | 1.0754 | 0.0008 | +0.0676 | 0.043 [0.039,0.047] | toward-enemy (0.181 vs 0.189) |
+
