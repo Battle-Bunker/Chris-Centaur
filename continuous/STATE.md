@@ -504,3 +504,14 @@ My knight-vs-queen reading is refuted by direct replay mining (rl1/rl3/rl4):
   (command:2) ships and was never seated.
 - Pre-registered before rl5 lands: rook falls between queen and knight
   and orders by final piece WEIGHT, not mobility class.
+
+## 16. R1 cell 5/6 (snake5-rook) — LANDED
+territory − material G = +0.424 [0.195, 0.670], floor 0.606 (does not
+clear own floor); territory − reflex +1.225 [0.982, 1.444], clears.
+Ladder picture across cells: snake6 +1.62 / queen +0.54 / rook +0.42 /
+knight +0.06(dead instrument). Value-lens qualitative registration
+(orders by piece weight, between queen and knight, nearer queen) HOLDS;
+quantitative 3-channel fold forecast (+0.078) MISSED (CI excludes it) —
+scoring via forecast-rook3.py delegated to the value lens; both
+registrations predate their clock-mixing correction. mix-king cell (6/6)
+not yet run.
