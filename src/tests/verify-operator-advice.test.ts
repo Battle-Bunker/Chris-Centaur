@@ -576,6 +576,7 @@ describe('when pin advice reaches the operator', () => {
         };
       },
       pinSnakeIdOf: (_g, unitId) => registry[unitId] ?? null,
+      logDecision: () => undefined,
       now: () => 10_000,
       monotonic: clock.now,
       log: () => undefined,

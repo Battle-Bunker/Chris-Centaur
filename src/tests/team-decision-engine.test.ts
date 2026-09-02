@@ -28,6 +28,7 @@ import { GrammarCandidateGenerator } from '../lobster/candidates';
 import type { KernelReport } from '../lobster/kernel';
 import { adviseFromReport } from '../lobster/pins';
 import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
+import type { UnitDecisionRow } from '../lobster/telemetry';
 import {
   DEFAULT_MIN_WRITE_INTERVAL_MS,
   MIN_WRITE_INTERVAL_ENV,
@@ -74,6 +75,8 @@ interface Recorded {
 interface FakePorts extends TeamDecisionPorts {
   readonly staged: Recorded[];
   readonly enabled: string[];
+  /** Every replay row the engine handed to the telemetry port. */
+  readonly logged: UnitDecisionRow[];
   /** Deliver one wire event. `turn` is what the real stream stamps on it. */
   fire(ev: PinEvent, turn?: number): void;
 }
@@ -82,10 +85,15 @@ interface FakePorts extends TeamDecisionPorts {
 function fakePorts(registry: ReadonlyArray<string>): FakePorts {
   const staged: Recorded[] = [];
   const enabled: string[] = [];
+  const logged: UnitDecisionRow[] = [];
   let sink: ((ev: PinEvent, turn?: number) => void) | null = null;
   return {
     staged,
     enabled,
+    logged,
+    logDecision: (row) => {
+      logged.push(row);
+    },
     setBotRecommendation: (_gameId, snakeId, move) => {
       staged.push({ snakeId, move, at: Date.now() });
     },

@@ -413,6 +413,27 @@ export class TacticToesFirebaseInterface {
     enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
     onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
     pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
+    // REPLAY TELEMETRY, ATTACHED HERE AND NOWHERE INSIDE THE ENGINE. The
+    // DecisionLogger is a process-wide singleton with a database queue behind
+    // it; the lobster layer names a port and this file is what binds it, the
+    // same way the manager and the transport halves are bound above. The row
+    // arrives already shaped for the logger, so this is a forward and not a
+    // translation — `turn` is already in the decision-log domain (board turn
+    // + 1), which is what the submitted-move and server-move back-fills key on.
+    logDecision: (row) =>
+      DecisionLogger.getInstance().logDecision({
+        gameId: row.gameId,
+        snakeId: row.snakeId,
+        snakeName: row.snakeName,
+        turn: row.turn,
+        position: row.position,
+        health: row.health,
+        safeMoves: row.safeMoves,
+        botRecommendation: row.botRecommendation,
+        moveEvaluations: row.moveEvaluations,
+        decision: row.decision,
+        gameState: row.gameState,
+      }),
   });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc

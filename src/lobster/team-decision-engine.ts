@@ -33,7 +33,7 @@
  * per-game state on this engine, never module scope.
  */
 
-import type { Board as ApiBoard, CentaurMove, GameState } from '../types/battlesnake';
+import type { Board as ApiBoard, CentaurMove, Direction, GameState } from '../types/battlesnake';
 import type { TurnData } from '../server/active-game-manager';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
@@ -48,6 +48,7 @@ import type {
   KernelInput,
   Pin,
   PinEvent,
+  PinSet,
   PlanScore,
   SearchContext,
   SearchCore,
@@ -73,6 +74,8 @@ import {
   type KernelReport,
 } from './kernel';
 import { TeamPinLedger, adviseFromReport, type TeamPinAdvice } from './pins';
+import { buildDecisionRows } from './telemetry';
+import type { UnitDecisionRow } from './telemetry';
 
 // ------------------------------------------------------------------- ports
 
@@ -100,6 +103,24 @@ export interface TeamDecisionPorts {
   onPinEvent(gameId: string, sink: (event: PinEvent, turn?: number) => void): () => void;
   /** The transport registry's reverse lookup for pin-event unit numbers. */
   pinSnakeIdOf(gameId: string, unitId: UnitId): string | null;
+  /**
+   * REPLAY TELEMETRY OUT. One completed row per unit per turn, handed over
+   * after the decision has settled — see `./telemetry.ts` for what a row says
+   * and why it costs nothing inside the budget.
+   *
+   * A PORT AND NOT AN IMPORT. The logger is a process-wide singleton with a
+   * database queue behind it; reaching for it from in here would put a
+   * Postgres dependency inside the decision layer, and every lobster test
+   * would then be one import away from a live connection attempt. The wire
+   * layer owns persistence, so the wire layer supplies the sink and a test
+   * supplies a list.
+   *
+   * Required rather than optional, deliberately: an optional telemetry port is
+   * an unwired one, and an unwired one is exactly the silence this exists to
+   * end. A caller with nowhere to put rows passes `() => undefined` and has
+   * said so.
+   */
+  logDecision(row: UnitDecisionRow): void;
   /** Wall clock (Date.now scale). Injectable for tests. */
   now?(): number;
   /** The kernel's monotonic clock. Injectable for tests. */
@@ -461,9 +482,13 @@ export class TeamDecisionEngine {
     let lastAdvice = '';
     let forwarded = 0;
     let emitted = 0;
+    /** The plan the last emission staged — the one the telemetry rows explain
+     * candidates against. Null when the decision never staged anything. */
+    let finalPlan: JointPlan | null = null;
     try {
       for await (const rec of kernel.decide(kin)) {
         emitted++;
+        finalPlan = rec.plan;
         forwarded += this.forwardPlan(
           input,
           sub,
@@ -493,6 +518,32 @@ export class TeamDecisionEngine {
         game.stepCostMs = report.finalStepCostMs;
         game.stepCostTurn = input.turn;
       }
+      // TELEMETRY, IN THE FINALLY AND BEFORE THE RELEASE.
+      //
+      // In the `finally` because the two paths that most need explaining are
+      // the ones that do not reach the end of the loop: a decision ABANDONED
+      // because the turn resolved early, and one that threw. Both of those are
+      // turns a replay currently has nothing at all to say about, and a row
+      // written only on the happy path would leave exactly those holes.
+      //
+      // Before `sub.release()` because every candidate assessment and every
+      // counterfactual evaluation reads the substrate; after it there is
+      // nothing left to read. Its own try/catch, because a decision must never
+      // be able to fail on account of its own logging.
+      this.emitTelemetry({
+        input,
+        sub,
+        asTeam,
+        gen,
+        evaluate,
+        report,
+        finalPlan,
+        views,
+        lastForwarded,
+        assumptions,
+        modelled: chosen,
+        pins: initialPins,
+      });
       sub.release();
     }
     refusals['pin-event-late'] += game.ledger.droppedEvents - game.dropsReported;
@@ -884,6 +935,102 @@ export class TeamDecisionEngine {
       forwarded++;
     }
     return forwarded;
+  }
+
+  /**
+   * BUILD AND SHIP THE REPLAY ROWS, then re-publish the final turn data with
+   * the evaluations attached.
+   *
+   * TWO CONSUMERS, ONE COMPUTATION. The database row and the live UI want the
+   * same per-candidate list, so it is built once here and handed to both.
+   *
+   * WHY THE RE-PUBLISH IS SNAKES ONLY. `setBotRecommendation` rebuilds a
+   * PIECE's `moveEvaluations` from the manager's own piece candidates before it
+   * broadcasts — those rows carry the stay/rotate discriminant the client
+   * labels candidates and routes arrow keys with, which this layer has no way
+   * to reproduce. Overwriting them with lobster rows would trade a richer live
+   * panel for a poorer one; the piece's lobster detail goes to the DATABASE,
+   * where nothing was being written at all. Snakes have no such rebuild, so
+   * their rows go straight through to the client (websocket-server forwards
+   * `turnData.moveEvaluations` as it stands).
+   *
+   * Never throws. Telemetry that can take a decision down with it is worse
+   * than no telemetry.
+   */
+  private emitTelemetry(args: {
+    input: TeamTurnInput;
+    sub: EngineSubstrate;
+    asTeam: number;
+    gen: GrammarCandidateGenerator;
+    evaluate: Evaluator;
+    report: KernelReport | null;
+    finalPlan: JointPlan | null;
+    views: ReadonlyMap<string, GameState>;
+    lastForwarded: ReadonlyMap<string, CentaurMove>;
+    assumptions: ReadonlyArray<Assumption>;
+    modelled: ReadonlyArray<string>;
+    pins: PinSet;
+  }): void {
+    const { input, sub, asTeam, gen, evaluate, report, finalPlan, views, lastForwarded } = args;
+    let rows: UnitDecisionRow[];
+    try {
+      rows = buildDecisionRows({
+        gameId: input.gameId,
+        turn: input.turn,
+        sub,
+        asTeam,
+        gen,
+        evaluate,
+        report,
+        finalPlan,
+        views,
+        forwarded: lastForwarded,
+        assumptions: args.assumptions,
+        modelled: args.modelled,
+        pins: args.pins,
+        engineName: 'lobster',
+        moveOf: (unit, candidate) => this.moveOf(sub, unit, candidate),
+      });
+    } catch (err) {
+      this.log(
+        `[team-engine] ${input.gameId} turn ${input.turn}: decision telemetry failed — ` +
+          `${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
+    }
+
+    for (const row of rows) {
+      try {
+        this.ports.logDecision(row);
+      } catch (err) {
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: logDecision port threw for ` +
+            `${row.snakeId} — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      const unit = sub.unitOfWireId(row.snakeId);
+      const move = lastForwarded.get(row.snakeId);
+      if (unit === undefined || unit.type !== 'snake' || move === undefined) continue;
+      const view = views.get(row.snakeId);
+      if (view === undefined) continue;
+      try {
+        this.ports.setBotRecommendation(input.gameId, row.snakeId, move, {
+          gameState: view,
+          moveEvaluations: row.moveEvaluations,
+          territoryCells: {},
+          // Sound only because this branch is snakes-only: a snake's offerable
+          // set IS its direction words. A piece's would be destination ids.
+          safeMoves: row.safeMoves as Direction[],
+          botRecommendation: move,
+          timestamp: this.now(),
+        });
+      } catch (err) {
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: final turn-data publish threw ` +
+            `for ${row.snakeId} — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
   }
 
   /**

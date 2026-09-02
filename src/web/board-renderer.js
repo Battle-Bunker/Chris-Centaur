@@ -2243,6 +2243,12 @@ const BoardRenderer = (function () {
         breakdown: evalData?.breakdown ?? null,
         numStates: evalData?.numStates ?? null,
         displayScore: evalData?.score ?? (candidate.isSafe ? 0 : null),
+        // The bounds engine's own reading, when the row carries one: the full
+        // {lo, est, hi} bracket and which channel `score` reports. A single
+        // number out of a bounds engine is half the answer, and the panel says
+        // which half it is showing.
+        bounds: evalData?.bounds ?? null,
+        scoreChannel: evalData?.scoreChannel ?? null,
         projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
         projectedCellOwnership: evalData?.projectedCellOwnership ?? null,
         quality: null,
@@ -4191,6 +4197,17 @@ const BoardRenderer = (function () {
     }
 
     const breakdown = move.breakdown;
+    // WHICH VOCABULARY IS THIS. The metric list below is the legacy heuristic
+    // registry's, by name; the team engine's breakdown is keyed by its OWN
+    // feature names (material / reach / room / command / …), so running a
+    // lobster row through it renders thirty zero rows and hides every number
+    // the row actually carries. A row that says which engine wrote it gets its
+    // metrics derived from its own weights table instead — same five columns,
+    // same marginal-impact reading, same component.
+    if (breakdown.engine === "lobster") {
+      updateLobsterStatsTable(tbody, move, moveState, breakdown);
+      return;
+    }
     // Key-presence-driven rows: a breakdown carrying no heuristic keys at all
     // (no stats, empty weights/weighted tables — the piece stub evaluator's
     // shape) renders a genuinely EMPTY table through this same component.
@@ -4553,6 +4570,99 @@ const BoardRenderer = (function () {
         <td>${(move.score ?? 0).toFixed(2)}</td>
         <td style="color: ${totalMarginalImpact >= 0 ? "#4CAF50" : "#f44336"}; font-weight: 600;">
           ${totalMarginalImpact >= 0 ? "+" : ""}${totalMarginalImpact.toFixed(2)}
+        </td>
+      </tr>
+    `);
+
+    tbody.innerHTML = rows.join("");
+  }
+
+  // The stats table for a TEAM-ENGINE row. The lobster evaluator is a weighted
+  // fold, so its breakdown carries `weights[key]` and `weighted[key + "Score"]`
+  // with the unweighted reading at the top level under the feature's own name —
+  // the same arrangement the legacy rows use, in a different vocabulary. The
+  // rows are therefore derived from the weights table rather than from a fixed
+  // list, so a feature added to the evaluator shows up here without this file
+  // being touched.
+  function updateLobsterStatsTable(tbody, move, moveState, breakdown) {
+    const keys = Object.keys(breakdown.weights || {}).sort();
+    if (keys.length === 0) {
+      tbody.innerHTML = "";
+      return;
+    }
+
+    // The comparison set is the same one the legacy table uses: this unit's
+    // other candidates this turn, so a metric's "impact" is how far it moved
+    // THIS move away from the average move, not an absolute reading.
+    const candidateMoves = Object.values(moveState.moves).filter(
+      (m) => m.isEvaluated || m.isSafe,
+    );
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+    const averageWeighted = {};
+    if (candidateMoves.length > 0) {
+      for (const key of keys) {
+        let sum = 0;
+        candidateMoves.forEach((m) => {
+          sum += num(m.breakdown?.weighted?.[`${key}Score`]);
+        });
+        averageWeighted[key] = sum / candidateMoves.length;
+      }
+    }
+
+    const metrics = keys.map((key) => {
+      const weightedScore = num(breakdown.weighted?.[`${key}Score`]);
+      const average = num(averageWeighted[key]);
+      return {
+        name: key,
+        value: num(breakdown[key]),
+        weight: num(breakdown.weights[key]),
+        weightedScore,
+        marginalImpact: weightedScore - average,
+      };
+    });
+    metrics.sort((a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact));
+
+    const fmt = (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(2));
+    const rows = metrics.map((metric) => {
+      const impactColor =
+        metric.marginalImpact > 0
+          ? "#4CAF50"
+          : metric.marginalImpact < 0
+            ? "#f44336"
+            : "#888";
+      return `
+        <tr>
+          <td>${metric.name}</td>
+          <td>${fmt(metric.value)}</td>
+          <td>${metric.weight}</td>
+          <td>${metric.weightedScore.toFixed(2)}</td>
+          <td style="color: ${impactColor}; font-weight: 600;">${
+            metric.marginalImpact >= 0 ? "+" : ""
+          }${metric.marginalImpact.toFixed(2)}</td>
+        </tr>
+      `;
+    });
+
+    // The total row names the CHANNEL the score is on (the floor that
+    // adjudicates, or the estimate when every floor ties) and the bracket the
+    // decision actually proved, because a single number from a bounds engine
+    // is half the answer.
+    const bounds = move.bounds || null;
+    const channel = move.scoreChannel || "est";
+    const bracket = bounds
+      ? `[${num(bounds.lo).toFixed(2)}, ${num(bounds.hi).toFixed(2)}]`
+      : "—";
+    const totalMarginal =
+      num(move.score) -
+      candidateMoves.reduce((sum, m) => sum + num(m.score), 0) /
+        (candidateMoves.length || 1);
+    rows.push(`
+      <tr class="total-row">
+        <td>Total (${channel})</td>
+        <td colspan="2">${breakdown.profile || "lobster"} ${bracket}</td>
+        <td>${num(move.score).toFixed(2)}</td>
+        <td style="color: ${totalMarginal >= 0 ? "#4CAF50" : "#f44336"}; font-weight: 600;">
+          ${totalMarginal >= 0 ? "+" : ""}${totalMarginal.toFixed(2)}
         </td>
       </tr>
     `);

@@ -2,7 +2,7 @@ import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, dbConfigured } from '../database/db';
 import { transientDelay } from '../server/activity-controller';
 import { decisionLogs } from '../database/schema';
-import { BoardSnapshot, Direction } from '../types/battlesnake';
+import { BoardSnapshot, CentaurMove, Direction } from '../types/battlesnake';
 import { HeuristicKey } from '../config/heuristics';
 import { TeamDetector } from './team-detector';
 import {
@@ -13,6 +13,50 @@ import {
   TimelineRow,
 } from './turn-timeline';
 
+/**
+ * The legacy (VoronoiStrategy) breakdown: one stat per heuristic registry key,
+ * plus the raw foodDistance and the legacy wire aliases. A UI/DB contract —
+ * see `VoronoiStrategy.buildBreakdown`, and do not rename these.
+ */
+export type LegacyBreakdown = { [K in HeuristicKey]?: number } & {
+  foodDistance?: number;
+
+  fertileTerritory?: number;
+  foodDistanceInverse?: number;
+  myFoodCount?: number;
+  teamFoodCount?: number;
+  teamFertileScore?: number;
+
+  weights: any;
+  weighted: any;
+};
+
+/**
+ * One candidate row of `move_evaluations`.
+ *
+ * The first fields are the shape every reader keys on — the history viewer
+ * keys candidates by `String(move)`, places them by `dest`, and fills its panel
+ * from `score` and `breakdown.weights`/`breakdown.weighted`. TWO ENGINES write
+ * these rows (the legacy per-snake pass and the team engine's telemetry), and
+ * they carry different amounts of detail beyond that core, so THIS TYPE IS THE
+ * COMMON FLOOR AND NOT THE WHOLE ROW: a producer's own type carries its extra
+ * fields (see `TelemetryEvaluation` in `src/lobster/telemetry.ts`), and a
+ * reader tests for what it needs rather than assuming this enumerates
+ * everything that is stored.
+ */
+export interface DecisionMoveEvaluation {
+  /** A Direction for a snake, a full-board destination index for a piece. */
+  move: CentaurMove;
+  score: number;
+  numStates: number;
+  // The candidate's destination cell (api coords), when the producing pass
+  // computed it. Optional: legacy rows lack it and readers must tolerate
+  // absence.
+  dest?: { x: number; y: number };
+  projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
+  breakdown?: LegacyBreakdown | Record<string, unknown>;
+}
+
 export interface DecisionLogEntry {
   gameId: string;
   snakeId: string;
@@ -20,32 +64,20 @@ export interface DecisionLogEntry {
   turn: number;
   position: { x: number; y: number };
   health: number;
-  safeMoves: Direction[];
-  botRecommendation: Direction;
-  moveEvaluations: {
-    move: Direction;
-    score: number;
-    numStates: number;
-    // The candidate's destination cell (api coords), when the engine's
-    // projection pass computed it. Optional: legacy rows lack it and readers
-    // must tolerate absence.
-    dest?: { x: number; y: number };
-    projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
-    // One stat per heuristic registry key, plus the raw foodDistance and the
-    // legacy wire aliases (a UI/DB contract — see VoronoiStrategy.buildBreakdown).
-    breakdown?: { [K in HeuristicKey]?: number } & {
-      foodDistance?: number;
-
-      fertileTerritory?: number;
-      foodDistanceInverse?: number;
-      myFoodCount?: number;
-      teamFoodCount?: number;
-      teamFertileScore?: number;
-
-      weights: any;
-      weighted: any;
-    };
-  }[];
+  /** Directions for a snake; destination ids (as strings — the column is
+   * text[]) for a chess piece, whose offerable set is not a set of directions. */
+  safeMoves: string[];
+  /** A Direction for a snake, a full-board destination index for a piece. */
+  botRecommendation: CentaurMove;
+  moveEvaluations: DecisionMoveEvaluation[];
+  /**
+   * DECISION-LEVEL metadata, stored beside the per-candidate rows under
+   * `move_evaluations.decision` — the engine and profile that produced them,
+   * the kernel's report summary, the emission journal, the contrastive foil,
+   * and the modelling basis. Absent on legacy rows, and every reader treats it
+   * as optional.
+   */
+  decision?: unknown;
   gameState: any;
 }
 
@@ -61,11 +93,32 @@ interface SerializedRow {
   positionX: number;
   positionY: number;
   health: number;
-  safeMoves: Direction[];
-  botRecommendation: Direction;
+  safeMoves: string[];
+  /** Already narrowed to what `bot_recommendation` (varchar(10)) can hold —
+   * see `wireMoveForColumn`. */
+  botRecommendation: string;
   moveEvaluationsJson: string;
   gameStateJson: string;
   retries: number;
+}
+
+/**
+ * `bot_recommendation` is varchar(10), and a piece's wire move is a NUMBER (a
+ * full-board destination index), not a direction word. Every board this centaur
+ * plays produces indices of at most four digits, so the canonical decimal form
+ * fits with room to spare — but a column overflow would fail the whole insert
+ * batch and lose other snakes' rows with it, so the width is enforced here
+ * rather than assumed. The full move is on the row's `move_evaluations` blob
+ * either way, so a truncation costs a key and never the fact.
+ */
+export function wireMoveForColumn(move: CentaurMove): string {
+  const text = String(move);
+  if (text.length <= 10) return text;
+  console.warn(
+    `[DecisionLogger] bot_recommendation "${text}" exceeds varchar(10); storing the ` +
+      'first 10 characters — the full move stays on move_evaluations'
+  );
+  return text.slice(0, 10);
 }
 
 // A single controlled snake within a (game, team) group, as surfaced to the
@@ -224,7 +277,15 @@ export class DecisionLogger {
     let moveEvaluationsJson: string;
     let gameStateJson: string;
     try {
-      moveEvaluationsJson = JSON.stringify({ evaluations: entry.moveEvaluations });
+      // `decision` rides INSIDE the same jsonb column, as a sibling of
+      // `evaluations`. The blob has always been an object with named keys
+      // (readers do `blob.evaluations || blob` to cope with the array-shaped
+      // era), so a second key costs no reader anything and saves a column.
+      moveEvaluationsJson = JSON.stringify(
+        entry.decision === undefined
+          ? { evaluations: entry.moveEvaluations }
+          : { evaluations: entry.moveEvaluations, decision: entry.decision }
+      );
       gameStateJson = JSON.stringify(slimGameStateForLog(entry.gameState));
     } catch (e) {
       console.error('[DecisionLogger] Failed to serialize entry, dropping:', e);
@@ -240,7 +301,7 @@ export class DecisionLogger {
       positionY: entry.position.y,
       health: entry.health,
       safeMoves: entry.safeMoves,
-      botRecommendation: entry.botRecommendation,
+      botRecommendation: wireMoveForColumn(entry.botRecommendation),
       moveEvaluationsJson,
       gameStateJson,
       retries: 0,

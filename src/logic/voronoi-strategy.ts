@@ -7,7 +7,7 @@ import { GameState, Direction, TeamInfo } from '../types/battlesnake';
 import { BoardEvaluation } from './board-evaluator';
 import { DecisionEngine, MoveDecision } from './decision-engine';
 import { WaypointContext } from './waypoint-pathing';
-import { DecisionLogEntry, DecisionLogger } from './decision-logger';
+import { DecisionLogger, LegacyBreakdown } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
@@ -188,7 +188,7 @@ export class VoronoiStrategy {
   // legacy wire aliases.
   private buildBreakdown(
     evaluation: BoardEvaluation
-  ): NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']> {
+  ): LegacyBreakdown {
     const { stats } = evaluation;
     const breakdown: { [key: string]: any } = {};
     for (const key of HEURISTIC_KEYS) breakdown[key] = stats[key];
@@ -203,7 +203,7 @@ export class VoronoiStrategy {
     breakdown.myFoodCount = stats.myControlledFood;
     breakdown.teamFoodCount = stats.teamControlledFood;
     breakdown.teamFertileScore = stats.teamTerritory + stats.teamControlledFood * 10;
-    return breakdown as NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']>;
+    return breakdown as LegacyBreakdown;
   }
 
   private assembleDebugResult(gameState: GameState, decision: MoveDecision): StrategyResult {
