@@ -1,239 +1,199 @@
-# SYNTHESIS — the time factorization
+# SYNTHESIS — the time factorization (iteration snapshot, cycle E)
 
-The standalone summary of the design/time-interruption line. Details and
-derivations: `time-worldline.md` (the factorization and its verification),
-`time-worked-timeline.md` (two turns walked through the primitives),
-`time-agent-and-measurement.md` (the agent split, the quantum, the harness),
-`time-premise-reconciliation.md` (cross-lens algebra), `worldline.sketch.ts`
-(the seams as types), `realized-resolution.sketch.md` (the replay
-constructor's case analysis), `time-red-team.md` (the minimal-path
-alternative, the slab law, default policy numbers). Grounded on `claude/cluster-lookahead` @ `47c983e`,
-`primary` @ `66904d2`, TacticToes @ `416d9c8`.
+The standing summary of the design/time-interruption line under the
+extended mandate (rulings 49/50: continuous iteration; this is a
+snapshot, not an endpoint). Companions: `time-worldline.md` (the
+factorization), `time-worked-timeline.md` + `time-fog-timeline.md` (the
+process traces), `time-agent-and-measurement.md` (agent split, quantum,
+harness), `time-premise-reconciliation.md` + `time-cross-lens-round2.md`
+(cross-lens algebra), `time-prior-art.md` (expert implementations),
+`time-economy-goods.md` (CPPs, flip pricing, the denominator proposal),
+`time-cpp-spec.md` (executable profile compilation),
+`time-scheduler-sketch.md` + `worldline.sketch.ts` +
+`realized-resolution.sketch.md` (builder-facing), `time-red-team.md`
+(minimal path), `redteam-joints-composition.md` (delivered),
+`time-response-value-redteam.md` (received and answered),
+`time-manifest-join.md` (the worked join with the composition lens).
+Grounded on `claude/cluster-lookahead` @ `47c983e`, `primary` @
+`66904d2`, TacticToes @ `416d9c8`.
 
 ---
 
-## 1. The answers to the lens's four design questions
+## 1. The carve
 
-**Q: What is the true joint between wall-clock budget, search progress, and
-commitment?** Three different things, currently fused in the kernel, that
-the domain itself separates. SEARCH PROGRESS is compute spent — measured in
-quanta (resolution-equivalents), whose sequence is a pure function of
-(seeds, frontier, allowance) once no clock is read inside work.
-WALL-CLOCK BUDGET is an obligation about when commitments may still change —
-it belongs to the per-turn commitment agent and touches search through
-exactly one adapter (the exchange rate, which converts deadlines into
-allowance grants and is the only module that reads a clock). COMMITMENT is
-the wire discipline — gates, ratchet, conformance, flush — and consumes
-search products without owning search state. The joint between them is the
-ALLOWANCE GRANT: one logged integer per tranche, the single point where wall
-time can influence what the search becomes.
+Two kinds of time: DETERMINATIONS advance information; QUANTA advance
+search. They touch at one point — the allowance grant, one logged integer.
+Two primitives plus a transport:
 
-**Q: Are anytime slices, ponder, mid-turn interruption, and re-basing the
-same operation parameterized differently?** Yes — two operations, and every
-mechanism is a parameterization:
+- `spend(tranche, hypothesis)` — anytime slice, speculative pin context,
+  scout thread, and ponder are four parameterizations of it (ponder =
+  spending under a simultaneity narrowing nothing can buy yet: the
+  anticipatory meet).
+- `observe(determination)` — operator commit, turn resolution, partial
+  fog resolution, dial change; kills exactly the state whose declared
+  coordinates were determined (durability-strata indexed), with CUTOFF
+  (recompute-and-compare before propagating; the commit-of-the-staged-
+  move case costs one equality check, not today's full epoch teardown).
+- `ADVANCE` — transport to the next turn's lattice at resolution: values
+  cross iff premise-point-exact + same evalVersion + spawn-clean;
+  everything else carries attention only and re-walks.
 
-- `spend(tranche, hypothesis)` — refine beliefs under a (possibly
-  hypothetical) determination frontier. Anytime slice = spend on the actual
-  frontier with an agent attached; speculative pin context = spend on
-  frontier + assumed pin; scout thread = spend on frontier + assumed cluster
-  joint; ponder = spend with no agent attached, on frontier + assumed enemy
-  reply (our own commits are now facts, which is why ponder needs no new
-  simulation concept).
-- `observe(determination)` — advance the frontier; kill exactly the state
-  whose declared coordinates the determination touched; promote hypotheses
-  whose assumptions became fact. Operator commit = observe determining one
-  action (kills one cluster's values, keeps the rest — the structural end of
-  the 343 ms toll); turn resolution = observe determining all actions plus
-  spawns, followed by ADVANCE (transport to the next turn: door semantics,
-  attention carries, values re-walk); partial observation under future fog =
-  the same observe determining a subset, clouds intersecting — the general
-  case, with today's full observability the degenerate limit.
+Module split: per-game WORLDLINE (frontier, hypothesis table, attention,
+ledger-replayable folds), per-turn COMMITMENT AGENT (deadline, wire,
+gates, ratchet — the interruptibility witness law: the standing incumbent
+IS the pipeline's interruptible type), one EXCHANGE RATE (every clock
+read; Law K(b) spend-only). The engine-API question dissolved: the Turn
+doc already carries the resolution record; re-base replays the realized
+orders through the bot's own engine with the wire as per-turn checksum
+(movement half replayed, game-state half copied; under fog the same path
+with holds — full observability is the degenerate case).
 
-In the premise-lattice vocabulary the three lenses now share: spend buys
-meets (including ANTICIPATORY meets — computing under a narrowing nothing
-can purchase yet, which is what ponder is); observe is conditioning; advance
-is the third lattice operation, transport between successive turns' lattices.
+## 2. The economy, with goods (cycle D)
 
-**Q: What engine-API change makes this natural?** Less than the program
-believed, and the pending game-server ruling dissolves. Verified: the
-TacticToes `Turn` document already carries the resolution record's content
-(authoritative deaths with cause+subStep, typed clashes, severedCells,
-per-unit end squares including truncated-slider stops, piece paths,
-orientation, promotions, effects), and the bot's own
-`PartialEngine.resolve(state, orders)` returns exactly the `Resolution` the
-door consumes, with the order vocabulary (destinations, holds, rotation
-codes) sufficient to express any realized turn. So re-basing reconstructs
-the resolution by REPLAYING the realized joint move through the bot's own
-differentially-tested engine — movement/collision half replayed, game-state
-half (spawns, tiers, promotion, orientation) copied from the doc — with the
-wire doc as a per-turn CHECKSUM and today's marshal path as the fallback on
-any mismatch. The wire's role inverts from constructor to verifier; a free
-differential test of the partial engine runs every live turn; the harness
-already exposes the same record locally (`resolveFullTurn`'s
-`outcome.events`). Remaining engine-API items are additive polish
-(subStepCount, settled exhaustions, optionally a state hash) plus — for the
-fog programme — the epistemics lens's ObservationRecord (facts/mask/events),
-into which this design plugs without change: hidden units' orders stay
-unknowable, so they stay held, and the same advance path carries them.
+The core object is the CONDITIONAL PERFORMANCE PROFILE
+`Pr(quality | quanta, premise-coords)` — fibered over the joints lens's
+premise lattice, compiled offline from the replay archive
+(`time-cpp-spec.md`), every profile a member with fit provenance
+(ruling 49; provenance classes include THEOREM for the ratio-2 schedule).
+Meets are priced by decision-change, not width: market weight =
+P(realize) × P(flip at the deciding rung) × E[improvement | flip], with
+the flip factor read off interval overlap at the rung the lexicographic
+comparator actually decided on (already telemetry). Narrowing an
+uncontested rung is worth zero. Obligations (reaction table) compose by
+MIN over kernel-pinned deadline-zero rows; allocations partition.
+Metareasoning is metered: the economy may not spend more on choosing than
+the spread it can recover, and monitor cadence IS the tranche-size axis —
+one dial, not two.
 
-**Q: How does per-decision compute sequencing become a first-class, tunable
-joint?** As four small policies, all ordinary config (lane a), no flags:
-tranche sizing (exchange rate + the operator-latency cap); allowance split
-across phases (unifying the scout's tithe/reserve, the kernel's
-speculativePeriod, and the unbuilt ponder-window policy into one table);
-the hypothesis market (which conditional frontier earns the next tranche —
-unifying ponder targeting, speculative contexts, thread seeding, ruling-41
-focus narrowing, and the future D2 socket, whose output plugs in as market
-weights); and the reaction table (conform-now / next-tranche /
-next-commitment per determination source — "humans always win" is one row,
-the dial promise is another). Every one is sweepable as a batch arm; the
-ledger makes each measurable (carriedQuanta, promotion rate,
-ponderReadAfterRebase, carryEffectRate beside the standing depthEffectRate).
+The whole surface is expressed as manifest rows (`time-manifest-join.md`):
+six ECONOMY joints (tranche / phase-split / window / market / reaction /
+conversion), three member columns with teeth (`transport` — 'invariant'
+refused when params cite a world coordinate; `interruptibility:
+contract | interruptible`; `calibrationClass` — Law K as a checkable
+field), a per-REDUCTION-site constraint table (the ponder-targeting site
+pinned ≤ W2 until the D2 ruling), and one drift found and relayed:
+fitted-shared-data members (CPPs and their kin) need a PROFILE entry
+class in the manifest.
 
-## 2. What is new relative to the standing designs
+**The denominator proposal (dissolves the question formerly escalated):**
+fund refine grants to `CPP-target − carriedQuanta` (Lc0 PR1195's shipped
+shape); compare cross-policy arms at equal EXPECTED QUALITY with
+equal-wall strength as the headline; stamp the CPP member into the CONFIG
+coordinate so verdicts under different profiles never compare silently.
 
-The rebase-transfer and interruption designs stand; this line changes their
-foundations in four places:
+## 3. The outcome thesis and the build order (cycle D, after the VALUE red team)
 
-1. **Their five pending dilemmas shrink to one.** Resolution-record emission
-   (dissolved — §1Q3); dial latency (dissolved into "next tranche, softly"
-   via evaluator-version demotion — old values become advisory shadows, the
-   wire re-conforms immediately, re-pricing flows through ordinary
-   spending); ponder determinism (dissolved into the allowance ledger — both
-   fixed and opportunistic grants replay exactly from one logged integer per
-   window). Still genuinely needing the owner: the measurement denominator
-   under carried compute (proposal: per-turn metrics keep their denominator
-   via targetTurn stamps; carriedQuanta becomes a first-class column;
-   cross-policy arms compared at equal refine-quanta AND equal total).
-2. **Event scope is derived, not declared.** The three-axis DecisionEvent
-   classification keeps only its reaction axis; invalidation scope falls out
-   of declared read-sets (merged with the epistemics projection tags and the
-   joints lattice's frame coordinate into one record, five readers), so
-   citation completeness inherits the refusal law's existing teeth.
-3. **The carry store, the ponder session, and the event track stop being
-   three mechanisms.** They are rows of spend/observe/advance — the cheapest
-   deletion in the programme is this design-space complexity deleted before
-   it is built. Where a pondered hypothesis matched reality EXACTLY, its
-   promotion is a warm-context resume (strictly stronger than the carry
-   store's scalar bridge); the carry rows remain the fallback for partial
-   matches, per rebase-transfer unchanged.
-4. **The slice-count nondeterminism is removed rather than explained.**
-   Wall cuts inside work (the shouldStop points) become counting cuts;
-   wall time influences only the number of grants, which the ledger records.
-   Verified feasible: five shouldStop consultation points in the bank, all
-   via the injected handle; countingBudget already in the testkit.
+> Time structure pays iff it converts idle and mispriced time into DEPTH
+> THAT CHANGES DECISIONS on compute-starved boards — measured as
+> depthChangedStaging rate and sharePar on piece cells against a
+> same-lineage control.
 
-## 2½. The prior-art verdict (extended mandate; details in time-prior-art.md, red team of the sibling carve in redteam-joints-composition.md)
+The 10×-budget invariance of the evaluator ladder is evidence about
+breadth-at-horizon-1 and confirms the base rate against plumbing-only
+claims; the queen board's 16× throughput collapse (216 plans/decision) is
+the motivating case; and the piece-board tension (ponder value-survival
+worst where compute starves most) resolves into policy: piece boards
+front-load STRUCTURAL pre-build in the ponder ladder (structure survives
+~always and enumeration is the starved good), snake boards front-load
+deep value. The CPP's queen-cell curve arbitrates empirically.
 
-The carve was checked against Stockfish/Leela/KataGo time management and
-ponder, GGPO-style rollback, the incremental-computation lineage
-(Salsa / Adapton / Jane Street Incremental), and the Zilberstein anytime
-school. It survives everywhere, and each field paid an amendment:
-Stockfish's `nodestime` is a shipped allowance ledger (with the
-conservative-fit direction in a comment); the AlphaZero family's tree
-reuse scopes the no-values-cross rule (exact-premise, same-objective
-values DO cross — attention-only is the law for inexact premises);
-Salsa/Incremental contribute the cutoff law (which exposed the
-approve-the-bot's-move epoch teardown) and durability strata; GGPO
-contributes the sync-test gate and the quarantine contrast (fibers make
-rollback unnecessary by construction); the anytime literature solves the
-ponder-window sizing problem outright (geometric contract ladder under a
-stochastic deadline) and licenses tranche atomicity at a bounded constant
-factor.
+Build order (each a feature branch; two-lane compliant; no flags):
 
-## 3. The build path (feature branches, each standalone)
+1. **feature/allowance-ledger** — quanta accounting, exchange rate,
+   ledger replay rows, harness virtual clock, sync-test gate (every
+   decision run twice from the ledger, byte-compared), and the first
+   v0 CPPs compiled from the archive. Claims: measurement quality
+   (floors tighten; sync-test holds) — immune to the outcome objection,
+   prerequisite to every later claim.
+2. **feature/replay-rebase** — realizedResolution (replay + checksum +
+   `replay-divergence` / `mask-divergence` counters); the depth-engagement
+   enabler and a standing live differential test.
+3. **feature/worldline** — hypothesis table, attention carry +
+   exact-premise value transport, ponder as a geometric grant ladder on
+   the everythingPinned/settled conditions, structural pre-build first on
+   piece boards. CARRIES THE OUTCOME FALSIFIER above; the two-turn
+   acceptance games remain diagnostics. Slab law: no slabs cross a
+   re-base. Revalidation law: bot-authored carried premises revalidate
+   every turn or die.
+4. **feature/commit-scope** — citation-scoped commit invalidation +
+   cutoff + reaction table; honestly labeled a latency/operator-experience
+   claim (conform ≤ 1 tranche under intervention; commit-agree ≈ free),
+   with the first operator event ever fired in a harness game.
+5. **feature/evaluator-version** — version stamps + next-tranche-softly
+   re-pricing + the dial acceptance game.
 
-ORDERING SUPERSEDED by `time-response-value-redteam.md` §3 (the VALUE
-lens's falsifier-level red team, accepted): allowance-ledger first
-(measurement claim, plus the first offline-compiled CPP), replay-rebase
-second (the depth-engagement enabler; the queen board's 16× throughput
-collapse is the motivating case), worldline third and carrying THE
-OUTCOME FALSIFIER (depthChangedStaging + sharePar on piece cells vs
-same-lineage control — the strength gate for the whole cross-turn
-programme), commit-scope fourth re-labeled as a latency/operator claim,
-evaluator-version fifth. The denominator question formerly escalated in
-§1Q4 is dissolved by `time-economy-goods.md` §2 (CPP-denominated
-comparison + Lc0-shaped funding — an owner proposal now, not a
-question). The original list below is kept for its content:
+MIN-vs-FULL escape hatch stands (`time-red-team.md` §1): increments 1–2
+are shared and standalone; the worldline decision point arrives with the
+falsifiers answered, and the fog milestone is what makes FULL's unique
+dividend (per-variable survival) load-bearing.
 
-1. **feature/commit-scope** — citation-scoped commit invalidation over the
-   toll fix's per-cluster seam + the CUTOFF check (a commit of the
-   already-staged destination costs one equality test, not an epoch
-   teardown) + reaction table + the first operator event ever fired in a
-   harness game. Falsifier: if scoping + cutoff do not recover most of the
-   343 ms, the central economy is wrong — stop here.
-2. **feature/allowance-ledger** — quanta accounting, exchange rate, ledger
-   replay rows, harness virtual clock, and the sync-test gate (every
-   decision run twice from the ledger, byte-compared). Falsifiers: A/A
-   floors must tighten on a loaded box; sync-test must hold.
-3. **feature/replay-rebase** — realizedResolution + checksum + divergence
-   counter. Standalone: the free live differential test.
-4. **feature/worldline** — the per-game object absorbing GameState_, the
-   hypothesis table, attention carry + exact-premise value transport
-   (A1.1), ponder grants as a geometric ladder (A4.1) on the
-   everythingPinned condition. Falsifier: warm promotion must beat the
-   scalar carry bridge on the two-turn acceptance games.
-5. **feature/evaluator-version** — version stamps + soft re-price + the
-   dial acceptance game.
+## 4. Laws (consolidated, current wording)
 
-### 3½. Ruling-49 self-audit (which of this line's own numbers are lineage-conditioned)
+- **Ledger law**: no layer below the exchange rate reads a clock; wall
+  time influences only grant count, which is logged. (GGPO: everything
+  nondeterministic is an input.)
+- **Anti-latch, restated under Law K** (cycle E): cross-turn mutable
+  state is exactly (a) ledger-replayable folds of determinations —
+  attention rows, learned measure state, each turn-stamped, bounded,
+  declared in the measure coordinate; (b) spend-only wall-derived fits;
+  (c) the seed position. No wall-derived value may reach an order, bound,
+  or refusal.
+- **Citation law with three verdicts** — determined → kill;
+  merely-NARROWED → sound state survives valid-but-looser (a theorem, the
+  belief lens's fill: floors over S floor any S′ ⊆ S; witnesses
+  membership-re-checked; advised precision-decayed; observe() conditions
+  S first, then the citation pass); untouched → live — **plus cutoff and
+  durability strata** (invalidation);
+  **transport law** (A1.1-scoped value crossing); **quarantine** (fibers
+  never reach the wire — misprediction costs compute only, no rollback
+  operation exists); **incumbent witness**; **revalidation for
+  bot-authored carries**; **obligation-by-MIN** with humans-always-win at
+  deadline zero; **metareasoning metered**.
 
-Applying the fitted-constants-are-members rule to this branch's own text:
-the 343 ms toll and the msPerResolution measurements (1.1–4.2) are
-this-lineage, this-shape measurements — mechanics, not strategy, but their
-MAGNITUDES condition increment-1's falsifier and must be re-measured on
-whatever lineage builds it. The red-team doc's default numbers (tithe 0.2,
-reserve 0.5, 1-in-4 speculative share, rungZero 0.1, the W0/W2 market
-weights 1.0/0.25) are inherited or invented constants with NO fit
-provenance: every one enters as a member with provenance
-"inherited-unfitted", and none is a commitment. Two claims in this line
-are arguments, not measurements, and are marked as such: "exact-hit mass
-is structurally lower here than chess's ~50%" (a product-space argument),
-and "a human approving the bot's staged move is the most common operator
-action" (UNMEASURED — no operator event has ever fired in a harness game;
-the cutoff win is real regardless, but its PRIORITY rests on live
-operator telemetry that increment 1 itself is what starts collecting).
+## 5. Ruling-49 self-audit (standing)
 
-Anti-latch law throughout: the worldline holds knowledge and appetite,
-never calibration — the only cross-turn mutable scalars are the
-exchange-rate fit (turn-stamped), attention rows (rootTurn-tripwired,
-plies-bounded), and the seed position.
+The 343 ms and msPerResolution magnitudes are lineage-conditioned
+mechanics — re-measure on the building lineage. Every default in these
+docs (tithe/reserve/speculative share/market weights/ladder base) enters
+as a member with provenance `inherited-unfitted`. Marked as arguments,
+not measurements: the product-space case against predicted-move ponder,
+and "commit-agree is the most common operator action" (no operator event
+has ever fired in a harness game; increment 4 starts the telemetry).
 
-Vocabulary note for future briefings: the engineering term "hypothesis
-promotion" in these documents is internal; owner-facing text renders it as
-a hypothesis being CONFIRMED by reality and its work CARRIED warm (the
-checker blocks the internal word, correctly).
-
-## 4. Owner summary (vocabulary-checked: 0 blocking; ≤8 bullets)
+## 6. Owner summary (vocabulary-checked shapes; ≤8 bullets)
 
 - Wall-clock time and search work are separated at exactly one point: the
   clock is read only to grant the search an allowance of work units, and
-  every grant is logged — so a game replays from its log, whichever way the
-  humans and opponents moved the clock.
+  every grant is logged — so a game replays from its log, whichever way
+  the humans and opponents moved the clock; a self-check mode replays
+  each decision twice and compares byte-for-byte.
 - The search becomes one continuous per-game process; each turn a small
   per-turn agent attaches to it, owning the deadline, the wire, and every
   emission gate unchanged.
-- An operator commit now invalidates only the work that actually depended
-  on that unit's choice — the bot stops paying a full re-open for every
-  human intervention, and the more the human intervenes the more the bot
-  keeps thinking.
+- An operator commit invalidates only the work that depended on that
+  unit's choice, and approving the bot's own staged move costs nearly
+  nothing instead of a full rebuild — the more the human intervenes, the
+  more the bot keeps thinking.
 - Thinking between turns needs no new machinery: with our moves committed
-  they are facts, enemy replies are explored exactly the way the deep
-  search already explores them, and whatever reality confirms is carried
-  warm into the next turn's first work.
-- The game server change previously thought necessary is not: the turn
-  document already publishes what happened in enough detail for the bot to
-  replay the turn through its own rules engine, using the wire as a
-  per-turn correctness check — which also audits the engines against each
-  other in every live game for free.
-- Invisibility potions ride the same path: whatever the turn document hides
-  simply stays held as a possibility cloud across the boundary — full
-  visibility is the special case, not the design.
-- A dial change takes effect at the next work grant: the wire re-conforms
-  immediately under the new pricing, old values drop to advisory ordering
-  hints, and full re-pricing flows through ordinary work.
-- One accounting question needs a ruling before the first between-turns
-  experiment: per-turn measurements keep their denominator by stamping each
-  work grant with the turn it serves, and carried compute becomes its own
-  reported column — arms with different between-turns policies get compared
-  both at equal per-turn work and at equal total work.
+  they are facts, enemy replies are explored the way the deep search
+  already explores them, and whatever reality confirms is carried warm
+  into the next turn's first work — on piece boards the between-turns
+  work builds the expensive groundwork first, because that is what
+  survives any reply.
+- The game server change previously thought necessary is not needed: the
+  turn document already publishes enough for the bot to replay the turn
+  through its own rules engine, using the wire as a per-turn correctness
+  check — a free engines-agree audit in every live game.
+- What a unit of thinking actually buys is now a measured curve per board
+  type, compiled from games already on disk — it prices every budget
+  decision, replaces the open measurement question (compare at equal
+  expected quality; fund each turn net of carried work), and tells us for
+  the first time what ten seconds buys over one.
+- Work is aimed where it can change the decision: effort that narrows a
+  question the current choice does not turn on is priced at zero, and
+  when the choice is already settled the rest of the turn's time flows to
+  next turn's thinking.
+- The strength bar for the whole cross-turn programme is explicit: deeper
+  search that changes staged moves on the piece-heavy boards where
+  compute is starved, against a same-lineage control — plumbing wins
+  alone do not clear it.

@@ -379,6 +379,24 @@ nothing else.** Consequences, in order of value:
    change mid-season, or a mid-turn reveal) needs a variables-determined
    list and nothing else; no handler taxonomy grows.
 
+**The third verdict — NARROWED (belief-lens fill, their 11-doc Part B,
+adopted as a theorem, not a policy).** The law as first drafted was
+binary: a variable is determined (citing state dies) or untouched (state
+lives). Fog produces a third case — an observation that merely NARROWS a
+variable's support (a C1 event deduction, a mid-turn reveal, a
+visible-empty cell). Their fill: sound state citing a merely-narrowed
+variable SURVIVES, valid but looser — a floor over S is a floor over any
+S′ ⊆ S, ceilings likewise; a witness needs only a membership re-check
+(set query, never a recompute); advised values survive with precision
+decayed. So **no observation that merely narrows ever forces
+invalidation — only determinations (root advances, subject changes) pay
+teardown.** Consequences: mid-turn reveals and C1 conditioning cost zero
+invalidation, and C2 deduction becomes purchasable mid-decision with no
+teardown externality. Scope is proof-bounded: dilation is excluded
+(S′ ⊆ S fails), and the n=all row (re-base) is unchanged. ORDERING, from
+the same fill: `observe()` conditions S through the C-ladder FIRST, then
+runs the citation pass — so anything re-priced sees the new S.
+
 Two laws added by the prior-art pass (`time-prior-art.md` A3.1–A3.2):
 
 - **CUTOFF.** Invalidation stops where recomputation yields an equal value
