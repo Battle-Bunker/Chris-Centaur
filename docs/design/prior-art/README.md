@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Eight domains, surveyed against the four lens syntheses as they stood at
+Nine domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -21,6 +21,7 @@ case.*
 | 6 | rollback netcode and incremental computation | `06-rollback-and-incremental-computation.md` |
 | 7 | community practice as a member mine | `07-community-practice-member-mine.md` |
 | 8 | partial observability, POMDPs and one-sided POSGs vs the fog programme | `08-partial-observability-and-posgs.md` |
+| 9 | evaluation, population distortion, and how to grow a roster (**ruling 49**) | `09-evaluation-and-population-distortion.md` |
 
 ---
 
@@ -48,7 +49,17 @@ membership. Our manifest shares values by design (memo namespaces, one spend
 serving several hypotheses). Either declare and prove the allocation projection
 is a tree, or drop the optimality claim and make citations per-edge.
 
-**R-3. Every restriction of the option set must be adaptive on value or carry a
+**R-3. Every restriction must be grown by BEST RESPONSE and carry the gap that
+says how wrong it currently is.** This is the survey's single most important
+structural observation, because the same algorithm appears at **three scales** of
+our design and we have it at none of them: within a decision (double-oracle over
+actions — DO-αβ solves in <2% of backward-induction time, and carries the value
+gap); within a game (PSRO over policies — self-play is the degenerate case that
+overfits); within the roster (best response to the roster's meta-Nash — the
+procedural answer to "the config space is explored at low density"). At every
+level our design instead uses a fixed cap, a fixed default, or taste:
+`sliderCandidateCap: 4`, `DEFAULT_BOT_CONFIG`, hand-specced arms. Corollary form:
+**every restriction of the option set must be adaptive on value or carry a
 bound on what it removed.** Double-oracle restricts by best response *and carries
 the value gap*; CMAB naive sampling restricts by a per-variable bandit updated on
 realised reward; Prismata's HPS restricts by named portfolio scripts; Texel
@@ -65,6 +76,9 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 
 | id | lens | one line |
 |---|---|---|
+| **C28** | OWNER / VALUE | **Every headline number is a non-invariant aggregate over a redundant population.** Balduzzi et al.'s P1 axiom — "adding redundant copies should make no difference" — *excludes Elo and uniform averaging by name*, and the bias "can only be detected post hoc". Their Atari re-evaluation flipped "superhuman" to "ties with humans". Fixable on the archive we already hold: build the arm-vs-arm matrix, take the **maxent Nash**. |
+| **C29** | OWNER / COMPOSITION | **Nobody has checked whether our arms cycle.** A simultaneous-move game with contested cells manufactures rock-paper-scissors structure; if the cyclic fraction is non-negligible then "which bot is better" is not well posed, a roster must be a **mixture** not a champion, and the missing production bot-binding site becomes a blocker. Two-hour check on existing data (mElo's Schur decomposition). |
+| **C30** | COMPOSITION | **The roster grows by taste; PSRO grows it by best response to the current meta-strategy** — which directs exploration exactly where the population is weakest. The procedural answer to ruling 49's "explored at low density", instead of "run more arms". |
 | **C1** | BELIEF | ε=1 is the *pure security level*, not "the adversarial zero point". In a simultaneous-move game the field's zero point is the stage matrix's **NE**, solved by LP — a distribution, not a scalar worst case. No ε reaches the correct answer. Needs a third reading beside sound/advised: **equilibrium**. |
 | **C5** | TIME | An economy with prices and no goods: **no performance profile exists anywhere**. Zilberstein's conditional performance profile `Pr(quality \| time, input quality)` is the missing object; our premise coordinates are already an input-quality index, and the owner's escalated denominator question dissolves once it exists. |
 | **C12** | BELIEF / VALUE | Γ-maximin's optimal set **does not shrink as beliefs sharpen** (Troffaes) — it returns one option even under complete ignorance. That is the one property a Centaur option-surfacer must have. **Maximality** returns it natively. Strongest architectural argument for the Centaur direction in the survey. |
@@ -92,6 +106,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 
 | id | one line |
 |---|---|
+| **M24** | "Is this member worth keeping?" gets a formal, ungameable answer: **it has support in the meta-game's Nash equilibrium**. Stronger than the reachability law's intent and immune to the counter it already worries about (a roster bot that exists only to keep a member alive). |
+| **M26** | mElo's **latent-skill decomposition** of the cell × arm matrix answers "what does this cell actually test?" — the dead knight cell would appear as a near-zero singular value automatically, without anyone reading `moveGrammar.ts:27`. Subsumes the value lens's M5. |
 | **M11** | **Paired seat-swapped scenarios + pentanomial scoring** (Fishtest). The pentanomial-vs-trinomial gap is *itself an estimate of the population's bias* — the closest thing found to an instrument for ruling 49's distortion worry. |
 | **M13** | **Per-unit flows as standing telemetry.** KataGo's ownership head exists for credit assignment from few samples. Promoting our mining scripts to a per-game column turns 144 games into thousands of unit-observations at zero play cost — the cheapest answer to "the space is explored at low density". |
 | **V-3** | **The checkerboard parity bound** (a1k0n) — sound, free, strictly tighter than a cell count, and we lack it. |
