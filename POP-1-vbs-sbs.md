@@ -1,3 +1,10 @@
+> **CORRECTED BY `M64-is-the-cycle-selectable.md`.** The per-cell gap of +0.071 below is
+> **IN-SAMPLE** (best arm chosen and scored on the same games). Cross-validated it is
+> **+0.0197**, inside its own floor's CI — a factor of 3.6 smaller. Read the per-cell headroom
+> as +0.020. The null is unchanged and is now stronger: a family-conditional selector keyed on
+> the roster, cross-validated, LOSES to a single arm (-0.0134), so POP-3's sign-flipping cycle
+> is real but not selectable.
+
 > **QUALIFIER ADDED, see `POP-3` §4.** The null is one of three readings: (a) no headroom,
 > (b) headroom THE POOL CANNOT EXPRESS, (c) underpowered. Profile correlations of +0.996 and
 > +0.879 are direct evidence for (b). Under (b) the architecture's pitch is the ability to hold

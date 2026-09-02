@@ -74,3 +74,21 @@ Two measurement notes, both learned the hard way:
 
 **Saturation rule, to sit beside the conservation rule:** any statistic with a bound must be
 checked against its own bound before it is reported.
+
+## Population instruments (cycles 9-10)
+
+| script | produces |
+|---|---|
+| `pop-extract.py` | the 18,302-game population table; conservation asserted inside the extraction; sharePar provenance stamped |
+| `vbs-sbs.py` | VBS-SBS per-seed and per-cell with noise floors and the per-joint decomposition (**in-sample** - see `m64-conditional.py` for the cross-validated figure) |
+| `nash-cyclic.py` | tournament density, components, max clique, HodgeRank split, maxent Nash |
+| `redundancy.py` | cross-cell profile correlation vs the -1/(k-1) co-seating null |
+| `ordinal-cyclic.py` | curl-capable cyclicity; **use the logit version, not raw probabilities** |
+| `m64-conditional.py` | **cross-validated** conditional-selector test: SBS vs family vs per-cell oracle vs floor |
+| `room-edges.py` | a1k0n's edge-vs-cell room test (null here) |
+
+**R-8 (standing): never test for a residual in a bounded statistic — transform to the scale where
+the null is additive first.** Minted from three catches in this lens: the flood-fill room cap, raw
+win probabilities saturating, and the zero-curl scalar-difference matrix. **The hazard is live for
+`sharePar` itself**, which is a bounded share: split by bound-hitting before quoting any residual
+fit on it (`M64` §4 does this and the fold survives, with k moving from 1.23 to 1.11 off the bounds).
