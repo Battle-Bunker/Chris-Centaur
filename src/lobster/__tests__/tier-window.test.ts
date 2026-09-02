@@ -24,7 +24,6 @@ import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
 import { exposureOf, gradePath, heldTierAt, selfDebuffOf, selfDebuffRank } from '../tier-window';
-import { potionBoardEnabled, tierExpiryEnabled } from '../tier-truth';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -57,7 +56,6 @@ const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
 
 const TURN = 30;
-const ARRIVAL = TURN + 1;
 
 const subFor = (board: Board, asTeam = 'A'): EngineSubstrate =>
   makeSubstrate({ board, turn: TURN, asTeam });
@@ -68,32 +66,17 @@ const unitNamed = (sub: EngineSubstrate, wireId: string) => {
   return u;
 };
 
-const slotNamed = (sub: EngineSubstrate, wireId: string) => {
-  const unit = unitNamed(sub, wireId);
-  const slot = sub.claimField().slots.find((s) => s.record.unitId === unit.unitId);
-  if (slot === undefined) throw new Error(`${wireId} is not a claim on this field`);
-  return slot;
+const claimNamed = (sub: EngineSubstrate, wireId: string) => {
+  const claim = sub.claimsOf().find((c) => c.id === wireId);
+  if (claim === undefined) throw new Error(`${wireId} is not a claim on this board`);
+  return claim;
 };
 
 afterEach(() => clearGeometryCache());
 
 // --------------------------------------------------------------------- THREADED
 
-describe('the wire reaches the cloud', () => {
-  it('feeds EXPIRY by default and holds the potion widening dark', () => {
-    // INTEGRATION NOTE (integ/round-a): was `both facts by default`. The
-    // ledger's Stage 2.5 verdict ships the expiry threading and the
-    // tier-defense layer, and HOLDS the potion-board widening pending the
-    // re-measure of its 858-inversion storm against the post-fix5 engine.
-    // `CENTAUR_TIER_TRUTH=full` is the arm that re-measures it.
-    expect(tierExpiryEnabled()).toBe(true);
-    expect(potionBoardEnabled()).toBe(false);
-    // The seam still knows how to turn it on — this is a held feature, not a
-    // deleted one, and the arm needs the mode to exist.
-    expect(potionBoardEnabled('full')).toBe(true);
-    expect(tierExpiryEnabled('off')).toBe(false);
-  });
-
+describe('the wire reaches the claim, and the ENGINE does the lapsing', () => {
   it('converts the wire expiry from inclusive to exclusive exactly once', () => {
     const board = boardOf([
       piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
@@ -102,7 +85,7 @@ describe('the wire reaches the cloud', () => {
         invulnerabilityLevel: 1,
         invulnerabilityExpiryTurn: 33,
       }),
-      // No schedule on the wire at all: the cloud must not invent a horizon.
+      // No schedule on the wire at all: nothing may invent a horizon.
       piece('B2', { x: 7, y: 7 }, 'rook', 3, { teamID: 'B' }),
     ]);
     const m = marshalBoard(board, TURN);
@@ -123,11 +106,11 @@ describe('the wire reaches the cloud', () => {
   });
 
   it.each([
-    // [wire expiry, tier the arrival turn is governed by, cloud ceiling at n=1]
-    ['the window is still live on the arrival turn', 31, 1, 1],
-    ['the window has one turn to run after the arrival turn', 32, 1, 1],
-    ['the window lapsed before the arrival turn', 30, 0, 0],
-  ])('%s', (_name, expiry, expectedTier, expectedCeiling) => {
+    // [wire expiry, the tier that governs the arrival turn]
+    ['the window is still live on the arrival turn', 31, 1],
+    ['the window has one turn to run after the arrival turn', 32, 1],
+    ['the window lapsed before the arrival turn', 30, 0],
+  ])('%s', (_name, expiry, expectedTier) => {
     const board = boardOf([
       piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
       piece('B1', { x: 5, y: 5 }, 'rook', 3, {
@@ -137,87 +120,67 @@ describe('the wire reaches the cloud', () => {
       }),
     ]);
     const sub = subFor(board);
-    const slot = slotNamed(sub, 'B1');
-    expect(slot.record.tier).toBe(expectedTier);
-    expect(heldTierAt(slot.record, ARRIVAL)).toBe(expectedTier);
-    expect(slot.bounds.tierMax).toBeGreaterThanOrEqual(expectedCeiling as number);
-    sub.release();
-  });
-
-  it('lets a frozen buff LAPSE as the cloud dilates — the lie that used to be told', () => {
-    const board = boardOf([
-      piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
-      piece('B1', { x: 5, y: 5 }, 'knight', 2, {
-        teamID: 'B',
-        invulnerabilityLevel: 2,
-        invulnerabilityExpiryTurn: 32,
-      }),
-    ]);
-    const sub = subFor(board);
-    const unit = unitNamed(sub, 'B1');
-    const start = sub.claimField();
-    const early = start.slots.find((s) => s.record.unitId === unit.unitId);
-    expect(early?.bounds.tierMax).toBeGreaterThanOrEqual(2);
-
-    // Turn 36 is four turns past the last turn the effect governs. A cloud that
-    // did not know about expiry reported +2 here forever; the territory fold
-    // reads exactly this, one absolute turn at a time, across its whole shell
-    // sweep.
-    const late = start.advanceTo(TURN + 6).slots.find((s) => s.record.unitId === unit.unitId);
-    expect(heldTierAt(unit, TURN + 6)).toBe(0);
-    expect(late?.bounds.tierMax).toBeLessThan(early?.bounds.tierMax as number);
+    // THE ENGINE'S OWN LAPSE. `tierAtArrival` is the schedule advanced to the
+    // turn being settled, computed inside the settlement that knows the turn —
+    // and it agrees with the tier the wire hands the roster, which is the one
+    // arithmetic this repo is allowed to do (once, in `marshalBoard`).
+    const claim = claimNamed(sub, 'B1');
+    expect(claim.tierAtArrival).toBe(expectedTier);
+    expect(heldTierAt(unitNamed(sub, 'B1'))).toBe(expectedTier);
+    expect(claim.tierMax).toBeGreaterThanOrEqual(expectedTier);
+    expect(claim.tierMin).toBeLessThanOrEqual(expectedTier);
     sub.release();
   });
 
   /**
-   * INTEGRATION NOTE (integ/round-a): this test asserted the WIDENING is live —
-   * that a reachable potion opens a frozen unit's tier interval. It is inverted
-   * here for two independent reasons, and the second one matters more than the
-   * first:
-   *
-   *  1. The widening is HELD by the ship subset, so the default no longer feeds
-   *     the potion board at all. That alone would only mean "skip".
-   *
-   *  2. THE ASSERTION ALSO ENCODES PRE-fix5 ARITHMETIC, and would not pass even
-   *     with the widening switched on. It reads the TURN-START claim field,
-   *     where `n` is 1; `engine/fix5` gates `couldCollectPotion` on `n >= 2`
-   *     (the commit-time lag — a unit cannot have collected a potion it has not
-   *     reached yet), so the turn-start interval is CORRECTLY [0,0] with a
-   *     potion on the board. Verified directly against cloud.ts, not inferred
-   *     from the failure. Re-enabling this test for the widening's arm means
-   *     rewriting it against a dilated field (n >= 2) and against the fact that
-   *     own reach only LOWERS own tier — the ally CEILING moved to
-   *     `field.ts::build`. The old shape asserts code that no longer exists.
-   *
-   * What is kept live below is the property the ship subset actually needs: with
-   * the widening dark, the cloud premise is potion-free and the tier interval is
-   * exactly what it was before I4 — so the EXPIRY half and the tier-defense
-   * layer cannot be smuggling a widening in behind them.
+   * THE WIDENING SHIPS. The seam that used to hold it back
+   * (`tier-truth.potionBoardEnabled`) had exactly one job — feed the claim
+   * layer an EMPTY potion board so a reachable potion could not open a tier
+   * interval — and there is nothing left for it to switch: a claim's interval
+   * is computed inside the engine from `input.potions` and the pickup rule,
+   * and there is no way to hand settlement a board it is not playing on.
+   * So a potion in reach now moves the interval, which is what it always
+   * meant, and this is the test that says so.
    */
-  it('holds the widening dark, so a potion does not move a frozen tier', () => {
+  it('a potion in reach opens the tier interval; one out of reach does not', () => {
     const near = { x: 5, y: 4 };
-    const withPotion = boardOf(
+    const far = { x: 1, y: 8 };
+    const withNear = boardOf(
       [
         piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
         piece('B1', { x: 5, y: 5 }, 'king', 1, { teamID: 'B' }),
       ],
       { invulnerabilityPotions: [near] }
     );
-    const without = boardOf([
-      piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
-      piece('B1', { x: 5, y: 5 }, 'king', 1, { teamID: 'B' }),
-    ]);
-
-    const withSub = subFor(withPotion);
-    const withoutSub = subFor(without);
-    const a = slotNamed(withSub, 'B1').bounds;
-    const b = slotNamed(withoutSub, 'B1').bounds;
-    expect([a.tierMin, a.tierMax]).toEqual([b.tierMin, b.tierMax]);
-    withSub.release();
-    withoutSub.release();
+    const withFar = boardOf(
+      [
+        piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
+        piece('B1', { x: 5, y: 5 }, 'king', 1, { teamID: 'B' }),
+      ],
+      { invulnerabilityPotions: [far] }
+    );
+    const nearSub = makeSubstrate({
+      board: withNear,
+      turn: TURN,
+      asTeam: 'A',
+      // Two turns of unknown movement: a potion is collected on a turn and
+      // governs the NEXT one, so a claim over one turn cannot yet have used it.
+      observedTurns: new Map([['B1', TURN - 1]]),
+    });
+    const farSub = makeSubstrate({
+      board: withFar,
+      turn: TURN,
+      asTeam: 'A',
+      observedTurns: new Map([['B1', TURN - 1]]),
+    });
+    const near1 = claimNamed(nearSub, 'B1');
+    const far1 = claimNamed(farSub, 'B1');
+    expect(near1.tierMin).toBeLessThan(far1.tierMin);
+    nearSub.release();
+    farSub.release();
   });
 
-  it('reads a potion cell as a potion cell whatever the cloud is fed', () => {
+  it('reads a potion cell as a potion cell, whatever the search models', () => {
     const board = boardOf([piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' })], {
       invulnerabilityPotions: [{ x: 4, y: 4 }],
     });
@@ -265,7 +228,7 @@ describe('tier-safe staging', () => {
     const rook = unitNamed(sub, 'A1');
     const exposure = exposureOf(sub, rook);
     const grades = new Set(
-      sub.actionsOf(rook.unitId).map((c) => gradePath(sub, exposure, rook.cells[0], c.path))
+      sub.actionsOf(rook.unitId).map((c) => gradePath(exposure, rook.cells[0], c.path))
     );
     expect(grades.has('decisive')).toBe(true);
     expect(grades.has('clear')).toBe(true);
@@ -282,7 +245,7 @@ describe('tier-safe staging', () => {
 
     const exposure = exposureOf(sub, rook);
     for (const c of set.candidates) {
-      expect(gradePath(sub, exposure, rook.cells[0], c.path)).not.toBe('decisive');
+      expect(gradePath(exposure, rook.cells[0], c.path)).not.toBe('decisive');
     }
     sub.release();
   });
@@ -295,7 +258,7 @@ describe('tier-safe staging', () => {
     expect(set.prunedLedger.some((p) => p.prune === PRUNE.tierDecisive)).toBe(false);
     const exposure = exposureOf(sub, rook);
     expect(
-      set.candidates.some((c) => gradePath(sub, exposure, rook.cells[0], c.path) === 'decisive')
+      set.candidates.some((c) => gradePath(exposure, rook.cells[0], c.path) === 'decisive')
     ).toBe(true);
     sub.release();
   });
@@ -452,7 +415,7 @@ describe('a board with no live tier pays nothing', () => {
       expect(set.prunedLedger.some((p) => p.prune === PRUNE.tierDecisive)).toBe(false);
       expect(set.prunedLedger.some((p) => p.prune === PRUNE.kingTierUnsafe)).toBe(false);
       for (const c of set.candidates) {
-        expect(gradePath(sub, exposure, unit.cells[0], c.path)).toBe('clear');
+        expect(gradePath(exposure, unit.cells[0], c.path)).toBe('clear');
       }
     }
     sub.release();
