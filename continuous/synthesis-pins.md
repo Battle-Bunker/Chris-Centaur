@@ -4301,3 +4301,17 @@ record; coordinator relays only what genuinely cannot wait.
   calibration tunes INVITATIONS never authority; expected first result
   n=0 — telemetry must predate first Centaur games). Seam with inbound
   fully closed; the ruling-13 feedback circuit recorded on both branches.
+- WITHDRAWAL (value lens @ fb08416, MEAS-5): the regicide attribution of
+  the 9.7x fold residual is WITHDRAWN — king presence and piece density
+  are PERFECTLY CONFOUNDED in the archive (king cells: 4 pieces only;
+  no-king cells: 0/1/2; overlap empty), flows fully accounted on king
+  cells (0.00% gap), denominator hypothesis fails within-cells. The
+  correlation stands; the mechanism claim does not. Design consequence
+  SURVIVES: coverage keys on config-read board properties, not feature
+  distance. inflation['regicide'] stays ABSENT (refuse) — writing the
+  confounded 94x would launder it into a calibrated-looking constant.
+  Cyclicity ≠ selectability, measured (corr −0.127; largest cycle sits
+  in a saturated dominant-arm regime; the one real selection gain is on
+  the deadness-flagged cell). Confound-breaking pair specced:
+  fill-nok4 (4 pieces no king) + fill-king1 (king + 5 snakes),
+  12 games/arm — cheapest high-value batch; piece ladder (3/5) 24/arm.

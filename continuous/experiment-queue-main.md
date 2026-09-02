@@ -382,3 +382,8 @@
       the line is moot. Remedy on file: affine-style shared noise symbols —
       ScoreBounds.assumptions as INFORMATION that tightens combinations,
       not only refuses them (one new op on the existing type).
+- [ ] PRIORITY BATCH: fill-nok4 + fill-king1 (12 games/arm) — breaks the
+      king×piece-density confound; alone decides the regicide inflation
+      entry (refuse-forever vs measured number). Plus piece-fraction
+      ladder cells (3 and 5 pieces, 24 games/arm, random-draw seeds per
+      MEAS-4). Cheapest high-value games on the books.
