@@ -1,3 +1,5 @@
+import type { ActiveEffect } from '@shared/types/Game';
+
 export interface Coord {
   x: number;
   y: number;
@@ -89,6 +91,23 @@ export interface Board {
   severedCells?: Record<string, Coord[]>;
   fertileTiles?: Coord[];
   invulnerabilityPotions?: Coord[];
+  // The invulnerability effect schedule as this board opened — the SAME shape
+  // the game server keeps and `settleTurn` takes and returns. It rides on the
+  // board because it is the authoritative account of every unit's tier: a
+  // simulated board's schedule is `Settlement.effects`, written by the forward
+  // step, and an observed board's is the wire's `Turn.activeEffects`. Absent
+  // on hand-built fixtures and on documents predating the field, in which case
+  // readers reconstruct what they can from the per-snake level and expiry.
+  activeEffects?: ActiveEffect[];
+  // Are potions live at all (GameSetup.invulnerabilityPotionEnabled)? With
+  // this off a potion cell is inert scenery: nothing spawns and nothing
+  // collects. Absent means off.
+  invulnerabilityPotionsEnabled?: boolean;
+  // How many turns a collected potion's debuff and its allies' buffs last
+  // (GameSetup.invulnerabilityPotionWindowTurns). Absent means the engine's
+  // own DEFAULT_POTION_WINDOW_TURNS. It rides on the board so nothing on this
+  // side has to hardcode the window the engine used to hardcode.
+  invulnerabilityPotionWindowTurns?: number;
 }
 
 /**

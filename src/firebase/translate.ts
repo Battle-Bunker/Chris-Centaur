@@ -252,14 +252,24 @@ export function deriveDeathCells(curr: ParsedTurn): Record<string, Coord> {
  * which is exactly the `currentTurn + arrivalTurn` figure BoardGraph tests
  * against, so the minimum expiry maps across directly with no offset.
  *
- * Returns null when the turn carries no effects schedule at all (pre-
- * activeEffects game documents), leaving BoardGraph on its conservative
+ * Returns null when there is no effects schedule at all (pre-activeEffects
+ * game documents, hand-built fixtures), leaving BoardGraph on its conservative
  * "applies to this turn only" default rather than inventing a horizon.
+ *
+ * THIS IS NOT A GAME RULE and the engine has no equivalent: settlement keeps
+ * effects individually and never collapses them. "How long is the aggregate
+ * safe to bank on" is a question only a forward-looking client asks, so it is
+ * answered here, once, over ANY schedule — the wire's `Turn.activeEffects` for
+ * an observed turn, and `Settlement.effects` for a simulated one. Both callers
+ * read a real schedule; neither synthesises one.
  */
-function invulnerabilityExpiryTurn(turn: TTTurn, playerID: string): number | null {
-  if (!turn.activeEffects) return null;
+export function aggregateExpiryTurn(
+  effects: ReadonlyArray<{ readonly playerID: string; readonly expiryTurn: number }> | undefined,
+  playerID: string
+): number | null {
+  if (!effects) return null;
   let earliest: number | null = null;
-  for (const effect of turn.activeEffects) {
+  for (const effect of effects) {
     if (effect.playerID !== playerID) continue;
     if (earliest === null || effect.expiryTurn < earliest) earliest = effect.expiryTurn;
   }
@@ -318,7 +328,7 @@ function buildSnake(
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
   // default is 100 when the map or key is absent.
   snake.maxHealth = setup.maxHealthPerUnit?.[unitType] ?? 100;
-  const expiry = invulnerabilityExpiryTurn(turn, playerID);
+  const expiry = aggregateExpiryTurn(turn.activeEffects, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
   // The team's human name (the controlling centaur's, snapshotted into the
@@ -399,6 +409,16 @@ export function buildBoardState(
   if (turn.fertileTiles) board.fertileTiles = mapIndices(turn.fertileTiles, w, h);
   if (turn.invulnerabilityPotions?.length) {
     board.invulnerabilityPotions = mapIndices(turn.invulnerabilityPotions, w, h);
+  }
+  // The effect schedule and the two potion settings ride on the board so the
+  // forward step can call `settleTurn` with the same inputs the server does,
+  // and so the window length is an input on this side too rather than the
+  // `+3` the processor used to hardcode. The schedule is coordinate-free, so
+  // it crosses verbatim.
+  if (turn.activeEffects) board.activeEffects = turn.activeEffects.map((e) => ({ ...e }));
+  board.invulnerabilityPotionsEnabled = setup.invulnerabilityPotionEnabled === true;
+  if (setup.invulnerabilityPotionWindowTurns !== undefined) {
+    board.invulnerabilityPotionWindowTurns = setup.invulnerabilityPotionWindowTurns;
   }
 
   return {
