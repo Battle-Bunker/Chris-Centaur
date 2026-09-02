@@ -1918,3 +1918,124 @@ agent's own update and budget structure, independent of any adversary, and they
 transfer. And `d = 1` being the best fixed depth is a property of their benchmark —
 **the transferable claim is the GAP between best-fixed and per-instance-optimal**,
 which is why C94 says measure ours rather than adopt theirs.
+
+---
+
+**ALL (R-14) + BELIEF + VALUE — domain 46: determinization, and the one parameter
+that keeps reappearing.** d12 said decomposition under imperfect information is
+provably unsound. This is the sibling question: what happens when you search a
+hidden-information game by **conditioning on a concrete world and searching it as
+if it were observed** — which is what the hypothesis market does.
+
+**The two named errors.** *Strategy fusion*: the search *"incorrectly believes it
+can use a different strategy in each world, whereas in reality there are
+information sets which consist of multiple perfect-information scenarios … a player
+cannot distinguish between these situations and must choose the same strategy in
+each one."* *Non-locality*: under perfect information a node's value is a function
+only of its subtree; under imperfect information it is not, so locally optimal
+moves can be globally inferior.
+
+**And then the move that makes it a design tool.** Long et al. measure **three
+elementary properties that probabilistically give rise to those errors**, and note
+*"all of these properties can easily be measured in real game trees"*:
+  - **leaf correlation `lc`** — *"the probability all sibling, terminal nodes have
+    the same payoff value"*;
+  - **bias `b`** — how much the game favours one side;
+  - **disambiguation factor `df`** — *"how quickly the number of nodes in a
+    player's information set shrinks with regard to the depth of the tree"*.
+
+**R-14 — ALL. `lc` is a quantity this survey has now met FOUR times under four
+names.**
+
+| domain | field | the same condition, in that field's words |
+|---|---|---|
+| **40** | minimax pathology | Beal's assumption 4 (*node values within a level are independent*); the resolution five groups reached: *"position values are not independent of each other"* |
+| **45** | real-time heuristic search | the residue after learning and compute-normalisation, driven by the heuristic's error over neighbouring states |
+| **46** | determinization | **leaf correlation `lc`** |
+| **31 §31.5** | **our own measurement** | king-present |residual| **1.946** vs no-king **0.201**, `corr = +0.954` — a **9.7× discontinuity between structurally adjacent plans** |
+
+  > **R-14. Whether more search helps is governed, in three independent search
+  > paradigms, by ONE quantity: the correlation between the values of sibling
+  > options.** High: search helps and the evaluator's noise averages out. Low: the
+  > selection operator picks the noise and more search makes it worse.
+
+  Three consequences worth having: **one measurement serves all three domains** (so
+  d40's M103, d45's C92/C94 and this domain's prediction collapse into one script);
+  it is a property of **the game and the evaluator, not the algorithm** — changing
+  search family does not change it, so it belongs in the **instance space** as a
+  per-cell column beside deadness; and it **carries its own remedy direction**,
+  because low correlation means evaluator work out-returns search work in that
+  stratum (d40's M105).
+
+**C95 — BELIEF/SEARCH: strategy fusion is the error the hypothesis market is
+exposed to, and its two triggering conditions are already computable.** The market
+opens hypotheses and refines *within* them; the plan chosen under A and the plan
+chosen under B cannot both be played, so a best-per-hypothesis argmax is textbook
+fusion. But the error needs **both**:
+  1. **anti-correlated option values** across hypotheses (good under A, bad under
+     B, and its mirror);
+  2. **a guaranteed-better option elsewhere**.
+
+  **Without (2) the search over-estimates the value but still chooses correctly.**
+  Both are available from what the bank already produces: (1) is the sign pattern of
+  an option's value across open hypotheses; (2) is *"is there a plan whose worst case
+  across hypotheses beats every other plan's best case"* — **which is the sound
+  floor's dominance test.** So: **flag a decision as fusion-exposed when an option's
+  ranking flips sign across hypotheses AND no option dominates on the floor.** One
+  predicate over existing output, marking exactly the decisions where a
+  per-hypothesis argmax is unsafe.
+
+  **Scope it to the advised channel.** The sound floor's `min` over hypotheses is
+  already αμ's *"same move in all valid worlds"* discipline — the sound reading is
+  not fusion-exposed; the advised one is.
+
+**M116 — BELIEF `[+]`: our disambiguation factor is high, and this is one of the
+survey's very few findings that predicts the architecture will WORK.** The paper's
+two poles are **trick-taking card games** (each play reveals a card; `df` high;
+determinization strong) and **poker** (nothing revealed until the end; `df` low;
+weak). **We are structurally near the trick-taking pole**: units move and are seen,
+territory is revealed by occupation, and a hidden unit's possibilities are pruned
+every time it fails to appear where it could have. **The conditioning ladder's own
+rungs are disambiguation events.**
+
+  Two reasons to state this plainly: most of this survey's output is a warning, and
+  this one says the determinize-and-search family the fog programme is heading toward
+  is **the family that works in games shaped like ours** — and it says why, checkably.
+  **Measure it: plot `|information set|` against turn number on the archive.** Fast
+  decay confirms the favourable regime; slow decay says we are in poker's regime and
+  determinization needs d12's heavier machinery (CFR-D, continual re-solving).
+
+**M117 — MEASUREMENT: `bias` is d26's dead-cell criterion, derived from theory
+instead of from a detector.** *"With very high or very low bias … there [are] large,
+homogeneous sections of the game, and as long as a game-playing algorithm can find
+these large regions, it should perform well."* Restated: **an extreme-bias cell
+cannot discriminate between arms.** That is the dead cell, reached from game-tree
+theory — and it gives the detector a **predictor** it lacked, since bias is
+estimable from a handful of games rather than a full arm matrix. We have already
+measured that ours varies: the **0.427 → 0.530 swing from spawn geometry alone** is
+a bias measurement in exactly this sense. Testable prediction: **extreme-bias cells
+are the ones where the arm matrix is flat.**
+
+**M118 — VALUE/SEARCH: αμ is R-4's SEVENTH arrival, and the first that is
+specifically an imperfect-information REMEDY.** It fixes strategy fusion *"by
+playing the same moves in all the valid worlds during search"*, and non-locality by
+using **Pareto fronts as the evaluations of states, combined at min and max
+nodes**. R-4 has now been reached from maximality, α-vectors, contrastive
+explanation, the Pareto front, the AC taxonomy's `set configuration` output,
+absorption-dominant strategies (d38), and this. **This one differs in kind: it is
+not a parallel construction, it is the published fix for the exact pathology our
+search is exposed to.** A scalar per state cannot represent *"good under hypothesis
+A, bad under hypothesis B"*; a front can, and combining fronts at min and max nodes
+is what stops the search fusing strategies it cannot play. **So R-4 is no longer
+only an argument about the Centaur surface and explanation — it is a soundness
+requirement for search under fog.**
+
+**Counter-argument worth keeping.** We are not doing PIMC in its pure form: the bank
+keeps **sound bounds over a set of worlds**, which is closer to αμ's front than to a
+sampled determinization, and the floor's `min` over hypotheses *is* the "same move
+in all worlds" rule. That is a real defence and it locates the exposure precisely —
+**the sound channel is not fusion-exposed; the advised channel is.** Also: `lc`, `b`
+and `df` are defined over *terminal* payoffs and we cut off at a rung, so they need
+re-expressing over *evaluated* nodes — which makes `lc` a property of the game **as
+seen through our evaluator**, arguably the more useful quantity and exactly what
+d31's residual work already probes.
