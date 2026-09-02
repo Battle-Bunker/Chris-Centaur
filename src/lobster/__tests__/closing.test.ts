@@ -6,8 +6,8 @@
  *               shipped fold is held to, for BOTH new profiles.
  *   CASCADE     a maybe-regicide is priced at the material the rules would
  *               actually remove, and a PROVEN one enters `lo`.
- *   CANCELS     material + cascade is exactly zero for a team the cascade
- *               claims — which is why the total stays monotone.
+ *   REGICIDE    the engine's own `underRegicide` prices the sweep, so the
+ *               cascade correction is gone and its absence is pinned.
  *   ORDERING    the two measured mis-orderings, before and after the knob.
  *   ADDITIVE    the shipped profiles, weights, features and knobs are byte-for
  *               -byte what they were: an arm that does not opt in pays nothing.
@@ -29,20 +29,17 @@ import {
   checkSoundness,
   defaultEvaluator,
   makeContext,
-  materialBounds,
   materialEvaluator,
   standingOf,
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
 import {
   I3_FEATURES,
-  I3_MATERIAL_PROFILE,
   I3_TERRITORY_PROFILE,
   I3_WEIGHTS,
   approachFeature,
   i3MaterialEvaluator,
   i3TerritoryEvaluator,
-  regicideCascadeFeature,
 } from '../evaluate/closing';
 import { DEFAULT_KNOBS, GrammarCandidateGenerator } from '../candidates';
 
@@ -204,7 +201,7 @@ describe('the admission laws hold for the closing profiles too', () => {
     }
   });
 
-  it('R1 — the same, on the material profile carrying only the cascade', () => {
+  it('R1 — the same, on the guard-free material profile', () => {
     for (const c of LAW_CASES) {
       expect([c.name, checkSoundness(i3MaterialEvaluator, c).violations]).toEqual([c.name, []]);
     }
@@ -345,98 +342,93 @@ function contextFor(c: LawCase) {
   return { sub, asTeam, plan };
 }
 
-describe('the regicide cascade prices what the rules would actually remove', () => {
-  it('a maybe-regicide credits the victim team’s whole surviving roster in `hi`', () => {
-    const shot = LAW_CASES[0] as LawCase;
-    const { sub, asTeam, plan } = contextFor(shot);
-    try {
-      const withCascade = i3TerritoryEvaluator.evaluatePlan(sub, plan, asTeam);
-      const cascade = withCascade.parts.regicideCascade;
-      expect(cascade).toBeDefined();
-      // blue's held rook (3) is what regicide would sweep.
-      //
-      // INTEGRATION NOTE (integ/round-a): this was 5 = rook (3) + knight (2)
-      // before `engine/fix5`. The cascade credits a victim team's units that
-      // are still ALIVE in the reading — crediting a unit the engine already
-      // expects to die would double-count it. Post-fix5 the blue knight (8,6)
-      // and blue rook (8,8) are seen as a contested claim pair, so the knight
-      // comes back `bestAlive: false` and drops out of the credit. The
-      // MECHANISM is unchanged and the cancellation law below still holds
-      // exactly; only the fixture's arithmetic moved, because the engine got
-      // more accurate about who survives. (fix5 report: "3 downstream fixtures
-      // moved — two-unit enemy self-annihilation now seen".)
-      expect((cascade as { hi: number }).hi).toBeCloseTo(3, 6);
-      // Nothing is PROVEN, so the floor claims nothing.
-      expect((cascade as { lo: number }).lo).toBe(0);
-    } finally {
-      sub.release();
-    }
-  });
-
-  it('declining the shot claims nothing at either end', () => {
-    const quiet = LAW_CASES[1] as LawCase;
-    const { sub, asTeam, plan } = contextFor(quiet);
-    try {
-      const evaluated = i3TerritoryEvaluator.evaluatePlan(sub, plan, asTeam);
-      const cascade = evaluated.parts.regicideCascade as { lo: number; hi: number };
-      expect([cascade.lo, cascade.hi]).toEqual([0, 0]);
-    } finally {
-      sub.release();
-    }
-  });
-
-  it('a maybe-regicide is ordered ABOVE a quiet move, which it was not before', () => {
-    const shot = contextFor(LAW_CASES[0] as LawCase);
-    const quiet = contextFor(LAW_CASES[1] as LawCase);
-    try {
-      const shotBefore = defaultEvaluator.evaluatePlan(shot.sub, shot.plan, shot.asTeam).bound.est;
-      const quietBefore = defaultEvaluator.evaluatePlan(quiet.sub, quiet.plan, quiet.asTeam).bound
-        .est;
-      const shotAfter = i3TerritoryEvaluator.evaluatePlan(shot.sub, shot.plan, shot.asTeam).bound
-        .est;
-      const quietAfter = i3TerritoryEvaluator.evaluatePlan(quiet.sub, quiet.plan, quiet.asTeam)
-        .bound.est;
-      // The boards differ by one held unit, so the two `est`s are not directly
-      // comparable; the DELTA the cascade adds to each is.
-      expect(shotAfter - shotBefore).toBeGreaterThan(quietAfter - quietBefore);
-      expect(quietAfter - quietBefore).toBeCloseTo(0, 6);
-    } finally {
-      shot.sub.release();
-      quiet.sub.release();
-    }
-  });
-
-  it('material + cascade is exactly zero for a team the cascade claims', () => {
+describe('regicide is priced by the rules, and no longer by a correction on top', () => {
+  /**
+   * `computeClaims` folds `underRegicide` into `deathPossible`: "a unit that
+   * plays under regicide can be taken off the board by a king it never met".
+   * So a maybe-regicide needs no bot-side cascade — the whole victim roster is
+   * already possibly-gone, and the material fold credits it in our best
+   * reading. What used to be feature F6 is these three assertions.
+   */
+  it('every unit of a king-bearing enemy team is possibly-gone, roster and all', () => {
     const { sub, asTeam, plan } = contextFor(LAW_CASES[0] as LawCase);
     try {
       sub.withResolution(plan, asTeam, ({ resolution, bounds }) => {
         const ctx = makeContext(sub, resolution, bounds, asTeam, I3_TERRITORY_PROFILE.reachHorizonTurns);
-        const cascade = regicideCascadeFeature.evaluate(ctx);
-        const material = materialBounds(ctx);
-        // Blue contributes −(king 1 + rook 3 + knight 2) to material's `best`
-        // when it is all standing; with the king contested, material drops the
-        // king and the cascade adds back the rest, so blue nets zero.
         const blue = ctx.standing.filter((s) => s.team !== asTeam);
-        const blueBest = blue.filter((s) => s.bestAlive);
-        const subtracted = blueBest.reduce(
-          (a, s) => a + Math.max(0, s.weightMin - s.partialLossMax),
-          0
-        );
-        expect(cascade.hi - subtracted).toBeCloseTo(0, 6);
-        // The `best` reading still carries green and whatever blue kept, so
-        // this is a cancellation inside a live fold rather than an empty one.
-        expect(Number.isFinite(material.best)).toBe(true);
+        expect(blue.map((s) => s.kind).sort()).toEqual(['king', 'knight', 'rook']);
+        // Not one of them is alive in our BEST reading — king, rook and
+        // knight alike — which is exactly the sweep regicide performs.
+        expect(blue.every((s) => !s.bestAlive)).toBe(true);
+        // And in our worst reading they are all standing, which is the other
+        // end of the same interval.
+        expect(blue.every((s) => s.worstAlive)).toBe(true);
         return null;
       });
+      // The reading is the ENGINE'S: every blue claim says so itself.
+      for (const wireId of ['bk', 'br', 'bn']) {
+        const unit = sub.unitOfWireId(wireId);
+        expect(unit).toBeDefined();
+        expect(sub.claimOf((unit as { unitId: UnitId }).unitId)?.deathPossible).toBe(true);
+      }
     } finally {
       sub.release();
     }
   });
 
-  it('a PROVEN regicide enters `lo` — a boxed king with nowhere legal to be', () => {
-    // blue's king is walled into a corner by its own body-less roster and our
-    // two rooks cover the only two squares it could occupy. Nothing here is
-    // held, so this is the collapse case: lo === hi and both carry the sweep.
+  it('so the victim team contributes its whole weight to the gap, and nothing to `best`', () => {
+    const { sub, asTeam, plan } = contextFor(LAW_CASES[0] as LawCase);
+    try {
+      const resolved = sub.resolveBoundedFor(plan, asTeam);
+      const blueTeam = sub.teamNumber('blue');
+      const blue = resolved.perTeam.get(blueTeam);
+      expect(blue).toBeDefined();
+      // king 1 + rook 3 + knight 2, all standing in our worst reading.
+      expect((blue as { worst: number }).worst).toBe(6);
+      // …and none of it standing in our best one.
+      expect((blue as { best: number }).best).toBe(0);
+    } finally {
+      sub.release();
+    }
+  });
+
+  it('and the reading does not move with the shot, which is the coarseness the engine is entitled to', () => {
+    // WORTH KNOWING, and pinned rather than hidden: `underRegicide` is
+    // unconditional — it asks whether the team plays under the rule, not
+    // whether its king is in any danger this turn. So on a board where both
+    // sides field a king, an enemy claim is possibly-dead in EVERY plan
+    // alike, and the material fold cannot tell the plan that takes the shot
+    // from the plan that walks away from it. The bot may not narrow that
+    // itself: deciding when the cascade applies is a rule, and the rules live
+    // in one place. Refining it belongs in `claims.ts`.
+    const shot = contextFor(LAW_CASES[0] as LawCase);
+    const board = shot.sub.marshalled;
+    expect(board).toBeDefined();
+    try {
+      const blueTeam = shot.sub.teamNumber('blue');
+      const taking = shot.sub.resolveBoundedFor(shot.plan, shot.asTeam).perTeam.get(blueTeam);
+      // The same board and the same roster, with our queen playing elsewhere.
+      const quiet = new Map(shot.plan);
+      const queen = shot.sub.unitOfWireId('q');
+      if (queen === undefined) throw new Error('no queen');
+      const away = (LAW_CASES[1] as LawCase).orders.get('q') as number;
+      quiet.set(queen.unitId, {
+        unitId: queen.unitId,
+        from: -1,
+        to: away,
+        path: shot.sub.pathFor(queen.unitId, away) ?? [],
+      });
+      const walking = shot.sub.resolveBoundedFor(quiet, shot.asTeam).perTeam.get(blueTeam);
+      expect(walking).toEqual(taking);
+    } finally {
+      shot.sub.release();
+    }
+  });
+
+  it('a PROVEN regicide collapses the interval — a boxed king with nowhere legal to be', () => {
+    // blue's king is walled into a corner and our two rooks cover the only two
+    // squares it could occupy. Nothing here is held, so the resolver cascades
+    // for itself and the fold is a point.
     const board = boardOf([
       piece('r1', { x: 0, y: 1 }, 'rook', 3, { teamID: 'red', health: 90 }),
       piece('r2', { x: 1, y: 0 }, 'rook', 3, { teamID: 'red', health: 90 }),
@@ -463,11 +455,6 @@ describe('the regicide cascade prices what the rules would actually remove', () 
         path: sub.pathFor(kill.unitId, to) ?? [],
       });
       const evaluated = i3TerritoryEvaluator.evaluatePlan(sub, plan, asTeam);
-      // Everything is named, so the resolver cascades for itself and there is
-      // nothing left for the feature to add — which is the point: the feature
-      // exists for the case the resolver structurally cannot see.
-      const cascade = evaluated.parts.regicideCascade as { lo: number; hi: number };
-      expect(cascade.lo).toBe(cascade.hi);
       expect(evaluated.bound.lo).toBe(evaluated.bound.hi);
     } finally {
       sub.release();
@@ -534,7 +521,7 @@ describe('approach reads the food map the fold otherwise ignores', () => {
     try {
       const asTeam = sub.teamNumber('red');
       sub.withResolution(defaultPlan(sub), asTeam, ({ resolution, bounds }) => {
-        const ctx = makeContext(sub, resolution, bounds, asTeam, 4);
+        const ctx = makeContext(sub, resolution, bounds, asTeam, I3_TERRITORY_PROFILE.reachHorizonTurns);
         const b = approachFeature.evaluate(ctx);
         expect([b.lo, b.est, b.hi]).toEqual([0, 0, 0]);
         return null;
@@ -739,38 +726,29 @@ describe('nothing shipped moved', () => {
     // So it now asserts the PROPERTY rather than an inventory: I3's two keys
     // are absent, and every key the shipped table does carry is one the
     // shipped fold already knew about.
-    expect(DEFAULT_WEIGHTS.regicideCascade).toBeUndefined();
     expect(DEFAULT_WEIGHTS.approach).toBeUndefined();
     expect(DEFAULT_PROFILE.weights).toBe(DEFAULT_WEIGHTS);
-    expect(MATERIAL_ONLY_PROFILE.weights.regicideCascade).toBeUndefined();
     expect(MATERIAL_ONLY_PROFILE.weights.approach).toBeUndefined();
   });
 
   it('the shipped evaluators fold the shipped feature list and nothing else', () => {
     expect(defaultEvaluator.features).toBe(FEATURES);
     expect(materialEvaluator.features).toBe(FEATURES);
-    expect(FEATURES.map((f) => f.key)).not.toContain('regicideCascade');
     expect(FEATURES.map((f) => f.key)).not.toContain('approach');
   });
 
-  it('the additive list is the shipped one plus two, in that order', () => {
+  it('the additive list is the shipped one plus one, in that order', () => {
     expect(I3_FEATURES.map((f) => f.key)).toEqual([
       ...FEATURES.map((f) => f.key),
-      'regicideCascade',
       'approach',
     ]);
   });
 
-  it('the cascade carries MATERIAL’s weight, because it is a correction to it', () => {
-    expect(I3_WEIGHTS.regicideCascade).toBe(I3_WEIGHTS.material);
+  it('the shipped material weight is unchanged by the arm', () => {
     expect(I3_WEIGHTS.material).toBe(DEFAULT_WEIGHTS.material);
-    expect(I3_MATERIAL_PROFILE.weights.regicideCascade).toBe(
-      I3_MATERIAL_PROFILE.weights.material
-    );
   });
 
   it('a feature nobody weights still costs nothing, because it is not in the list', () => {
-    expect(regicideCascadeFeature.defaultWeight).toBe(0);
     expect(approachFeature.defaultWeight).toBe(0);
   });
 });
@@ -778,14 +756,14 @@ describe('nothing shipped moved', () => {
 /**
  * STAGE 3 CARVE-OUT — `approach` is HELD, and this is what holds it.
  *
- * The ledger's Stage 2.5 verdict on I3 ships `gainOrdering` + `regicideCascade`
- * and holds `approach` for its own arm: the eliminated +0.12 has aggression's
+ * The ledger's Stage 2.5 verdict on I3 ships `gainOrdering` and holds
+ * `approach` for its own arm: the eliminated +0.12 has aggression's
  * sign and is not yet separable from its null. So `approach` must not be able
  * to reach a decision this build makes.
  *
  * On the branch as built that is true INCIDENTALLY rather than by construction:
- * `evaluate/closing.ts` has no importer outside this test file, so both of its
- * features — `approach` AND `regicideCascade` — are dark, reachable only via
+ * `evaluate/closing.ts` has no importer outside this test file, so its one
+ * remaining feature — `approach` — is dark, reachable only via
  * `i3TerritoryEvaluator` / `i3MaterialEvaluator`, which exist to be the arm's
  * harness. No surgery was needed at merge time, and none was done: cutting the
  * feature out would have destroyed the material its own arm still needs.
@@ -836,8 +814,5 @@ describe('the approach carve-out holds', () => {
     // branch that is PROMOTED — on by default, per the ledger's "promote
     // gainOrdering FIRST".
     expect(DEFAULT_KNOBS.gainOrdering).toBe(true);
-    // regicideCascade rides the same dark list as approach today; promoting it
-    // is a separate, deliberate act and not this merge's business.
-    expect(I3_FEATURES.map((f) => f.key)).toContain('regicideCascade');
   });
 });

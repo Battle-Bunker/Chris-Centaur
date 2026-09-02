@@ -218,10 +218,11 @@ export function standingOf(
     const dead = survival === 'no';
     const contingent = survival === 'maybe';
     const weight = settled?.occupancy.length ?? 0;
-    // `tiers` is the engine's own answer for "tier as the next turn starts",
-    // which is what `tierAtArrival` means for a held unit too — so a mover that
-    // drank a potion this turn is read at the tier it will actually fight at.
-    const tier = settlement.tiers[unit.wireId] ?? unit.tier;
+    // NOT `settlement.tiers`, which already carries this turn's pickup. A
+    // standing's tier is the one the unit CARRIES IN, and the pickup's effect
+    // enters the fold once, through `tiersAfterPickupBy`, priced over the
+    // window it actually opens. Reading the settled figure here would charge
+    // the same +1 twice, once for the window and once for the turn.
     out.push({
       unitId: unit.unitId,
       team: unit.team,
@@ -230,9 +231,9 @@ export function standingOf(
       held: false,
       weightMin: weight,
       weightMax: weight,
-      tierMin: tier,
-      tierMax: tier,
-      tierAtArrival: tier,
+      tierMin: unit.tier,
+      tierMax: unit.tier,
+      tierAtArrival: unit.tier,
       tierExpiresAtTurn: unit.tierExpiresAtTurn,
       partialLossMax: 0,
       energy: settled?.energy ?? 0,
