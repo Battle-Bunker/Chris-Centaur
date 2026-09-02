@@ -17,6 +17,8 @@ no shipping code on this branch. Anchors verified against
 | `04-ADDRESSING.md` | the half-built experiment coordinate system; `botId`; declared versus observed coordinates; what lane (b) can say under addressing |
 | `05-ADVANCE-AND-COMMITMENTS.md` | the memoryless-across-turns finding; `advance` as the third operation; the two purchase columns (and why ponder needs both); the carried premise as one object for pins, reference actions, commitments, roles and stances |
 | `06-SELECTION-AND-SKETCH.md` | within-bot dynamic selection as a premise change; Law S; the concrete types; the three CI checks; the byte-identity path; the refusal list |
+| `14-PRIOR-ART.md` | five systems that industrialised these moves — Nix, Bevy ECS, algebraic effects, Hydra/gin, UCI+MLflow/DVC — and the six design changes their hard lessons force |
+| `15-MANIFEST-AMENDMENTS.md` | the shared fitted-data class, the five items owed to the red team's round-2 pass, and scoped contributions adopted with three conditions |
 | `07-SYNTHESIS.md` | the whole factorization, the build order across lenses, the risks, and a checker-clean owner summary |
 | `08-FIT-PROVENANCE.md` | ruling 49: a fitted number is a value with the premise it was fitted under; transfer penalty, the two fit laws, and six degrees of freedom the machine expresses that we never tried |
 | `09-REDTEAM-RESPONSE.md` | the TIME lens's six breaks against this carve: all six adopted, three with sharper forms (obligation composes by min-deadline; Law K for calibration; per-site reduction bindings that default to broadcast) |
