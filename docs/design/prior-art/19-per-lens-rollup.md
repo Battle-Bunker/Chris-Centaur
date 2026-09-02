@@ -1,13 +1,52 @@
 # PRIOR ART — per-lens rollup
 
-The register in `README.md` is organised by finding. This document is organised
-by **whose design it changes**, so each lens can read one section. Every item
-names the domain file that argues it.
+**This document is the librarian's delivery channel** (owner ruling 52: findings
+route here rather than through messages; the lenses cross-read it directly). It
+is kept current — when a new prior-art document lands, its per-lens items are
+added here the same commit.
 
-Nothing here is a summary of a paper. Items are marked:
-**[C]** contradicts something the lens has written · **[M]** covers a case the
-lens has not · **[+]** corroborates, with an argument the lens can use ·
-**[?]** an open question the survey raises but cannot settle.
+Organised by **whose design each finding changes**, so each lens reads one
+section. `README.md` is organised by domain instead; every item below names the
+domain file that argues it (`d17` = `17-…md`).
+
+Items are marked: **[C]** contradicts something the lens has written · **[M]**
+covers a case the lens has not · **[+]** corroborates, with an argument the lens
+can use · **[?]** an open question the survey raises but cannot settle.
+
+## Read path
+
+| section | for | contents |
+|---|---|---|
+| **A** | BELIEF | the object, the two structural gaps, the constructive answers |
+| **B** | TIME | the CPP's second axis, lazy invalidation, the minimal carried object |
+| **C** | VALUE | the fold's scope, `room`'s second correction, the measurement laws |
+| **D** | COMPOSITION | the reduction retype, addressing, the manifest, the carve criterion |
+| **E** | SEARCH | `cluster-enum.ts` — **no lens owns this** |
+| **F** | MEASUREMENT | the ruling-49 instruments — **no lens owns this either** |
+| **G** | running log | everything landed after domain 19, newest last, tagged by lens |
+
+**Sections E and F still have no owner.** E carries the coordination-graph
+finding and the `φ_uv` hypothesis assertion; F carries the six instruments that
+between them make both halves of ruling 49's concern quantitative. If capacity
+frees up, those are the gaps.
+
+## Running log — index by lens
+
+Later additions live in **§G**, appended in order. Index:
+
+- **BELIEF** — d20 the logit/quantal-response successor · d28 the alignment meter
+  must be rank-based (R-8b) · d31 `advisoryPrecision` gets a coverage producer
+- **TIME** — d29 the one index · (d16, d23 in §B)
+- **VALUE** — d21 cyclicity is unasked not answered · d24 the plans no weighting
+  can reach · d26 the dead-cell detector and instance coverage · d27 few-run
+  statistics · d30 MDE and the decision/significance split (R-9) · d31
+  extrapolation error · d32 accounting devices vs policy levers (Ng's converse)
+- **COMPOSITION** — d22 the option-value pricing and Parnas's criterion · d24 the
+  combination law is a member collection · d29 the one index · d32 where policy
+  actually lives
+- **ALL** — R-6 hypotheses are executable · R-7 modularity is priced · R-8/8b/8c →
+  **R-9** (a statistic's limit) · **R-10** (a statistic's invariances vs the
+  hypothesis)
 
 ---
 
@@ -398,7 +437,9 @@ decides how much of this is available.
 
 ---
 
-## G. Later additions (domains 20–22, after the lenses began responding)
+## G. Running log — additions after domain 19, in order
+
+Each entry is tagged with the lens it changes. Newest at the bottom.
 
 **BELIEF — the solutions supplier's successor** (d20). Their refutation of my M38
 is correct: Minesweeper's hidden variable really is drawn uniformly subject to the
