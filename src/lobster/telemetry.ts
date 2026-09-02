@@ -49,6 +49,7 @@
  * comparable with the ones the decision was made on (basis identity).
  */
 
+import type { BotIdentity } from '../config/bot-identity';
 import { toApiCoord } from '../firebase/translate';
 import type { CentaurMove, Coord, GameState } from '../types/battlesnake';
 import type {
@@ -217,6 +218,25 @@ export interface TelemetryKernel {
 export interface TelemetryDecision {
   readonly engine: string;
   readonly profile: string | null;
+  /**
+   * WHO PLAYED THIS TURN.
+   *
+   * `engine` and `profile` above are NAMES, and two runs of a deliberately
+   * different bot share both of them: a weight moved, a candidate knob
+   * flipped, a staging-safety level overridden — all of it lands under
+   * `lobster` / `lobster-territory`. Every prior comparison of two arms rested
+   * on those two names and therefore could not establish that both arms played
+   * the bot their manifest named, which is the defect that invalidated the
+   * measurements rather than merely weakening them.
+   *
+   * `botId` is the CONFIGURATION, hashed (`src/config/bot-identity.ts`), so
+   * any knob change changes it and two processes holding one config agree on
+   * it without coordinating. `behaviourId` is the BUILD that ran
+   * (`src/config/build-identity.ts`), so the same config played by different
+   * code is two rows a reader can separate.
+   */
+  readonly botId: string;
+  readonly behaviourId: string;
   /** The BOARD turn. The row's `turn` COLUMN is this plus one — see
    * `UnitDecisionRow.turn`. Carried so a reader of the blob never has to undo
    * that offset by hand. */
@@ -294,6 +314,8 @@ export interface TelemetryInput {
   readonly modelled: ReadonlyArray<string>;
   readonly pins: PinSet;
   readonly engineName: string;
+  /** The bot this decision was made by — stamped verbatim on every row. */
+  readonly bot: BotIdentity;
   /** A staged candidate as the wire says it — the engine's own `moveOf`, passed
    * in rather than reimplemented, so a row can never disagree with the wire. */
   readonly moveOf: (unit: SubstrateUnit, candidate: Candidate) => CentaurMove | null;
@@ -547,6 +569,8 @@ function buildRow(
   const decision: TelemetryDecision = {
     engine: input.engineName,
     profile: shared.profile,
+    botId: input.bot.botId,
+    behaviourId: input.bot.behaviourId,
     boardTurn: input.turn,
     kernel: shared.kernel,
     journal: journalFor(shared, unit, input, cellCoord),
@@ -610,6 +634,8 @@ function degradedRow(
     decision: {
       engine: input.engineName,
       profile: shared.profile,
+      botId: input.bot.botId,
+      behaviourId: input.bot.behaviourId,
       boardTurn: input.turn,
       kernel: shared.kernel,
       journal: [],
