@@ -1,8 +1,9 @@
-# SYNTHESIS — the factorization, the build order, and what it costs
+# SYNTHESIS — the factorization, the laws, the build order, and what it costs
 
-Final document of the COMPOSITION lens (joints, configuration, registries, the
-engine API, how strategy collections compose). Standalone: nothing below
-requires the other six documents, which hold the derivations.
+Standalone summary of the COMPOSITION lens (joints, configuration, registries,
+the engine API, how strategy collections compose). Current as of cycle 8;
+supersedes the cycle-5 version. Nothing below requires the other documents,
+which hold the derivations, the red-team exchanges and the prior-art audit.
 
 ---
 
@@ -14,7 +15,7 @@ that are not comparable get compared and nobody is told.* The potion lineup
 played by the shipped evaluator for its entire measured life; a switch set and
 silently overridden per engine; a miner reading a field name nothing published
 and reporting a working layer dead; an arm's config merged into every seat; two
-staleness conventions silently doubling a head-start. The bounds layer solved
+staleness conventions silently doubling a head start. The bounds layer solved
 this locally — assumptions on `ScoreBounds`, cross-basis refusal, an evaluation
 identity as a memo namespace — and **every place that discipline stops is where
 weeks were lost.**
@@ -22,234 +23,243 @@ weeks were lost.**
 **The factorization.** Four moves, in dependency order:
 
 1. **Values are fibered over premises.** A premise is the *index*
-   `⟨support-index, observable-index, measure-index, config-index⟩`; the
-   EPISTEMICS lens's `(S, w)` is the fiber's *content*. Comparison is legal
-   inside a fiber only. Three operations move between them: **join** (widen —
-   total, sound, free, lossy), **meet** (narrow — partial, priced, with two
-   purchase columns: buying the narrowing, or the anticipatory meet held
-   conditional), and **advance** (transport at turn resolution — identity,
-   incumbency and attention cross; values never do).
+   `⟨support, observable, measure, config⟩`; the EPISTEMICS lens's `(S, w)` is
+   the fiber's *content*. Comparison is legal inside a fiber only. Three
+   operations move between fibers: **join** (widen — total, sound, free, lossy),
+   **meet** (narrow — partial, priced, with two purchase columns: buying the
+   narrowing, or the *anticipatory* meet held conditional), and **advance**
+   (transport at turn resolution — identity, incumbency and attention cross;
+   values never do).
 
 2. **Joints are a data manifest; members are entries; composition is a law per
-   joint kind.** Five kinds, each with a typed law: **MODEL** (lattice join),
-   **VALUE** (weighted monoid over a common currency), **REDUCTION** (exactly
-   one — composing two is a category error), **ACTION** (additive over the
-   currency for order; lattice for the closure, which is kernel), **ECONOMY**
-   (one policy; sub-budgets partition purchasable meets). The config codec, the
-   stamp, the manifest columns, the diff and the docs table are *generated from
-   the manifest*, not written five times.
+   kind.** Six kinds, each with a typed law (§2). The config codec, the stamp,
+   the manifest columns, the diff, the operator knob schema and the docs table
+   are all *generated from the manifest*, never written five times.
 
 3. **A bot is a total map from joints to choices, normalising to an addressed
-   point.** `Choice = fixed | composed | conditional | priced` — one type for
-   config-time and within-decision selection, recursing through the same
-   registry. `botId = structuralIdentity(normalise(bot))`. Totality makes the
-   two-channel `??` defect unrepresentable; the address makes experiments,
-   caches, operator excursions and telemetry share one coordinate system.
+   point.** `Choice = fixed | composed | conditional | priced`, one type for
+   config-time and within-decision selection, each carrying a transport
+   declaration. `botId` addresses identity; `behaviourId` addresses equivalence.
 
-4. **Nothing unreachable may exist.** Every member must be reachable from a bot
-   in the checked-in roster; CI asserts closure equals exports. Two remedies:
-   seat it, or delete it. There is no third state, so there is nowhere for an
-   unplayed heuristic, an off-by-default field, or a rotting arm to live.
+4. **Nothing unreachable and nothing unplayed may exist.** Every member must be
+   reachable from a roster bot *and* engaged in a validated run, with a
+   self-retiring waiver for capabilities whose game mode does not exist yet.
 
-**Why this is a carving of the domain and not a taxonomy.** The five kinds are
-one-to-one with the game's irreducible facts: the world is a shared
-deterministic transition system with one hidden coordinate (MODEL); moves are
-simultaneous, so a plan's value is a *function over enemy actions* that
-something must reduce to a comparable key (REDUCTION); the team's move is a
-product space with contested-cell structure (ACTION); the decision is an
-anytime, interruptible process (ECONOMY); and only the valuation is genuinely a
-matter of taste (VALUE). The owner's five example sockets land inside this —
-four of them in ACTION/ECONOMY, one in VALUE — and the two joints his list did
-not name (MODEL's enemy-action socket, REDUCTION's fear surface) are precisely
-the two the DoF synthesis independently identified as the biggest re-carves.
+**Why this is a carving of the domain.** Five of the six kinds are one-to-one
+with the game's irreducible facts: the world is a shared deterministic
+transition system with one hidden coordinate (MODEL); moves are simultaneous, so
+a plan's value is a *function over enemy actions* that something must reduce to
+a comparable key (REDUCTION); the team's move is a product space with
+contested-cell structure (ACTION); the decision is an anytime, interruptible
+process (ECONOMY); the valuation is the one thing that is genuinely a matter of
+taste (VALUE). The sixth is one-to-one with *this product's* irreducible fact:
+**there is a human in the loop** (ADVICE) — a fact my first five denied by
+omission, and the red team was right that omitting it made the program's stated
+purpose inexpressible.
 
 ---
 
-## 2. The findings that make it concrete
+## 2. The six kinds and their laws
 
-Each was read off the shipping code, and each is a place the current
-factorization costs something measurable.
+| kind | member is | composition law | notes |
+|---|---|---|---|
+| **MODEL** | a premise-producing claim about the world | **lattice join** (weakening only) | credal sets join; `'adversarial'` is the zero point, not a weight. Non-linear in the measure |
+| **VALUE** | a contribution in the weight-flow currency, at a declared **participant scope** | **Möbius decomposition** — disjoint scopes add; overlapping scopes emit residuals; arity capped by identifiability | the additive law is the `k = 1` truncation; the shipped edge-EV surrogate is already `k = 2` |
+| **REDUCTION** | a functional over the credal set | **exactly one per site class**, from a manifest table with a constraint column | averaging two reductions is the lower prevision of no credal set |
+| **ACTION** | order over candidates (and, kernel-side, closure of the set) | additive over the currency with a derived cliff band; closure is intersection | admission dominates valuation *where the cap binds* — slider-specific |
+| **ECONOMY** | what work to buy, and when it must reach the wire | **two laws**: allocation = partition of quanta over purchasable and anticipatory meets; obligation = **meet on deadlines** (the tightest binds; the kernel pin is the bottom element) | rations constrain the partition; they never touch the model |
+| **ADVICE** | a value over *sets* of plans for the operator | **monotone submodular under a cardinality (attention) budget**, greedy | sink is the operator surface; one-way constraint — no staged-plan joint may read it |
 
-1. **The joint list is enumerated five times** — `SlotId`, `BotConfig`'s
-   fields, `botConfigFromJson`'s key set, `BotStamp`, the kit's manifest
-   columns. `MechanismReport.loop` had to be retrofitted because a missing
-   upstream counter made "the layer refused" indistinguishable from "the layer
-   was never asked".
-2. **Two channels for one joint, joined by `??`.** `options.slate ?? bot.slate`
-   still stands; `evaluate ?? evaluatorForSlate` cost every potion measurement
-   the program had taken.
-3. **Slates are hand-written records, so variation is copy.** Four numbers'
-   difference costs a whole second slate, four new ids, a second weights table
-   and a fourth branch in a switch — and the *difference between two arms*, the
-   thing a verdict is about, exists only in prose.
-4. **`BotConfig` is where the flags went.** `territoryRefine: false`,
-   `multistartSeed: false`, `sampledCap: false`, `search.clusterEnum` are
-   unversioned, unrecorded members with no priors, no cost model, no record and
-   no player.
-5. **The move-selector socket's declared law is not its real law.** The registry
-   declares additive logits that sum; what ships is a twelve-slot hand-written
-   lexicographic comparator whose precedence vector — where the potion ordering
-   win literally lives — no config can vary and no measurement attaches to. And
-   (VALUE lens) it is **weight-blind**: `captureRank` ranks a weight-31 queen
-   capture identically to a weight-2 snake.
-6. **Admission dominates valuation where the cap binds, which is
-   board-conditional.** The closure runs after the comparator sorts and before
-   anything is priced — but `sliderCandidateCap: 4` cuts a queen's ~71 options
-   to four, while on trail-unit boards no unit has more than four options
-   against a cap of eight, so nothing is closed at all. The dominance is real,
-   severe and *slider-specific*. Two independent causes make a weight inert and
-   they have **opposite remedies**: (a) admission — the option is not in the
-   priced set; (b) no gradient — the term is constant across the plans being
-   compared, which is exactly what a team-level `max` over units × potions is.
-   So the instrument must measure feature spread **at the point of comparison**
-   and report it **by unit class**. On the evidence: the 4×-weights null and the
-   ordering win *are* one fact measured twice (the pickup slot is inert with the
-   ordering off); the later value sweep's null is *not* (it ran with the
-   ordering on), so "volume is not the lever" is withdrawn as untested rather
-   than upheld.
-7. **`CandidateKnobs` is three kinds in one bag** — four orderings that compose,
-   five set-closures that must not, one safety policy, one model claim; and
-   `keepQuiet: 2` is a number in a knob bag that closes a set.
-8. **REDUCTION is five places at once** (the ladder's order, the depth rung's
-   position, the bank's quantifier, the posture defaults, each term's own
-   endpoint), and the bot's risk posture is therefore `ε = 1.0` chosen by
-   nobody.
-9. **The engine's cut is at purity where its own guard enforces determinism.**
-   Six of the seven excluded phases are deterministic; only spawn is random.
+---
+
+## 3. The laws, consolidated
+
+The red team's fair complaint is that a reader now needs a vocabulary before
+reading any file. So: every law this lens asserts, one line each.
+
+| law | statement | where it bites |
+|---|---|---|
+| **P** (fibration) | every value carries its premise; comparison inside a fiber only; crossing is a join or a refusal | bounds, memos, worker keys, telemetry, harness rows |
+| **S** (dynamic selection) | a dynamic choice may range over VALUE, ACTION-order and ECONOMY joints, never MODEL or REDUCTION | expressed as an `excludes` constraint row |
+| **R** (reachability) | reachable from a roster bot **and** engaged in a validated run, or seated, or deleted; waivers name a blocking condition and expire | CI; the anti-Frankenstein clause |
+| **K** (calibration) | a measured value may affect behaviour only if replayable from declared coordinates plus the ledger, or spend-only; replayable suppliers read ledger observables, never timing | `stepCostMs`, EWMAs, in-game adaptation |
+| **B** (blend-at-read) | no stored value is ε-blended; comparators blend at the read | stops `(1−ε)^d` compounding returning through the cache |
+| **C2 / C4** (commitments) | a commitment may change order and spend, never a bound or a refusal; it records the reduction binding it was formed under and re-justifies when that changes | the interruption theorem makes this dominance, not caution |
+| **D** (delivered reads) | a comparator receives the projection for its declared coordinates and nothing else | answering "the metadata said X, the code did Y" with more metadata repeats it |
+| **H** (cross-horizon) | horizons never compare as projections; they meet only inside a fold that declares its discount | the depth rung's licence, previously unwritten |
+| **M** (sub-provenance) | a member with internal structure declares its parts; engagement counts per part | where Frankenstein relocates |
+| **N** (no config language) | the bot value is data — literals, member ids, four `Choice` forms; no interpolation, expressions or cross-references | every Hydra/gin failure mode |
+| **F1 / F2** (fit provenance) | a fitted number names its fit; re-fitting mints a new member id; the transfer penalty is **generated** from the two premise records, never member-computed | ruling 49 |
+
+Plus two identity rules: `botId` is input-addressed (identity), `behaviourId`
+output-addressed over a canonical probe suite (equivalence, and the early cutoff
+that keeps a re-fit from invalidating every measurement).
+
+---
+
+## 4. The findings that make it concrete
+
+1. The joint list is **enumerated five times**; `MechanismReport.loop` had to be
+   retrofitted because a missing upstream counter made "the layer refused"
+   indistinguishable from "the layer was never asked".
+2. **Two channels for one joint joined by `??`**: `options.slate ?? bot.slate`
+   still stands; `evaluate ?? evaluatorForSlate` cost every potion measurement.
+3. **Slates are hand-written records**, so a four-number variation costs a whole
+   second slate and the arm delta exists only in prose.
+4. **`BotConfig` is where the flags went**: four off-by-default alternatives with
+   no id, no record, no priors and no player.
+5. **The move-selector socket's declared law is not its real law** — additive
+   logits declared, a twelve-slot lexicographic comparator shipped — and it is
+   **weight-blind**: a weight-31 queen capture ranks identically to a weight-2
+   snake.
+6. **Admission dominates valuation where the cap binds**, which is
+   slider-specific (`sliderCandidateCap: 4` against a queen's ~71; trail units
+   never truncate). Two causes make a weight inert — not in the priced set, or
+   constant across the plans compared — with opposite remedies.
+7. **`CandidateKnobs` is three kinds in one bag**, and `keepQuiet: 2` is a number
+   in a knob bag that closes a set.
+8. **REDUCTION is five places at once**, so the bot's risk posture is `ε = 1.0`
+   chosen by nobody.
+9. **The engine's cut is at purity where its own guard enforces determinism**:
+   six of seven excluded phases are deterministic; only spawn is random.
 10. **The adjudication rule exists three times and has disagreed three ways**,
     and the turn-limit default now runs that branch at the end of every game.
-11. **The human UI derives no legality at all**; the bot re-derives it and got
-    it wrong three ways.
-12. **The bot is memoryless across turns** — five scalars and a turn-scoped pin
-    ledger — and five separate capability asks need exactly that one missing
-    object.
-13. **The experiment coordinate system is half-built**: the board side is
-    content-addressed, the bot side is labelled.
-14. **The bot address has no production binding site.**
-    `firebaseInterfaceConfigFromEnv` never sets `bot`, so the live process
-    always plays `DEFAULT_BOT_CONFIG` — the field exists and only tests and the
-    harness pass it. One bot per *process*, while one process serves many games
-    and many seats. Selecting a validated collection member in production
-    therefore means editing the default, and the operator knob surface has
-    nowhere to persist an excursion. The seam already exists in the right place
-    (per-game state on the decision engine, and the engine already resolves its
-    bot per engine rather than process-wide); what is missing is a per-game (or
-    per-centaur) bot lookup and its stamp. This is the smallest change that
-    makes "a bot is a value" true in the product rather than only in the
-    harness.
+11. **The human UI derives no legality at all**; the bot re-derives it and got it
+    wrong three ways.
+12. **The bot is memoryless across turns**, and five capability asks need that
+    one missing object.
+13. **The experiment coordinate system is half-built**: boards content-addressed,
+    bots labelled.
+14. **The bot address has no production binding site**: the live process always
+    plays `DEFAULT_BOT_CONFIG`; one bot per process for every game and seat.
+15. **The value model has no boundary condition.** The interior fold is complete;
+    100% of the residual, and all game-length dependence, sits at terminal
+    adjudication — and the bot reads no turn limit anywhere.
+16. **A human-authorised sacrifice already plays today** (`matchPin` resolves
+    against the pruned ledger; the bot never unpins), so the sacrifice wall is
+    in admission and advice, not in emission.
+17. **Commit timing is a live strategy axis nobody uses**: commit status is
+    world-readable and live, a commit is irrevocable, and the turn ends when the
+    last player commits — so an early commit is both a credible public
+    commitment and a clock denial.
 
 ---
 
-## 3. Build order
+## 5. Build order
 
-Increments 1–3 are shared with the other lenses and should be built once. Each
-is independently valuable, each has a falsifier, and only the last two change
-behaviour.
+Shared increments are marked; each has a falsifier; behaviour-changing steps are
+last.
 
 | # | increment | shared with | falsifier |
 |---|---|---|---|
-| **B0** | `botId` stamped on the mechanism report; the kit records it per seat; `verify-null` compares addresses | — | none needed: one field, no behaviour change. It makes "did both arms play the bots the manifest says?" a one-line check |
-| **B1** | the value table on `BankResult` — `{envelope[(h, frame)], estSound, estAdvised, advisoryPrecision}`; belief reads `estSound`; comparator rungs declare read-sets | EPISTEMICS §7.1–2 | the dose-response curve (floor-decided fraction falling as advisory weight rises) must flatten. **Add `frame` to the key or shadow-driven invocation cannot be built on top** |
-| **B2** | the joint manifest; config codec, stamp, manifest columns and diff generated from it; `BotStamp` and the hand-written key sets deleted | TIME (declaration record) | the generated stamp must reproduce `BotStamp` field-for-field on a replay corpus |
-| **B3** | bots as total addressed values; roster directory; `botDiff`; reachability + single-binding + Law-S checks in CI | — | R1 must flag `territoryRefine`, `multistartSeed`, `sampledCap`, `search.clusterEnum` on today's tree, or the closure is computed wrong |
-| **B4** | `settleTurn` with the spawner injected — effects, then potion collection, then orientation, then the pawn-to-queen rule, then adjudication; `adjudicate`/`sharePar` exported and called by all three consumers; grammar queries exported | VALUE (engine asks) | the potion-window acceptance game: the bot walks to a potion three turns early, the window opens **in the model**, the cut lands. Cannot pass today at any budget |
-| **B5** | the carried premise: pins, reference actions, commitments, roles and stances as one object with lifetimes; the `⟨board, premise⟩` attention map | TIME (advance) | instrument address recurrence under live operator play; near-zero recurrence kills the map half, and the commitment half must then stand alone |
-| **B6** | the ordering joint: additive over the weight-flow currency (which subsumes 9 of the 11 slots) plus a named residual precedence — the death band, the bound-width term that is really a VOI quantity, and the deterministic tie key | VALUE | the shipped order must be reproduced exactly on generated candidate sets before any bot names a different one |
-| **B7** | the reduction joint: one `(weight-supplier, ε)` binding read by every reduction site; `ε = 1` default | EPISTEMICS §5, §7.4 | check for double-charged pessimism first: hold ε fixed, vary `plyCap`; if the depth-effect rate falls as plies rise, the blended value and `sigmaOfPly`'s width terms are discounting the same uncertainty twice |
+| **B0** | `botId` + `behaviourId` stamped; kit records per seat; `verify-null` compares addresses | — | none needed: one field, no behaviour change |
+| **B1** | value table on `BankResult` — `envelope[(horizon, frame)]`, `estSound`, `estAdvised`, `advisoryPrecision`; rungs declare read-sets | EPISTEMICS | the dose-response curve must flatten; **`frame` in the key or shadow-driven invocation cannot be built on it** |
+| **B2** | the joint manifest; codec, stamp, columns, diff, knob schema generated; `BotStamp` and hand codecs deleted; ambiguity detection over declared coordinates | TIME (allowance-ledger schema — one increment) | generated stamp reproduces `BotStamp` field-for-field; every behaviour-affecting measured value is classified under Law K or the build fails |
+| **B3** | bots as total addressed values; roster; `botDiff`; reachability + single-binding + Law-S checks | — | R must flag `territoryRefine`, `multistartSeed`, `sampledCap`, `search.clusterEnum` on today's tree |
+| **B4** | `settleTurn` with the spawner injected; `adjudicate`/`sharePar` exported and called by all three; grammar queries exported | TIME (replay-rebase dependency), VALUE | the potion-window acceptance game: the window opens **in the model** |
+| **B4t** | **the terminal-boundary row** — `model/terminal@1` sourced from the export, the fold's interior domain declared, `FitProvenance.metric` as that member id | VALUE | the +0.969 game-length dependence moves into explained variance; and three turns from the cap a terminal-seated bot declines a trade a capless bot takes |
+| **B5** | the ADVICE kind with sacrifice-warrant, commit-timing and disagreement members (**owner decision required** — `13`) | — | on a seeded board the warrant appears, the staged plan is unchanged, and a pin makes it play |
+| **B6** | carried premises + the `⟨board, premise⟩` attention map; mutations as deferred commands at sync points | TIME | **split**: within-turn re-entry rate for the map; cross-turn on decisions changed, never recurrence |
+| **B7** | the ordering joint: additive over the currency plus the named residual precedence (death band, bound-width→ECONOMY, tie key) | VALUE | shipped order reproduced exactly on generated candidate sets |
+| **B8** | the reduction site-class table; ε applied once at the read; supplier members | EPISTEMICS | Law B's check (no persisted blend) plus the double-discount test: hold ε, vary `plyCap` |
 
-Two rules govern the whole order. **Byte-identity at every step**, proved
-against the existing cross-build gate, with `bots/shipped.json` *generated* from
-today's defaults rather than written by hand. And **nothing lands without a
-roster bot that plays it** — which is the reachability law applied to the
-migration itself.
-
----
-
-## 4. What I refuse to build
-
-- **No joint with one member.** A collection of one is a constant wearing a
-  socket's clothes. Build the enemy-weight *supplier interface* because four
-  consumers already improvise one; it becomes a joint when a second member
-  exists that a roster bot seats.
-- **No generic plugin surface.** `Choice` and `compose` are closed forms over a
-  fixed manifest. New behaviour needs a branch, which is the two-lane rule.
-- **No config-driven kernel.** The seam rule stands: if it can move a sound
-  bound it is kernel behind the law harness. Set-closures stay kernel even
-  though they are numbers.
-- **No second epistemic vocabulary**, and no compatibility layer for the shapes
-  being replaced — a bridge that keeps `BotStamp`, `SlateId` and the
-  hand-written codecs alive beside their generated replacements recreates the
-  drift this exists to remove.
+Two rules govern the order: **byte-identity at every step**, with
+`bots/shipped.json` *generated* from today's defaults rather than written; and
+**nothing lands without a roster bot that plays it**.
 
 ---
 
-## 5. Risks, stated plainly
+## 6. What I refuse to build
 
-1. **Premise ids could churn.** Split them: a stable half (config, frame,
-   horizon) hashed once per decision, a volatile half (model, pins) per branch.
-   If the volatile half cannot be made cheap, the fibration stays a type-level
-   discipline with runtime checks at five seams — which is where every recorded
-   defect lived anyway.
-2. **Law R can be gamed** by a roster bot that exists only to keep a member
-   alive. Counter: a roster bot must appear in an experiment spec or be marked
-   an instrument, and the mark is one visible row.
-3. **The manifest can rot** like anything else. What keeps it honest is that
-   every derived artifact is generated, so a joint that stops being read stops
-   appearing everywhere at once.
-4. **The engine re-cut could hit a phase that needs state the wire does not
-   carry.** Read against the source it does not, but the falsifier is per phase
-   and the increments are ordered so the cheapest phases prove the pattern
-   first.
-5. **This is a large change to a working bot.** Mitigation is the order above:
-   B0 is one field, B1–B3 are byte-identical by construction, and the two
-   behaviour-changing increments come last and are each gated on reproducing
-   today's behaviour exactly before anything new is selectable.
+- **No joint with one member** — a collection of one is a constant wearing a
+  socket's clothes. Build the weight-supplier *interface* because four consumers
+  already improvise one; it becomes a joint when a second member exists.
+- **No generic plugin surface, and no config language** (Law N). New behaviour
+  needs a branch; that is the two-lane rule.
+- **No config-driven kernel.** Set-closures stay kernel — **except** the one
+  premise-indexed exception the sacrifice law would add, which is an owner
+  decision and not an engineering one.
+- **No second epistemic vocabulary, and no compatibility layer** for the shapes
+  being replaced.
 
 ---
 
-## 6. Owner-facing summary
+## 7. Risks, stated plainly
 
-*(Piped through `tools/principal-glossary/check-briefing.js` on
-`claude/cluster-lookahead` — 0 blocking, 0 owed, exit 0.)*
+1. **Premise ids could churn** — split stable (config, frame, horizon) from
+   volatile (model, pins); if the volatile half cannot be cheap, keep the
+   fibration as a type discipline with runtime checks at five seams.
+2. **The generator is a compiler**, and when the manifest is wrong five artifact
+   classes are wrong *in agreement* — so one artifact class must be produced by
+   an independent path and compared. Drift detection cannot come from the same
+   source as the artifacts.
+3. **The entry floor rises for every reader, forever.** Today a maintainer reads
+   `accept()` top to bottom; afterwards the same question routes through
+   manifest → choice → member → law → premise → projection. That is the real
+   price, and §3's law table exists because of it.
+4. **Fat members keep the non-linear content** — Law M and scoped contributions
+   bound it; neither removes it.
+5. **This is a large change to a working bot** — B0 is one field, B1–B3 are
+   byte-identical by construction, and everything that changes behaviour is
+   gated on reproducing today's behaviour first.
+
+---
+
+## 8. Owner-facing summary
+
+*(Checked through `tools/principal-glossary/check-briefing.js` — 0 blocking,
+exit 0.)*
 
 - Every configuration choice the bot makes lives in one table of decision
   points, and everything else — what a bot file may say, what a game record
-  stamps, what a results column is named, what two experiment arms differ in —
-  is generated from that one table instead of being written out by hand in five
-  places, which is where the drift that has cost us whole measurement rounds
-  comes from.
-- A bot becomes a single value with an address: two bots differ by a printable
-  difference, an experiment arm is that address, a human operator turning a dial
-  in a live game produces a new address automatically, and asking "did both
-  sides play the bots the record says they played" becomes a one-line check
-  rather than the unanswered question that invalidated every potion measurement
-  we had taken.
+  stamps, what a results column is named, what two experiment arms differ in,
+  and which dials a human sees — is generated from that one table instead of
+  being written out by hand in five places, which is where the drift that has
+  cost us whole measurement rounds comes from.
+- A bot becomes a single value with an address, so two bots differ by a
+  printable difference, an experiment arm is that address, and a human turning a
+  dial in a live game produces a new address automatically. A second address
+  records what the bot *does* rather than what it was asked to be, so a change
+  that does not alter any decision keeps every measurement we have already paid
+  for.
 - Every number the bot computes carries the assumptions it was computed under,
   so two numbers that were never comparable can no longer be compared silently —
   the same rule that keeps our proved floors honest also keeps our measurements
-  honest, and the four most expensive failures on record were all this one rule
-  going unenforced outside the proofs.
-- A heuristic that no configured bot can play fails the build. There are exactly
-  two remedies: give it a bot that plays it, or delete it. That is the
-  structural version of your objection to accumulating code nobody runs.
+  honest.
+- A heuristic that no configured bot can play, or that never actually runs in a
+  real game, fails the build. There are exactly two remedies: give it a bot that
+  plays it, or delete it.
 - The game engine's own rule for what may be shared with the bot is "nothing
-  random, nothing that reads the outside world", but the split was actually
-  drawn at "nothing that needs game state" — and six of the seven phases on the
-  wrong side of that line are perfectly predictable: potion pickup, effect
-  expiry, a pawn turning into a queen, and who wins. Only the spawning of new
-  food and potions is random. Moving the predictable six across, with spawning
-  passed in, is what lets the bot search through a potion window instead of
-  guessing around it.
+  random, nothing that reads the outside world", but the split was drawn at
+  "nothing that needs game state" — and six of the seven phases on the wrong
+  side of that line are perfectly predictable: potion pickup, effect expiry, a
+  pawn turning into a queen, and who wins. Only the spawning of new food and
+  potions is random.
 - The rule for who wins is written three separate times — in the game, in the
-  test harness, and in the bot — and all three have disagreed with each other.
-  One shared version, called by all three.
+  test harness, and in the bot — and all three have disagreed. One shared
+  version, called by all three. This matters more than it sounds: measurement
+  now says that everything our value model cannot explain sits exactly at the
+  moment the game is settled, and a bot playing toward a turn limit currently
+  does not know the game ends.
 - The human interface derives nothing about the rules: a player clicks a square
   and, if that move is not legal for that piece, the server quietly substitutes
   a default move. The same three small functions that would fix the bot's
   home-made copies of the movement rules would let the interface show a player
   what a piece can actually do.
-- The bot forgets everything between turns. Five of the capabilities asked for —
-  potion plans, unit roles, per-opponent stances, learning within a game, and
-  resuming the thinking we already did when a human changes their mind and
-  changes it back — all need the same one missing thing, which is a way to carry
-  a commitment across turns that can never override a safety refusal.
+- The bot forgets everything between turns, and five of the capabilities you
+  have asked for need the same missing thing: a way to carry a commitment across
+  turns that can never override a safety refusal.
+- **Needs your decision.** Today the bot may not consider giving up one of its
+  own units even when the team gains by it — the move is deleted before anything
+  prices it. You can already force one by pinning it, but nothing tells you the
+  option exists. Option A: the bot computes these sacrifices, prices what each
+  death buys, and shows them to you to authorise, along with advice on when to
+  commit the turn; the safety rules do not change and the bot never plays one on
+  its own. Option B: the bot also plays them itself whenever one of its
+  heuristics says the trade is good. A is recommended and it produces the
+  evidence that would justify B.
+- **Expect this**: the first time our bot plays alongside a human against
+  humans, every fitted advisory term goes quiet, because no human game exists in
+  any corpus we have. That is the rule working — the proved floors, the safety
+  refusals and the move ordering are untouched, and the terms earn their voice
+  back as human games enter the corpus.
