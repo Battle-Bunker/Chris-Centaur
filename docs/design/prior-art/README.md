@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Fourteen domains, surveyed against the four lens syntheses as they stood at
+Fifteen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -27,6 +27,7 @@ case.*
 | 12 | **decomposition under imperfect information** — the result that invalidates a hypothesis three lenses share | `12-decomposition-under-imperfect-information.md` |
 | 13 | two engineering literatures our ladders should be members of (constraint propagation; progressive widening) | `13-inference-and-admission-schedules.md` |
 | 14 | algorithm selection and portfolios — the theory of `Choice`, and a falsifier for the architecture | `14-algorithm-selection-and-portfolios.md` |
+| 15 | opponent modelling and safe exploitation — **ε is a ledger, not a dial** | `15-opponent-modelling-and-safe-exploitation.md` |
 
 ---
 
@@ -124,6 +125,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C26** | BELIEF | **Marginal clouds cannot store what the conditioning ladder computes.** C1 (item-vanish) is a *disjunction across units* and C2 a *joint exclusion*; per-unit marginals hold neither, so both rungs evaporate at the moment of storage and will measure as worthless when they are merely unstorable. The trace needs a constraint store; marginals are the query surface, not the state. |
 | **C31/C32** | VALUE / COMPOSITION | Our apparatus emits **numbers with provenance**, which Miller's survey identifies as the *least effective* form of explanation ("statistical generalisations are unsatisfying unless accompanied by an underlying causal explanation"). The fold's **per-unit flows are the causal vocabulary** — so the surface must be built on flows, never the aggregate, and flows must not be summed before caching. And nothing produces a **foil**: `better()` computes the deciding rung and margin on every decision and throws them away. |
 | **C33** | BELIEF / TIME | **"Ask the operator" is a purchasable observation with no row in the economy.** There are three ways to remove width — deduce, observe, ask. We have the first, are missing the second (C25), and have not conceived the third. Under game-held width it is the *only* available lever. |
+| **C45/C46** | BELIEF / VALUE | **ε as "the operator paranoia dial" is the wrong carve.** Ganzfried & Sandholm achieve safe exploitation "by risking in exploitability at most what has been earned over the Nash equilibrium in previous rounds" — the deviation from the floor is an **accounted budget**, not a chosen parameter. In our currency that budget is `realised share − floor share`: one more account in the existing ledger, no new unit, and it upgrades the sound floor from a veto to a *reference point*. Also: deviation is **triggered by a detectable gift**, and we have no gift detector — though the replay-rebase mechanism already reconstructs exactly what one needs. |
 | **C9/C10** | BELIEF / JOINTS | Our ε class is Walley's linear-vacuous mixture, and **that class dilates**: conditioning can widen the credal set *for every possible observation*. So `meet = narrow` holds for S (deduction only) and **fails for w**. You can pay for an observation that provably makes you less certain. |
 | **C7** | COMPOSITION | "Law per joint kind" **is** Zilberstein's local compilation — a theorem whose optimality hypothesis is a **tree**. Our manifest is a DAG. Declare the allocation projection or drop the claim. |
 | **C8** | TIME / BELIEF | The hypothesis market lacks its second factor. Russell & Wefald: a computation's value comes entirely from its ability to **change the chosen action**. `P(refinement flips better())` is computable from interval overlap at the deciding rung, which `BankResult` already carries. Corollary: narrowing an uncontested rung is worth exactly zero. |
