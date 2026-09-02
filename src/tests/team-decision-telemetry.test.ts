@@ -527,10 +527,15 @@ describe('telemetry never takes a decision down with it', () => {
         modelled: [],
         pins: [],
         engineName: 'lobster',
+        bot: { botId: 'lobster:test@000000000000', behaviourId: 'test' },
         moveOf: () => 'up',
       });
 
       expect(rows).toHaveLength(1);
+      // Even the DEGRADED row says who played it: a turn whose explanation
+      // blew up is exactly the turn a reader most needs attributed.
+      expect(rows[0]?.decision.botId).toBe('lobster:test@000000000000');
+      expect(rows[0]?.decision.behaviourId).toBe('test');
       // The row still exists, still keyed where the back-fills look for it.
       expect(rows[0]?.turn).toBe(TURN + 1);
       expect(rows[0]?.decision.error).toContain('explain exploded');

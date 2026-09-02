@@ -271,6 +271,10 @@ export class GameWebSocketServer {
         boardTerritory: this.gameManager.getBoardTerritory(gameId),
         safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
+        // Which bot made it. Rides the per-unit frame because a centaur may
+        // hold seats on games bound to different bots, so this is a property
+        // of the DECISION and not of the process.
+        bot: turnData.bot ?? null,
         timeout: turnData.gameState.game.timeout || 500,
         timestamp: turnData.timestamp,
         turnExpiryTime: game?.turnExpiryTime || null,

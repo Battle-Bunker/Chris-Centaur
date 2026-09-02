@@ -25,6 +25,7 @@ import {
   waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
 import { CellOwnership } from '../logic/multi-source-bfs';
+import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
@@ -98,6 +99,13 @@ export interface TurnData {
   // Per-cell Voronoi owner/distance for the current board (cell inspector).
   // Absent on the quick pass and interim recommendations.
   cellOwnership?: CellOwnership;
+  // WHICH BOT PRODUCED THIS RECOMMENDATION — the same pair stamped on the
+  // decision row (src/config/bot-identity.ts). The UI otherwise shows a move
+  // with no way to say which configuration or which build made it, which is
+  // exactly the question an operator watching two Centaur teams play different
+  // bots is asking. Absent on the quick pass and the legacy fan-out, neither
+  // of which resolves a binding.
+  bot?: BotIdentity;
 }
 
 // The Voronoi partition of the WHOLE board for one turn: which unit owns each

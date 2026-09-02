@@ -35,6 +35,11 @@
 
 import type { Board as ApiBoard, CentaurMove, Direction, GameState } from '../types/battlesnake';
 import type { TurnData } from '../server/active-game-manager';
+import type { BotIdentity, BotSpec } from '../config/bot-identity';
+import { botIdentityOf } from '../config/bot-identity';
+import { behaviourId } from '../config/build-identity';
+import type { BotBinding } from '../config/bot-binding';
+import { defaultBotSpecFrom } from '../config/bot-binding';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { MAX_BATCH_DOCS } from '../wire/team-submitter';
@@ -61,8 +66,9 @@ import type { SubstrateUnit } from './substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
-import type { StagingSafety } from './staging-safety';
-import { defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
+import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import type { CriterionProfile } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
 import {
@@ -121,6 +127,28 @@ export interface TeamDecisionPorts {
    * said so.
    */
   logDecision(row: UnitDecisionRow): void;
+  /**
+   * WHICH BOT THIS GAME PLAYS — the production binding site.
+   *
+   * Before this port existed there was none. The engine reached for its own
+   * module-level default, so one PROCESS played one bot for every game and
+   * every seat it held: selecting a validated member in production meant
+   * editing that default and redeploying, two Centaur teams could not play
+   * different bots at all, and an operator's dial excursion had nowhere to
+   * persist and appeared in no row.
+   *
+   * A PORT AND NOT AN IMPORT, for the same reason `logDecision` is one: the
+   * real source reads Postgres, and a decision layer that imported it would
+   * put a database dependency inside every lobster test.
+   *
+   * OPTIONAL, WITH A REAL DEFAULT — unlike `logDecision`, which is required
+   * because an unwired telemetry port is silence. The floor here is not
+   * silence: absent this port the engine resolves the process-wide default
+   * (`CENTAUR_BOT`, else the shipped bot), which is exactly the behaviour that
+   * shipped. So a caller that says nothing gets the old behaviour AND a
+   * correct stamp, rather than an unstamped decision.
+   */
+  botBinding?(gameId: string, centaurId: string): BotBinding;
   /** Wall clock (Date.now scale). Injectable for tests. */
   now?(): number;
   /** The kernel's monotonic clock. Injectable for tests. */
@@ -279,6 +307,11 @@ export type PinAdviceSink = (gameId: string, advice: ReadonlyArray<TeamPinAdvice
 export class TeamDecisionEngine {
   private readonly games = new Map<string, GameState_>();
   private readonly adviceSinks = new Set<PinAdviceSink>();
+  /** One evaluator per bound profile. Keyed on the profile OBJECT: a store
+   * refresh rebuilds its parsed profiles, and a weak key lets the evaluators
+   * they superseded go with them. */
+  private readonly evaluators = new WeakMap<CriterionProfile, Evaluator>();
+  private envSpec: BotSpec | null = null;
   private readonly now: () => number;
   private readonly monotonic: () => number;
   private readonly env: NodeJS.ProcessEnv;
@@ -400,8 +433,14 @@ export class TeamDecisionEngine {
     // ship the guard for PIECE boards, do not ship it unconditionally. Every
     // consumer below reads the RESOLVED level, so the candidate knobs and the
     // search tuning cannot disagree about which board this is.
+    // THE BINDING SITE. Which bot plays this game, resolved per (game,
+    // centaur) rather than per PROCESS — see `TeamDecisionPorts.botBinding`
+    // for what that used to cost. Resolved once per decision and threaded
+    // through the three places it can matter: the staging-safety level, the
+    // candidate knobs, and the evaluator.
+    const binding = this.bindingFor(input);
     const safety = resolveStagingSafety(
-      this.options.stagingSafety ?? stagingSafety(),
+      this.options.stagingSafety ?? binding.spec.stagingSafety ?? stagingSafety(),
       boardBearsPiece(sub)
     );
     // INTEGRATION NOTE (integ/round-a): the staging-safety level supplies the
@@ -413,11 +452,23 @@ export class TeamDecisionEngine {
     // by itself silently drops every per-arm knob (gainOrdering, the terrain
     // pair, the tier knobs), and `this.options.candidates` by itself makes the
     // stagingSafety option inert.
-    const gen = new GrammarCandidateGenerator({
+    //
+    // The BOUND bot's knobs sit between the two: the safety level supplies the
+    // base, the bot supplies the operator's persisted excursion, and an
+    // explicit option still wins over both (a controlled arm assembled in
+    // process must not be silently re-tuned by a stored row).
+    const knobs: CandidateKnobs = {
       ...knobsForSafety(safety),
+      ...(binding.spec.candidates ?? {}),
       ...(this.options.candidates ?? {}),
-    });
-    const evaluate = this.options.evaluate ?? defaultEvaluator;
+    };
+    const gen = new GrammarCandidateGenerator(knobs);
+    const evaluate = this.options.evaluate ?? this.evaluatorFor(binding.spec.profile);
+    // The stamp describes what RAN, not what was asked for: the profile the
+    // evaluator actually folds, the knobs the generator actually got, and the
+    // RESOLVED safety level. A stamp taken off the binding alone would be
+    // wrong for exactly the runs that most need it — the ones with an override.
+    const bot = this.stampFor(binding, evaluate, safety);
     const witnesses: Witness[] = [];
     const buildCore = this.options.makeCore ?? makeSearchCore;
     const search = tapWitnesses(
@@ -497,7 +548,8 @@ export class TeamDecisionEngine {
           views,
           lastForwarded,
           kernel,
-          refusals
+          refusals,
+          bot
         );
         // ADVICE WHILE THE OPERATOR IS STILL HOVERING. Computed from the
         // record just emitted and the speculative contexts as they stand,
@@ -543,6 +595,7 @@ export class TeamDecisionEngine {
         assumptions,
         modelled: chosen,
         pins: initialPins,
+        bot,
       });
       sub.release();
     }
@@ -593,6 +646,101 @@ export class TeamDecisionEngine {
       pinCacheCapacity: 32,
       ...this.options.kernel,
     };
+  }
+
+  // ------------------------------------------------------------ the bot
+
+  /**
+   * WHICH BOT PLAYS THIS GAME.
+   *
+   * The port when one is wired; otherwise the process-wide default, which is
+   * `CENTAUR_BOT` or the shipped bot and is exactly the behaviour that ran
+   * before a binding site existed. The fallback deliberately reads only the
+   * environment: a decision layer that reached for the store itself would put
+   * a database on the critical path of every turn.
+   */
+  private bindingFor(input: TeamTurnInput): BotBinding {
+    const port = this.ports.botBinding;
+    if (port !== undefined) {
+      try {
+        return port(input.gameId, input.ourTeamId);
+      } catch (err) {
+        // A binding source that throws must not take the turn down with it.
+        // The decision falls back to the default and SAYS so — a silent
+        // fallback is a game played by a bot nobody selected.
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: bot binding lookup threw — ` +
+            `playing the process default (${err instanceof Error ? err.message : String(err)})`
+        );
+      }
+    }
+    const spec = this.defaultSpec();
+    return { identity: botIdentityOf(spec, behaviourId()), spec, source: 'env-default', key: null };
+  }
+
+  /** The env-level default, derived once: `defaultBotSpecFrom` logs on a bad
+   * flag value and a per-turn re-derivation would log once per turn. */
+  private defaultSpec(): BotSpec {
+    if (this.envSpec === null) {
+      this.envSpec = {
+        ...defaultBotSpecFrom(this.env, this.log),
+        stagingSafety: this.options.stagingSafety ?? stagingSafety(),
+      };
+    }
+    return this.envSpec;
+  }
+
+  /**
+   * The evaluator for a profile, built once per profile.
+   *
+   * `BoundEvaluator`'s constructor runs `checkWeights`, so a profile that
+   * would silently fold a term nobody chose fails HERE — at the seam that
+   * bound it, naming the key — rather than scoring a game.
+   *
+   * The shipped profile short-circuits to the module singleton on purpose:
+   * with no binding in the store this returns the very object the engine used
+   * before a binding site existed, so introducing one cannot move a decision.
+   */
+  private evaluatorFor(profile: CriterionProfile): Evaluator {
+    if (profile === DEFAULT_PROFILE) return defaultEvaluator;
+    const hit = this.evaluators.get(profile);
+    if (hit !== undefined) return hit;
+    const made = new BoundEvaluator(profile);
+    this.evaluators.set(profile, made);
+    return made;
+  }
+
+  /**
+   * THE STAMP: the bot as it actually ran, not as it was requested.
+   *
+   * Three things can differ from the binding, and all three change moves, so
+   * all three are read back off what was assembled rather than off the
+   * request: the profile the evaluator folds (an explicit `options.evaluate`
+   * replaces the bound one outright), the configured candidate knobs, and the
+   * configured staging-safety level.
+   *
+   * `safety` — the BOARD-resolved level — is not folded in, for the reason
+   * `BotRegistry.normalise` gives: it is a consequence of the board rather
+   * than a choice in the configuration, and one bot must not become two
+   * because it moved from a piece board to a snake-only one.
+   */
+  private stampFor(
+    binding: BotBinding,
+    evaluate: Evaluator,
+    _safety: ResolvedStagingSafety
+  ): BotIdentity {
+    const configured = {
+      ...(binding.spec.candidates ?? {}),
+      ...(this.options.candidates ?? {}),
+    };
+    const spec: BotSpec = {
+      name: binding.spec.name,
+      engine: binding.spec.engine,
+      profile: (evaluate as { profile?: CriterionProfile }).profile ?? binding.spec.profile,
+      candidates: Object.keys(configured).length === 0 ? undefined : configured,
+      stagingSafety: this.options.stagingSafety ?? binding.spec.stagingSafety,
+    };
+    return botIdentityOf(spec, binding.identity.behaviourId);
   }
 
   // ---------------------------------------------------------------- internals
@@ -895,7 +1043,8 @@ export class TeamDecisionEngine {
     views: ReadonlyMap<string, GameState>,
     lastForwarded: Map<string, CentaurMove>,
     kernel: LobsterKernel,
-    refusals: Record<TeamRefusal, number>
+    refusals: Record<TeamRefusal, number>,
+    bot: BotIdentity
   ): number {
     let forwarded = 0;
     for (const [unitId, candidate] of plan) {
@@ -931,6 +1080,7 @@ export class TeamDecisionEngine {
         safeMoves: [],
         botRecommendation: move,
         timestamp: this.now(),
+        bot,
       });
       forwarded++;
     }
@@ -970,6 +1120,7 @@ export class TeamDecisionEngine {
     assumptions: ReadonlyArray<Assumption>;
     modelled: ReadonlyArray<string>;
     pins: PinSet;
+    bot: BotIdentity;
   }): void {
     const { input, sub, asTeam, gen, evaluate, report, finalPlan, views, lastForwarded } = args;
     let rows: UnitDecisionRow[];
@@ -989,6 +1140,7 @@ export class TeamDecisionEngine {
         modelled: args.modelled,
         pins: args.pins,
         engineName: 'lobster',
+        bot: args.bot,
         moveOf: (unit, candidate) => this.moveOf(sub, unit, candidate),
       });
     } catch (err) {
@@ -1023,6 +1175,7 @@ export class TeamDecisionEngine {
           safeMoves: row.safeMoves as Direction[],
           botRecommendation: move,
           timestamp: this.now(),
+          bot: args.bot,
         });
       } catch (err) {
         this.log(
