@@ -172,10 +172,14 @@ mixture dodge (step 7's consumer) reads.
    synthesis reserves for D3 — confirm it is the operator-facing control and
    the per-term mean-vs-worst choices (dodge's reading) fold into it rather
    than surviving as term-local knobs.
-3. **Thread-reply coupling** (step 4): depth threads' inner min should run
-   the root's ε (02-doc §6) — accepting that the search optimizes the blended
-   objective at every ply, i.e. the sound floor stays law but deep VALUES
-   become ε-dependent. The alternative (threads stay maximin under any ε)
-   keeps depth conservative and mis-matched. Recommendation: couple them;
-   the mismatch is the kind of silent drift the projection tags exist to
-   refuse.
+3. **Thread-reply coupling** (step 4): REVERSED on second pass (06-doc §2).
+   Recursive per-ply blending is the Epstein-Schneider rectangular
+   construction: dynamically consistent, but the advised component decays as
+   (1−ε)^d, deep readings collapse toward maximin regardless of the weight's
+   quality, and depth is discounted twice (once structurally, once by
+   sigmaOfPly's earned precision). Amended recommendation: ε applies ONCE at
+   the root reading of each projection; thread interiors stay pure maximin
+   (unchanged today) and the deep advised estimate is blended once when
+   folded at the origin branch. The dynamic inconsistency this accepts is
+   priced in 06-doc §2 (the bot re-decides every turn; root re-evaluation is
+   the real dynamics).

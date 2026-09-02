@@ -292,7 +292,15 @@ written against ObservationRecord runs UNCHANGED on the full-information game.
   (evidence). Over-approximation is the only permitted error, in the known
   direction. (Already the cloud engine's own covenant.)
 - **L2 Weight law.** Weights live inside S. Any evidence moves them, at earned
-  precision. No caps. (Already belief.ts + ruling 12.)
+  precision. No caps. (Already belief.ts + ruling 12.) RE-CENTERING RIDER
+  (second pass, 06-doc §1): any credal set built around w — the ε-ball — is
+  re-erected around the current w at each reading and is NEVER conditioned as
+  a set; w moves only by point updates (precision merge), S only by
+  intersection. This is what excludes the imprecise-probability literature's
+  dilation pathology (conditioning a credal set can WIDEN every posterior
+  interval — Seidenfeld & Wasserman 1993) and its vacuous-prior inertia
+  (generalized Bayes cannot learn from a vacuous prior — Gong & Meng 2017)
+  from ever entering the design.
 - **L3 Projection law.** Every number carries (horizon, quantifier-or-weight,
   basis). Sound = envelope over S; advised = expectation under a named weight.
 - **L4 Refusal law.** Numbers differing in any projection tag never compare
