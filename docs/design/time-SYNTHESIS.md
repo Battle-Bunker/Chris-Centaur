@@ -141,7 +141,20 @@ ponder-window sizing problem outright (geometric contract ladder under a
 stochastic deadline) and licenses tranche atomicity at a bounded constant
 factor.
 
-## 3. The build path (feature branches, each standalone, ordered by value)
+## 3. The build path (feature branches, each standalone)
+
+ORDERING SUPERSEDED by `time-response-value-redteam.md` §3 (the VALUE
+lens's falsifier-level red team, accepted): allowance-ledger first
+(measurement claim, plus the first offline-compiled CPP), replay-rebase
+second (the depth-engagement enabler; the queen board's 16× throughput
+collapse is the motivating case), worldline third and carrying THE
+OUTCOME FALSIFIER (depthChangedStaging + sharePar on piece cells vs
+same-lineage control — the strength gate for the whole cross-turn
+programme), commit-scope fourth re-labeled as a latency/operator claim,
+evaluator-version fifth. The denominator question formerly escalated in
+§1Q4 is dissolved by `time-economy-goods.md` §2 (CPP-denominated
+comparison + Lc0-shaped funding — an owner proposal now, not a
+question). The original list below is kept for its content:
 
 1. **feature/commit-scope** — citation-scoped commit invalidation over the
    toll fix's per-cluster seam + the CUTOFF check (a commit of the
