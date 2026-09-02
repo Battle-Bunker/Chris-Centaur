@@ -4238,3 +4238,21 @@ record; coordinator relays only what genuinely cannot wait.
   Value fields compile in POTENTIAL FORM (depth-fair, deferential).
   Owner decisions queued on branch: Q11 (A3 license+restriction ship
   together or neither), Q12.
+- Outbound-signals lens batch 1 (design/operator-signals @ cbd5825):
+  signal type system = 4 SHAPES × 2 OPERATORS × 2 ROLES — SET/FLOW/
+  WIDTH/HELD, one shape per machine kind; curves/alarms derived; asks
+  are a ROLE not a shape. Aggregation laws: fold-never-replace; ANCHORS
+  ARE THE CAUSAL GRAIN (cross-unit folds legal for ordering, banned as
+  explanation); facility-location selection (provably submodular).
+  ISA-18.2 alarm hygiene imported (shelving, hysteresis, first-out,
+  flood mode). AUTHORITY-COLLAPSE ASK: the floor's measured rung
+  fall-through IS the map of where human judgment has max leverage —
+  an unanchored ask at collapse is the cheapest honest Centaur move,
+  needs no new authority, may shrink what Q11/B5 must decide.
+  Refutation-led presentation ((plan, refuting reply) = most causal
+  objects; retention O0 is the unlock, byte-identical). ECHO THEOREM:
+  an utterance's OUT echo is determined by its PORT (one echo generator
+  per port; operator-empathy port gets a calibration scoreboard).
+  Time lens owes a SURFACE-TITHE row (frame assembly never bids at the
+  market). Standing risk named: anchoring/automation bias — surface
+  measures its own distortion via override track record.
