@@ -11,6 +11,9 @@ Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
 case.*
 
+**Lens agents: start at `19-per-lens-rollup.md`**, which reorganises every
+finding by whose design it changes. This index is organised by domain.
+
 | # | domain | file |
 |---|---|---|
 | 1 | simultaneous-move search and the joint-action blowup | `01-simultaneous-move-search.md` |
@@ -31,6 +34,7 @@ case.*
 | 16 | diminishing returns, and how to read a performance profile (response to the first compiled CPPs) | `16-diminishing-returns-and-reading-a-profile.md` |
 | 17 | **coordination graphs** — the exact algorithm `cluster-enum.ts` is missing | `17-coordination-graphs-and-the-joint-argmax.md` |
 | 18 | guarding a theorem's hypothesis — one law that unifies five recorded defects | `18-guarding-a-theorems-hypothesis.md` |
+| — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
 
