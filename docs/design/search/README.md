@@ -18,6 +18,7 @@ summary (piped through `tools/principal-glossary/check-briefing.js` on
 | `03-PROPOSAL.md` | what does the literature say about basin coverage? | eight operators, nine constants, no socket, no record. Law P1: restrictions must be adaptive on value or bounded. The missing operator is an ejection chain |
 | `04-BACKUP.md` | how does our max-min backup compare to the standard rules? | implicit-minimax-backups shaped with a strictly better combiner. A floor folded into a mean slot, over an odometer prefix that collapses on slider boards |
 | `06-THE-COLUMN-SET.md` | what does the double-oracle half we DID build cost? | the restricted matrix is already computed cell by cell and thrown away; `price()` cost drifts upward within a decision because the witness set only grows; workers generate columns and discard them. Contains the full S0 specification |
+| `07-ANYTIME-STRUCTURE.md` | what does the search promise about being interrupted, and what does prefix determinism cost? | we have a *proved* recognizable-quality measure (`maxGap`) and have never plotted it against time — which is the missing input to every allocation question. Prefix determinism is maintained across six sites for one analysis the critic discounted; Law I says an invariant is addressed like a member |
 
 `probes/accept-cycle.probe.ts` — drop into `src/lobster/__tests__/` on
 `claude/cluster-lookahead` and run under the repo's jest. It imports the real
