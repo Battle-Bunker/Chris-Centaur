@@ -35,13 +35,12 @@ export type { BasisKey, BasisRefusal, BoundsInput, DominanceVerdict, FloorCompar
 export {
   EVALUATOR_RESIDUE_UNIT,
   evaluatorResidueEntry,
-  frozenUnitBySlot,
-  heldUnitsOf,
-  heldUnitsOfTeam,
   ledgerOf,
   residueOf,
-  teamOfHeld,
 } from "./ledger";
+
+export { materialOf, scopedTeamValue, teamValue, unitValuesOf } from "./material";
+export type { MaterialBounds, UnitValue } from "./material";
 
 export { candidateKey, cellsOf, footprintOf, planKey, sameCandidate, unitsOf, withMove, withMoves } from "./plan";
 
