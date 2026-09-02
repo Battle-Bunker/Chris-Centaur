@@ -104,6 +104,27 @@ above it. The structure it discards is exactly the structure VE exploits.
   decides how much of this is available, it needs no new games, and it is the
   cheapest possible test of the claim.
 
+  **Where the win is NOT, stated so the claim is not oversold.** VE's cost is
+  `Σ over eliminations of (product of domain sizes in the eliminated variable's
+  clique)` — so it is exponential in induced width *with the domain sizes as the
+  base*. Two consequences that cut against a naive reading:
+  - **On a 3-unit component the joint IS the elimination**, so VE saves nothing;
+    a slider with two 3-option neighbours costs 71·3·3 either way. Since the
+    census says 98.9% of team-turns have every non-slider component at ≤3, the
+    win is *not* in the common case.
+  - **The win is concentrated exactly where we currently fall off the cliff**:
+    components of 5–6+ units, and sliders whose conflict *degree* is low. A
+    6-unit chain at 3 options is 5 edge messages of 3×3 = 45 operations against
+    729 enumerated; at 8 options it is 320 against 262,144. And a slider with one
+    or two conflict neighbours can be eliminated at `71 × (its neighbours'
+    domains)` regardless of how many other units are in the component — which is
+    the precise statement of why `sliderCandidateCap` could rise sharply in the
+    common low-degree case.
+
+  So the honest claim is narrower and still large: **VE does not speed up the
+  easy case; it converts the case that currently falls back to ICM into an exact
+  one**, and it decouples a slider's option count from the component's size.
+
 **C50. Our above-budget fallback is the member the literature benchmarks
 against, not the one it recommends.** `cluster-enum.ts` falls back to "ICM on the
 surrogate" — iterated conditional modes, i.e. **coordinate ascent**, which Kok &
@@ -147,16 +168,24 @@ this unit's best contribution and best response. That is:
   the set-valued, conditioned object that three other domains independently
   demanded, at no extra cost.
 
-**M51. The elimination order is a policy, and it is the natural home for the
-weight-blindness fix.** VE's cost depends on the elimination ordering, and
-choosing one is a standard heuristic problem (min-degree, min-fill). For us there
-is a second, domain-specific consideration: eliminate the **cheap, low-weight
-units first** so the expensive high-weight unit (the queen, holding 80–91% of
-team weight) is eliminated last with the richest conditional payoff function.
-That is a *policy member* with an interpretable rationale, and it is the first
-place in the search where unit weight enters the *structure* of the computation
-rather than only its scores — which is the balance-blindness the VALUE and
-COMPOSITION lenses both flagged, addressed at a level neither considered.
+**M51. The elimination order is a policy, and the right rule is domain-size
+weighted — which is where the slider finally gets structural recognition.** VE's
+cost depends on the elimination ordering; the standard heuristics are min-degree
+and min-fill. For us the ordering must be **weighted by domain size**, because
+one unit (the slider, ~71 options) has a domain an order of magnitude larger than
+the others. The rule that falls out is concrete and slightly counter-intuitive:
+**eliminate a high-domain unit EARLY if its conflict degree is low** (cost
+`71 × its neighbours' domains`, once) and late only if it is densely connected.
+Under that ordering a slider's option count is decoupled from the component's
+size, which is the mechanism by which `sliderCandidateCap` can be relaxed rather
+than merely re-tuned.
+
+  Two further notes. First, this is the first place in the search where a unit's
+  **weight and option count enter the STRUCTURE of the computation** rather than
+  only its scores — the balance-blindness the VALUE and COMPOSITION lenses both
+  flagged, addressed at a level neither considered. Second, the ordering is a
+  *policy member* with an interpretable rationale and a measurable cost, which is
+  exactly the shape ruling 49 asks configuration knobs to take.
 
 **M52. Treewidth is a board-structure feature, and therefore a premise
 coordinate.** Under domain 14's framing, the induced width of the current
