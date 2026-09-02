@@ -41,7 +41,7 @@ operations are those structures **lifted componentwise**:
 |---|---|---|---|---|---|
 | `support.model` | drop assumptions → more worlds | simulate / enumerate — **compute-priced** | **yes** — two floors compose by max | clouds dilate, then condition on the new observation | the lattice everything else is modelled on |
 | `support.replies` | union of reply sets | restrict to a modelled set — compute-priced | **yes** | **discarded**: this turn's replies do not survive the turn | |
-| `observable.horizon` | **hull only** (§4) | deepen — compute-priced | **NO** | re-root (h decrements) | the one coordinate where equality does *not* license tightening |
+| `observable.horizon` | **hull only** (§4) | deepen — compute-priced | **NO** | re-root (h decrements) | no tightening — but see §2.3: `measure.weight` also lacks it, for a different reason |
 | `observable.provenance` (frame · admission trace · conditioning depth · resolved selections) | widen by the pending spans | compute the missing terms — compute-priced | **yes**, at equal frame | discarded — a new decision recomputes | |
 | `measure.weight` | credal union | **a choice, not a purchase** — no compute buys it; ruling 13 pins it | **no** — two weights give two expectations; their meet is a credal set, not a tighter number | persists (it is config) | |
 | `measure.range` | mixture over histories | **conditioning on observed history — free at resolution** | via counterfactual-value bounds at the boundary | **updates** — the only coordinate whose `advance` is a real computation | `24 §1` |
