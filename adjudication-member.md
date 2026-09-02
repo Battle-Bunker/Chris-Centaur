@@ -1,5 +1,12 @@
 # THE ADJUDICATION MEMBER — the boundary the flow fold does not contain
 
+> **SUPERSEDED ON THE KIND QUESTION by composition's `16-TERMINAL-BOUNDARY.md`
+> (design/joints-composition @ 2c7e59a), and their resolution is better than this sketch. See §8,
+> which is the part to read.** They split what I wrote as one object into two: `model/terminal@1`
+> (the exact settling rule, a MODEL member, unconditional, no rivals) and `value/horizon-*`
+> (ordinary VALUE members pricing the *approach*, which bots may vary). My §2–§4 conflate the
+> two. Adopt their split; §8 records where my sketch was wrong and the one thing I would add.
+
 `basis-audit.md` §4.1 established that the three-flow basis is complete in the *interior* of a
 game (0.00% attribution gap) and that **100% of the remaining residual lives at the terminal
 boundary** (`corr(residual, terminal gap) = +0.969`). This is the type sketch for the member that
@@ -207,3 +214,59 @@ by contested-vs-quiet cells — should run *before* any of my instruments, since
 population on which mine are meaningful. It also sharpens my §4.7 unit-class point: contested
 cells are disproportionately where fat accounts fight, which is the queen board, which is where
 everything else in my lens says the game is decided.
+
+---
+
+## 8. ALIGNED TO COMPOSITION'S SPLIT — where this sketch was wrong
+
+Their resolution, adopted:
+
+| object | kind | who may vary it |
+|---|---|---|
+| `model/terminal@1` | **MODEL** — the exact settling rule (cap, last-team-standing, same-turn annihilation on the previous turn's weights) | **nobody**; one member, no rivals, sourced from the engine's `adjudicate()` |
+| `value/horizon-*` | **VALUE** — pricing the *approach*: turns-remaining schedule, elimination premium, brinkmanship | any bot; genuine strategy alternatives |
+
+**Where my sketch was wrong.** §2–§4 treat this as one member. That is the mistake their seam
+rule catches: *what the rules do is not a preference, and what it is worth to approach them is
+nothing else.* Collapsing them puts "how the game ends" on a knob. Concretely, three of my claims
+need re-filing:
+
+- my §3 ("the one legitimate implementation is `adjudicate()`") belongs to **`model/terminal@1`
+  only** — and their receipt is stronger than my argument: the rule existed **three times**
+  (server, harness, bot), disagreed **three ways**, and the bot priced a winning mutual trade as a
+  flat loss and therefore **refused winning trades**. That is the abstract hazard I described,
+  already realised.
+- my §4(a) (potential-based, inherits the Ng safety theorem, dialable at any weight) applies to
+  **`value/horizon-*`**, not to the model member — nobody dials a correction, so invariance is
+  irrelevant to it. The `invariance` coordinate still does work, but on the VALUE half only.
+- my §4 gating on `capDistance` is a **`value/horizon-*`** concern (a schedule), not a property of
+  the rule.
+
+**What I would add to their row.** Their line *"the flow fold declares its domain as the INTERIOR;
+its boundary value is supplied by `model/terminal@1` and never extrapolated"* needs the fold to
+carry a **domain** field and to *refuse* terminal states — which is the same refusal mechanism the
+epistemics lens asked for on premise coordinates. **One mechanism, two uses:** a member declares
+what it is defined over, and refuses outside it. That is worth stating once in the manifest rather
+than twice in two lenses' documents.
+
+And their `FitProvenance.metric = 'model/terminal@1'` (the scoring functional *is* a member id,
+not a string) fixes something my provenance list had as a weak spot: my defect #5 is *"which side
+of the reduction"*, and an addressed metric object is what makes that coordinate checkable rather
+than declarative. Likewise their `behaviourId` (output-addressed identity over a canonical probe
+suite) resolves a question I had left open in my re-fit drift metric: **a `k` re-fit that changes
+no decision retains its prior measurements**, so drift only invalidates evidence when it changes
+behaviour. That is the right criterion and I adopt it.
+
+**Their falsifier is safe to run.** I checked the one way it could have fired spuriously — that my
+terminal gap might be an unobservable last turn rather than an unmodelled rule. It is not: the gap
+is **0.0097** in games with no elimination against **0.1248** where one occurred, 12.9× larger
+where the settling rule does more work, when an unobserved-turn artefact would be roughly equal in
+both. Details in `rook-forecast-scored.md` §5.
+
+**One caveat I would attach to their §1 reading.** They note that a potential-based decomposition
+telescopes by construction, so interior-summing is "the check that the decomposition is genuinely
+potential-based, and it passed" — correct, and I would add the sharper consequence I only reached
+after the epistemics red team: **the telescoping is why my R² was never evidence for the basis.**
+The two informative facts are the ones they name (the potential is the *right* one, and the
+residual is *concentrated* at the boundary), and both survive everything that has been thrown at
+the lens. The R² does not, and should not be quoted in the manifest row.
