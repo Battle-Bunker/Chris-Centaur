@@ -131,15 +131,54 @@ does. Eight also sits under the cliff ceiling of 10 by construction, and the
 largest cost these boards produce is around 0.25, so its realised influence is
 ~2 against `food`'s 4 and `material`'s 10 per unit of weight.
 
-**Interaction with `momentum`'s idleness charge.** It is NOT suppressed, and
-the arithmetic above is why: it is a *deductible*, not a veto. If the energy
-price makes the hold the argmax it has already out-paid the 0.5, so the charge
-never prevents a hold it should have caused; what it does is set the threshold
-under which a piece keeps acting — which is the anti-statue floor the "pieces
-act" gate (`stationary% < 12` on `mixed`) measures. Waiving the idle charge
-whenever `energy` is nonzero was the alternative; it was rejected because it
-pays the hold twice (cheaper to hold AND dearer to move) and removes the only
-floor keeping pieces off the statue failure the command term was seated to fix.
+The upper bound on the weight is `food`, and it is a starvation bound rather
+than a cliff one: the price of one cell must stay under what one step of
+approach is worth to a hungry unit, `w_f × (1/D) × hunger`. The energy price of
+one cell peaks at `w_e / 4D` (at `h = 2d`) whatever the health, which at eight
+is 0.091 against a food step worth 0.11–0.16 for anything under half health. At
+twenty the inequality reverses and a unit sixteen health from a meal eight
+cells away would rather stand still — which is the failure this term must never
+have. Eight is the round number inside both bounds.
+
+**Interaction with `momentum`'s idleness charge — and the design changed here.**
+The first draft of this document kept the charge as a flat deductible and
+argued it was harmless. The arithmetic refutes that. `momentum` charges a hold
+0.5 while charging motion nothing, and `command` pays another 0.05–0.2 for the
+relocation, so a hold has to out-pay 0.55–0.7 of score. The energy price of a
+ONE-CELL move peaks at `w_e / 4D` = 0.091, which is a seventh of that at any
+weight the bound above allows. Under a flat idleness charge, therefore, no
+cliff-safe energy weight can ever make "hold" the argmax over a one-cell move —
+the member could shorten a slider's ray and nothing more, and the owner's
+sentence ("its cost should not outweigh the hold move") would be unreachable by
+construction.
+
+So the seated member changes both sides, minimally. `IDLE_COST` prices exactly
+one fact — that standing still gains nothing — and that fact is true of a unit
+with a full tank and false of a unit nearly out of health, which is buying the
+only thing it has left. Charging it in full there prices the same fact twice
+and in opposite directions: `energy` charges the move for the budget it burns,
+and `momentum` would charge the alternative for not burning it. The idleness
+charge is therefore SCALED BY THE TANK — `IDLE_COST × health / max`, read at
+the start of the turn like every other per-unit constant in this fold. It is
+full at full health, which is where the dither trace that motivated it was
+recorded and where `basic-intelligence.test.ts` pins it, and it slides to
+nothing as the tank empties. The reversal charge is untouched.
+
+With both halves seated the rule is closed-form. A hold beats a move of `s`
+cells exactly when
+
+    w_e × (s/h) × slack × scarcity   >   w_m × IDLE × (h / cap)
+
+which at the shipped weights and `cap = 100` is `s × slack × scarcity > h²/1600`:
+
+    h = 100, no meal reachable (p = 0.78)   slides of 8 cells or more are refused
+    h =  60, no meal reachable (p = 0.63)   slides of 4 cells or more are refused
+    h =  44, a meal 22 cells off (p = 0.5)  slides of 3 cells or more are refused
+    h =  20, a meal 10 cells off (p = 0.23) anything past one cell is refused
+
+A one-cell move survives everywhere above about fifteen health, which is the
+anti-statue floor stated as a number: this member shortens travel, and it only
+stops it outright for a unit that is nearly out of fuel.
 
 ## (d) Pre-registered predictions
 
@@ -163,3 +202,81 @@ runner's own trace, not as a summary comparison.
 
 If the measurement contradicts the prediction it is reported as a contradiction.
 The weight is not re-derived to make a table green.
+
+## (e) Measurement
+
+Paired and interleaved: each seed's two arms ran back to back on the same box,
+because a sibling process was loading it throughout and a sequential
+arm-then-arm design would have measured the load. The arms differ in the
+`energy` member and the tank-scaling of `momentum`'s idleness charge, and in
+nothing else. Ten games per arm per board class (two repeats × five seeds),
+100 turns, 150 ms decision budget. Per-kind spend is CELLS ENTERED, which is
+what the rules charge, read off the runner's own trace by
+`scripts/energy-metrics.js`.
+
+**The 20 ms budget measures nothing, and that is a finding.** At 20 ms the
+kernel's 40 ms flush reserve is already blown, so the staged plan is the
+generator's first candidate on 161 of 163 decisions (98.8%) and the evaluator
+never decides anything. Both arms are behaviourally IDENTICAL there — same
+moves, same meals, same deaths, on every seed and every board — and the only
+difference in the traces is the printed scores. The measurement therefore runs
+at 150 ms, where `seedKept` is 37%, and is reported as a range because a
+wall-clock budget on a loaded box is not deterministic.
+
+### mixed — ten games per arm, pooled, and the per-seed range
+
+| metric | base | energy | prediction | verdict |
+|---|---|---|---|---|
+| queen health spent / unit-turn | 3.973 | **3.529** (−11%) | down | ✅ down in 9 of 10 paired seeds, range −18%..0% |
+| knight health spent / unit-turn | 0.978 | **0.959** | down | ✅ |
+| pawn health spent / unit-turn | 0.943 | **0.936** | down | ✅ |
+| snake health spent / unit-turn | 1.000 | 1.000 | unchanged | ✅ (a snake spends one per turn by rule) |
+| knight hold share | 2.2% | **4.1%** | up | ✅ |
+| pawn hold share | 5.7% | **6.4%** | up | ✅ |
+| queen hold share | 0.0% | **0.5%** | up | ✅ |
+| unit-turns ending where they began | 1.6% | **2.2%** | up, under the gate's 12 | ✅ |
+| exhaustion / starvation deaths | 0 | 0 | down or equal | ✅ |
+| meals per 100 unit-turns | 25.81 | **23.66** (−8.3%) | not down >10% | ✅ pooled; per-seed −27%..+27% |
+| contest deaths, absolute | 44 | 42 | not up | ✅ |
+| contest deaths per 100 unit-turns | 0.885 | **0.989** (+12%) | not up | ❌ see below |
+| dithers | 0.2% | **0.0%** | not up | ✅ |
+| reversals | 4.2% | **3.7%** | not up | ✅ |
+| worst single decision, ms | 198–799 | 182–521 | — | both arms over the 150 ms budget on a loaded box |
+
+### snakes and sparse — the falsifier
+
+BYTE-IDENTICAL, on every seed, at both budgets, including the printed scores:
+`diff` over the whole trace (less the one wall-clock field) is empty for all
+five seeds of `snakes` and all five of `sparse`, at 20 ms and at 150 ms. The
+term is exactly `point(0)` when we command nothing that may decline to spend,
+so the fold adds an exact zero, and `src/tests/energy.test.ts` pins the same
+fact at the level of the bound. Meals, deaths, reversals and health are
+unchanged to the digit.
+
+### The contradiction, reported rather than tuned
+
+Contest deaths are DOWN in absolute count (44 → 42) and UP per hundred
+unit-turns (0.885 → 0.989). The normalised reading is carried entirely by two
+of the ten paired games, and both of them are games the energy arm ended early
+— 44 turns against 100, and 17 turns against 100 — where the same deaths are
+divided by a quarter of the unit-turns. In the other eight pairs the contest
+rate is equal or lower (1.00 → 0.52, 0.98 → 0.64, 1.04 → 0.99, 0.98 → 0.98,
+0.87 → 0.88, 0.84 → 0.80, 0.71 → 0.90, 0.69 → 0.90). The 17-turn game ends with
+red's last unit walking into the perimeter with every option scoring
+identically, which is the doomed-position tie-break already recorded in
+`docs/BASIC-INTELLIGENCE.md` and not something this member introduced.
+
+That is the honest reading and it is not a pass: ten games do not resolve a
+12% move in a rate whose per-seed spread is a factor of seven, and the two
+early endings are exactly the kind of thing a larger block count exists to
+settle. The weight was not moved to make the row green, and it should be
+re-measured at more seeds before this member is treated as neutral on contests.
+
+Two more things the measurement says out loud. First, the effect is
+concentrated where the design says it should be: the queen — the only unit on
+these boards that can spend nine health in one turn — carries the whole of the
+reduction, and the steppers move by a percent. Second, the reduction is a
+SHORTENING and not a freezing: holds rise by two points while the stationary
+share stays at 2.2% against a gate of 12, and one paired game (repeat 2, seed
+1) came out byte-identical between the arms — a whole game in which the price
+never changed a decision.
