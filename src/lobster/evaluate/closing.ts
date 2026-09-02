@@ -67,7 +67,7 @@
 import type { Bound, Feature } from './bound';
 import { bound, point } from './bound';
 import type { CriterionProfile } from './calibration';
-import { DEFAULT_WEIGHTS, REACH_HORIZON_TURNS } from './calibration';
+import { DEFAULT_WEIGHTS, TERRITORY_PROFILE } from './calibration';
 import { ADMISSION, FEATURES } from './features';
 import type { EvalContext, Standing } from './features';
 import { BoundEvaluator } from './index';
@@ -296,9 +296,13 @@ export const I3_WEIGHTS: Readonly<Record<string, number>> = {
 };
 
 export const I3_TERRITORY_PROFILE: CriterionProfile = {
+  // Every knob the shipped profile carries, so the arm differs from production
+  // in the CLOSING terms and in nothing else — otherwise `command` reads zero
+  // here and non-zero there, and the delta this arm is measuring is polluted by
+  // a term that has nothing to do with it.
+  ...TERRITORY_PROFILE,
   name: 'i3-territory',
   weights: I3_WEIGHTS,
-  reachHorizonTurns: REACH_HORIZON_TURNS,
 };
 
 /**
@@ -315,6 +319,9 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     room: 0,
     healthEconomy: 0,
     kingMargin: 0,
+    command: 0,
+    food: 0,
+    momentum: 0,
     regicideCascade: 10,
     approach: 0,
   },

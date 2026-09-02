@@ -584,7 +584,21 @@ describe('the invariants the candidate layer promises still hold', () => {
 // ------------------------------------------------------------------- ordering
 
 describe('the ordering, which is what rung 0 actually reads', () => {
-  test('a certainly-fatal move is never the ordered-first option when anything else is offered', () => {
+  /**
+   * THE ORDERING IS UNCONDITIONAL NOW. It used to be gated on the same knob as
+   * the prune, so with the flag off a wall move — assessed `safe`, because the
+   * risk layer reads the claim field and the perimeter is terrain — sorted
+   * among the safe options and won the last tie-break, which is ascending
+   * destination index. That made it the SEED on every snake-only board where
+   * `up` was into the wall, and the seed is what gets played. Two recorded
+   * games ended with a snake walking off the board because of it
+   * (docs/BASIC-INTELLIGENCE.md).
+   *
+   * So both generators are checked, and both must be clean: the flag now
+   * governs whether a certainly-fatal move is REMOVED from the option set, not
+   * whether the ordering knows it is fatal.
+   */
+  test('a certainly-fatal move is never the ordered-first option, at either level', () => {
     let firsts = 0;
     let fatalFirsts = 0;
     let shippedFatalFirsts = 0;
@@ -610,10 +624,7 @@ describe('the ordering, which is what rung 0 actually reads', () => {
     }
     expect(firsts).toBeGreaterThan(100);
     expect(fatalFirsts).toBe(0);
-    // The negative control: the shipped ordering DOES put them first, which is
-    // the defect. If this ever reaches zero the test above has stopped
-    // measuring anything.
-    expect(shippedFatalFirsts).toBeGreaterThan(0);
+    expect(shippedFatalFirsts).toBe(0);
   });
 
   test('with the flag off the option sets are byte-identical to the shipped build', () => {

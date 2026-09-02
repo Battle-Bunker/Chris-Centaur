@@ -42,8 +42,7 @@ import type { Evaluation, Feature, Weights } from './bound';
 import {
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
-  TERRITORY_SLIDER_PROFILE,
-  TERRITORY_SLIDER_ROYAL_PROFILE,
+  ROYAL_COMMAND_PROFILE,
 } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
@@ -72,6 +71,8 @@ export {
 export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
+export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
+export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
@@ -99,6 +100,7 @@ export class BoundEvaluator implements Evaluator {
     profile: CriterionProfile = DEFAULT_PROFILE,
     features: ReadonlyArray<Feature<EvalContext>> = FEATURES
   ) {
+    checkWeights(profile, features);
     this.profile = profile;
     this.features = features;
     this.weights = profile.weights;
@@ -151,6 +153,50 @@ export class BoundEvaluator implements Evaluator {
       return finish(ctx, evaluation);
     });
   }
+}
+
+/**
+ * A PROFILE MUST NAME EVERY FEATURE IT FOLDS, AND NOTHING ELSE.
+ *
+ * `fold` reads `weights[f.key] ?? f.defaultWeight`, so a weight a profile
+ * forgets is not zero — it is whatever the feature author chose, silently, for
+ * a profile that has never heard of the feature. That is not hypothetical: the
+ * material-only profile and both closing arms are hand-written weight tables,
+ * and the moment two features were added to `FEATURES` all three of them
+ * quietly began folding terms they were built to exclude. The admission laws
+ * caught it, which is luck — a profile that stayed sound would simply have been
+ * measuring something other than what its name says.
+ *
+ * A key with no feature is the same defect read from the other end: a typo in a
+ * weight table is a number that does nothing, and nothing anywhere says so.
+ *
+ * So both directions are refused, at construction, where the cheapest possible
+ * check turns a silent misconfiguration into a startup failure that names the
+ * key. Every shipped profile passes; a caller assembling one for an experiment
+ * finds out immediately.
+ */
+export function checkWeights(
+  profile: CriterionProfile,
+  features: ReadonlyArray<Feature<EvalContext>>
+): void {
+  const folded = new Set(features.map((f) => f.key));
+  const named = new Set(Object.keys(profile.weights));
+  const missing: string[] = [];
+  for (const key of folded) if (!named.has(key)) missing.push(key);
+  const unknown: string[] = [];
+  for (const key of named) if (!folded.has(key)) unknown.push(key);
+  if (missing.length === 0 && unknown.length === 0) return;
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    parts.push(
+      `does not name ${missing.sort().join(', ')} — each would silently fold at its ` +
+        "feature's own defaultWeight"
+    );
+  }
+  if (unknown.length > 0) {
+    parts.push(`names ${unknown.sort().join(', ')}, which this fold has no feature for`);
+  }
+  throw new Error(`criterion profile "${profile.name}" ${parts.join('; and it ')}`);
 }
 
 /**
@@ -207,16 +253,6 @@ export const territoryEvaluator = defaultEvaluator;
  * explicit fallback profile if territory ever has to be backed out. */
 export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);
 
-/**
- * THE SLIDER-REPAIR PROFILE — territory plus the two terms the budget ladder's
- * replays say are missing, both gated on class properties so a board with no
- * piece on it scores identically to `territoryEvaluator`. See
- * `TERRITORY_SLIDER_PROFILE` for the measurement that motivates it.
- */
-export const territorySliderEvaluator = new BoundEvaluator(TERRITORY_SLIDER_PROFILE);
-
-/** The ablation arm — the repair with the royal exclusion lifted. Measured
- * against `territorySliderEvaluator`; never a production default. */
-export const territorySliderRoyalEvaluator = new BoundEvaluator(
-  TERRITORY_SLIDER_ROYAL_PROFILE
-);
+/** The ablation arm — the production profile with the royal exclusion lifted.
+ * Measured against `defaultEvaluator`; never a production default. */
+export const royalCommandEvaluator = new BoundEvaluator(ROYAL_COMMAND_PROFILE);

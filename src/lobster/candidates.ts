@@ -514,10 +514,29 @@ function generateAssessed(
   // `assessOne` on the untouched verdict and is not disturbed by a later
   // SafetyTier correction. The two layers answer different questions: I4's
   // `tierGrade` is invulnerability rank, this is survival.
-  const certainFatal = knobs.pruneCertainSelfFatal;
+  //
+  // THE CORRECTION IS UNCONDITIONAL; THE PRUNE IS NOT. The paragraph above says
+  // the assessment belongs here rather than in the prune "so the danger ORDER
+  // is right even with the prune knob off" — and then gated the assessment on
+  // the prune knob anyway, which made the sentence false. It is true now.
+  //
+  // What it cost while it was false: a move into the perimeter is assessed
+  // `safe` by the risk layer (walls are terrain and the layer reads the claim
+  // field), so it sorted among the safe options, and the last tie-break there
+  // is ascending destination index — which for a trail unit is `up` first. So
+  // the SEED, the plan the search starts from and the plan it plays whenever
+  // nothing outranks it, was a wall move whenever `up` was into the wall. Two
+  // recorded games ended with a snake walking off the board from a position
+  // where every option's floor read DEAD and only `est` could tell the wall
+  // from a survivable square (docs/BASIC-INTELLIGENCE.md).
+  //
+  // The ordering half carries none of the risk the prune half was measured to
+  // carry: it removes nothing from the option set, so no team-level coherence
+  // can be broken by it. It only stops a move that cannot survive from being
+  // the one the search starts on.
   const assessed = surviving.map((candidate) => {
     const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells);
-    if (!certainFatal || one.tier === 'doomed') return one;
+    if (one.tier === 'doomed') return one;
     if (certainlySelfFatal(sub, unit, candidate) !== null) {
       return { ...one, tier: 'doomed' as SafetyTier };
     }
