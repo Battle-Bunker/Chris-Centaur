@@ -4053,3 +4053,15 @@ final synthesis prematurely.
   largest remaining residual structure = game length (−0.546, unexplained;
   leading candidate accumulated linearization error). fold-k member now
   carries FOUR provenance defects; refit must re-derive extraction.
+- Engine re-cut SPECIFIED (composition, 19-ENGINE-SPEC.md @ a1a8123):
+  seven byte-identical migrations E1-E7 with gates (effects/buff-cancel,
+  potion collection w/ potionWindowTurns as INPUT, orientation, promotion,
+  ONE exported adjudicator gated on the mutual-wipe corpus re-adjudicating
+  identically in all three consumers, spawner port, grammar queries).
+  Unlock = tier becomes input+output (Settlement returns tiers/effects/
+  potions → arm→collect→spend walkable; promotion a horizon; turn-limit
+  razor representable). Hardest review: E2 changes tier's contract —
+  vendored copy must re-sync in the SAME change. Named non-capability:
+  NO_SPAWN is a deliberate under-model (conservative for gain, OPTIMISTIC
+  for denial); distributional spawner = later MODEL member; same gap the
+  belief lens flagged (spawning-gated-while-frozen covenant) — track as one.
