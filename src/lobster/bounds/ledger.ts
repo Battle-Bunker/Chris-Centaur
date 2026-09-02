@@ -29,16 +29,29 @@ import type { Divergence, PartialSettlement } from "../../engine-vendor/engine/s
 import type { EngineSubstrate } from "../substrate";
 import { normalizeLedger } from "./score";
 
-/** One divergence as the contract reads it. */
+/**
+ * One divergence as the contract reads it.
+ *
+ * `d.heldId` IS a held unit — the engine's contract says "always one of
+ * `input.held`, so a caller can partition the worlds by its options" — so this
+ * lookup resolves for every entry and `residueOf` below is a real work list of
+ * enemies rather than a list that silently lost the entries whose root was a
+ * modelled unit. The chain the uncertainty travelled along is what makes the
+ * two readable apart: `d.unitId` is the unit whose outcome could change, and
+ * `d.via` names the modelled units between the held root and it. Empty means
+ * the held unit acts on `d.unitId` directly; a non-empty route is an indirect
+ * consequence and reads differently to a human deciding what to refine.
+ */
 function entryOf(sub: EngineSubstrate, d: Divergence): LedgerEntry | null {
   const held = sub.unitOfWireId(d.heldId);
   if (held === undefined) return null;
+  const route = d.via.length === 0 ? "" : ` via ${d.via.join(">")}`;
   return {
     unitId: held.unitId,
     cell: d.cell as CellIndex,
     subStep: d.subStep as SubStep,
     polarity: d.assumedPresent ? "if_absent" : "if_present",
-    note: `${d.kind} with live ${d.unitId}${d.couldBeat ? " (could beat it)" : ""}${
+    note: `${d.kind} with live ${d.unitId}${route}${d.couldBeat ? " (could beat it)" : ""}${
       d.narrowed ? " [narrowed]" : ""
     }`,
   };

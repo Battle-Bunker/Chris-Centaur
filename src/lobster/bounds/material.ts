@@ -29,7 +29,7 @@
  * in our best.
  */
 
-import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
+import type { Divergence, PartialSettlement } from '../../engine-vendor/engine/settlePartial';
 import type { Claim } from '../../engine-vendor/engine/claims';
 import type { EngineSubstrate } from '../substrate';
 import type { Trit, UnitId } from '../contracts';
@@ -176,9 +176,68 @@ function reachedByMoversUncached(
  * where things ended up.
  */
 export function moverSurvival(settlement: PartialSettlement, wireId: string): Trit {
+  return moverSurvivalVia(settlement, wireId, null);
+}
+
+/**
+ * The king a `regicide` divergence is keyed to. The engine's own naming: the
+ * chain's last link is the king whose fall carries the team, and an empty
+ * chain means the held root IS that king.
+ */
+function regicideKingOf(d: Divergence): string {
+  return d.via.length === 0 ? d.heldId : (d.via[d.via.length - 1] as string);
+}
+
+/**
+ * A REGICIDE ENTRY IS NOT A CONTACT, AND PRICING IT AS ONE IS PESSIMISM WITH
+ * NO SHOT BEHIND IT.
+ *
+ * `regicideSpread` writes one entry per surviving team-mate of a king that
+ * could fall — `couldBeat: true` on all of them, because losing the king does
+ * take them off the board. Read as ordinary contacts, those entries say that
+ * every unit of the team is separately in a fight it might lose, and the fold
+ * writes the whole team off in the worst reading. But there is only ONE event:
+ * the king falling. So the entry is resolved by asking about THAT UNIT —
+ * once — instead of charging each team-mate for it.
+ *
+ * The asymmetry that makes it worth doing: the ledger is built against the
+ * wider reading and the king's own peril is settled afterwards, so a king that
+ * is merely contingent in TIMING (every entry naming it carries
+ * `couldBeat: false` — the engine saying it wins that contact in every world)
+ * still spreads regicide entries across its team. Those team-mates are alive
+ * in every world the ledger admits, and saying so raises a floor that had no
+ * world under it.
+ *
+ * Conservative in every other direction: a held king (its fall is exactly what
+ * its claim leaves open — `!selfDeathPossible && regicideKingId !== null` is
+ * the same condition read from the claim side), a king that cannot itself be
+ * proved alive, and a cycle between two kings of one team all fall back to
+ * `maybe`.
+ */
+function moverSurvivalVia(
+  settlement: PartialSettlement,
+  wireId: string,
+  seen: Set<string> | null
+): Trit {
   if (settlement.board[wireId] === undefined || settlement.deaths[wireId] !== undefined) return 'no';
+  let kings: string[] | null = null;
   for (const entry of settlement.ledger) {
-    if (entry.unitId === wireId && entry.couldBeat) return 'maybe';
+    if (entry.unitId !== wireId) continue;
+    if (entry.kind === 'regicide') {
+      const king = regicideKingOf(entry);
+      if (kings === null) kings = [king];
+      else if (!kings.includes(king)) kings.push(king);
+      continue;
+    }
+    if (entry.couldBeat) return 'maybe';
+  }
+  if (kings === null) return 'yes';
+  const visited = seen ?? new Set<string>();
+  visited.add(wireId);
+  const claims = claimsById(settlement);
+  for (const king of kings) {
+    if (visited.has(king) || claims.has(king)) return 'maybe';
+    if (moverSurvivalVia(settlement, king, visited) !== 'yes') return 'maybe';
   }
   return 'yes';
 }
