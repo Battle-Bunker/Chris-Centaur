@@ -1,3 +1,12 @@
+> **SUPERSEDED IN PART (see `reply-to-epistemics-redteam.md`, `value-joint-and-prior-art.md`).**
+> The k→1 march is withdrawn as basis evidence — any exhaustive carving produces it. The
+> residual-structure test the epistemics lens prescribed was run and **killed this document's
+> basis**: residual loaded on severs at −0.537, because outflow counted deaths but not severs.
+> Re-carved (v2: deaths + severs) gives k=1.185, R² 0.9746 fitted / **0.9507 at zero fit**, with
+> sever loading down to +0.239 and still not white. Also: "a death costs exactly the balance it
+> wipes" is FALSE for last kings (regicide wipes the team) — replaced by `w_closure(event)`.
+> No fitted cell contained a king. Read this document as the first pass it was.
+
 # VALUE LENS — FINAL SYNTHESIS
 
 Branch `design/value-evaluation`. Companion: `value-algebra.md` (the full argument);
