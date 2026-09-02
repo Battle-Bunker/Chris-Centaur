@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Fifteen domains, surveyed against the four lens syntheses as they stood at
+Sixteen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -28,6 +28,7 @@ case.*
 | 13 | two engineering literatures our ladders should be members of (constraint propagation; progressive widening) | `13-inference-and-admission-schedules.md` |
 | 14 | algorithm selection and portfolios — the theory of `Choice`, and a falsifier for the architecture | `14-algorithm-selection-and-portfolios.md` |
 | 15 | opponent modelling and safe exploitation — **ε is a ledger, not a dial** | `15-opponent-modelling-and-safe-exploitation.md` |
+| 16 | diminishing returns, and how to read a performance profile (response to the first compiled CPPs) | `16-diminishing-returns-and-reading-a-profile.md` |
 
 ---
 
@@ -172,6 +173,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C29** | OWNER / COMPOSITION | **Nobody has checked whether our arms cycle.** A simultaneous-move game with contested cells manufactures rock-paper-scissors structure; if the cyclic fraction is non-negligible then "which bot is better" is not well posed, a roster must be a **mixture** not a champion, and the missing production bot-binding site becomes a blocker. Two-hour check on existing data (mElo's Schur decomposition). |
 | **C30** | COMPOSITION | **The roster grows by taste; PSRO grows it by best response to the current meta-strategy** — which directs exploration exactly where the population is weakest. The procedural answer to ruling 49's "explored at low density", instead of "run more arms". |
 | **C1** | BELIEF | ε=1 is the *pure security level*, not "the adversarial zero point". In a simultaneous-move game the field's zero point is the stage matrix's **NE**, solved by LP — a distribution, not a scalar worst case. No ε reaches the correct answer. Needs a third reading beside sound/advised: **equilibrium**. |
+| **C48** | TIME | **A saturating CPP has two opposite diagnoses and the profile alone cannot tell them apart**: "search exhausted" vs "evaluator too coarse for depth to bite on". The chess literature says the second historically dominates and *masquerades* as the first (it hid diminishing returns for fifteen years), and our own evaluator measurements point that way on the board that saturates. Discriminator: a second CPP axis, **the margin at the deciding rung** — which is the same column the contrastive surface, the VOI input and the inert-weight instrument all want. Also: key the CPP on `evalVersion`; the saturation point is a property of the evaluator. |
 | **C5** | TIME | An economy with prices and no goods: **no performance profile exists anywhere**. Zilberstein's conditional performance profile `Pr(quality \| time, input quality)` is the missing object; our premise coordinates are already an input-quality index, and the owner's escalated denominator question dissolves once it exists. |
 | **C12** | BELIEF / VALUE | Γ-maximin's optimal set **does not shrink as beliefs sharpen** (Troffaes) — it returns one option even under complete ignorance. That is the one property a Centaur option-surfacer must have. **Maximality** returns it natively. Strongest architectural argument for the Centaur direction in the survey. |
 | **C25** | BELIEF | **Nothing in the architecture makes information valuable.** No action is ever valued for what it reveals — VOI sits half in ECONOMY and half nowhere — which is QMDP's named failure mode. Prediction: under invisibility potions the bot will never spend a move to scout. C12 is the dual (the reduction cannot express "I now know more"); two mechanisms, one symptom, in the programme whose flagship feature is fog. |
