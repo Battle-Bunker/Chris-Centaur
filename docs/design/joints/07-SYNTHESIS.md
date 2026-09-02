@@ -65,9 +65,9 @@ purpose inexpressible.
 |---|---|---|---|
 | **MODEL** | a premise-producing claim about the world | **lattice join** (weakening only) | credal sets join; `'adversarial'` is the zero point, not a weight. Non-linear in the measure |
 | **VALUE** | a contribution in the weight-flow currency, at a declared **participant scope** | **Möbius decomposition** — disjoint scopes add; overlapping scopes emit residuals; arity capped by identifiability | the additive law is the `k = 1` truncation; the shipped edge-EV surrogate is already `k = 2` |
-| **REDUCTION** | a functional over the credal set | **exactly one per site class**, from a manifest table with a constraint column | averaging two reductions is the lower prevision of no credal set |
+| **REDUCTION** | a rule over gambles returning a **SET** of (option, dominance condition) | **exactly one member per site class**, from a manifest table with a constraint column | maximality and E-admissibility return sets natively; Γ-maximin is the member that collapses, and the collapse belongs at the **emission barrier**. Averaging two reductions is the lower prevision of no credal set |
 | **ACTION** | order over candidates (and, kernel-side, closure of the set) | additive over the currency with a derived cliff band; closure is intersection | admission dominates valuation *where the cap binds* — slider-specific |
-| **ECONOMY** | what work to buy, and when it must reach the wire | **two laws**: allocation = partition of quanta over purchasable and anticipatory meets; obligation = **meet on deadlines** (the tightest binds; the kernel pin is the bottom element) | rations constrain the partition; they never touch the model |
+| **ECONOMY** | what work to buy, when it must reach the wire, and when to ask the human | **two laws**: allocation = partition of **edge credits** over purchasable and anticipatory meets; obligation = **meet on deadlines** (the tightest binds; the kernel pin is the bottom element) | **two currencies — compute quanta and operator attention — with no exchange rate**, because a rate would let the scheduler spend the human. Sharing makes node-partitioning false, so credits attach to edges and Zilberstein's tree-shaped optimality is deliberately dropped |
 | **ADVICE** | a value over *sets* of plans for the operator | **monotone submodular under a cardinality (attention) budget**, greedy | sink is the operator surface; one-way constraint — no staged-plan joint may read it |
 
 ---
@@ -89,11 +89,22 @@ reading any file. So: every law this lens asserts, one line each.
 | **H** (cross-horizon) | horizons never compare as projections; they meet only inside a fold that declares its discount | the depth rung's licence, previously unwritten |
 | **M** (sub-provenance) | a member with internal structure declares its parts; engagement counts per part | where Frankenstein relocates |
 | **N** (no config language) | the bot value is data — literals, member ids, four `Choice` forms; no interpolation, expressions or cross-references | every Hydra/gin failure mode |
+| **I** (identity separation) | content hashes and stable names are never interchanged — **names find, hashes validate**; a cache keyed by name is a bug, a carry keyed by hash is a bug | the search map, attention carry, warm promotion |
+| **bijection** | 1:1 between manifest rows and the kernel artifacts they name, checked in CI; a row naming nothing, or an implementation no row names, fails | stops the manifest becoming a sixth enumeration |
 | **F1 / F2** (fit provenance) | a fitted number names its fit; re-fitting mints a new member id; the transfer penalty is **generated** from the two premise records, never member-computed | ruling 49 |
 
-Plus two identity rules: `botId` is input-addressed (identity), `behaviourId`
-output-addressed over a canonical probe suite (equivalence, and the early cutoff
-that keeps a re-fit from invalidating every measurement).
+Plus **three** identities, obeying different laws: `botId` input-addressed
+(identity), `behaviourId` output-addressed over a canonical probe suite
+(equivalence, and the early cutoff that keeps a re-fit from invalidating every
+measurement), and a **stable `Name`** that must *not* change across the
+revisions we want reuse across (carry, warm promotion, transport across
+`advance`).
+
+And the premise index, final: `⟨support, observable, measure, config⟩` where
+observable = `⟨horizon, provenance-of-computation⟩` (computed terms, admitted
+set, conditioning depth, resolved selections) and measure = `⟨weight, range⟩` —
+the range being what history implies about where we are, degenerate under full
+observability and load-bearing the day masks arrive.
 
 ---
 
