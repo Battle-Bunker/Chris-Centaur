@@ -60,6 +60,13 @@ purpose inexpressible.
 
 ## 2. The six kinds and their laws
 
+*A joint declares two things, and they are not the same decision: its **kind**
+(the composition law — the domain's joint, stable because it follows the game)
+and its **module** (the hiding unit — the design's joint, chosen to absorb
+churn). Co-change mining says they coincide at ~1.94× for four kinds and diverge
+sharply for ACTION, which is one law over four things whose changes are
+unrelated — see `27-DSM-AND-BUDGET.md`.*
+
 | kind | member is | composition law | notes |
 |---|---|---|---|
 | **MODEL** | a premise-producing claim about the world | **lattice join** (weakening only) | credal sets join; `'adversarial'` is the zero point, not a weight. Non-linear in the measure |
@@ -211,13 +218,21 @@ Two rules govern the order: **byte-identity at every step**, with
    classes are wrong *in agreement* — so one artifact class must be produced by
    an independent path and compared. Drift detection cannot come from the same
    source as the artifacts.
-3. **The entry floor rises for every reader, forever.** Today a maintainer reads
+3. **The visible layer is a cost paid by every hidden module**, and the
+   co-change matrix shows the spine changing with every kind. So it carries a
+   **budget** (`27 §5`): coordinates ≤ 12 components, named laws ≤ 15, kinds
+   ≤ 6, `Choice` forms ≤ 4, member fields ≤ 12 — and an addition must fit or
+   **name what it replaces**. Its counterweight is **INVERSION** (Baldwin–Clark):
+   every "written N times" defect on the record is a missing inversion, and the
+   ambiguity detector doubles as the candidate scanner — so the budget is what
+   stops "invert everything" being as damaging as "invert nothing".
+4. **The entry floor rises for every reader, forever.** Today a maintainer reads
    `accept()` top to bottom; afterwards the same question routes through
    manifest → choice → member → law → premise → projection. That is the real
    price, and §3's law table exists because of it.
-4. **Fat members keep the non-linear content** — Law M and scoped contributions
+5. **Fat members keep the non-linear content** — Law M and scoped contributions
    bound it; neither removes it.
-5. **This is a large change to a working bot** — B0 is one field, B1–B3 are
+6. **This is a large change to a working bot** — B0 is one field, B1–B3 are
    byte-identical by construction, and everything that changes behaviour is
    gated on reproducing today's behaviour first.
 
