@@ -4077,3 +4077,14 @@ final synthesis prematurely.
   measurement. SECOND standing extraction rule: SATURATION RULE — any
   bounded statistic checked against its own bound before reporting
   (fourth instrument artifact caught, pre-publication this time).
+- FIRST CPP CURVES COMPILED (time lens @ 659ea43, cpp/*.json + READING.md;
+  n=60/stratum, rungs 125→4000ms, 12/12 exact top-rung repeats = 0% noise
+  floor): snake6 SATURATES at ≤500ms (1.000 agreement from 500ms up;
+  production 9,850ms ≈ 20x past saturation). Queen cell CLIMBS THROUGH THE
+  TOP RUNG — 11.7% of decisions stage differently at 4s vs 2s (the played
+  budget), 15% vs 1s; no plateau found; scarce good = PRICED PLANS (449 vs
+  5,079 — 11x starvation; enumeration/threads saturate early, toll fix
+  holding). Arbitration: fund ponder-class carried VALUE work on piece
+  boards. STANDING CAVEAT: every piece-cell strength verdict at ≤2s
+  budgets was measured on off-curve staging (queen/rook ladder cells
+  qualified). v1 (quanta-denominated) specced, waits on handle swap.
