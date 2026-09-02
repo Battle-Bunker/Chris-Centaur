@@ -1,8 +1,7 @@
 # SYNTHESIS — the factorization, the laws, the build order, and what it costs
 
 Standalone summary of the COMPOSITION lens (joints, configuration, registries,
-the engine API, how strategy collections compose). Current as of cycle 8;
-supersedes the cycle-5 version. Nothing below requires the other documents,
+the engine API, how strategy collections compose). Current as of cycle 10. Nothing below requires the other documents,
 which hold the derivations, the red-team exchanges and the prior-art audit.
 
 ---
@@ -123,10 +122,16 @@ observability and load-bearing the day masks arrive.
    logits declared, a twelve-slot lexicographic comparator shipped — and it is
    **weight-blind**: a weight-31 queen capture ranks identically to a weight-2
    snake.
-6. **Admission dominates valuation where the cap binds**, which is
-   slider-specific (`sliderCandidateCap: 4` against a queen's ~71; trail units
-   never truncate). Two causes make a weight inert — not in the priced set, or
-   constant across the plans compared — with opposite remedies.
+6. **Admission dominates valuation where the cap binds — now measured**: the
+   per-unit cap binds on **100% of slider decisions and 0% of snake/leaper**, a
+   queen's mean **64.4** options against a cap of **4**, and the discarded set is
+   the **most differentiated** one. Admission operates at three granularities
+   (per unit, per cluster joint under the 512 product cap, per emission), and a
+   weight can be inert for five reasons — not admitted, no gradient, sparse
+   support (a potion sits at a legal destination on 8.17% of unit-decisions),
+   lost at joint level, or **priced and then refused by the emission rate
+   limiter, which is 15–43% of every plan priced** and which no evaluator weight
+   at any setting can rescue.
 7. **`CandidateKnobs` is three kinds in one bag**, and `keepQuiet: 2` is a number
    in a knob bag that closes a set.
 8. **REDUCTION is five places at once**, so the bot's risk posture is `ε = 1.0`
