@@ -94,38 +94,61 @@ import type { Candidate, CellIndex } from './contracts';
  *          assessed `doomed` (so they sort last) and taken by a declared prune
  *          (so they leave the option set whenever anything else is offered).
  *   full   `guard`, plus the rung-0 self-harm repair in `SearchCore.conform`.
- *   auto   `full` on a board that bears a PIECE, `off` on a snake-only board.
- *          The default, and the ship condition — see below.
+ *   auto   `full` on a board that bears a PIECE, `guard` on a snake-only
+ *          board. The default — see below.
  *
- * ── WHY `auto` EXISTS, AND WHY IT IS THE DEFAULT (integ/round-a) ───────────
+ * ── WHY `auto` EXISTS, AND WHAT IT RESOLVES TO ON A SNAKE-ONLY BOARD ───────
  *
- * The ledger's Stage 2.5 verdict on I1 does not ship this layer flat:
+ * The ledger's Stage 2.5 verdict on I1 did not ship this layer flat:
  *
  *   "SHIP the guard for PIECE boards as a rule-certainty defect fix; DO NOT
  *    SHIP UNCONDITIONALLY — the snake-only no-regression gate FAILS."
  *
- * Those are two different boards, not two different confidence levels. On
- * piece cells (n=48) the guard is worth place +0.146 [+0.031, +0.250] and
- * material +3.000, against its own null; on `r01-snakes6` it is
- * −0.500 [−0.708, −0.333] against a null of −0.083. The mechanism of the
- * failure is understood and is specific to that board: every snake staging
- * `up` is PARALLEL MOTION, which was accidentally collision-free, and a
- * per-unit refusal breaks that coherence without replacing it — a team-level
- * capability the layer does not have. The guard is not "less good" on
- * snake-only boards; it is harmful there, for a reason that does not apply
- * where a piece is on the board.
+ * On piece cells (n=48) the guard was worth place +0.146 [+0.031, +0.250] and
+ * material +3.000 against its own null; on `r01-snakes6` it was
+ * −0.500 [−0.708, −0.333] against a null of −0.083. The stated mechanism of
+ * that failure was specific to the board: every snake staging `up` is PARALLEL
+ * MOTION, which was accidentally collision-free, and a per-unit refusal breaks
+ * that coherence "without replacing it — a team-level capability the layer does
+ * not have".
  *
- * The flag as I1 built it is a blunt three-state and cannot express that: it
- * is the same answer on every board. `auto` is the ship condition made into
- * the DEFAULT POLICY, so the shipped build carries the verdict rather than
- * relying on an operator to know it. `guard` and `full` remain available as
- * UNCONDITIONAL levels, which is what a measurement arm needs — an arm that
- * wants the snake-only cell must be able to ask for it.
+ * THAT VERDICT WAS RE-MEASURED AND IT NO LONGER HOLDS, for two reasons that
+ * are both changes to the build under it, not to the argument:
  *
- * `full`, not `guard`, is what `auto` resolves to, because `full` is what was
- * measured: I1's `mine` arm is "guard + rung-0 repair + royal margin".
- * (CENTAUR_ROYAL_MARGIN is a separate flag and its default is NOT changed
- * here — D2 shipped as a defect fix, not a placement claim.)
+ *   1. THE REFUSAL NO LONGER MOVES ANY UNIT. The certain-self-fatal TIER
+ *      correction became unconditional (docs/BASIC-INTELLIGENCE.md fix 6), so
+ *      a wall or own-body move is already `doomed` and already sorts last, and
+ *      the always-on `pruneFatalNoGain` knob already takes it. Over 1750
+ *      snake-only unit-decisions the guard removes 96 of 5382 options — 68 of
+ *      them the ALLY-BODY policy prune, 28 own-body, ZERO wall — and it changes
+ *      the generator's ordered-first option in 0 of 1750. A refusal that never
+ *      changes a unit's first pick cannot be what breaks parallel motion.
+ *   2. THE MISSING TEAM-LEVEL CAPABILITY EXISTS NOW. `seedPlan`'s de-confliction
+ *      (`search/core.ts`) is switched on by the same level, and it is a
+ *      team-level answer to exactly the coherence the old verdict said a
+ *      per-unit refusal destroyed and could not replace.
+ *
+ * Measured, 10 seeds x 100 turns, per board class, never pooled (the numbers
+ * and the full matrix are in docs/BASIC-INTELLIGENCE.md): at 150 ms the level
+ * is a WASH on `snakes` — every counter identical to `off`, 43 deaths either
+ * way — and on `sparse` it trades the one wall death for one exhaustion. At the
+ * deterministic 20 ms budget, where the decision IS the seed, it is a large
+ * win on `snakes`: unit-turns 1350 -> 3295, deaths per 100 unit-turns
+ * 3.11 -> 1.18, contest deaths 30 -> 17. Nothing measured HARM in any cell.
+ *
+ * `guard`, NOT `full`, is what `auto` resolves to here, and the two reasons are
+ * separate. It is the level that removes only what a RULE calls fatal: `full`
+ * adds `SearchCore`'s rung-0 self-harm repair, which re-picks on the
+ * resolution's PROJECTED casualties — a risk reading, not a rule. And `full`
+ * measured worse on `sparse` (unit-turns 3100 -> 2750, meals/100 3.19 -> 2.95)
+ * and crashed one seed there on a `bounds_inversion` that `repairSelfHarm`
+ * does not absorb. Piece boards keep `full`: that is the cell where `full` was
+ * measured and shipped, and nothing here re-opens it.
+ *
+ * `off`, `guard` and `full` remain available as UNCONDITIONAL levels, which is
+ * what a measurement arm needs — an arm that wants a particular cell must be
+ * able to ask for it. (CENTAUR_ROYAL_MARGIN is a separate flag and its default
+ * is NOT changed here — D2 shipped as a defect fix, not a placement claim.)
  */
 export type StagingSafety = 'off' | 'auto' | 'guard' | 'full';
 
@@ -161,9 +184,9 @@ export function stagingSafety(): StagingSafety {
 /**
  * Does this board bear a PIECE — a unit that leaves no trail?
  *
- * The whole roster, not just ours: the snake-only cell the guard regresses is
- * one where NOTHING on the board is a piece, which is what makes the parallel
- * motion it breaks coherent in the first place.
+ * The whole roster, not just ours: the two cells the levels differ on are
+ * "something on the board is a piece" and "nothing is", and a snake-only board
+ * is the second one whoever owns the snakes.
  *
  * One pass over the roster, once per decision, next to the other per-decision
  * board facts. `leavesTrail` is the engine's own profile bit, so this asks the
@@ -177,17 +200,20 @@ export function boardBearsPiece(sub: EngineSubstrate): boolean {
  * Turn a level into an answer, given the one board fact `auto` depends on.
  *
  * Callers that have no board — a generator or a search core built outside a
- * team decision — must pass `false`, which resolves `auto` to `off`. That is
- * the deliberately conservative direction: `off` is the behaviour that shipped,
- * and a guard that must not touch snake-only boards may not be switched on by
- * a caller that cannot tell whether this is one.
+ * team decision — must pass `false`, and so get the SNAKE-ONLY answer. That is
+ * still the conservative direction, and it is now the conservative direction in
+ * the same sense on both sides: `guard` is the weaker of the two answers `auto`
+ * can give, it removes only what a rule calls fatal, and the snake-only cell it
+ * used to be withheld from is the cell that was re-measured (see above) and
+ * came back a wash at 150 ms and a win at 20 ms. What a no-board caller must
+ * not do is claim the PIECE cell's `full`, and it does not.
  */
 export function resolveStagingSafety(
   level: StagingSafety,
   hasPiece: boolean
 ): ResolvedStagingSafety {
   if (level !== 'auto') return level;
-  return hasPiece ? 'full' : 'off';
+  return hasPiece ? 'full' : 'guard';
 }
 
 /**

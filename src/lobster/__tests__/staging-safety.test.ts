@@ -191,14 +191,18 @@ describe('the flag', () => {
 });
 
 /**
- * `auto` — the ship condition as the default policy.
+ * `auto` — the default policy, one answer per board class.
  *
- * The ledger ships this layer for PIECE boards and explicitly not for
+ * The ledger shipped this layer for PIECE boards and explicitly not for
  * snake-only ones, where its own no-regression gate failed
- * (r01-snakes6 −0.500 [−0.708, −0.333] against a null of −0.083). A blunt
- * on/off flag cannot carry that, so `auto` resolves per board.
+ * (r01-snakes6 −0.500 [−0.708, −0.333] against a null of −0.083). That verdict
+ * was RE-MEASURED under the basic-intelligence build and did not reproduce, so
+ * the snake-only answer is now `guard` rather than `off` — see the flag block
+ * in `../staging-safety.ts` and the matrix in docs/BASIC-INTELLIGENCE.md.
+ * A blunt on/off flag still cannot carry two answers, so `auto` still resolves
+ * per board; what changed is what the snake-only branch resolves TO.
  */
-describe('the auto policy is the ship condition', () => {
+describe('the auto policy answers per board class', () => {
   const snakeOnly = boardOf([
     makeSnake('r1', [
       { x: 2, y: 2 },
@@ -238,8 +242,11 @@ describe('the auto policy is the ship condition', () => {
     expect(resolveStagingSafety('auto', true)).toBe('full');
   });
 
-  test('auto is OFF on the snake-only board whose gate the guard failed', () => {
-    expect(resolveStagingSafety('auto', false)).toBe('off');
+  test('auto is GUARD on a snake-only board — the re-measured answer', () => {
+    // `guard`, not `full`: it is the level that removes only what a RULE calls
+    // fatal. `full` adds the rung-0 repair, which re-picks on the resolution's
+    // PROJECTED casualties, and it measured worse on the sparse board.
+    expect(resolveStagingSafety('auto', false)).toBe('guard');
   });
 
   test('every other level is unconditional — an arm can still ask for either', () => {
@@ -250,17 +257,59 @@ describe('the auto policy is the ship condition', () => {
     }
   });
 
-  test('a caller with no board resolves auto OFF — the shipped behaviour', () => {
-    // knobsForSafety has no board, so it must not turn the guard on for 'auto'.
-    // Anything else would apply the guard to snake-only boards by default.
+  test('a caller with no board gets the SNAKE-ONLY answer, never the piece one', () => {
+    // knobsForSafety has no board. It must not claim the piece cell's `full`;
+    // it gets `guard`, which is what a snake-only board now resolves to, and
+    // `guard` and `full` imply the same two candidate knobs anyway — the
+    // difference between them is the search core's rung-0 repair.
     expect(knobsForSafety('auto')).toEqual({
-      pruneCertainSelfFatal: false,
-      pruneRoyalPath: false,
+      pruneCertainSelfFatal: true,
+      pruneRoyalPath: true,
     });
     expect(knobsForSafety('full')).toEqual({
       pruneCertainSelfFatal: true,
       pruneRoyalPath: true,
     });
+  });
+
+  /**
+   * THE FACT THAT RETIRED THE OLD SNAKE-ONLY VERDICT.
+   *
+   * That verdict's mechanism was "a per-unit refusal breaks the parallel motion
+   * that was accidentally collision-free". Since the certain-self-fatal TIER
+   * correction became unconditional (docs/BASIC-INTELLIGENCE.md fix 6) the
+   * refusal cannot do that: a certainly-fatal move is already `doomed` and
+   * already sorts LAST, so removing it cannot change which option is first —
+   * and rung 0 stages `candidates[0]`. Every unit's staged move is therefore
+   * the same move with the guard on as with it off.
+   */
+  test('on a snake-only board the guard changes no unit s ordered-FIRST option', () => {
+    const guarded = GUARDED();
+    const shipped = SHIPPED();
+    let units = 0;
+    for (let seed = 1; seed <= 120; seed++) {
+      const board = crowdedBoard(seed);
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      try {
+        if (boardBearsPiece(sub)) continue; // the piece cell is `full`, not this claim
+        for (const unit of sub.roster()) {
+          const before = shipped.candidatesFor(sub, unit.unitId).candidates;
+          const after = guarded.candidatesFor(sub, unit.unitId).candidates;
+          if (before.length === 0 || after.length === 0) continue;
+          units++;
+          expect([seed, unit.unitId, (after[0] as Candidate).to]).toEqual([
+            seed,
+            unit.unitId,
+            (before[0] as Candidate).to,
+          ]);
+        }
+      } finally {
+        sub.release();
+        clearGeometryCache();
+      }
+    }
+    // The claim is worth nothing if the loop found no snake-only boards.
+    expect(units).toBeGreaterThan(50);
   });
 });
 
@@ -627,24 +676,54 @@ describe('the ordering, which is what rung 0 actually reads', () => {
     expect(shippedFatalFirsts).toBe(0);
   });
 
+  /**
+   * `off` still means OFF, and the environment is still what a bare generator
+   * reads.
+   *
+   * This used to compare `bare` against an explicitly-off build under the
+   * suite's own environment, on the premise that the no-board default WAS
+   * `off`. It is `guard` now — `auto` resolves to the snake-only answer where
+   * there is no board to ask — so the premise moved and the claim did not: what
+   * the flag promises is that SETTING it off recovers the pre-layer build byte
+   * for byte. So the flag is set, and both polarities are checked.
+   */
   test('with the flag off the option sets are byte-identical to the shipped build', () => {
     const key = (set: CandidateSet): string =>
       `${set.legalCount}|${set.candidates.map((c) => `${c.to}:${c.path.join('.')}`).join(',')}` +
       `|${set.prunedLedger.map((e) => `${e.candidate.to}:${e.prune}:${e.exact}`).join(',')}`;
-    for (let seed = 1; seed <= 60; seed++) {
-      const board = crowdedBoard(seed);
-      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-      const off = new GrammarCandidateGenerator({
-        pruneCertainSelfFatal: false,
-        pruneRoyalPath: false,
-      });
-      const bare = new GrammarCandidateGenerator({});
-      for (const unit of sub.roster()) {
-        // `bare` picks up whatever the environment says; under the suite's own
-        // environment that is the shipped default, and the two must agree.
-        expect(key(off.candidatesFor(sub, unit.unitId))).toBe(key(bare.candidatesFor(sub, unit.unitId)));
+    const before = process.env.CENTAUR_STAGING_SAFETY;
+    const off = new GrammarCandidateGenerator({
+      pruneCertainSelfFatal: false,
+      pruneRoyalPath: false,
+    });
+    const on = new GrammarCandidateGenerator({
+      pruneCertainSelfFatal: true,
+      pruneRoyalPath: true,
+    });
+    try {
+      for (const [flag, named] of [
+        ['off', off],
+        ['guard', on],
+        ['full', on],
+      ] as const) {
+        process.env.CENTAUR_STAGING_SAFETY = flag;
+        for (let seed = 1; seed <= 60; seed++) {
+          const board = crowdedBoard(seed);
+          const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+          // `bare` names no knob, so it picks up the environment.
+          const bare = new GrammarCandidateGenerator({});
+          for (const unit of sub.roster()) {
+            expect([flag, key(bare.candidatesFor(sub, unit.unitId))]).toEqual([
+              flag,
+              key(named.candidatesFor(sub, unit.unitId)),
+            ]);
+          }
+          sub.release();
+        }
       }
-      sub.release();
+    } finally {
+      if (before === undefined) delete process.env.CENTAUR_STAGING_SAFETY;
+      else process.env.CENTAUR_STAGING_SAFETY = before;
     }
   });
 });

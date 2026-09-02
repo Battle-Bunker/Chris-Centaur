@@ -123,14 +123,12 @@ path reaches first, not which move is chosen when both are reached. Left alone:
 correcting it needs the victim's weight threaded out of the risk verdict, which
 is real surgery for a term that does not move any of the gates below.
 
-**Certain-self-fatal moves are not pruned on snake-only boards.**
-`resolveStagingSafety('auto', hasPiece=false)` resolves to `off`
-(`src/lobster/staging-safety.ts:189`) on the recorded verdict that the prune
-measured HARMFUL on snake-only rosters. Walking into the perimeter is therefore
-still an option the generator offers and assesses `safe`. It is only ever taken
-when every option ties — see the gates below for what that costs after the
-fixes, and `src/tests/basic-intelligence.test.ts` for the assertion that keeps
-it near zero.
+**Certain-self-fatal moves are not pruned on snake-only boards.** FIXED — see
+"The prune verdict, re-measured" below. `resolveStagingSafety('auto',
+hasPiece=false)` now resolves to `guard`. The diagnosis' own reasoning above
+was already out of date when it was written: fix 6 made the certain-self-fatal
+TIER correction unconditional, so a perimeter move is assessed `doomed`, not
+`safe`, on every board.
 
 ---
 
@@ -334,11 +332,11 @@ evaluator term needed changing. Snake-only boards are byte-identical on every
 counter before and after — a snake rarely has two captures competing at once —
 and the mixed board is where it shows.
 
-**The certain-self-fatal PRUNE is still off on snake-only boards.** Only the
-ordering half was made unconditional. The recorded verdict against the prune
-was measured on a build whose staged move was the seed, which is the very thing
-fix 5 changed, so that verdict is now of unknown standing — it should be
-re-measured rather than assumed either way.
+**Two units that must cross the same square** is the remaining structural
+problem, and it is what the `edge` deaths below are. Nothing in the staging
+layer can reach it: an edge exchange is settled between two movers, and every
+predicate in `staging-safety.ts` is a statement about ONE mover's own body and
+the terrain.
 
 **Contests are the remaining death cause**, and a large one on the mixed board
 (14 of 16 deaths). Two mirror-symmetric bots walking into the same square is a
@@ -381,3 +379,103 @@ sits under `food` (4), whose pull reaches 1 for a starving unit — so a hungry
 unit still takes a contested meal and a healthy one declines it. Weights of 2
 and 5 were both watched over five seeds; 2 is inert on contests and 5 buys
 nothing 3 does not.
+
+---
+
+## The prune verdict, re-measured
+
+The ledger's I1 verdict refused the certain-self-fatal prune on snake-only
+rosters — `r01-snakes6` −0.500 [−0.708, −0.333] against a null of −0.083 — and
+`resolveStagingSafety('auto', hasPiece=false)` carried that refusal as `off`.
+The stated mechanism was that "every snake staging `up` is PARALLEL MOTION,
+which was accidentally collision-free, and a per-unit refusal breaks that
+coherence without replacing it — a team-level capability the layer does not
+have."
+
+Two things under that argument have changed, and both are changes to the build,
+not to the argument.
+
+**The refusal no longer moves any unit.** Fix 6 made the certain-self-fatal
+TIER correction unconditional, so a wall or own-body move is already `doomed`,
+already sorts last, and is already taken by the always-on `pruneFatalNoGain`
+knob. Over 1750 snake-only unit-decisions (400 generated boards, both teams),
+turning the guard on removes 96 options out of 5382 — 68 of them the ALLY-BODY
+policy prune, 28 own-body, and **zero wall** — and it changes the generator's
+ordered-first option in **0 of 1750**. A refusal that never changes a unit's
+first pick cannot be the thing that breaks parallel motion.
+
+**The missing team-level capability now exists.** `seedPlan`'s de-confliction
+(`src/lobster/search/core.ts`) is switched on by the same level, and it is a
+team-level answer to exactly the coherence the verdict said a per-unit refusal
+destroyed and could not replace.
+
+### The measurement
+
+Ten seeds x 100 turns, per board class, never pooled. `off` is what `auto`
+resolved to before; `guard` is what it resolves to now. `mixed` bears a piece,
+so `auto` is `full` there before and after and the arm is a control.
+
+    snakes  150 ms   off -> guard    unit-turns  3375 -> 3375   meals/100 13.72 -> 13.72
+                     deaths 43 -> 43   {bodyBlock 23, contest 7, self 8, edge 4, wall 1} both
+                     deaths/100 unit-turns 1.27 -> 1.27
+                     reversal 0.15% -> 0.15%     dither 0.00% -> 0.00%
+
+    snakes   20 ms   off -> guard    unit-turns  1350 -> 3295   meals/100  3.11 ->  1.43
+                     deaths 42 -> 39   contest 30 -> 17   bodyBlock 10 -> 14   wall 2 -> 1
+                     deaths/100 unit-turns 3.11 -> 1.18      meals ABSOLUTE 42 -> 47
+                     reversal 0.00% -> 0.15%     dither 0.00% -> 0.00%
+
+    sparse  150 ms   off -> guard    unit-turns  3100 -> 3100   meals/100  3.19 ->  3.19
+                     deaths 11 -> 10   the one `wall` becomes one `exhaustion`
+                     reversal 0.00% -> 0.00%     dither 0.00% -> 0.00%
+
+    sparse   20 ms   off -> guard    identical on every counter: 440 unit-turns,
+                     no meals, 20 contest deaths
+
+    mixed    20 ms   auto -> auto    identical on every counter: 3077 unit-turns,
+                     meals/100 3.22, reversal 11.89%, dither 0.32%, 50 deaths
+                     {contest 48, bodyBlock 2}
+
+At 150 ms the level is a WASH on both snake-only boards: `snakes` is identical
+on every counter and `sparse` trades its single wall death for a single
+exhaustion. At the deterministic 20 ms budget — below the kernel's 40 ms flush
+reserve, where the decision IS the seed — it is a large win on `snakes`:
+2.4x the unit-turns, deaths per unit-turn down 62%, contest deaths 30 -> 17.
+Meals per hundred unit-turns fall there, and that reading is a denominator
+artefact of the same kind the contest member has above: unit-turns are an
+OUTCOME, absolute meals went UP, 42 -> 47.
+
+Nothing measured harm in any cell, so the verdict does not reproduce and `auto`
+no longer carries it.
+
+### Why `guard` and not `full`
+
+`guard` is the level that removes only what a RULE calls fatal. `full` adds
+`SearchCore`'s rung-0 self-harm repair, which re-picks on the resolution's
+PROJECTED casualties — a risk reading, not a rule. It also measured worse on
+the board where the two differ: `sparse` at 150 ms, unit-turns 3100 -> 2750 and
+meals/100 3.19 -> 2.95, with seed 1 aborting on an `inverted ScoreBounds`
+(`bounds_inversion`) that `repairSelfHarm` does not absorb the way rung 0's
+first `price()` does. Piece boards keep `full`, which is the cell it was
+measured and shipped on; nothing here re-opens that.
+
+### `edge` is not the perimeter, and the perimeter deaths that remain
+
+The `edge` deaths on `snakes` are not perimeter walks. `edge` is the head-on
+EDGE EXCHANGE of `turnEngine.ts` c1: two units traversing the same edge in
+opposite directions, settled between them. A perimeter walk is cause `wall`
+(`turnEngine.ts:384`). No predicate in `staging-safety.ts` can reach an edge
+exchange — every one of them is a statement about ONE mover's own body and the
+terrain, with no other unit's choice in it — so the prune neither should nor
+does move that counter, and it is the same 4 either way at 150 ms.
+
+The one `wall` death that survives the guard on `snakes` is the EMPTINESS
+GUARANTEE, not a gap in the classification. Seed 10, turn 65: `red-B` sits at
+(10,10) on an 11x11 board with its body running down the right column and its
+neck at (9,10). Its three options are (10,11) — off the top — (11,10) — off the
+right — and its own neck. All three are rule-certainly fatal, the guard prunes
+all three, the set is empty, and `restoreLeastBad` puts them back
+(`candidates.ts`). The same shape produces the 20 ms one: a snake at hp 1, for
+which every legal move is fatal by exhaustion anyway. The prune leaves nothing
+AVOIDABLE behind; what is left is a snake that had already boxed itself in,
+which is a room problem and not a staging one.
