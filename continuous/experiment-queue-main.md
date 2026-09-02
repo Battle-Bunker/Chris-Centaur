@@ -250,3 +250,7 @@
       weight-supplier's −log w(actual move) against Turn.moves on the replay
       archive; 'adversarial' as reference row; gap to 'cover' = measured
       value of ruling 23 before any bot changes. Zero games.
+- [ ] Win-only terminal re-score (red team round 2): re-score existing corpus
+      under win-only scoring; predict R² collapse + variance-seeking-when-
+      behind residual. Zero games; tests "fold survives measure changes,
+      breaks under terminal-functional changes" in one run.
