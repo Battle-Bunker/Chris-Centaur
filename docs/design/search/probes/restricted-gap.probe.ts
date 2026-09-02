@@ -26,6 +26,7 @@ import { clearGeometryCache, makeSubstrate, type EngineSubstrate } from '../subs
 import { GrammarCandidateGenerator } from '../candidates';
 import { DEFAULT_CLUSTER_TUNING, enumerateProposals, partitionOf } from '../search';
 import { BoundBank, withMoves, planKey } from '../bounds';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { defaultEvaluator } from '../evaluate';
 
 const TURN = 22;
@@ -144,6 +145,59 @@ function corridorBoard(): Board {
   return { width: 13, height: 13, food: [{ x: 6, y: 6 }], hazards: [], snakes } as unknown as Board;
 }
 
+/** LETHALITY BOARDS — added after the red team's round-4 catch that the first
+ *  nine had `deadFrac = 0%` on every cell, i.e. no lethal outcome anywhere,
+ *  while textbook mixing needs DEAD-grade punishment cells. A single-unit team
+ *  makes its unit's death a team wipe; a king makes it a regicide. */
+
+/** One snake each, heads two apart, equal length: stepping into the cell
+ *  between them is a mutual kill, and our team is that one unit. The cleanest
+ *  matching-pennies payoff this game admits. */
+function mutualKillBoard(perSide: number): Board {
+  const snakes: Snake[] = [];
+  for (let i = 0; i < perSide; i++) {
+    const x = 4 + i * 3;
+    snakes.push(snake(`s${i}`, [{ x, y: 5 }, { x, y: 4 }, { x, y: 3 }], { teamID: 'red' }));
+    snakes.push(snake(`e${i}`, [{ x, y: 7 }, { x, y: 8 }, { x, y: 9 }], { teamID: 'blue' }));
+  }
+  return { width: 13, height: 13, food: [], hazards: [], snakes } as unknown as Board;
+}
+
+/** Our KING two cells from an enemy snake: the contested cell is a regicide
+ *  risk, which is the DEAD-grade punishment the first nine boards lacked. */
+function kingContestBoard(): Board {
+  const snakes: Snake[] = [
+    snake('k', [{ x: 6, y: 5 }], { teamID: 'red', unitType: 'king' }),
+    snake('s0', [{ x: 3, y: 5 }, { x: 2, y: 5 }, { x: 1, y: 5 }], { teamID: 'red' }),
+    snake('e0', [{ x: 6, y: 7 }, { x: 6, y: 8 }, { x: 6, y: 9 }], { teamID: 'blue' }),
+  ];
+  return { width: 13, height: 13, food: [], hazards: [], snakes } as unknown as Board;
+}
+
+/** Our units standing inside an enemy QUEEN's ray. Dodging is the decision and
+ *  the queen chooses where to strike — the slider-dodge geometry the red team
+ *  names as the other place mixing theoretically lives. */
+function sliderDodgeBoard(ourUnits: number): Board {
+  const snakes: Snake[] = [
+    snake('q', [{ x: 6, y: 10 }], { teamID: 'blue', unitType: 'queen' }),
+  ];
+  for (let i = 0; i < ourUnits; i++) {
+    const x = 6 + i * 2;
+    snakes.push(snake(`s${i}`, [{ x, y: 6 }, { x, y: 5 }, { x, y: 4 }], { teamID: 'red' }));
+  }
+  return { width: 13, height: 13, food: [], hazards: [], snakes } as unknown as Board;
+}
+
+/** A king inside an enemy queen's ray: lethal punishment AND slider reach. */
+function kingInRayBoard(): Board {
+  const snakes: Snake[] = [
+    snake('q', [{ x: 6, y: 10 }], { teamID: 'blue', unitType: 'queen' }),
+    snake('k', [{ x: 6, y: 7 }], { teamID: 'red', unitType: 'king' }),
+    snake('s0', [{ x: 9, y: 7 }, { x: 9, y: 6 }, { x: 9, y: 5 }], { teamID: 'red' }),
+  ];
+  return { width: 13, height: 13, food: [], hazards: [], snakes } as unknown as Board;
+}
+
 // ---------------------------------------------------------------- the matrix
 
 interface Bench {
@@ -244,6 +298,7 @@ function rowsOf(b: Bench): JointPlan[] {
 function columnsOf(b: Bench, rows: ReadonlyArray<JointPlan>): {
   witnesses: ReadonlyArray<Witness>;
   resolutions: number;
+  bank: BoundBank;
 } {
   const bank = new BoundBank({
     sub: b.sub,
@@ -255,7 +310,7 @@ function columnsOf(b: Bench, rows: ReadonlyArray<JointPlan>): {
   });
   let resolutions = 0;
   for (const row of rows) resolutions += bank.price(row).resolutions;
-  return { witnesses: [...bank.witnesses], resolutions };
+  return { witnesses: [...bank.witnesses], resolutions, bank };
 }
 
 interface Matrix {
@@ -269,9 +324,31 @@ interface Matrix {
   readonly resolves: number;
 }
 
-/** M[i][j] = the proved FLOOR of row i against column j — the endpoint doc 06
- *  §5 specifies, so `vPure` and `vMixed` are two reductions of one matrix. */
-function matrixOf(b: Bench, rows: ReadonlyArray<JointPlan>, cols: ReadonlyArray<Witness>): Matrix {
+/**
+ * M[i][j] = the BANK's proved floor for row i with column j's replies spliced
+ * in as fixed actions.
+ *
+ * CORRECTION (probe v2). v1 computed the cell as a bare
+ * `sub.resolveBoundedFull(row ⊕ replies)`, which is a B2-shaped world: the
+ * witness's units move, EVERYTHING ELSE IS HELD, and no rung ladder runs. That
+ * is not the quantity the search adjudicates on, and on a contested board the
+ * two diverge by the whole range: for a plan stepping into a contested cell the
+ * bank reports a floor of **−∞** (B3, every gated unit live) while the bare
+ * resolve against each of that enemy's four enumerated replies reports
+ * 3.00 / 0 / 0 / 0. v1's matrix was therefore systematically OPTIMISTIC and
+ * missing exactly the lethal structure the question is about.
+ *
+ * v2 prices every cell through the same `BoundBank` that generated the columns,
+ * so a cell is the floor of the sub-game in which that reply is fixed and the
+ * bank is still pessimistic about everything else — which is what a row of the
+ * restricted matrix actually means.
+ */
+function matrixOf(
+  b: Bench,
+  bank: BoundBank,
+  rows: ReadonlyArray<JointPlan>,
+  cols: ReadonlyArray<Witness>
+): Matrix {
   const lo: number[][] = [];
   const hi: number[][] = [];
   let deadCells = 0;
@@ -286,14 +363,12 @@ function matrixOf(b: Bench, rows: ReadonlyArray<JointPlan>, cols: ReadonlyArray<
       let vlo = Number.NEGATIVE_INFINITY;
       let vhi = Number.NEGATIVE_INFINITY;
       try {
-        const out = b.sub.resolveBoundedFull(joint, b.asTeam);
+        const out = bank.price(joint);
         vlo = out.bounds.worst;
         vhi = out.bounds.best;
-        // BOUNDED STAT CHECKED AGAINST ITS BOUND: a floor never exceeds the
-        // ceiling of the same resolve.
+        // BOUNDED STAT CHECKED AGAINST ITS BOUND.
         expect(vlo).toBeLessThanOrEqual(vhi);
-        b.sub.releaseResolution(out.resolution);
-        resolves++;
+        resolves += out.resolutions;
       } catch {
         vlo = Number.NEGATIVE_INFINITY;
         vhi = Number.NEGATIVE_INFINITY;
@@ -437,6 +512,14 @@ interface Reading {
   /** Distinct per-row minima, out of `rows`. 1 ⇒ every plan has the same
    *  security value and the floor rung decides nothing. */
   readonly distinctRowMins: number;
+  /** How many DISTINCT columns are the argmin for some row. 1 ⇒ the opponent
+   *  has a plan-independent best reply on this board — a DOMINANT column — and
+   *  a game with a dominant strategy on either side has a pure saddle BY
+   *  DEFINITION. This is the mechanism test, not another symptom. */
+  readonly distinctArgminCols: number;
+  /** Rows with no DEAD cell against any banked column. Everything above is
+   *  computed on these only. */
+  readonly liveRows?: number;
 }
 
 interface Row {
@@ -452,6 +535,26 @@ interface Row {
 }
 
 const table: Row[] = [];
+
+/**
+ * DEAD IS NOT A NUMBER — it is "this plan is refuted by a reply we have found".
+ *
+ * v2 priced cells through the bank and DEAD cells appeared (33–71% on contested
+ * boards). Replacing −∞ with an arbitrary sentinel and taking a maximin over
+ * the result makes `vPure` a function of the sentinel, not of the board — which
+ * is why the corridor and 1v1 boards came back SENTINEL-SENSITIVE.
+ *
+ * The principled treatment: a row containing a DEAD cell has security value −∞
+ * and is REFUTED. Maximin is over the surviving rows. So the matrix game is
+ * played on the LIVE SUB-MATRIX, and `liveRows / rows` is itself a first-class
+ * result — `liveRows = 0` means every plan the search is choosing among is
+ * refuted by some reply the bank has already found, at which point the floor
+ * rung decides nothing and the choice falls to the tie-breaks.
+ */
+function liveSubMatrix(raw: number[][]): { m: number[][]; liveRows: number; rows: number } {
+  const live = raw.filter((r) => r.every((v) => Number.isFinite(v)));
+  return { m: live, liveRows: live.length, rows: raw.length };
+}
 
 function read(label: string, m: number[][]): Reading {
   const vPure = maxMin(m);
@@ -476,6 +579,12 @@ function read(label: string, m: number[][]): Reading {
   const flat = m.flat();
   const rowMins = m.map((r) => Math.min(...r));
   const q = (x: number): number => Math.round(x * 1e6);
+  const argmins = new Set<number>();
+  for (const r of m) {
+    let bi = 0;
+    for (let j = 1; j < r.length; j++) if ((r[j] as number) < (r[bi] as number)) bi = j;
+    argmins.add(bi);
+  }
   return {
     label,
     vPure,
@@ -488,6 +597,7 @@ function read(label: string, m: number[][]): Reading {
     span: Math.max(...flat) - Math.min(...flat),
     rowMinSpread: Math.max(...rowMins) - Math.min(...rowMins),
     distinctRowMins: new Set(rowMins.map(q)).size,
+    distinctArgminCols: argmins.size,
   };
 }
 
@@ -496,7 +606,7 @@ function probe(name: string, board: Board): void {
   try {
     const rows = rowsOf(b);
     if (rows.length === 0) return;
-    const { witnesses, resolutions } = columnsOf(b, rows);
+    const { witnesses, resolutions, bank } = columnsOf(b, rows);
     if (witnesses.length === 0) {
       table.push({
         board: name, rows: rows.length, cols: 0, deadFrac: '—', readings: [],
@@ -505,20 +615,21 @@ function probe(name: string, board: Board): void {
       });
       return;
     }
-    const mat = matrixOf(b, rows, witnesses);
+    const mat = matrixOf(b, bank, rows, witnesses);
     const t0 = Date.now();
-    const readings = [
-      read('floor', finitise(mat, mat.lo, 1).m),
-      read('mid', finitise(mat, midOf(mat), 1).m),
-      read('ceil', finitise(mat, mat.hi, 1).m),
-    ];
+    const live = [liveSubMatrix(mat.lo), liveSubMatrix(midOf(mat)), liveSubMatrix(mat.hi)];
+    const labels = ['floor', 'mid', 'ceil'];
+    const readings: Reading[] = [];
+    for (let k = 0; k < 3; k++) {
+      const L = live[k] as { m: number[][]; liveRows: number; rows: number };
+      if (L.liveRows === 0) continue;
+      readings.push({ ...read(labels[k] as string, L.m), liveRows: L.liveRows });
+    }
     const solveMs = Date.now() - t0;
-
-    // SENTINEL SENSITIVITY: if DEAD cells drive the answer, moving the
-    // sentinel four spans out changes the floor reading's support.
-    const alt = read('floor@4', finitise(mat, mat.lo, 4).m);
     const stable =
-      alt.rowSupport === (readings[0] as Reading).rowSupport ? 'stable' : 'SENTINEL-SENSITIVE';
+      (live[0] as { liveRows: number }).liveRows === 0
+        ? 'ALL ROWS REFUTED — the floor rung decides nothing here'
+        : 'live sub-matrix, no sentinel';
 
     table.push({
       board: name,
@@ -545,14 +656,14 @@ afterAll(() => {
     pad('board', 17) + pad('reading', 8) + pad('rows', 5) + pad('cols', 5) +
     pad('dead', 5) + pad('vPure', 9) + pad('minMax', 9) +
     pad('pureDual', 9) + pad('gap', 7) + pad('span', 9) +
-    pad('rowMinSp', 9) + pad('#rowMin', 8) +
+    pad('rowMinSp', 9) + pad('#rowMin', 8) + pad('#argCol', 8) + pad('live', 8) +
     pad('rowSup', 7) + pad('colSup', 7) + 'note';
   const lines: string[] = [];
   for (const r of table) {
     if (r.readings.length === 0) {
       lines.push(pad(r.board, 17) + pad('—', 8) + pad(r.rows, 5) + pad(r.cols, 5) +
         pad('—', 5) + pad('—', 9) + pad('—', 9) + pad('—', 9) + pad('—', 7) +
-        pad('—', 9) + pad('—', 9) + pad('—', 8) + pad('—', 7) + pad('—', 7) + r.stable);
+        pad('—', 9) + pad('—', 9) + pad('—', 8) + pad('—', 8) + pad('—', 8) + pad('—', 7) + pad('—', 7) + r.stable);
       continue;
     }
     r.readings.forEach((g, k) => {
@@ -563,8 +674,13 @@ afterAll(() => {
         pad(f(g.vPure), 9) + pad(f(g.vMinMax), 9) + pad(f(g.pureDuality), 9) +
         pad(f(g.gap), 7) + pad(f(g.span), 9) + pad(f(g.rowMinSpread), 9) +
         pad(`${g.distinctRowMins}/${r.rows}`, 8) +
+        pad(`${g.distinctArgminCols}/${r.cols}`, 8) +
+        pad(`${g.liveRows ?? 0}/${r.rows}`, 8) +
         pad(g.rowSupport, 7) + pad(g.colSupport, 7) +
-        (k === 0 ? `${r.stable}; cells=${r.cellResolves} bankRes=${r.bankResolves} rm+=${r.solveMs}ms` : '')
+        (k === 0
+          ? (r.cols < 2 ? 'STRUCTURAL ZERO (1 column: no duality gap is possible for ANY payoffs); ' : '') +
+            `${r.stable}; cells=${r.cellResolves} bankRes=${r.bankResolves} rm+=${r.solveMs}ms`
+          : '')
       );
     });
   }
@@ -597,4 +713,11 @@ describe('restrictedGap: is the pure argmax already optimal on our boards?', () 
   test('duel over one food cell', () => probe('duel-food', duelBoard(true)));
   test('duel, no prize', () => probe('duel-bare', duelBoard(false)));
   test('two pairs converging on one corridor mouth', () => probe('corridor', corridorBoard()));
+  // ---- lethality boards (red-team round 4) ------------------------------
+  test('forced mutual kill, 1v1 — our team is one unit', () => probe('mutual-kill-1v1', mutualKillBoard(1)));
+  test('forced mutual kill, 2v2', () => probe('mutual-kill-2v2', mutualKillBoard(2)));
+  test('king two cells from an enemy — regicide risk', () => probe('king-contest', kingContestBoard()));
+  test('slider dodge — one unit in an enemy queen ray', () => probe('slider-dodge-1', sliderDodgeBoard(1)));
+  test('slider dodge — two units in the ray', () => probe('slider-dodge-2', sliderDodgeBoard(2)));
+  test('king inside an enemy queen ray', () => probe('king-in-ray', kingInRayBoard()));
 });

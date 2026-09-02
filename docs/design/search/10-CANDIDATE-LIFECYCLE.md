@@ -67,6 +67,59 @@ interface LifecycleLedger {
 }
 ```
 
+### 1a. The conservation law — the ledger's single invariant
+
+Adopted from the red team's round-4 addition, and it is the piece that makes the
+ledger an *object* rather than a log.
+
+> **LAW C (conservation).** The dispositions **partition** the generated set. For
+> every decision and every unit,
+>
+> ```
+> |generated| = |admitted| + |closed(cause)| + |capped(granularity)| + |priced| + |refused-at-emission|
+> ```
+>
+> and every term on the right carries the stage and reason that produced it.
+> **No candidate may vanish without a recorded cause.**
+
+One invariant, checkable in one assertion, and it subsumes the three separate
+counters the code keeps today (`prunedLedger`, `skippedNear`/`skippedFlat`,
+`refusals`) by making them terms of one sum rather than three idioms.
+
+**Why it is worth stating as a law rather than a nicety: it would have made both
+of the DSM's exhibits impossible to miss.**
+
+- **The three granularities.** Admission appearing at per-unit, per-cluster-joint
+  and per-emission is invisible today because each granularity has its own
+  counter in its own file. Under Law C they are three terms of one partition, so
+  a fourth granularity cannot be added without either appearing in the sum or
+  breaking it. The finding that took a measurement to make would have been a
+  column in a table.
+- **The 15–43% emission refusals.** A plan that is priced and then refused is
+  today a `refusals` tick in the kernel and a completed `price()` in the bank,
+  with nothing relating them. Under Law C `refused-at-emission` is a term
+  *beside* `priced`, so the ratio is a subtraction rather than a study.
+
+**And it seats the admission-trace coordinate in its natural home.** The
+composition lens has been looking for where an admission trace belongs; Law C
+answers it — the trace *is* the partition's witness. Each `set_aside` entry is
+one term's evidence, and the coordinate is "which term, at which stage, for which
+reason", which is the record the ledger already has to keep to satisfy the
+invariant. No new coordinate; the invariant creates the home.
+
+**Two honest constraints on the law.**
+
+- `capped(granularity)` and `closed(cause)` must be **disjoint by construction**,
+  or the sum double-counts. An option that is both rules-certain-fatal *and*
+  outside the cap is `closed` — closure wins, because it is the stronger and
+  earlier statement. The registry fixes stage order, so the tie-break is a
+  property of the pipeline rather than a convention.
+- The partition is **per (decision, unit)** for the option-level terms and **per
+  decision** for the plan-level ones. Conflating them is the one way to write an
+  invariant that looks conserved and is not, because `admit@A2` consumes *plans*
+  while `admit@A1` consumes *options*. Two sums, one law, and the type says
+  which.
+
 Three properties make this the right shape rather than a bigger one.
 
 **It hides exactly one decision: what the stages are and in what order they
@@ -170,6 +223,70 @@ Three consequences, and the third is the one that pays.
    declared input to its own scheduling, which is exactly "a lifecycle whose
    last stage is invisible to its first", fixed at the one seam where visibility
    is cheap.
+
+### 4a. The disjointness guard on accumulation
+
+My §4 argument against the literal rule rests on accumulation: *three
+improvements of 0.4ε each are refused individually and stage happily as 1.2ε.*
+The composition lens accepted the re-siting and supplied the condition that
+argument needs, which I had left implicit and which is not always satisfied:
+
+> **Improvements sum only if their PARTICIPANT SCOPES ARE DISJOINT.** Three
+> 0.4ε improvements on three different units compose to 1.2ε. Three 0.4ε
+> improvements that all move *the same* unit — or that move units whose paths
+> contend for the same cell — are **substitutes, not addends**: the second is
+> measured against a board the first already changed, and taking their sum
+> double-counts. What composes there is the **residual** — what the second is
+> worth *given* the first — which is the quantity the enumeration's order-2
+> surrogate already computes for pairs and which the bank computes exactly.
+
+So the metalevel's emission term is not `Σ Δ` over pending improvements. It is:
+
+```
+expectedStageable(window) =
+    Σ over DISJOINT participant scopes of Δ
+  + residual for overlapping ones
+```
+
+and the disjointness test is one the code already has: two improvements are
+disjoint when their `footprintOf(plan)` claim sets do not meet — the same
+relation `entangled` and the cluster partition are built on. **The guard is
+therefore free**: it is the interaction relation, evaluated on staged deltas
+instead of on units, and it reuses `ConflictIndex` rather than adding anything.
+
+Without the guard, the metalevel would over-estimate what a slice can stage on
+exactly the boards where units contend — which is where the emission window
+binds hardest, so the error would be worst where the term matters most.
+
+### 4b. The fifteenth term is an ANTICIPATORY MEET, priced by `msToNextWrite`
+
+`estimates()` has fourteen constants and no term for "will the wire take it"
+(doc 08, Finding M-3). Naming the new one as a fifteenth constant would be the
+wrong move — it would add to exactly the pile this lens is complaining about.
+The composition lens's framing is better and I adopt it: **the term is not a
+weight, it is an anticipatory meet, and its price is already on the clock.**
+
+In the premise-lattice vocabulary the three lenses share, an *anticipatory meet*
+is computing under a narrowing nothing can purchase yet — work whose product
+becomes usable when a determination arrives. A closed emission window is exactly
+that shape: the improvement exists, the wire will take it in `msToNextWrite`
+milliseconds, and the computation that produces it is bought **now** against a
+narrowing that arrives **then**.
+
+That reframing does three things:
+
+1. **It supplies the price without a fitted constant.** `msToNextWrite` is a
+   measured quantity the kernel already has; the term is a discount over a known
+   horizon, not a coefficient someone chose. Under Ruling 49 that is the
+   difference between a member with provenance and a fifteenth number with none.
+2. **It puts the term in a category that already has a law.** The time lens's
+   economy has two purchase columns — buying the meet, and the anticipatory meet
+   held conditional — and this is a row in the second. So it inherits their
+   accounting rather than needing its own.
+3. **It makes `canEmit === false` legible.** A closed window is not "stop"; it is
+   "the meet you are computing toward arrives in 40 ms", which is precisely the
+   distinction §4's third consequence needs and which a scalar penalty could not
+   express.
 
 **A caution the measurement supplies.** The same run found `switch-floor`,
 `switch-dominance` and both ratchet refusals firing **exactly zero times in 192
@@ -280,8 +397,9 @@ measurement rather than acting on it.
 | # | increment | changes behaviour? | what it buys |
 |---|---|---|---|
 | **L0** | `search/lifecycle.ts` — types, registry, ledger; every stage registers; `disposition` added to the three existing removal records (`prunedLedger`, `skippedNear`/`skippedFlat`, `refusals`) | no | one place that sees the pipeline. `proposedBy`, D-1 and the coverage oracle all become reads rather than three separate builds |
+| **L0½** | **Law C as one assertion** (§1a): the dispositions partition the generated set, per (decision, unit) for option terms and per decision for plan terms | no | the invariant that would have made both DSM exhibits impossible to miss. It is one equality, and it is what turns three counters into one object |
 | **L1** | the Law D1 structural test (§2) | no | makes the one property the architecture is currently safe-by-accident on unrepresentable to violate |
-| **L2** | `EmissionWindow` published into the search context; `voc.ts` reads it; `better()` does not (§4) | yes, small | attacks the 15–43%, and adds the missing term to a value function with fourteen constants and no term for "will the wire take it" |
+| **L2** | `EmissionWindow` published into the search context; `voc.ts` reads it as an **anticipatory meet priced by `msToNextWrite`** (§4b), under the **disjointness guard** (§4a); `better()` does not (§4) | yes, small | attacks the 15–43%, and adds the missing term to a value function with fourteen constants and no term for "will the wire take it" |
 | **L3** | `cost(state)` on the eight operators, starting with the seed's space bound (§7, doc 03 P-9) | yes — strictly less work for the same output | the pure win already on the books, arriving as a consequence of the type |
 | **L4** | the `order` member declared as an input of `admit@A1` (§5) | no | makes the ordering-before-admission prerequisite structural. Prerequisite for any widening or cap change |
 
