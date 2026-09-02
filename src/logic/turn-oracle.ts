@@ -4,11 +4,13 @@
  *
  * This module owns no rules. It marshals the bot's board into the vendored
  * TacticToes engine (`src/engine-vendor/`, a byte-for-byte copy of the code
- * the server plays the game with), calls `resolveTurn`, and reads the outcome
+ * the server plays the game with), calls `settleTurn`, and reads the outcome
  * off the settled result: who is in `deaths`, what is left in `board`, which
- * teams are in `eliminatedTeamIDs`. Every arithmetic question about the rules —
- * contests, severs, edge exchanges, exhaustion, regicide, food — is answered
- * by the engine, not here.
+ * teams are in `eliminatedTeamIDs`, and what `tiers`, `effects` and `potions`
+ * the next turn starts from. Every arithmetic question about the rules —
+ * contests, severs, edge exchanges, exhaustion, regicide, food, effect expiry,
+ * the ally-buff cancel, potion collection — is answered by the engine, not
+ * here.
  *
  * That is the whole design. The bot used to hand-mirror the rules in a
  * projection of its own, and the mirror drifted every time the rules moved.
@@ -56,7 +58,12 @@ import {
   TurnResolution,
   resolveTurn,
 } from '../engine-vendor/engine/resolveTurn';
-import { ClashKind, UnitType } from '@shared/types/Game';
+import {
+  DEFAULT_POTION_WINDOW_TURNS,
+  Settlement,
+  settleTurn,
+} from '../engine-vendor/engine/settleTurn';
+import { ActiveEffect, ClashKind, UnitType } from '@shared/types/Game';
 
 /**
  * What a candidate move DOES to the units on the board, folded into the four
@@ -144,15 +151,45 @@ export interface MarshalledBoard {
   /**
    * Invulnerability potion cells on the board, as engine indices.
    *
-   * The VENDORED RESOLVER knows nothing about potions (resolveTurn.ts:27-30) —
-   * tier is an input that already captures their effect. This field is
-   * therefore deliberately NOT part of `config` (which is the resolver's own
-   * `ResolveTurnInput`): it exists for the possibility-cloud layer, whose
-   * `CloudPremise.potions` prices how far a tier interval can move while a
-   * unit is frozen. An empty array is what a potion-free game carries and is
-   * exactly the behaviour every consumer had before this field existed.
+   * Not part of `config`, which is `resolveTurn`'s own `ResolveTurnInput` and
+   * knows nothing about potions. This field has two readers: `settleTurn`,
+   * which COLLECTS from it and returns what is left, and the possibility-cloud
+   * layer, whose `CloudPremise.potions` prices how far an UNMODELLED unit's
+   * tier interval can move while it is frozen — the one question settlement
+   * cannot answer, because a held unit's moves are not known. An empty array
+   * is what a potion-free game carries.
    */
   potions: number[];
+  /**
+   * The turn the STAGED moves resolve into — `currentTurn + 1`, the turn every
+   * contest on this board is adjudicated at. `settleTurn` reads it for effect
+   * expiry and for the potion window's arithmetic, and it is the same figure
+   * `tierAtArrival` tests a level against, so the two cannot drift.
+   */
+  arrivalTurn: number;
+  /**
+   * The invulnerability effect schedule that still governs `arrivalTurn`, as
+   * settlement takes it — the board's own `activeEffects`, filtered to the
+   * effects `tierAtArrival` counted into each unit's tier.
+   *
+   * EMPTY when the board carries no schedule (hand-built fixtures, documents
+   * predating the field). Nothing is invented to fill the gap: a settlement
+   * with no schedule expires nothing, which is exactly what a board with no
+   * schedule could ever have told us.
+   */
+  effects: ActiveEffect[];
+  /**
+   * GameSetup.invulnerabilityPotionEnabled; off makes potions inert scenery.
+   *
+   * A board that states nothing is read off its own contents: potion cells are
+   * only ever on a board because the setting put them there, so cells present
+   * and no flag means live. Boards predating the flag, and every hand-built
+   * fixture, are exactly that case, and reading them as "off" would quietly
+   * make settlement decline to collect a potion the rules would collect.
+   */
+  potionsEnabled: boolean;
+  /** GameSetup.invulnerabilityPotionWindowTurns, or the engine's default. */
+  potionWindowTurns: number;
   /**
    * Per unit, PARALLEL TO `units`: the first absolute turn at which the unit's
    * tier no longer governs a contest, or null when the wire carries no effect
@@ -268,12 +305,29 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
 
   const potions = (board.invulnerabilityPotions ?? []).map(toIndex);
 
+  // The staged moves resolve INTO the next turn: that is the turn a contest is
+  // adjudicated at, the turn `tierAtArrival` tests a level against, and the
+  // turn settlement expires effects at. Keeping the three on one figure is the
+  // whole reason it is named here rather than recomputed at each use.
+  const arrivalTurn = currentTurn + 1;
+  const alive = new Set(living.map((s) => s.id));
+  const effects = (board.activeEffects ?? [])
+    // Effects that lapsed before the arrival turn are already out of every
+    // unit's tier (`tierAtArrival` zeroes a lapsed level), so handing them to
+    // settlement would subtract a level nothing put in.
+    .filter((e) => e.expiryTurn >= arrivalTurn && alive.has(e.playerID))
+    .map((e) => ({ ...e }));
+
   return {
     fullWidth,
     fullHeight,
     units,
     config,
     potions,
+    arrivalTurn,
+    effects,
+    potionsEnabled: board.invulnerabilityPotionsEnabled ?? potions.length > 0,
+    potionWindowTurns: board.invulnerabilityPotionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS,
     tierExpiry,
     startWeight,
     startHealth,
@@ -413,16 +467,30 @@ const FROZEN_HEALTH = Number.MAX_SAFE_INTEGER;
 export type StagedAction = { path: number[] } | { stagedMove: number };
 
 /**
- * Resolve a turn in which only `staged` units take one. Everyone else is
+ * Settle a turn in which only `staged` units take one. Everyone else is
  * frozen under the contract above.
  *
- * This is the ONLY way the bot calls `resolveTurn`, so the contract cannot be
- * bypassed by adding a call site.
+ * This is the ONLY way the bot enters the vendored rules, so the contract
+ * cannot be bypassed by adding a call site.
+ *
+ * SETTLEMENT, NOT RESOLUTION. `resolveTurn` answers "where is everything and
+ * what died" and stops; `settleTurn` is that plus the end-of-turn effect
+ * bookkeeping — expiry, the ally-buff cancel, potion collection — and it hands
+ * back `tiers`, `effects` and `potions` as the NEXT turn starts from them.
+ * Those three are the whole point: a caller that computed them itself would be
+ * writing a second encoding of the rules, and a caller that carried them
+ * forward unchanged would freeze every tier window at its observed value and
+ * make "arm, collect, spend" three turns that all look the same.
+ *
+ * SPAWNING IS DELIBERATELY ABSENT — the module leaves it to its caller and the
+ * bot declines it. Food and potions really do spawn, so a multi-turn line
+ * assumes a barer board than the real one: conservative for a gain term,
+ * optimistic for a denial term, and honest either way.
  */
 export function resolvePartialTurn(
   marshalled: MarshalledBoard,
   staged: Map<string, StagedAction>
-): TurnResolution {
+): Settlement {
   const frozen = marshalled.units.filter((u) => !staged.has(u.id));
   const units: ResolveUnit[] = marshalled.units.map((unit) => {
     const action = staged.get(unit.id);
@@ -430,10 +498,35 @@ export function resolvePartialTurn(
     return { ...unit, path: [], health: FROZEN_HEALTH };
   });
 
-  const result = resolveTurn({ ...marshalled.config, units });
+  // The potion half of the frozen contract, and it is the food repair's twin.
+  // A frozen unit has not moved, so it cannot have arrived on anything; a
+  // potion under its head would be collected by settlement on its behalf and
+  // buy its whole team a window it never earned. Withheld from the input and
+  // handed straight back, so the cell is still there for whoever arrives.
+  // (A real board never presents one: collection empties the cell the turn a
+  // unit arrives on it. Fixtures do.)
+  const withheld: number[] = [];
+  const frozenHeads = new Set(frozen.map((u) => u.occupancy[0] as number));
+  const offered: number[] = [];
+  for (const cell of marshalled.potions) {
+    if (frozenHeads.has(cell)) withheld.push(cell);
+    else offered.push(cell);
+  }
+
+  const result = settleTurn({
+    ...marshalled.config,
+    units,
+    turn: marshalled.arrivalTurn,
+    teamOf: Object.fromEntries(marshalled.teamOf),
+    effects: marshalled.effects,
+    potions: offered,
+    potionsEnabled: marshalled.potionsEnabled,
+    potionWindowTurns: marshalled.potionWindowTurns,
+  });
+  result.potions.push(...withheld);
 
   // Give back what the turn should never have taken. `result` is freshly
-  // built by every resolveTurn call and nobody else holds a reference to it,
+  // built by every settleTurn call and nobody else holds a reference to it,
   // so repairing it in place is the cheapest honest thing to do.
   const inputFood = new Set(marshalled.config.food);
   for (const unit of frozen) {
@@ -635,6 +728,6 @@ export function projectedHealthCost(
 }
 
 /** Re-exported so callers need not reach into the vendored tree themselves. */
-export type { ResolveUnit, ResolveTurnInput, TurnResolution };
-export { resolveTurn };
+export type { ResolveUnit, ResolveTurnInput, TurnResolution, Settlement };
+export { resolveTurn, settleTurn, DEFAULT_POTION_WINDOW_TURNS };
 export type { Snake };

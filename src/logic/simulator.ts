@@ -1,4 +1,5 @@
 import { Board, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { aggregateExpiryTurn } from '../firebase/translate';
 import { isPieceUnit } from './piece-threats';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
 import { StagedAction, marshalBoard, resolvePartialTurn } from './turn-oracle';
@@ -8,8 +9,9 @@ export type MoveSet = Map<string, Direction>;
 
 /**
  * The invulnerability tier a unit carries into the resolution of THIS turn's
- * moves (the arrival turn, currentTurn + 1). A level governs that resolution
- * only while the arrival turn is still within its server-provided expiry;
+ * moves (the arrival turn, currentTurn + 1) — settlement's INPUT tier, which
+ * it then advances and hands back as `Settlement.tiers`. A level governs that
+ * resolution only while the arrival turn is still within its expiry;
  * absent an expiry the level is assumed to apply to the CURRENT turn only, so
  * it does not govern the arrival — the own-capability-conservative fallback
  * BoardGraph's severability uses, applied symmetrically to every unit so the
@@ -33,9 +35,16 @@ export interface SimulatedBoardState {
  * This used to be a second encoding of the rules — a hand-written collision
  * pass that drifted from the engine every time the engine moved, and that
  * never applied regicide at all. It is now a marshaller: the board goes into
- * the vendored `resolveTurn`, the settled result comes back out, and the only
+ * the vendored `settleTurn`, the settled result comes back out, and the only
  * things done here afterwards are the two the module deliberately leaves to
  * its caller (pawn promotion, and the bot's own ally-trade guard).
+ *
+ * TIER, EFFECTS AND POTIONS ARE PART OF THAT RESULT. They used to ride the
+ * `...snake` spread through untouched, which meant a simulated turn could not
+ * move a tier window at all: an enemy's transient buff never lapsed, our own
+ * transient debuff never lifted, and a potion the simulated move landed on
+ * cost nobody anything. Settlement writes all three and this file copies them
+ * out; nothing here recomputes what a pickup or an expiry does.
  */
 export class Simulator {
   /**
@@ -97,6 +106,13 @@ export class Simulator {
       if (killedAlly) deadSnakeIds.add(ourId);
     }
 
+    // THE TIER STATE OF THE NEXT TURN IS THE SETTLEMENT'S, NOT THIS BOARD'S.
+    // It used to ride through on the `...snake` spread, which froze every tier
+    // window at its observed value: a three-turn buff never lapsed across a
+    // simulated turn, a collected potion never charged anybody, and a potion
+    // taken on the simulated move left the board with no effect at all. All
+    // three are `settleTurn` outputs now and none of them is computed here.
+    const hadSchedule = board.activeEffects !== undefined;
     const snakes: Snake[] = [];
     for (const snake of board.snakes ?? []) {
       const settled = result.board[snake.id];
@@ -115,7 +131,14 @@ export class Simulator {
         orientation: result.rotations[snake.id]
           ? { ...result.rotations[snake.id] }
           : { ...snake.orientation },
+        invulnerabilityLevel: result.tiers[snake.id] ?? 0,
       };
+      // How long that level is safe to bank on: the earliest expiry among the
+      // effects SETTLEMENT left this unit holding. A board that carried no
+      // schedule can say nothing new, so its stated expiry — an absolute turn
+      // number, which the passing of a turn does not move — rides across.
+      const expiry = aggregateExpiryTurn(result.effects, snake.id);
+      if (hadSchedule && expiry !== null) next.invulnerabilityExpiryTurn = expiry;
       Simulator.promoteIfDue(next, board);
       snakes.push(next);
     }
@@ -130,6 +153,13 @@ export class Simulator {
         pawnPromotionWeight: board.pawnPromotionWeight,
         maxHealthPerUnit: board.maxHealthPerUnit,
         fertileTiles: board.fertileTiles?.map(f => ({ x: f.x, y: f.y })),
+        // Potions the turn did not collect, and the schedule as it closed. The
+        // simulated board used to carry neither, so a lookahead played every
+        // turn after the first on a board with no potions and no effects on it.
+        invulnerabilityPotions: result.potions.map(marshalled.toCell),
+        invulnerabilityPotionsEnabled: board.invulnerabilityPotionsEnabled,
+        invulnerabilityPotionWindowTurns: board.invulnerabilityPotionWindowTurns,
+        activeEffects: hadSchedule || result.effects.length > 0 ? result.effects : undefined,
         snakes,
       },
       deadSnakeIds,
