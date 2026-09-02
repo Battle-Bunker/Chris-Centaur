@@ -34,7 +34,7 @@ the docs table and the operator knob schema from these declarations — is not
 here. That is the part that is a compiler, and the risk note in
 `07-SYNTHESIS.md` §7 stands: when the manifest is wrong, five artifact classes
 are wrong in agreement, so one class must be produced by an independent path and
-compared. 531 lines is the cost of the *concepts*; it is not the cost of the
+compared. 608 lines is the cost of the *concepts*; it is not the cost of the
 *migration*.
 
 ## What the demo shows
@@ -63,6 +63,15 @@ carried line: line/3.7:queen->d4
 
 edge credits for one shared evaluation:
   cluster/3.7 → three consumers, 3 quanta each
+
+reduction survivors (advice reads these verbatim): plan/a, plan/b
+  collapsed at emission -> plan/a
+attention spend 1 of 2: {"quanta":1000,"attention":1}
+attention spend 3 of 2: "refused"          (no exchange rate: attention is a cap)
+miner:
+  unknown column        : refused — "unknown column \"depthEffect\""
+  absent value          : refused — never defaulted
+  statistic at its bound: saturated at 441  (an instrument reading, not a measurement)
 ```
 
 Every claim the design makes about being *mechanical* is exercised there: the
