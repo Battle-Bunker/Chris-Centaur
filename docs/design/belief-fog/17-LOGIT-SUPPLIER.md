@@ -86,15 +86,36 @@ seed), so there is no action-level randomness for ANY smooth likelihood to
 fit — apparent contamination is model misspecification plus state-pooling,
 and β̂ shrinks to 0 whenever V misaligns with the true policy's value.
 
-**The instrument upgrade this yields (the constructive residue, again):**
-β̂(V) is a **V-ALIGNMENT METER**. Fitting the one parameter per candidate V
-ranks candidate value functions by how well their Gibbs tilt explains
-played moves — at one number per V, from replays, zero games. The value
-lens's folded flows are exactly such candidates: running THEIR V through
-this fit is a direct retrodiction test of the fold as a policy explanation,
-not just an outcome accounting. Routed to them. Likewise, when the search
-surrogate Ṽ becomes exportable, β̂(Ṽ) > 0 with an interior minimum is the
-measurement that would revive the slate collapse.
+**The instrument upgrade this yields (the constructive residue — AS
+AMENDED by librarian C58 @ b649c7d):** the V-alignment meter's idea stands;
+its statistic as I first proposed it does not. β̂ FLOOR-SATURATES: with a
+near-deterministic expert (hypothesis (ii)), a slightly-misranking V and a
+totally-wrong V both pin β̂ at 0 — the MaxEnt-IRL identification failure —
+so β̂ cannot GRADE candidate Vs, which is the meter's whole purpose. The
+librarian mints **R-8b** for the pattern (bounded-statistic trap from the
+floor side: saturation destroying gradation, the mirror of manufacturing
+structure at a ceiling). The corrected meter is **RANK-BASED**: pairwise
+order agreement between V and played choice, plus mean normalised rank of
+the played move under V — correct for us SPECIFICALLY because the
+comparator consuming any V is an ordering, so V need only be right up to a
+monotone transform, which is exactly what rank statistics measure and
+Gibbs-likelihood fits do not. And hypothesis (ii) has a name and a one-pass
+separator (**M72**): conditional entropy of the played action under
+progressively richer state descriptions — collapse to ≈0 means a
+deterministic population (the corpus cannot identify ANY smooth supplier;
+the meter MUST be rank-based), a plateau means genuine stochasticity. The
+value lens is running both amendments against their folded-flow V; the
+search surrogate Ṽ enters the rank meter, not a β̂ fit, when it becomes
+exportable.
+
+**Process note, recorded because it is the second instance:** the
+librarian's doc 20 mislabeled the detached-stratum prediction; my
+pre-registration of the OPPOSITE (P3) caught it at zero cost — as with the
+solutions supplier's coupled-gain clause, registering a specific prior
+against an incoming claim is what converted a wrong sentence into a clean
+measurement instead of a propagated error. The discipline pays both ways:
+it killed my over-claim (15-doc) and their mislabel (here), before either
+reached a bot.
 
 ## Slate consequence, corrected
 
