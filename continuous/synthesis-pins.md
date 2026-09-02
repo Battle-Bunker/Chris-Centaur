@@ -4014,3 +4014,19 @@ how a false crisis reads as data.
   FINAL registered rook forecast (3-channel, k frozen): G = +0.078
   (supersedes the interim 2-channel +0.173); score via
   tools/forecast-rook3.py when rl5 lands.
+
+## RULING 49 (owner, 2026-09-02): empirical humility / joint-machine mandate
+Bot-vs-bot results are potentially DISTORTIONARY: games populated by modest
+variations of one bot lineage; config space explored at low density; numeric
+results already caught being driven by scoring-rule choices I made rather
+than intrinsic efficacy across the mostly unmapped possibility space
+(especially once humans are involved). The mandate is NOT to narrow the
+architecture to the so-far-best-validated strategies. It is an elegant core
+machine that carves the design space at its joints, so a large space of
+explored ideas AND BEYOND configures naturally by plugging functions into a
+small number of powerful joints with flexible APIs. Consequences: fitted
+constants and validated strategies enter as MEMBERS in collections, never as
+architectural commitments; every fitted value carries its fit provenance
+(lineage, roster density) as premise coordinates — generalizing beyond that
+provenance is an explicit premise crossing; the hand-set evaluator remains a
+selectable member beside any derived one.
