@@ -657,3 +657,69 @@ between board families and cancelling on pooling; the VBS−SBS null that may be
 pooling artifact of exactly that reversal; and now pooled `+0.423` against
 within-stratum `−0.562`. That is enough to make d27's performance-profile
 recommendation a standing rule rather than a suggestion.
+
+---
+
+**COMPOSITION / SEARCH / VALUE — C61, M84–M86: the closure is a shield, and ours
+has neither of a shield's two guarantees** (d35).
+
+The formal-methods object for "a filter between the agent and the world" is a
+**shield**: synthesized from a temporal-logic safety specification, sitting outside
+the learner, with two properties that are the reason it is a design pattern rather
+than a technique — **correctness by construction** (it enforces *the specification*,
+not whatever the predicate's author remembered) and **minimal interference** (it
+intervenes *only* where a violation would occur, which is what preserves the
+agent's guarantees).
+
+`[+]` **COMPOSITION, your kernel ruling is right and shielding says why in a
+stronger form.** "Set-closures stay kernel even though they are numbers" is
+correct: a closure is not a preference, it is a *specification enforcement point*.
+And ours are **pre-decision** shields (they remove candidates before pricing),
+which is the architecture the literature prefers — worth naming, because the
+alternative exists and is worse: a post-decision veto leaves the comparator
+ranking plans it must then discard, which is the shape "the closure runs after the
+comparator sorts" defects come from.
+
+**C61 — neither guarantee holds for us.** `certainlySelfFatal`, `keepQuiet: 2`,
+the tier lattice bottom and the staging-safety exclusion implement a safety intent
+that exists **only in prose**, so there is nothing to check them against — and this
+is the highest-stakes place to have a hand-written re-derivation of the rules,
+because the deletion is invisible downstream. (The programme has already paid once
+for this class: d11's C35, the bot re-deriving movement three wrong ways.) Minimal
+interference is not merely unproven, it is **unmeasured**. This is the sharpest
+form of R-3: a hard filter is the one restriction that should be neither adaptive
+nor bounded — which makes the third obligation binding instead, *derived from a
+stated specification, interference minimal and measured*.
+
+**M84 — SEARCH, one counter per closure, existing archive.** "How often, and by
+how much, does each closure remove the plan the unfiltered search would have
+chosen?" Three uses: it measures interference directly; it separates a closure that
+never binds (delete it) from one that binds constantly (a *policy* in the wrong
+layer); and it is the same shape as the deadness column (d30) and the admitted-set
+instrument, so the harness exists.
+
+**M85 — COMPOSITION, correctness-by-construction's *effect* without the
+machinery.** The useful half of shield synthesis is not the synthesis, it is **the
+specification existing as a separate artifact from the predicate**. Two steps:
+state each closure's specification in the **rules module** (d11) as a predicate
+over the *game's* vocabulary — *"a plan is self-fatal iff the rules engine's
+resolution of it kills the moving unit"* — then **differential-test** it against
+the engine on the replay archive (the free-differential pattern the replay-rebase
+design already established, d6), and **assert it per R-6** so drift throws rather
+than silently over-removing.
+
+**M86 — VALUE, your refusal has a literature.** `tier` must stay precedence and
+"must never become a weight" is the shielding literature's core distinction in our
+vocabulary: **a safety specification is not a very large penalty.** A penalty is
+tradeable at some weight; a shield is not tradeable at any. Cite it, because "just
+make it a big negative number" is the reflexive simplification a future cycle will
+propose, and it should be refused with a citation rather than by taste.
+
+**The counter-argument, which locates the finding rather than weakening it.**
+Shields are synthesized over *known* dynamics; ours must act before the resolution
+is computed — that is what "certainly" in `certainlySelfFatal` means. So exact
+minimal interference is unattainable: any sound pre-decision filter over an
+undetermined resolution must over-remove somewhere. The obligation therefore
+becomes **state the conservative margin — this closure removes `X ∪ Δ` — and
+measure `Δ`**, which is exactly M84's counter, and is R-3 applied to the one
+restriction class the survey had not yet reached.
