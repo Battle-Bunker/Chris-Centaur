@@ -174,3 +174,45 @@ mixing. All three would have been caught by one cheap defence, which I propose a
 - **Retrodict every borrowed member before importing it.** Tail-chasing — canonical in Battlesnake —
   is a measured null here (available at 2.7–6.2% of entrapment deaths) because our snakes are short
   and our boards crowded with foreign bodies. It cost nothing and settled without a game.
+
+---
+
+## 8. LATER CYCLES — population and measurement work (see the per-item docs)
+
+**The fold is not a policy lever, now proved twice.** It is policy-invariant across a game (Ng,
+potential-based shaping) **and order-invariant within a turn** — the share prefactor is a positive
+per-turn constant, so it cannot change any within-decision ranking. The registered rank-meter test
+of "does play look like fold-ascent" was therefore **void by construction**, and that void is the
+cleaner result: the fold is an accounting device. Its flow *content* does explain contested play
+(+0.131 over a distance-to-food heuristic on coupled decisions); the *folding* explains none of it.
+`MEAS-2`.
+
+**The fold's error is a mechanism step, not a distance slope.** `corr(king present, residual) =
++0.954` against `corr(distance, residual) = +0.423`; king-present cells carry **9.7×** the residual,
+and the six *farthest* cells have the *lowest*. Cause: a last king's death removes the whole team,
+which the fold does not model — the wipe-closure defect, named in cycle 4 and now measured.
+**Coverage must be declared over mechanisms, not a distance metric.** `MEAS-3`.
+
+**Member selection: the null survived its strongest test.** A conditional selector keyed on board
+family (roster-determined, cross-validated) **loses** to a single arm (−0.013); the per-cell oracle
+gains +0.020 against a +0.002 floor. And POP-1's published +0.071 was in-sample — cross-validated it
+is **+0.020**. `M64`.
+
+**Cyclicity is real but small and not selectable.** Two triangles significant in logit space
+(p=0.000 at n=4,841); the sign flips between snake and piece boards and largely cancels on pooling,
+so a single pooled rating is not a sufficient statistic. `POP-3`.
+
+**Measurement instruments built.** A dead-cell detector (deadness = between-arm signal ÷ the A/A
+floor **at a fixed spend**) — ~1,350–2,232 archive games were spent on cells dead at their budget.
+An instance-space map: **food rate and potion rate have never been varied**, and 18,282 of 18,295
+games are 3-team, so no verdict is quantified over either. A reporting retrofit: **three of five
+standing verdicts have P(A beats B) intervals containing 0.5**, and the across-cell aggregate is
+skew-inflated (mean +0.48, IQM +0.30, median +0.17). `MEAS-1`, `MEAS-3`, `MEAS-4`.
+
+**Six instrument artifacts were caught in this lens by cheap checks**, four of them in my own work:
+a clock mismatch, a saturating flood-fill proxy, a zero-curl-by-construction matrix, saturating win
+probabilities, small-sample entropy bias, and an `isInterior` predicate that governs *spawn
+placement*, not movement, and flagged 26% of played moves as suicide. **Standing rules minted:
+R-8** (never test for a residual in a bounded statistic — transform first) and its two cousins:
+**never build a spend-decision statistic whose denominator is the amount already spent**, and
+**always run the plausibility check before the statistical one** — it found four of the six.
