@@ -166,17 +166,42 @@ out to be. Nobody has asked **"what does one operator commit change in the
 three-flow fold?"** — which is the NNUE question and the one that decides whether
 `feature/commit-scope` recovers the 343 ms or not.
 
-  Concretely testable now, no games needed: for each of the three flows, compute
-  the fraction of per-unit account terms that change when exactly one unit's
-  chosen action changes. If the fold's terms are mostly global — `(K/W)(1−p)` is
-  a *whole-board* quantity, recomputed once per turn — then a single unit's
-  commitment perturbs the coefficient of **every** unit's term, and citation-
-  scoped invalidation buys nothing. That is a live risk created by the value
-  lens's own M1 ("form (K, W, p) once per turn and use it"): the cheapest correct
-  evaluator is also the least incrementally updatable one. NNUE's answer would be
-  to *fix* the normaliser within a turn (it already is) and to bucket the
-  accumulator by the quantity that invalidates it. Someone has to check this;
-  the two lenses are optimising against each other and neither has noticed.
+  **SOURCE CHECK, 2026-09-02 — the first form of this claim was wrong and the
+  correction sharpens it.** I checked `src/lobster/evaluate/territory.ts` on
+  `claude/cluster-lookahead` rather than leaving the question open.
+
+  - **The fold's `(K, W, p)` is NOT the coupling.** `sharePar` is `K·w/W` over the
+    *current roster*; within one turn no commitment changes the roster, so under
+    the VALUE lens's M1 ("form `(K, W, p)` once per turn and use it") the
+    coefficient is a per-turn **constant** and contributes zero cross-unit
+    coupling. That is a point *in the fold's favour*: the derived evaluator is
+    strictly more incrementalisable than the hand-set one, not less. My earlier
+    phrasing had this backwards.
+  - **The real un-incrementalisable object is `partitionOf`.** It is a
+    whole-board set-cover over *every admitted unit* — plane 1 sweeps the union
+    of all admitted trail units' arriving fronts, then `displace` resolves piece
+    challenges against whatever is standing — recomputed **per reading**. One
+    unit's plan change alters the cover and therefore **every** unit's cell
+    count. This is the NNUE-shaped problem, it exists in the shipped evaluator
+    today, and the fold neither creates nor fixes it.
+
+  So the corrected claim: the fold is fine; the *territory basis* is the thing
+  with no incremental-update path, and `feature/commit-scope`'s 343 ms recovery
+  rests on invalidating at **cluster/reading granularity** (don't re-price
+  readings that did not depend on the committed unit), not on any per-term
+  incrementality. That is a coarser and more fragile lever than the design's
+  language suggests, and it is worth stating plainly before the falsifier is run.
+
+  NNUE's answer to exactly this shape would be to make the basis
+  *observer-local*: HalfKP is king-relative precisely so that a move changes a
+  bounded feature set, at the accepted price of a full refresh when the king
+  moves. The analogue here is a **per-unit** territory reading (this unit's
+  reachable set against a frozen background) with a declared refresh trigger,
+  rather than a global cover recomputed per reading. That is a real design
+  option nobody has costed; it trades exactness of the cover for a bounded
+  update footprint, and whether the trade is worth it is measurable on the
+  existing corpus (how often does one unit's plan change another unit's cell
+  count by enough to move `better()`?).
 
 **C14. KataGo's graph-search hazard is our memoisation hazard, and it is the
 second independent statement of domain 2's C7.** Our composition carve
@@ -257,9 +282,10 @@ telemetry column is the build item.
   assignment from few samples, which is precisely the answer to ruling 49's
   low-density worry. Promote per-unit flows from an offline mining script to a
   standing telemetry column so each game yields N observations, not one. And
-  check C13: `(K/W)(1−p)` is a whole-board coefficient, which may make the
-  correct fold *un-incrementalisable* — that is a direct conflict with the time
-  lens's citation-scoped invalidation and nobody owns it.
+  note the corrected C13: `(K, W, p)` is a per-turn constant and therefore
+  *helps* incrementality — the fold is more updatable than the shipped
+  evaluator. The un-incrementalisable object is `partitionOf`, the whole-board
+  cover, and it is upstream of both of you.
 - **TIME:** ask the NNUE question about the fold before building
   `feature/commit-scope`: what fraction of evaluation terms change when exactly
   one unit's action is determined? If the answer is "most of them", the 343 ms
