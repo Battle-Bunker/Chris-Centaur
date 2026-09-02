@@ -387,3 +387,9 @@
       entry (refuse-forever vs measured number). Plus piece-fraction
       ladder cells (3 and 5 pieces, 24 games/arm, random-draw seeds per
       MEAS-4). Cheapest high-value games on the books.
+- [ ] R-14 sibling-correlation column: correlate structurally adjacent
+      plans' values, stratified by mechanism indicators; per-cell beside
+      deadness. One script, three lenses' instruments.
+- [ ] Disambiguation-factor plot: information-set size vs turn number on
+      the archive — fast decay confirms the favourable determinization
+      regime for the fog programme.

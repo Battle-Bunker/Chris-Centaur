@@ -4369,3 +4369,18 @@ record; coordinator relays only what genuinely cannot wait.
   → a three-turn potion plan is unmodellable at ANY budget); smallest
   useful subset: A1, X1-X3, E1-E2. Next: deliberate reachability-and-
   engagement census across the tree.
+- R-14 (librarian, domain 46): SIBLING-VALUE CORRELATION governs whether
+  more search helps — one quantity under three names (node-value
+  independence / heuristic error structure / leaf correlation). High →
+  search averages evaluator noise out; low → selection picks the noise
+  and MORE SEARCH MAKES IT WORSE. One script serves three lenses'
+  planned instruments; lives in instance space as a per-cell column
+  beside deadness; low correlation = evaluator work out-returns search
+  work in that stratum (the number that predicts trouble allocates the
+  fix). The value lens already measured it unnamed (the king-boundary
+  residual discontinuity). PLUS the survey's first strongly POSITIVE
+  architectural prediction: the disambiguation factor puts us near the
+  trick-taking pole (units seen when they move; conditioning rungs are
+  disambiguation events) — the fog family we're building toward is the
+  one that WORKS in games shaped like ours; test = information-set size
+  vs turn number on the archive (fast decay confirms).
