@@ -4341,3 +4341,17 @@ record; coordinator relays only what genuinely cannot wait.
   model (policyId+epsilons) so fits refuse silent transport across
   selection policies. Override ledger IPS-corrected. Second scale:
   the owner-brief selector logs the same record.
+- Composition private stretch (@ 4b089d1): reduced product has LIVE
+  OPERANDS DAY ONE, verified shipped — grammar.ts:102 bishop colourBound
+  (spatial congruence) and bank.ts:938 "parity-exact" head sets (temporal
+  congruence reasoned informally in a comment — under Law A owes an
+  asserted hypothesis; under the reduced product it tightens counts
+  directly). 35-CLAIMS stratifies the design by HOW HELD: 8 measured /
+  9 source-verified / 9 ASSUMED — including the central claim "the
+  manifest reduces drift" which has NO EVIDENCE; each assumption carries
+  its cheapest refutation (mostly counters, not batches). Ten withdrawn
+  claims kept visible; all ten came from other lenses or measurement,
+  none from re-reading own text. The one untestable claim named: the six
+  kinds may be THIS PROGRAMME'S joints, not the domain's — defensible
+  property is that a wrong kind costs a ROW, not a rewrite. Staleness
+  audit fixed four corrected-but-still-standing claims at their sites.
