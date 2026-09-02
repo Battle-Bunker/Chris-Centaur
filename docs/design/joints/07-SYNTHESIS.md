@@ -89,6 +89,7 @@ reading any file. So: every law this lens asserts, one line each.
 | **M** (sub-provenance) | a member with internal structure declares its parts; engagement counts per part | where Frankenstein relocates |
 | **N** (no config language) | the bot value is data — literals, member ids, four `Choice` forms; no interpolation, expressions or cross-references | every Hydra/gin failure mode |
 | **I** (identity separation) | content hashes and stable names are never interchanged — **names find, hashes validate**; a cache keyed by name is a bug, a carry keyed by hash is a bug | the search map, attention carry, warm promotion |
+| **A** (argument premises) | a soundness argument carries its hypotheses, checkable at the site that consumes the guarantee; dissolve → derive → assert → drop-and-record, and every hypothesis owes a falsification test | five of six recorded defects of this class are already dissolved structurally |
 | **bijection** | 1:1 between manifest rows and the kernel artifacts they name, checked in CI; a row naming nothing, or an implementation no row names, fails | stops the manifest becoming a sixth enumeration |
 | **F1 / F2** (fit provenance) | a fitted number names its fit; re-fitting mints a new member id; the transfer penalty is **generated** from the two premise records, never member-computed | ruling 49 |
 
