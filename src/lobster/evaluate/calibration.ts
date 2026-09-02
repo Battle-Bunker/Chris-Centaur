@@ -88,6 +88,17 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * real. See `./momentum.ts`.
    */
   momentum: 1,
+  /**
+   * Contest avoidance. THREE, and the number is a gate rather than a taste:
+   * the term's range is [-1, 0] by construction, so `3 x 1` sits well inside
+   * the cliff ceiling of `10 x lightest unit weight` and can never buy a
+   * unit's life; it clears `momentum` (1) and the spread of `reach` and `room`
+   * across one unit's own options (about a tenth) so it decides among moves
+   * those terms tie; and it sits UNDER `food` (4), whose pull reaches 1 for a
+   * starving unit — so a hungry unit still takes a contested meal and a
+   * healthy one declines it. See `./contest.ts`.
+   */
+  contest: 3,
 };
 
 /**
@@ -348,6 +359,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     command: 0,
     food: 0,
     momentum: 0,
+    contest: 0,
   },
   reachHorizonTurns: 0,
 };

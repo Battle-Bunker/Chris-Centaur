@@ -63,6 +63,7 @@ import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
+import { contestFeature } from './contest';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
 
@@ -932,6 +933,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   commandFeature,
   foodFeature,
   momentumFeature,
+  contestFeature,
 ];
 
 /** Re-exported so a consumer can read a held unit's interval without the engine. */
