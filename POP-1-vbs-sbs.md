@@ -1,3 +1,9 @@
+> **QUALIFIER ADDED, see `POP-3` §4.** The null is one of three readings: (a) no headroom,
+> (b) headroom THE POOL CANNOT EXPRESS, (c) underpowered. Profile correlations of +0.996 and
+> +0.879 are direct evidence for (b). Under (b) the architecture's pitch is the ability to hold
+> members that are not variations of each other, and this instrument should be a standing column
+> re-run whenever a non-lineage member seats.
+
 # POPULATION INSTRUMENT 1 — the VBS − SBS gap
 
 **Population premise, stamped first because these are measurements *of* the lineage problem.**

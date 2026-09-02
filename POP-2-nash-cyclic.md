@@ -1,3 +1,9 @@
+> **SECTION 2 SUPERSEDED BY `POP-3-cyclicity-corrected.md`.** The zero-cyclicity conclusion was
+> circular: any difference-of-per-arm-means matrix has zero curl by construction, at any seat
+> count. An ordinal (finishing-order) statistic in LOGIT space finds real, significant
+> intransitivity on two triangles, including the best-powered one (n=4841, p=0.000). The
+> tournament-density and redundancy results in this document stand.
+
 # POPULATION INSTRUMENT 2 — Nash averaging and the cyclic decomposition
 
 Same population premise as instrument 1: 18,302 archive games, 43 cells, 14 bot identities from
