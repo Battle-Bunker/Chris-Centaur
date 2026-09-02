@@ -143,6 +143,14 @@ factoring.
 - **Headline language**: presentation templates are owner-facing text and
   go through the principal-glossary checker like any owner-facing doc;
   banned vocabulary enforced at template review, not per-frame.
+- **CPP denomination** (time @ 390f542): ms-denominated CPPs are re-classed
+  as machine-local calibration artifacts — so trace verdicts
+  ("saturated"/"climbing") quoted to operators must cite quanta-denominated
+  profiles once those exist; until then the verdict's premise carries the
+  machine-local caveat and cross-machine digest comparisons refuse (the
+  ordinary premise discipline, but named here because a "more thinking
+  won't help" verdict quoted from another machine's curve is advice-grade
+  wrong, not just measurement-grade wrong).
 
 ## 8. Build order (each step falsifiable, behaviour-inert engine-side)
 
