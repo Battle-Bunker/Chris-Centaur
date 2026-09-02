@@ -312,6 +312,7 @@ Ruling 51's list, plus the red team's, plus genuinely new ones. Format:
 | **tempo directive** ("take your time" / "blitz") | ⟨deadline | team | none | standing | A1-on-obligation⟩ |
 | **watch this** (pure attention) | ⟨attention | team | any referent | turns(n) | A0⟩ — guidance with zero behavioural authority, pure compute steering |
 | **"the queen is in play"** | ⟨support-demand | team | unit | standing | A2⟩ — one named unit into the restriction gate |
+| **what-if quote** ("if my knight goes east?") | ⟨attention | unit | hypothetical option | decision | A0⟩ — the tentative pin generalized; ephemeral channel, never a table row (06-doc §2; closes the OUT lens's confirmed hole) |
 
 Every row lands without new machinery beyond the five coordinates and the
 per-port entry points that sibling branches already specified. The rows that
@@ -464,6 +465,11 @@ and a silent port of its nomination semantics onto our engine would convert
 guidance from sound-safe to soundness-destroying. The affordance carries
 over; the polarity must invert. (The platform's own lattice priority
 weights are the A0 half and port cleanly.)
+
+**M10 — operator-signals lens, co-owned contract (06-doc).** The echo
+theorem's IN-side half: each port's compile step owes per-decision
+retention under the utterance id (the echo is a read). Port contracts are
+not done without it; the retention table lives in 06 §1.
 
 **M9 — platform corpus, adopted INTO our carve.** The current-generation
 spec refines Drive retirement: *re-derived from each turn's observed board,

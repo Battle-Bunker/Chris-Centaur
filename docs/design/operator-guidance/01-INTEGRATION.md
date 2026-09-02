@@ -176,6 +176,14 @@ against a small per-team demand cap in the schema — the operator-attention
 analogue of the composed-K cap, and the honest place to say "no, you cannot
 nominate all sixteen enemy units".
 
+**Second price, discrimination (06-doc §4, forced by search doc-09 v2):**
+on contacting boards, widening the gate drives more plans to refuted
+floors, so the proved floor's ability to ORDER plans degrades and decisions
+fall through to the est rung and below. A demand makes the bot more careful
+and less proof-backed at once. The port therefore retains the
+deciding-rung shift per decision (the demand's echo carries it), and the
+demand cap is tuned on the authority-collapse rate as well as compute.
+
 ### 3.4 appetite → the reduction read sites (A1)
 
 Seam: the belief lens's ε/appetite discipline — blend applied ONCE at the

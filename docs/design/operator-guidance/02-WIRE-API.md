@@ -121,6 +121,17 @@ to the wrong board — the V4 B5 lesson, inherited verbatim). The
 kernel route structural edits to citation-invalidation and magnitude edits
 to re-fold-at-read without diffing rows.
 
+**Two channels, different physics (06-doc §2).** The TABLE above is the
+durable, `guidanceId`-bearing channel. A second, ephemeral channel carries
+`{ kind: 'quote'; ephemeral: true; scope; hypothetical }` — operator
+speculation requests ("what if my knight goes east?"), the tentative-pin
+transport generalized. Quotes never write a row, never change `guidanceId`,
+never invalidate or demote; they compile to A0 hypothesis spends whose
+answers come back as signals on the OUT surface with the hypothetical fiber
+as premise (quarantine law: fibers never reach the wire). A speculation
+that cost a cache teardown would make interrogation expensive exactly when
+it should be free.
+
 **Platform later (team Convex):** the same rows in a `guidance` table; the
 platform's selection lock gates unit-scoped writes (operator must hold the
 snake's selection — their invariant "Drive management exposed only to the
@@ -154,6 +165,14 @@ added/removed and weights adjusted").
 5. **Scope validity**: named units exist, are ours, and — on the platform —
    are selected by the author.
 6. **Range**: magnitudes inside schema ranges (generated, not hand-checked).
+7. **No-mix** (06-doc §5, twin of the OUT lens's rule): a guidance row
+   naming a SignalClassId is refused — the guidance table biases the game,
+   the advice subscription biases the conversation, and neither wire
+   accepts the other's vocabulary.
+
+Each port also carries a RETENTION duty — the echo theorem's IN-side half
+(06-doc §1): a port implementation is not done until the per-decision reads
+its OUT echo needs are retained under the utterance id.
 
 A refused edit changes nothing and says why — guidance must never fail into
 silence, because a directive the operator believes is live and the bot never
