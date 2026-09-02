@@ -18,16 +18,43 @@
  *    inside the material interval, which is the same fact expressed so that
  *    they cannot drift apart.
  *
- * 2. TERMINAL CLAMPS ARE ORDERED, NOT ADDITIVE. A team whose last unit dies has
- *    lost, whatever happened to anyone else — so mutual annihilation is a LOSS,
- *    not a wash. Scoring the two clamps additively made them cancel, and the
- *    blunder attribution put the entire cost of every blunder on that one line:
- *    the evaluator was happily trading its own last unit for the opponent's.
- *    Fixing the ordering moved optimality 78.9% → 81.3% and blunders
- *    4.4% → 3.1% in one change.
+ * 2. TERMINAL CLAMPS ARE ORDERED, NOT ADDITIVE. Scoring the two clamps
+ *    additively made them cancel, and a mutual annihilation then read as a
+ *    wash; the blunder attribution put the entire cost of every blunder on that
+ *    one line, because the evaluator was happily trading its own last unit for
+ *    the opponent's. Fixing the ordering moved optimality 78.9% → 81.3% and
+ *    blunders 4.4% → 3.1% in one change.
+ *
+ *    THE ORDER IS OURS, NOT THE GAME'S — say it that way round. "A team whose
+ *    last unit dies has lost, whatever happened to anyone else" is how this
+ *    file used to state it, and that sentence is false of TacticToes. Its
+ *    `TeamSnekProcessor.calculatePreviousTurnTeamOutcome` settles a game in
+ *    which every remaining team dies on the same turn from the PREVIOUS
+ *    COMMITTED TURN's board. And the metric this program optimizes is the
+ *    owner's continuous score — a team's share of the total weight owned at
+ *    game end, times the number of teams, par 1 — not a winner flag. So a
+ *    mutual annihilation is not a loss and not a win: it BANKS THE PREVIOUS
+ *    TURN'S POSITION, and it is worth more the further ahead we were.
+ *
+ *    Ordering our own elimination first is a conservative approximation of that
+ *    rule which is exactly right everywhere except the mutual final wipe — a
+ *    measured 0.076% of games — and there it prices the lattice bottom for a
+ *    world worth whatever share we were holding, most wrongly when that share
+ *    was largest. `./mutual-wipe.ts` is the repair, and it is UNCONDITIONAL —
+ *    a correction to logic that did not match the rules has no off-arm to
+ *    measure. It prices that one branch at the previous board's subject-frame
+ *    material fold, on this table's own scale, and leaves every other terminal
+ *    a lattice element; on every board its four guards decline, the clamps are
+ *    the ones this fact describes, byte for byte.
  *
  * 3. DEAD IS A LATTICE BOTTOM, NEVER A SCALAR ON THE HEURISTIC SCALE. A large
  *    finite penalty inverts the cliff the moment another term outgrows it.
+ *    ONE EXCEPTION, and it is the flag in fact 2 rather than a softening of
+ *    this one: a world in which EVERY team is gone is not a death, it is the
+ *    game ending on a scored position, and under the owner's continuous metric
+ *    it is genuinely tradeable against material. Dying while anyone else
+ *    survives stays a lattice bottom and stays untradeable, which is every
+ *    position this fact was protecting.
  *
  * 4. THE VOCABULARY IS CLASS-LEVEL, NOT KIND-LEVEL. Nothing here branches on
  *    "rook" or "knight"; features read properties the rules read — occupancy
@@ -125,7 +152,11 @@ export const SPECIALIST_FACTS: ReadonlyArray<SpecialistFact> = [
       'that one of those two deaths ends a team.',
     carriedBy:
       'the ORDERED terminal clamps: our own elimination is checked first, so a trade that ' +
-      'ends their team while ours still stands is a win, and a mutual one is a loss',
+      'ends their team while ours still stands is a win, and a mutual one is a loss — a ' +
+      'conservative reading of the rules rather than the rules themselves, since TacticToes ' +
+      'settles a mutual final wipe on the previous turn and the objective is continuous in ' +
+      'the weight margin. That one case is now priced at the position it banks rather than ' +
+      'at the bottom of the lattice (mutual-wipe.ts, unconditional — a correction)',
   },
   {
     id: 'king-weight-margin',
@@ -159,8 +190,9 @@ export interface CriterionProfile {
   /**
    * Whether `kingMargin` counts OUR OWN units among the things that can stand
    * on our king's square next turn. These rules have no friendly-fire
-   * exemption, so the honest answer is yes; left undefined the profile defers
-   * to `CENTAUR_ROYAL_MARGIN`, which defaults to the behaviour that shipped.
+   * exemption, so the honest answer is yes; left undefined the profile takes
+   * `DEFAULT_ROYAL_REACHERS`, which is the behaviour that shipped and is a
+   * correction still owed its own change.
    */
   readonly royalReachers?: boolean;
   /**

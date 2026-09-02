@@ -13,6 +13,7 @@ import {
   candidateKey,
   compareConfidence,
   demandOf,
+  gapArms,
   pickLeader,
   planKey,
   rootSlack,
@@ -171,98 +172,20 @@ describe("leader selection", () => {
     expect(rootSlack(rows, 0)).toBe(15) // 25 − 10, not 90 − 10
     expect(rootSlack([rows[0]], 0)).toBe(0)
   })
-})
 
-describe("sticky staging (F1/F2 and the dead-dethroned-by-the-living rule)", () => {
-  it("stages the leader on the first round", () => {
-    const s = new StickyStager()
-    const d = s.stage([row({ key: "a", lo: 1 }), row({ key: "b", lo: 9 })], SIGHTED)
-    expect(d.staged.key).toBe("b")
-    expect(d.reason).toBe("initial")
-  })
-
-  it("refuses a sub-margin lo improvement and accepts a super-margin one", () => {
-    const s = new StickyStager()
-    s.stage([row({ key: "a", lo: 10 })], SIGHTED)
-    const small = s.stage([row({ key: "a", lo: 10 }), row({ key: "b", lo: 10 + DEFAULT_SWITCH_MARGIN })], SIGHTED)
-    expect(small.staged.key).toBe("a")
-    expect(small.switched).toBe(false)
-    const big = s.stage([row({ key: "a", lo: 10 }), row({ key: "b", lo: 10 + DEFAULT_SWITCH_MARGIN + 1 })], SIGHTED)
-    expect(big.staged.key).toBe("b")
-    expect(big.reason).toBe("improved")
-  })
-
-  it("refuses a shallower-horizon improvement however large", () => {
-    const s = new StickyStager()
-    s.stage([row({ key: "a", lo: 10, horizon: 2 })], SIGHTED)
-    const d = s.stage(
-      [row({ key: "a", lo: 10, horizon: 2 }), row({ key: "b", lo: 900, horizon: 1 })],
-      SIGHTED,
-    )
-    expect(d.staged.key).toBe("a")
-  })
-
-  it("keeps a cloud-contingent-DEAD incumbent staged while the demand is serviced", () => {
-    const s = new StickyStager()
-    s.stage([row({ key: "a", lo: -1000, hi: 50, vacuity: "cloud-contingent-dead" })], SIGHTED)
-    const d = s.stage(
-      [
-        row({ key: "a", lo: -1000, hi: 50, vacuity: "cloud-contingent-dead" }),
-        row({ key: "b", lo: 40, hi: 45 }),
-      ],
-      FOGGED,
-    )
-    // Switching away from a vacuous incumbent to a shallower-informed rival is
-    // preferring ignorance: undefined is not zero.
-    expect(d.staged.key).toBe("a")
-    expect(d.reason).toBe("sticky")
-  })
-
-  it("dethrones a materially dead incumbent only for a LIVING leader", () => {
-    const s = new StickyStager()
-    s.stage([row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" })], SIGHTED)
-    // All dead: hi-order churn must not flip the staged key for nothing.
-    const churn = s.stage(
-      [
-        row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" }),
-        row({ key: "b", lo: -1000, hi: -900, vacuity: "material-dead" }),
-      ],
-      SIGHTED,
-    )
-    expect(churn.staged.key).toBe("a")
-    const living = s.stage(
-      [
-        row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" }),
-        row({ key: "b", lo: 3, hi: 8 }),
-      ],
-      SIGHTED,
-    )
-    expect(living.staged.key).toBe("b")
-    expect(living.reason).toBe("collapse")
-  })
-
-  it("under FOGGED-VACUOUS lets the gradient dethrone a vacuous incumbent by the same margin", () => {
-    const s = new StickyStager()
-    const inc = row({ key: "a", lo: -1000, est: 10, hi: 5, vacuity: "cloud-contingent-dead" })
-    s.stage([inc], VACUOUS)
-    const near = s.stage(
-      [inc, row({ key: "b", lo: -1000, est: 10 + DEFAULT_SWITCH_MARGIN, hi: 4, vacuity: "cloud-contingent-dead" })],
-      VACUOUS,
-    )
-    expect(near.staged.key).toBe("a")
-    const far = s.stage(
-      [inc, row({ key: "b", lo: -1000, est: 10 + DEFAULT_SWITCH_MARGIN + 1, hi: 4, vacuity: "cloud-contingent-dead" })],
-      VACUOUS,
-    )
-    expect(far.staged.key).toBe("b")
-    expect(far.reason).toBe("gradient")
-  })
-
-  it("derives its rows from a scored plan, cliff included", () => {
-    const p = plan([1, 4])
-    const r = stagingRowOf(score(p, -1000, 60, { ledger: [ledgerEntry(9)] }), 12, 2, CLIFF)
-    expect(r).toMatchObject({ key: planKey(p), lo: -1000, est: 12, hi: 60, horizon: 2 })
-    expect(r.vacuity).toBe("cloud-contingent-dead")
+  it("root slack IS the leader's gap index — max rival ceiling over its own floor", () => {
+    // The UGapE correspondence the docstring claims, as arithmetic: the index
+    // of arm i is max_{j != i} U_j − L_i, and that is what this returns.
+    const rows = [
+      row({ key: "L", lo: 10, hi: 90 }),
+      row({ key: "R1", lo: 0, hi: 25 }),
+      row({ key: "R2", lo: -5, hi: 31 }),
+    ]
+    const index = (i: number): number =>
+      Math.max(...rows.filter((_, j) => j !== i).map((r) => r.hi)) - (rows[i] as StagingCandidate).lo
+    expect(rootSlack(rows, 0)).toBe(index(0))
+    expect(rootSlack(rows, 1)).toBe(index(1))
+    expect(rootSlack(rows, 2)).toBe(index(2))
   })
 })
 
@@ -512,5 +435,185 @@ describe("bounds helper sanity (the discharge theorem in the stubs)", () => {
     expect(bounds(1, 1, { assumptions: [{ kind: "posture", posture: "SIGHTED" }] }).exact).toBe(
       false,
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE REGRESSION PIN AROUND `gapArms`.
+ *
+ * The extraction is a rename, so the test that matters is the one that
+ * reproduces the OLD inline expression and asserts the two agree on every
+ * shape — including the shapes where a naive rewrite would differ (ties, an
+ * all-refuted field, a single candidate).
+ */
+describe("gapArms — the resident LUCB rule, named", () => {
+  const inlineArms = (
+    v: LeverView,
+  ): { leader: CandidateView | undefined; rival: CandidateView | undefined } => {
+    const leader = v.candidates[v.leaderIdx]
+    const rival = v.candidates
+      .filter((c) => c !== leader && !c.refuted)
+      .sort((a, b) => b.hi - a.hi)[0]
+    return { leader, rival }
+  }
+
+  const c = (over: Partial<CandidateView> & { key: string }): CandidateView => ({
+    plan: plan([1, 4]),
+    lo: 0,
+    est: 0,
+    hi: 0,
+    horizon: 1,
+    vacuity: "alive",
+    loCite: new Set<number>(),
+    hiCite: new Set<number>(),
+    refuted: false,
+    ...over,
+  })
+
+  const shapes: ReadonlyArray<{ name: string; view: LeverView }> = [
+    { name: "the default two-arm field", view: view() },
+    {
+      name: "a tie on hi keeps the EARLIER rival",
+      view: view({
+        candidates: [c({ key: "L", hi: 90 }), c({ key: "R1", hi: 50 }), c({ key: "R2", hi: 50 })],
+      }),
+    },
+    {
+      name: "the highest hi is refuted and is not an arm",
+      view: view({
+        candidates: [
+          c({ key: "L", hi: 90 }),
+          c({ key: "X", hi: 99, refuted: true }),
+          c({ key: "R", hi: 20 }),
+        ],
+      }),
+    },
+    {
+      name: "every rival refuted leaves one arm",
+      view: view({ candidates: [c({ key: "L", hi: 9 }), c({ key: "X", hi: 99, refuted: true })] }),
+    },
+    { name: "a single candidate", view: view({ candidates: [c({ key: "L", hi: 9 })] }) },
+    {
+      name: "the leader is not index 0",
+      view: view({
+        leaderIdx: 2,
+        candidates: [c({ key: "A", hi: 80 }), c({ key: "B", hi: 70 }), c({ key: "L", hi: 10 })],
+      }),
+    },
+  ]
+
+  for (const shape of shapes) {
+    it(`agrees with the inline rule on ${shape.name}`, () => {
+      const named = gapArms(shape.view)
+      const inline = inlineArms(shape.view)
+      // Identity, not equality: the arms are the view's own rows.
+      expect(named.leader).toBe(inline.leader)
+      expect(named.rival).toBe(inline.rival)
+    })
+  }
+
+  it("never returns a refuted arm and never returns the leader twice", () => {
+    for (const shape of shapes) {
+      const { leader, rival } = gapArms(shape.view)
+      if (rival !== undefined) {
+        expect(rival.refuted).toBe(false)
+        expect(rival).not.toBe(leader)
+      }
+    }
+  })
+})
+
+describe("sticky staging (F1/F2 and the dead-dethroned-by-the-living rule)", () => {
+  it("stages the leader on the first round", () => {
+    const s = new StickyStager()
+    const d = s.stage([row({ key: "a", lo: 1 }), row({ key: "b", lo: 9 })], SIGHTED)
+    expect(d.staged.key).toBe("b")
+    expect(d.reason).toBe("initial")
+  })
+
+  it("refuses a sub-margin lo improvement and accepts a super-margin one", () => {
+    const s = new StickyStager()
+    s.stage([row({ key: "a", lo: 10 })], SIGHTED)
+    const small = s.stage([row({ key: "a", lo: 10 }), row({ key: "b", lo: 10 + DEFAULT_SWITCH_MARGIN })], SIGHTED)
+    expect(small.staged.key).toBe("a")
+    expect(small.switched).toBe(false)
+    const big = s.stage([row({ key: "a", lo: 10 }), row({ key: "b", lo: 10 + DEFAULT_SWITCH_MARGIN + 1 })], SIGHTED)
+    expect(big.staged.key).toBe("b")
+    expect(big.reason).toBe("improved")
+  })
+
+  it("refuses a shallower-horizon improvement however large", () => {
+    const s = new StickyStager()
+    s.stage([row({ key: "a", lo: 10, horizon: 2 })], SIGHTED)
+    const d = s.stage(
+      [row({ key: "a", lo: 10, horizon: 2 }), row({ key: "b", lo: 900, horizon: 1 })],
+      SIGHTED,
+    )
+    expect(d.staged.key).toBe("a")
+  })
+
+  it("keeps a cloud-contingent-DEAD incumbent staged while the demand is serviced", () => {
+    const s = new StickyStager()
+    s.stage([row({ key: "a", lo: -1000, hi: 50, vacuity: "cloud-contingent-dead" })], SIGHTED)
+    const d = s.stage(
+      [
+        row({ key: "a", lo: -1000, hi: 50, vacuity: "cloud-contingent-dead" }),
+        row({ key: "b", lo: 40, hi: 45 }),
+      ],
+      FOGGED,
+    )
+    // Switching away from a vacuous incumbent to a shallower-informed rival is
+    // preferring ignorance: undefined is not zero.
+    expect(d.staged.key).toBe("a")
+    expect(d.reason).toBe("sticky")
+  })
+
+  it("dethrones a materially dead incumbent only for a LIVING leader", () => {
+    const s = new StickyStager()
+    s.stage([row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" })], SIGHTED)
+    // All dead: hi-order churn must not flip the staged key for nothing.
+    const churn = s.stage(
+      [
+        row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" }),
+        row({ key: "b", lo: -1000, hi: -900, vacuity: "material-dead" }),
+      ],
+      SIGHTED,
+    )
+    expect(churn.staged.key).toBe("a")
+    const living = s.stage(
+      [
+        row({ key: "a", lo: -1000, hi: -1000, vacuity: "material-dead" }),
+        row({ key: "b", lo: 3, hi: 8 }),
+      ],
+      SIGHTED,
+    )
+    expect(living.staged.key).toBe("b")
+    expect(living.reason).toBe("collapse")
+  })
+
+  it("under FOGGED-VACUOUS lets the gradient dethrone a vacuous incumbent by the same margin", () => {
+    const s = new StickyStager()
+    const inc = row({ key: "a", lo: -1000, est: 10, hi: 5, vacuity: "cloud-contingent-dead" })
+    s.stage([inc], VACUOUS)
+    const near = s.stage(
+      [inc, row({ key: "b", lo: -1000, est: 10 + DEFAULT_SWITCH_MARGIN, hi: 4, vacuity: "cloud-contingent-dead" })],
+      VACUOUS,
+    )
+    expect(near.staged.key).toBe("a")
+    const far = s.stage(
+      [inc, row({ key: "b", lo: -1000, est: 10 + DEFAULT_SWITCH_MARGIN + 1, hi: 4, vacuity: "cloud-contingent-dead" })],
+      VACUOUS,
+    )
+    expect(far.staged.key).toBe("b")
+    expect(far.reason).toBe("gradient")
+  })
+
+  it("derives its rows from a scored plan, cliff included", () => {
+    const p = plan([1, 4])
+    const r = stagingRowOf(score(p, -1000, 60, { ledger: [ledgerEntry(9)] }), 12, 2, CLIFF)
+    expect(r).toMatchObject({ key: planKey(p), lo: -1000, est: 12, hi: 60, horizon: 2 })
+    expect(r.vacuity).toBe("cloud-contingent-dead")
   })
 })

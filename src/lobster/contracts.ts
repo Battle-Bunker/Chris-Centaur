@@ -159,6 +159,50 @@ export interface CandidateSet {
    * staged cells with the same canonical effect are one option, and the
    * engine proves that rather than this layer asserting it. */
   readonly legalCount: number
+  /**
+   * WHAT THE SET OF VERDICTS SAID ABOUT THE UNIT — the rung-0 fatality marks,
+   * absent unless the classifier ran.
+   *
+   * `forced` collapses one dimension of the joint problem EXACTLY: the unit's
+   * move is determined, so nothing above need spend a price on an alternative.
+   * `sealed` is the unit dying whatever it does — a near-perfect one-turn
+   * death oracle at zero marginal cost, and a WIDENING for everyone else,
+   * because a corpse is a durable pile settled on weight where a living body
+   * is settled on tier.
+   *
+   * `provenance` is not decoration. On the rules-only subset these are
+   * theorems about frozen facts; with the ally arm in them they are policy,
+   * and a consumer that treats a policy mark as a proof is the bug the field
+   * exists to prevent. A silent restore hides a team-level fact, which is why
+   * the mark is emitted rather than inferred from the ledger.
+   */
+  readonly marks?: {
+    readonly forced: boolean
+    readonly sealed: boolean
+    readonly survivors: number
+    readonly provenance: "rules-only" | "policy"
+  }
+  /**
+   * THE RUNG-1/2 EDGE-EV PRIOR PER CANDIDATE, IN WEIGHT UNITS, positionally
+   * aligned with `candidates` — absent unless the edge-EV pass ran.
+   *
+   * φ_u(a), the first order of the Möbius expansion around the incumbent: what
+   * the cheap heuristics expect this option to be worth, denominated in the
+   * material lattice itself, so a unit of weight `w` dying is exactly `−w` and
+   * composing it with any other term in that currency is literally addition.
+   *
+   * ORDERING ONLY, and the placement law is why it can live on the set at all:
+   * it is never on a `Bound`, a `ScoreBounds`, a `PlanScore` or an
+   * `Assumption`, no consumer may fold it into `est`, and nothing that reads it
+   * may remove a candidate. It is published because the generator already
+   * computes it to sort by and a selection layer downstream cannot recompute it
+   * — not because anything is licensed to adjudicate on it.
+   *
+   * Absent, not `undefined`-valued: a set built with the pass off must be
+   * indistinguishable from the one the shipped build produced, and an own
+   * property holding `undefined` is not.
+   */
+  readonly edgeEv?: ReadonlyArray<number>
 }
 
 // ---------------------------------------------------------- score accounting
@@ -310,6 +354,39 @@ export interface EmitRecord {
    * a record the kernel emitted; optional so a hand-built record (a harness,
    * a fixture) need not assert a verdict it never computed. */
   readonly crossfade?: CrossfadeVerdict
+  /**
+   * CL4 — THE SEEDED LOTTERY'S AUDIT FIELD. Absent unless the sampler ran.
+   *
+   * OPERATOR-SIDE, NEVER ON THE WIRE. The emission path out of this record is
+   * `TeamDecisionEngine.forwardPlan`, which reads `rec.plan`, turns each
+   * candidate into a `CentaurMove` and calls `setBotRecommendation(gameId,
+   * snakeId, move, turnData)`. Nothing else on the record is forwarded, and the
+   * only other consumer — `publishAdvice` → `adviseFromReport` — reads
+   * `lo/hi/est/posture/epoch` for the operator's own pin advice. So an opponent
+   * sees the MOVE and never the seed, which is the whole shape the ruling
+   * asks for: unpredictable to an adversary, replayable by the harness.
+   *
+   * Optional so a hand-built record (a harness, a fixture) need not carry a
+   * seed it never drew, and so a flag-off record is structurally identical to
+   * the one that shipped.
+   */
+  readonly selection?: import("./selection").SelectionReport
+  /**
+   * CL6 — DOOR A'S THREAD ACCOUNTING. Absent unless the scout ran.
+   *
+   * OPERATOR-SIDE, NEVER ON THE WIRE, and the argument is `selection`'s
+   * verbatim: the emission path out of this record is
+   * `TeamDecisionEngine.forwardPlan`, which reads `rec.plan`, turns each
+   * candidate into a `CentaurMove`, and forwards nothing else. So an opponent
+   * sees the MOVE and never the depth.
+   *
+   * It is also the only place a depth number is allowed to appear on this
+   * record. `lo`, `est` and `hi` are ROOT quantities under a `V¹` frame
+   * (la-outside L1: depth is provenance, never denomination), and `horizon`
+   * is the one-ply search's own. A thread's per-ply values live inside the
+   * scout and reach this record only as COUNTS.
+   */
+  readonly scout?: import("./search/scout").ScoutReport
 }
 
 // -------------------------------------------------------- refinement levers
@@ -343,9 +420,27 @@ export interface StagingCandidate {
   readonly lo: number
   readonly est: number
   readonly hi: number
-  /** Horizon this candidate's value was proved at. */
+  /**
+   * TURNS OF PLAY THIS ROW'S VALUE CARRIES, measured. 1 when nothing deeper
+   * than this turn spoke about it; 2 when a deepened line rooted at this plan
+   * published a value; and so on.
+   *
+   * It used to be a constant every row shared, which made the two sticky-stager
+   * guards that read it (`leader.horizon >= incumbent.horizon`) vacuously true
+   * for the life of the build. They bind now.
+   */
   readonly horizon: number
   readonly vacuity: VacuityCause
+  /**
+   * THE BRANCH'S BELIEF — the density's mean and precision inside (or, once a
+   * deeper reading has spoken, outside) the sound interval.
+   *
+   * Optional so a caller that builds a row by hand need not assemble one; the
+   * stager reads it only where `horizon > 1` on some row, i.e. only where
+   * depth actually spoke, and orders by `lo`/`est` exactly as before elsewhere.
+   */
+  readonly mu?: number
+  readonly prec?: number
 }
 
 export interface CandidateView extends StagingCandidate {
@@ -524,6 +619,204 @@ export interface SearchCore {
    * after this it is back to the substrate's own baseline.
    */
   release?(): void
+  /**
+   * Optional: what the cluster layer did on the live sessions, for measurement.
+   *
+   * TELEMETRY AND NOTHING ELSE. Nothing in the decision path reads it, it
+   * carries no bound and no plan, and it is absent unless
+   * `CENTAUR_CLUSTER_ENUM` (or a caller's own answer) turned the layer on.
+   * A layer whose cost and coverage cannot be read off is a layer nobody can
+   * promote, and every stage of this program has had to pay that bill later.
+   */
+  clusterReport?(): ClusterReport | null
+  /**
+   * Optional: the seeded lottery's own ledger, for replay and for measurement.
+   *
+   * Null unless `CENTAUR_SAMPLED_CAP` (or a caller's own answer) turned the
+   * sampler on. It carries the DECISION SEED, which is what makes the owner's
+   * ruling auditable: a run is replayed bit-for-bit by handing the same
+   * `matchSeed` back to the engine on the same board. The kernel stamps it onto
+   * `EmitRecord.selection`, which is an OPERATOR-SIDE field —
+   * `TeamDecisionEngine.forwardPlan` sends a `CentaurMove` and a `GameState`
+   * view to the wire and nothing else, so no part of this ever reaches an
+   * opponent. See `lobster/selection/rng.ts` on why that matters.
+   */
+  selectionReport?(): import("./selection").SelectionReport | null
+  /**
+   * Optional: which slot of the acceptance comparator decided, over this core's
+   * life. Telemetry, never behaviour, and present whatever the flags say.
+   *
+   * The instrument for law L17, "optimism never promotes". The comparator's
+   * third slot is an unproved CEILING breaking a floor-and-est tie — the O-P1
+   * hole that round-fusion Stage 3a's T0/T1/T2 tier ladder closes, and which is
+   * NOT closed on this branch. A change that made that slot busier would be
+   * quietly widening the hole, so the number is published and every stage that
+   * touches ordering owes a before/after on it.
+   */
+  adjudicationReport?(): AdjudicationReport
+  /**
+   * Optional: CL6's thread accounting for the last session opened, or null
+   * when the scout never ran.
+   *
+   * Threads run, depths reached, contacts, parks, expansions, findings and the
+   * door's refusals by reason — so a scout that silently refused every board
+   * (a potion premise it may not run under, a cluster extinct at the new root)
+   * is legible as a refusal rather than as a zero.
+   */
+  scoutReport?(): import("./search/scout").ScoutReport | null
+  /**
+   * Optional: WHAT DEPTH FOUND AND WHAT IT DID WITH IT — the consulted depth
+   * surface.
+   *
+   * This is the channel `KernelOptions.depthMax` and the `?? 1` horizon
+   * fallback were standing in for, and it is deliberately not the refinement
+   * seam: it carries no lever, no rung and no view. It carries the VALUES a
+   * deepened line produced, keyed by the ply-1 plan they are about, so the
+   * kernel can fold them into that branch's belief and report an honest
+   * horizon instead of a constant.
+   *
+   * Null when this core opens no depth layer at all.
+   */
+  depthReport?(): DepthReport | null
+  /**
+   * Optional: what the MULTI-START SEED did on the last slice that ran one, or
+   * null when the layer never ran.
+   *
+   * Stage 0's attempts and whether one came back conflict-free, stage 1's
+   * samples, climbs, evaluations and pool sizes, the slice asked for against
+   * the time spent, and the objective of the random baseline against the
+   * objective of the plan actually selected. That last pair is the layer's own
+   * falsifier: a selection that never beats its own random baseline is a
+   * selection that bought nothing.
+   *
+   * It also carries the DECISION SEED, which is what makes a weighted-random
+   * selection auditable at all — hand the same private `matchSeed` back on the
+   * same board and the seeding reproduces bit for bit. Operator-side, like
+   * `selectionReport`: it never reaches the wire.
+   */
+  multistartReport?(): import("./search/multistart-seed").MultiStartReport | null
+}
+
+/** Which slot of `better()` decided. See `SearchCore.adjudicationReport`. */
+export interface AdjudicationReport {
+  /**
+   * THE BELIEF decided, among floor-undominated rivals, because a deepened
+   * line had spoken about one of them. Zero on every board where depth
+   * published nothing, and then the ladder below is the one that shipped.
+   */
+  readonly depthDecided: number
+  /** The PROVED FLOOR decided. The only slot that is a proof. */
+  readonly floorDecided: number
+  /** `est` broke a floor tie. Ordering, never adjudication. */
+  readonly estDecided: number
+  /** The CEILING broke a floor-and-est tie — L17's "hi read count". */
+  readonly ceilingDecided: number
+  /** The salted plan key broke an exact three-way tie. */
+  readonly tieKeyDecided: number
+  /** A banked reply refuted the trial below the incumbent's proved floor. */
+  readonly vetoed: number
+  /** A basis mismatch: two plans that are not answers to the same question. */
+  readonly refused: number
+}
+
+/**
+ * WHAT A DEEPENED LINE IS WORTH, for the branch it started from.
+ *
+ * Three numbers and the plan they are about. Denominated in the same score
+ * units as a ply-1 bank price, on a board `plies` turns of play ahead; `sigma`
+ * is one standard deviation of the MODEL ERROR of the approximate simulation
+ * that produced the value, so `1/sigma^2` is the precision it earned. Not a
+ * bound, not a bound's endpoint, and not capped in either direction.
+ */
+export interface DepthNote {
+  readonly plan: JointPlan
+  readonly value: number
+  readonly sigma: number
+  readonly plies: number
+}
+
+/** The depth layer's per-decision accounting. See `SearchCore.depthReport`. */
+export interface DepthReport {
+  /**
+   * TURNS OF PLAY ACTUALLY SIMULATED, max over lines. 1 means nothing deeper
+   * than this turn ran. MEASURED — never a configured ceiling, and never the
+   * fallback constant the kernel used to report as a horizon.
+   */
+  readonly plies: number
+  /** Comparisons the belief decided that the floor ladder would not have. */
+  readonly decided: number
+  /**
+   * Would this core have returned a DIFFERENT plan with the deep channel
+   * silent? Maintained as a shadow incumbent under the legacy ladder over the
+   * same trial stream, so it costs one comparison per trial and no pricing.
+   *
+   * APPROXIMATE IN ONE STATED WAY: without depth the trial SEQUENCE itself
+   * would differ slightly, because the incumbent steers the sweep. What this
+   * is exact about is the argmax under the legacy ladder over the candidate
+   * stream this decision actually generated.
+   */
+  readonly changedPlan: boolean
+  /** The values, one per ply-1 plan a line was rooted at. */
+  readonly notes: ReadonlyArray<DepthNote>
+}
+
+/** The cluster layer's per-decision accounting. See `SearchCore.clusterReport`. */
+export interface ClusterReport {
+  /** Components of the non-slider interaction graph, after any merge. */
+  readonly clusters: number
+  /** Our live sliders — shared variables, one joint per branch. */
+  readonly sliders: number
+  /** Largest non-slider component on this board. */
+  readonly maxComponent: number
+  /** Joint-space size actually enumerated. */
+  readonly jointsEnumerated: number
+  /** Joint-space size before the FORCED/fatal domain shrink. */
+  readonly jointsBeforeShrink: number
+  /** Clusters that fell to rung 2 (threshold) and rung 5 (ICM). */
+  readonly rungThreshold: number
+  readonly rungIcm: number
+  /**
+   * WHAT THE ENUMERATION'S ARITHMETIC ACTUALLY COST, PER CLUSTER.
+   *
+   * `cells` is the reach-expansion work this decision bought, in pair-table
+   * claim slots, summed over every cluster and branch; `worstClusterCells` is
+   * the single most expensive cluster's share. Estimated before the work is
+   * spent (see `search/cluster-enum.ts`'s `clusterCells`), so it is the same
+   * number the rations are read against.
+   *
+   * The pair separates the two cost regimes batch 2 found on ONE row each,
+   * where the previous instruments needed a stopwatch and a per-board table: a
+   * SLIDER board is few clusters with a huge `worstClusterCells`, a CROWD board
+   * is thousands of clusters with a small one.
+   */
+  readonly cells: number
+  readonly worstClusterCells: number
+  /** Clusters the SIZE ration degraded — shrunk domains, or pushed to ICM. */
+  readonly rungRation: number
+  /** Clusters the COUNT ration or the deadline left at the seed assignment. */
+  readonly clustersRationed: number
+  /** Did the terminal guard refuse independent composition? */
+  readonly merged: boolean
+  /** Composed joints produced, and how many the coordinator priced. */
+  readonly proposals: number
+  readonly proposalsPriced: number
+  /**
+   * Proposals the one-move filter declined to pay for: a plan within
+   * `minHamming` of the incumbent is a plan the sweep is about to try anyway.
+   */
+  readonly proposalsNear: number
+  /** Proposals the surrogate gate declined: they did not beat the incumbent. */
+  readonly proposalsFlat: number
+  /**
+   * Composed joints whose Ṽ did not beat the ICM fixpoint's — exact inference
+   * finding nothing coordinate ascent on the same surrogate would not.
+   */
+  readonly noExactGain: number
+  /** Wall time the enumeration itself cost, in ms. */
+  readonly enumMs: number
+  /** Unit-sweeps the dirty set skipped, and the ones it let through. */
+  readonly sweepsSkipped: number
+  readonly sweepsRun: number
 }
 
 export interface SearchContext {
@@ -553,6 +846,42 @@ export interface BudgetHandle {
    * whole system from a fake clock and no suite is wall-clock flaky. Values
    * are on the same scale as `KernelInput.deadlineMs`. */
   now(): number
+  /**
+   * CL4 — the share of the DECISION's budget still unspent, in [0, 1], or
+   * `undefined` when this handle does not model a decision-level clock.
+   *
+   * `remainingMs()` is the SLICE's remainder and is the wrong quantity for a
+   * schedule that is supposed to cool as the TURN runs down: it resets every
+   * slice. This is the turn-scale one, and it exists for exactly one consumer —
+   * the selection temperature (`lobster/selection/sample.ts`), which is
+   * SCHEDULER state and never board-belief state. Nothing that reaches a
+   * `Bound`, a `ScoreBounds` or `better()` may read it; contract rule 17's grep
+   * is what keeps that true.
+   *
+   * OPTIONAL ON PURPOSE. A harness budget (the deterministic `countingBudget`
+   * every probe in this program runs on) does not model a turn, and a probe
+   * whose temperature cooled with a wall clock would be a probe whose numbers
+   * are a property of the box. Absent, the schedule holds its opening
+   * temperature for every round: the lottery is on and does not cool.
+   */
+  decisionFraction?(): number
+  /**
+   * THE SAME TURN-SCALE CLOCK, IN MILLISECONDS — what a layer that rations
+   * itself against the DECISION rather than against the slice must read.
+   *
+   * `remainingMs()` is the SLICE's, and a layer that opens once per decision
+   * but is CONSTRUCTED inside a slice will read a slice's worth and size itself
+   * to it. That is not a hypothetical: the depth scout converts a millisecond
+   * budget to a counting purse exactly once, and treats `0` as "this handle
+   * models no clock, so only the ply cap binds" — so a slice-scoped read that
+   * happened to land on an exhausted slice handed the scout an UNBOUNDED purse.
+   * The value it wants is this one, and it always was.
+   *
+   * Optional for the same reason `decisionFraction` is: a harness or probe
+   * budget models no turn, and then both are absent and every layer that reads
+   * them falls back to counting rather than to a fabricated number.
+   */
+  decisionRemainingMs?(): number
 }
 
 /** B3 owns: the kernel loop. Ratchet is PER (epoch, posture) basis: an emitted

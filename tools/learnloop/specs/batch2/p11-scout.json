@@ -1,0 +1,176 @@
+{
+ "_comment": [
+  "P11 — CENTAUR_SCOUT (CL6a), status probe-passed.",
+  "",
+  "QUESTION: Does the SEARCH-ARCHITECTURE BRANCH beat the VALIDATED BASELINE at the owner's shape and 2000 ms — and what does the depth ration cost the one-turn search that pays for it? This is the merge decision for claude/cluster-lookahead, not a flag's promotion.",
+  "",
+  "ARMS: baseline  |  search-arch",
+  "",
+  "ARM CONFIGS — A CROSS-BRANCH PAIR: one bundle per arm, from the refs below.",
+  "    --arm 'baseline=<bundle-baseline>'",
+  "    --arm 'search-arch=<bundle-search-arch>'",
+  "",
+  "BUNDLES — build one per arm, from the ref named here, and record the",
+  "resolved SHA from each bundle.json in findings.md:",
+  "    tools/simworker/build-bot.sh origin/claude/mid-turn-collision-logic-mkxurg <bundle-baseline> --fetch",
+  "        baseline: claude/mid-turn-collision-logic-mkxurg — baseline",
+  "    tools/simworker/build-bot.sh origin/claude/cluster-lookahead <bundle-search-arch> --fetch",
+  "        search-arch: claude/cluster-lookahead — feature",
+  "",
+  "READS OUT: deepestPlies, deepBranches, depthEffectRate, worstWallMs, decisions, score, sharePar",
+  "",
+  "DESIGN NOTE: RESPECIFIED 20260830 AS A BRANCH-VERSUS-BRANCH VALIDATION, under the owner's branching ruling of the same day (docs/BRANCHING.md). THE ARMS ARE TWO BUNDLES FROM TWO REFS, both running their shipped defaults with no bot config on either side: `baseline` is built from origin/claude/mid-turn-collision-logic-mkxurg, the validated baseline; `search-arch` is built from origin/claude/cluster-lookahead, the search-architecture feature branch, whose default bot carries the deep layer AND the cluster enumeration always-built. WHAT THIS DISSOLVES: the question this row carried until today was 'does the default bot keep carrying two never-raced features, or do they become config fields defaulting off until a sweep promotes them?'. Under the ruling there is no default to argue about — the accumulated architecture lives on a feature branch and the branch either MERGES on this evidence or it does not. The pending owner decision recorded on this row and on CENTAUR_CLUSTER_ENUM's is answered by the paradigm rather than by a status edit. WHAT IT COSTS, SAID OUT LOUD: the previous shape (`default` against `depthless` = bot={\"depth\":{\"plyCap\":0}}) was a one-variable pair — same bundle, same evaluator, same bounds, differing only in how far the search could look — and this one is not. Two branch tips differ by everything that landed on either since they forked, so a delta here attributes to THE BRANCH and to nothing finer. That is the correct instrument for a MERGE decision and the wrong one for a mechanism claim, and the two must not be confused in the write-up. The one-variable depth pair remains available on the feature bundle alone and is the follow-up if the branch arm reads positive and somebody wants to know which part of it did the work. AND READ THE RATE FOR WHAT IT IS: the 30% and 22.5% figures on the feature branch are DISAGREEMENT rates — how often removing depth would stage a different move — measured on 11x11 two-team piece boards. They are not improvement and they are not the owner's board; src/lobster/__tests__/DEPTH-NUMBERS.md is the committed record of what each figure measures, and the owner-shape rates (mixed-king 2/24, snake5-queen 5/24) are measured by the `depth-effect rate at the owner's shape` block of src/lobster/__tests__/depth-acceptance.test.ts. Their replay quality signal came back EMPTY — all seven disagreements replay identical same-turn ledgers — which is precisely why this live sweep is the instrument and the probes are not. SIZING, ADDED 20260830: this row now carries a POWER block with a measured block requirement. It is the first experiment in the programme whose size was derived from a measured cross-bundle spread rather than from the 16-block convention, and the convention loses: 16 blocks is about a fifth of what this pair needs.",
+  "",
+  "MERGE DECISION: THIS EXPERIMENT IS THE MERGE DECISION FOR claude/cluster-lookahead. A `search-arch` arm that clears the verified A/A floor on the batch's own metrics merges into claude/mid-turn-collision-logic-mkxurg and is recorded VALIDATED. An arm that does not clear it does not merge; the branch stays a retained parallel test arm and the reason is written into findings.md. Neither outcome is a status word in this file's schema — the schema judges evidence about flags, and a branch merge is a judgement about a branch — so it is recorded here, in prose, where a reader meets it.",
+  "",
+  "POWER: MEASURED, 20260830, AND IT SAYS 16 BLOCKS CANNOT SETTLE THIS. A sandbox preview ran exactly this pair — baseline 66904d2 against search-arch c74f0a1, both shipped defaults, 8 blocks, potions ON + hazard cross — and returned sharePar -0.01 [-0.31, +0.29]. THE ARM WAS NOT DEAD: 800 scout threads, 370 scout plies and 2,873 cluster joints per game, so the branch ran and decided differently. What it could not do is resolve. Cross-bundle paired spread was +/-0.303 at 8 blocks against an A/A floor of +/-0.10 on the same cells, i.e. THREE TIMES the floor, which cannot tell 'no effect' from 'an effect of 0.3' — the size that would decide the merge either way. Half-width scales as 1/sqrt(blocks), so the arithmetic is 8 x (0.303/0.10)^2 = 73 BLOCKS PER CELL = 219 games per arm per cell = 1,314 games for the spec. THIS SPEC IS EMITTED AT 16 BLOCKS ANYWAY, and that is a budget decision taken with the number in hand rather than an oversight — see REQUIRES for what 16 may and may not claim, and specs/batch2/README.md for what the alternative costs. The 73 is a floor on the blocks, not a target: it buys +/-0.10, which is the smallest effect this instrument can see at all.\n\nPIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.",
+  "",
+  "GATE: deepestPlies > 0 and deepBranches > 0 on the `search-arch` arm, on at least the piece-bearing cells. ZERO THERE IS A BROKEN ARM AND MUST BE REPORTED AS A REFUSAL, NOT AS A NULL — it means the bundle was built from the wrong ref, or the deep layer never opened a thread on these boards, and either way the pair measured something other than what it is named for. Record the resolved SHA of both bundles from bundle.json in findings.md: a branch-versus-branch verdict that quotes branch names and not SHAs is a claim nobody can reproduce.",
+  "",
+  "REQUIRES: ONE BUNDLE PER ARM, BUILT FROM THE REF NAMED IN THE BUNDLES BLOCK, AND NO BOT CONFIG ON EITHER. The cross-branch shape is the harness's normal case, not an extension of it: build-bot.sh resolves any git ref to a bundle, and run-pair.js launches the arms at the same instant in separate processes and pairs them afterwards by gameId. Batch 1 ran exactly this shape in P1 — `integrated` @ 66904d2 against `perf-substrate` @ 8059b86, 144 games paired, 0 dropped, 0 pairing problems. DO NOT PASS bot= ON EITHER ARM. The baseline bundle predates the 20260829 flag teardown and has no src/lobster/bot-config module, so checkContenders would REFUSE the spec (correctly) the moment a contender declared one; with no bot config declared, nothing calls requireBundleTakesBotConfig and both arms simply play their shipped bots, which is the comparison this experiment is for. ENGAGEMENT IS READ ON THE search-arch ARM ONLY, from belief.deepestPlies / deepBranches on the per-game rows. The baseline arm is engagement-verified BY CONSTRUCTION — the deep layer is not in that build at all, so there is no counter to read and no silent-A/A risk on that side; the failure mode P5 taught (an arm that names a treatment and quietly does not run it) can only live on the search-arch side, which is where the gate below points.\n\nMINIMUM BLOCKS FOR A CLAIMABLE READ: 73 PER CELL. Below that this spec is a DESCRIPTION, not a merge decision. At the emitted 16 blocks the expected half-width is 0.303 x sqrt(8/16) = about +/-0.21 sharePar, so a 16-block run may report only three things and must report them in these words: (1) THE ENGAGEMENT GATE below, which is a real pass/fail at any block count and is the single most valuable thing 16 blocks buys; (2) the mechanism rows — deepestPlies, deepBranches, depthEffectRate, worstWallMs, decisions — which are per-decision counts rather than per-game outcomes and are readable at this size; (3) a sharePar interval quoted WITH its half-width and labelled UNDERPOWERED FOR THE MERGE DECISION. A null at 16 blocks is NOT evidence the branch does not help and must never be written as one, because an effect of +0.2 sharePar would sit inside that interval. THE MERGE MAY NOT BE DECIDED — in either direction — ON A 16-BLOCK RUN. If the night has room for 73 blocks on even ONE cell, run the one cell at 73 rather than three cells at 16: one cell that can answer the question beats three that cannot.\n\nMINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (hazard-mix-king, headline-mix-king) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.",
+  "",
+  "HOW AN ARM IS SELECTED HERE, AND WHY THIS ONE IS DIFFERENT. This is a",
+  "BRANCH-VERSUS-BRANCH pair under the branching paradigm (docs/BRANCHING.md,",
+  "owner ruling 20260830): an architecture change is built on its own branch,",
+  "validated as a batch arm, and MERGED on the result. So the arms are two",
+  "BUNDLES built from two refs, each running its own shipped default, and the",
+  "BUNDLES block above is the whole of the arm definition.",
+  "DO NOT ADD bot= TO EITHER ARM unless this spec prints one. A bundle built",
+  "from a pre-teardown ref has no src/lobster/bot-config module, and",
+  "checkContenders refuses a spec that declares a bot config against it —",
+  "correctly, because such a bundle would ignore the config and play its",
+  "shipped bot under the arm's name. With no config declared, that check does",
+  "not fire and both arms simply play what they ship, which is the comparison.",
+  "READ THE VERDICT AT THE RIGHT GRAIN. Two branch tips differ by everything",
+  "that landed on either since they forked, so a delta attributes to THE",
+  "BRANCH and to nothing finer. That is the right instrument for a merge",
+  "decision and the wrong one for a mechanism claim.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p11-scout",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  43301,
+  43302,
+  43303,
+  43304,
+  43305,
+  43306,
+  43307,
+  43308,
+  43309,
+  43310,
+  43311,
+  43312,
+  43313,
+  43314,
+  43315,
+  43316
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,2817 @@
+{
+  "schemaVersion": 1,
+  "title": "LOBSTER principal terminology ledger",
+  "home": {
+    "branch": "claude/cluster-lookahead",
+    "path": "tools/principal-glossary/ledger.json",
+    "mirror": "sim/worker-kit (verbatim copy of the whole directory; see USAGE.md \"Two branches, one ledger\")"
+  },
+  "seededAt": "2026-08-28",
+  "seededBy": "cloud coordinator session, from the 2026-08-26..28 transcript",
+  "readMe": [
+    "WHAT THIS IS. A per-principal record of which project vocabulary each human",
+    "has actually been given. It exists because the coordinator repeatedly briefed",
+    "the owner in codebase jargon he had never been handed, and he said so:",
+    "\"you really suck at empathizing with what I already understand\" (2026-08-28).",
+    "",
+    "THE ONE RULE. Never use a term in an owner briefing unless the ledger says it",
+    "is `native` (they used it correctly themselves) or `defined` (we formally",
+    "defined it, on a date, somewhere). Anything `internal` or `corrected` must be",
+    "defined inline at first use -- and the definition recorded here in the SAME",
+    "work cycle, or the ledger is already lying.",
+    "",
+    "EVIDENCE OR IT DID NOT HAPPEN. Every state carries at least one evidence entry",
+    "with a date. `native` and `corrected` need a quote fragment from the principal.",
+    "A familiarity claim gets the same epistemic hygiene as an experimental claim.",
+    "",
+    "CONSULT IT: node tools/principal-glossary/check-briefing.js < draft.md",
+    "RENDER IT:  node tools/principal-glossary/render-view.js",
+    "SCHEMA:     tools/principal-glossary/SCHEMA.md   PROTOCOL: USAGE.md"
+  ],
+  "states": {
+    "native": "The principal used the term correctly themselves. Strongest evidence. Safe to use unqualified.",
+    "defined": "Formally defined for the principal in a dedicated briefing, with a date and a location. Safe to use; a one-clause reminder is still courteous.",
+    "corrected": "The principal explicitly flagged the term as unfamiliar. MUST be re-defined at every use, even if previously `defined`. Corrections never auto-expire.",
+    "internal": "Lives in code or agent reports and has NEVER been briefed. Must be defined inline at first use, or avoided in favour of a native synonym."
+  },
+  "checker": {
+    "stoplist": [
+      "A",
+      "AI",
+      "ALL",
+      "ALWAYS",
+      "AND",
+      "ANY",
+      "API",
+      "BUT",
+      "CI",
+      "CPU",
+      "CSV",
+      "DO",
+      "DONE",
+      "EV",
+      "FIX",
+      "FOR",
+      "GPU",
+      "HTML",
+      "I",
+      "ID",
+      "IDs",
+      "IF",
+      "IS",
+      "IT",
+      "JSON",
+      "JSONL",
+      "LOBSTER",
+      "MB",
+      "MCTS",
+      "MUST",
+      "NEVER",
+      "NEW",
+      "NO",
+      "NONE",
+      "NOT",
+      "NOTE",
+      "OK",
+      "OLD",
+      "ONE",
+      "ONLY",
+      "OR",
+      "OS",
+      "PC",
+      "PR",
+      "PRs",
+      "PRNG",
+      "RAM",
+      "RNG",
+      "SHA",
+      "SO",
+      "TBD",
+      "THE",
+      "TODO",
+      "TWO",
+      "UI",
+      "URL",
+      "US",
+      "UTC",
+      "WASM",
+      "WHY",
+      "WSL",
+      "YES",
+      "YET",
+      "GitHub",
+      "JavaScript",
+      "TypeScript",
+      "Firebase",
+      "TacticToes",
+      "Chris-Centaur",
+      "README",
+      "Node",
+      "npm",
+      "WebAssembly",
+      "Monte",
+      "Carlo"
+    ],
+    "notes": [
+      "The stoplist is append-as-you-go. Adding a token here is a claim that it is",
+      "ordinary English or a proper noun -- NOT a way to silence real jargon. If it",
+      "is project vocabulary, give it a ledger entry instead."
+    ]
+  },
+  "principals": [
+    {
+      "id": "chris",
+      "displayName": "Chris",
+      "role": "owner",
+      "notes": [
+        {
+          "date": "2026-08-2x",
+          "kind": "correction-event",
+          "quote": "you've just given me explanations for a bunch of your lingo without actually connecting to your lingo",
+          "lesson": "A glossary dump is not a definition. Define a term where it is USED, in the sentence that uses it."
+        },
+        {
+          "date": "2026-08-2x",
+          "kind": "correction-event",
+          "quote": "I don't understand your 'what needs you' entries at all",
+          "lesson": "Section headings and status labels are terminology too. Internal report structure is jargon."
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "founding-mandate",
+          "quote": "you really suck at empathizing with what I already understand",
+          "lesson": "The founding mandate for this ledger. Familiarity is not to be assumed; it is to be tracked, with evidence, and deduced by elimination."
+        },
+        {
+          "date": "2026-08-28",
+          "kind": "standing-directive",
+          "quote": "design a dedicated memory system within repos for you to track across sessions which terminology each human principal involved in a project is so far familiar with",
+          "lesson": "This file is that system. It lives in the repo so every session -- cloud coordinator, local sim worker, post-compaction resume -- reads the same state."
+        },
+        {
+          "date": "2026-08-29",
+          "kind": "correction-event",
+          "quote": "holy shit! I did not say this and this is exactly the mistake I was trying to correct.",
+          "lesson": "Never attribute a claim to the owner they did not make, and never relay an agent's finding as agreement with the owner without checking it against the owner's actual words. The audit's winner-take-all reading was presented as 'exactly as you said' when the owner had said the opposite (continuous share metric)."
+        },
+        {
+          "date": "2026-08-29",
+          "kind": "correction-event",
+          "quote": "Potions are decisively powerful many times a game when humans are involved... we shouldn't prematurely discount the value of heuristics that we know advantages a Centaur team just because pure bots aren't smart enough to take advantage of those positional values",
+          "lesson": "Measured frequency/impact of a mechanism under our own dumb bots is endogenous, not a game fact. Centaur-valuable heuristics are not gated on pure-bot payoff."
+        }
+      ],
+      "terms": [
+        {
+          "term": "A/A null",
+          "state": "defined",
+          "gloss": "a control cell in which two byte-identical contenders play each other; any measured effect there is pure noise and sets the batch's noise band.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "null cell",
+            "A/A null cell"
+          ]
+        },
+        {
+          "term": "admission governor",
+          "state": "defined",
+          "gloss": "the flag-gated component that decides which cohort of features is admitted for a turn.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "alpha-beta",
+          "state": "native",
+          "gloss": "alpha-beta pruning.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "take inspiration from [MCTS/alpha-beta]... integrate the principles of MCTS and alpha beta pruning",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
+            }
+          ]
+        },
+        {
+          "term": "alpha-beta pruning",
+          "state": "native",
+          "gloss": "the classic bound-based branch cutoff; owner named it alongside MCTS.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "Take inspiration from [MCTS / alpha-beta]",
+              "where": "owner ruling, synthesis-pins.md:900"
+            }
+          ]
+        },
+        {
+          "term": "AlphaZero",
+          "state": "defined",
+          "gloss": "the reference MCTS variant whose selection bonus is multiplied by a cheap prior so promising unexplored branches get served first.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
+          "term": "anytime kernel",
+          "state": "defined",
+          "gloss": "the evaluator that can be stopped at any moment and still return its best-so-far answer.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "arity",
+          "state": "internal",
+          "gloss": "how many branches a unit contributes to a joint move (a queen ~ 3 snakes of arity).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "arm",
+          "state": "defined",
+          "gloss": "one contender in a paired comparison. The OWNER-facing word is \"contender\" or \"version\".",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "dof-owner-summary 2026-08-30 (defined in place; debt recorded by coordinator)"
+            }
+          ]
+        },
+        {
+          "term": "AssemblyScript",
+          "state": "defined",
+          "gloss": "a small statically-typed language wearing TypeScript syntax that compiles to WASM; NOT TypeScript — no JS object interop, flat typed memory. What the two kernels are written in.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)"
+            }
+          ]
+        },
+        {
+          "term": "assertProfileCoherent",
+          "state": "internal",
+          "gloss": "the guard that a weight table and its invoked features agree.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "B0-only",
+          "state": "internal",
+          "gloss": "a configuration that never escalates past the cheapest bound rung.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "basis",
+          "state": "internal",
+          "gloss": "the shared score frame a round publishes in. ~104 hits across reports.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "basis",
+            "bases"
+          ]
+        },
+        {
+          "term": "basisKeyOf",
+          "state": "internal",
+          "gloss": "the function deriving a basis key; pure code identifier.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "block",
+          "state": "defined",
+          "gloss": "one (cell, seed) pair, run as three games with the arms rotated across seats.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ],
+          "match": [
+            "block"
+          ]
+        },
+        {
+          "term": "board",
+          "state": "native",
+          "gloss": "one game instance / its grid; owner specifies sizes like 25x25.",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "bound bank",
+          "state": "defined",
+          "gloss": "the store that holds each candidate's floor/ceiling/est so successive rounds refine rather than recompute.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "bound ledger",
+          "state": "internal",
+          "gloss": "the per-candidate bound record inside the kernel. Distinct from the PROMOTION ledger (which is defined) — never say bare \"ledger\" to the owner without saying which.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "bound ledger",
+            "bound-ledger"
+          ]
+        },
+        {
+          "term": "branch factor",
+          "state": "native",
+          "gloss": "how many child moves a node expands to.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "branch pruning",
+          "state": "native",
+          "gloss": "discarding lines without expanding them.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "candidate cap",
+          "state": "defined",
+          "gloss": "the maximum number of candidate moves/plans kept alive per round.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "cap rate",
+          "state": "defined",
+          "gloss": "the fraction of decisions that hit a cap. AMBIGUITY NOTE flagged to the owner: it has meant both the candidate cap and the time cap in different reports; always say which.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "ceiling",
+          "state": "defined",
+          "gloss": "the best-possible score under the most favourable reading (upper bound).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "cell",
+          "state": "defined",
+          "gloss": "one experimental configuration (board size + rosters + potions + hazards + food) in a simulation batch.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "centaur",
+          "state": "native",
+          "gloss": "human + bot playing as one player; the project's premise.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "certain death moves",
+          "state": "native",
+          "gloss": "moves that provably kill the unit; the owner uses this term in the consent/veto sense.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "citedUnits",
+          "state": "internal",
+          "gloss": "the units a subtree certificate depends on; the expansion trigger reads it.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "CL0-CL7",
+          "state": "defined",
+          "gloss": "the cluster-lookahead stage codenames, CL0 through CL7.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "CL0",
+            "CL1",
+            "CL2",
+            "CL3",
+            "CL4",
+            "CL5",
+            "CL6",
+            "CL6a",
+            "CL7"
+          ]
+        },
+        {
+          "term": "claim field",
+          "state": "internal",
+          "gloss": "the per-cell record of which unit asserts control of a square.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "claim field",
+            "claim fields",
+            "claim set"
+          ]
+        },
+        {
+          "term": "cliff inequality",
+          "state": "internal",
+          "gloss": "the bound that limits how far a cohort's score can deviate from the base frame.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "cluster seed",
+          "state": "corrected",
+          "gloss": "the flagged construction (CENTAUR_CLUSTER_SEED, rejected) of the team's initial complete joint move assignment via the cell-claim index — the seed being the starting assignment coordinate ascent refines, NOT a cluster membership and NOT the cheapest rung of a heuristic ladder.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "corrected",
+              "quote": "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics.",
+              "where": "owner message 2026-08-29"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "corrected",
+              "quote": "I'm still confused about the term 'seed' for the cheapest move selection methodology in the ladder of increasingly expensive search heuristics.",
+              "where": "gloss-defect fix: prior gloss ('initial cluster membership a turn starts with') conflated the seed with the cluster partition; verified vs cl1 report and search code"
+            }
+          ],
+          "lesson": "The owner parsed 'seed' as the cheapest rung of a heuristic ladder. It is not: the seed is the initial complete joint move assignment that coordinate ascent refines. Always re-anchor 'seed' to 'the starting assignment refinement grows from' when used.",
+          "redefineOnNextUse": true
+        },
+        {
+          "term": "clusters",
+          "state": "native",
+          "gloss": "the subsets of units simulated together; owner ruled they are NOT mutually exclusive.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "Clusters shouldn't be mutually exclusive",
+              "where": "owner ruling, synthesis-pins.md:1401"
+            }
+          ]
+        },
+        {
+          "term": "cohort",
+          "state": "defined",
+          "gloss": "a named bundle of heuristics evaluated together (e.g. \"material\", \"territory\"); richer cohorts cost more.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "commensurability",
+          "state": "internal",
+          "gloss": "the property that two rounds' scores can be compared at all.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "compute cost",
+          "state": "native",
+          "gloss": "the price (time/cores) of an evaluation, as distinct from its value.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "compute time",
+          "state": "native",
+          "gloss": "wall-clock spent on a decision; the owner reasons in ms budgets per turn.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "conjunction of moves",
+          "state": "native",
+          "gloss": "a joint move across several units treated as one branch.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "contact countdown",
+          "state": "defined",
+          "gloss": "the number of turns before two units could first affect each other; drives clustering.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "coordinate ascent",
+          "state": "defined",
+          "gloss": "the refinement loop over a joint move assignment: hold every unit's move fixed except one, try to improve that one, repeat.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "dark",
+          "state": "corrected",
+          "gloss": "BANNED IN OWNER-FACING TEXT by the ruling below. It used to mean \"built and merged but off by default, awaiting promotion\". SAY INSTEAD: \"merged, not selected\", or \"in the collection and selectable, nothing selects it yet\" — which is also more accurate, because a candidate at a decision joint is a member of a collection in the tree, not a hidden code path. `lib/ledger.js`'s `dark` status keeps the spelling as an internal schema constant; the rendered page translates it.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "corrected",
+              "quote": "VOCABULARY BAN: \"dark\", \"promoted/promotion\" in owner-facing communication. Use: in-collection/selectable; validated; merged.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ],
+          "everCorrected": true,
+          "redefineOnNextUse": true,
+          "note": "THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused."
+        },
+        {
+          "term": "data layout",
+          "state": "native",
+          "gloss": "how board/score state is packed in memory for speed.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "data-layout improvements",
+              "where": "owner directive 0d, synthesis-pins.md:47"
+            }
+          ]
+        },
+        {
+          "term": "decision joint",
+          "state": "internal",
+          "gloss": "one of the five places in a turn where the bot picks between alternative ways of thinking — which moves to consider, which evaluators to run, the evaluators themselves, how deeper information updates a branch's weight, and how the turn's compute is divided. Each joint holds a COLLECTION of candidates and a bot's configuration says which members it uses. `SLOT_IDS` in `src/lobster/registry.ts`.",
+          "aliases": [
+            "joint",
+            "joint collection",
+            "slot"
+          ],
+          "match": [
+            "decision joint",
+            "joint collection"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "depth-effect rate",
+          "state": "defined",
+          "gloss": "the fraction of decisions where deep (2+ turn) information changed the staged move; the continuously tested depth metric.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
+          "term": "detector",
+          "state": "defined",
+          "gloss": "a cheap board test that decides whether an expensive heuristic is worth running at all (e.g. \"is there a slider?\").",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "dilation",
+          "state": "internal",
+          "gloss": "growing a cloud forward one turn to cover every position the unit could reach.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "discharge",
+          "state": "internal",
+          "gloss": "resolving a cloud into a definite position; a \"discharged\" frame is clean.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "Doors A/B/C",
+          "state": "defined",
+          "gloss": "the three named architectural options for re-entering search from a partially resolved position; Door B is post-contact continuation.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "Door A",
+            "Door B",
+            "Door C"
+          ]
+        },
+        {
+          "term": "drift gates",
+          "state": "defined",
+          "gloss": "the tests that fail if the vendored engine has drifted from its upstream source.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "drift gate"
+          ]
+        },
+        {
+          "term": "E3",
+          "state": "defined",
+          "gloss": "the double-pricing probe: 8,878 real decisions priced through both evaluator profiles with two independent banks and an unbounded budget; source of the material-lattice finding and the tie-breaking-only result.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "edges",
+          "state": "native",
+          "gloss": "moves as graph edges; the owner distinguishes singleton edges from pairs.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "emissionTrail",
+          "state": "internal",
+          "gloss": "the per-decision log of emitted evaluations.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "engagement",
+          "state": "defined",
+          "gloss": "the learnloop requirement that a treatment arm demonstrably did the thing it is being tested for.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (batch-1 deep-mining): defined inline as the learning loop writing 'engaged'/'not engaged' -- whether the treatment demonstrably did the thing it is tested for"
+            }
+          ]
+        },
+        {
+          "term": "entanglement",
+          "state": "native",
+          "gloss": "the coupling between units/clusters that destroys independence of their simulations.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "we can add units to a cluster later in the simulation sequence after we detect that its entanglements are reducing our visibility",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        },
+        {
+          "term": "entanglement accumulation",
+          "state": "native",
+          "gloss": "entanglement growing along a search path, used as the trigger to expand a cluster.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "plan in the code for such escalations as expanding out clusters dynamically according to entanglement accumulation",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        },
+        {
+          "term": "envelope",
+          "state": "internal",
+          "gloss": "the declared deviation band of a cohort from the base objective.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "envelope",
+            "envelopes",
+            "deviation envelope"
+          ]
+        },
+        {
+          "term": "epoch",
+          "state": "internal",
+          "gloss": "the version counter that invalidates cached state when the board advances.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "est",
+          "state": "defined",
+          "gloss": "the point estimate between floor and ceiling; the number you would bet on.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "EV scores",
+          "state": "native",
+          "gloss": "expected-value scores attached to moves/edges.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "evalmemo",
+          "state": "internal",
+          "gloss": "the memo table caching node evaluations.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "expandCluster",
+          "state": "internal",
+          "gloss": "the operation that adds units to a live cluster mid-simulation. The owner's phrasing is \"expanding out clusters dynamically\".",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "exploration depth",
+          "state": "native",
+          "gloss": "how many plies forward a search reaches.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "feature branch",
+          "state": "internal",
+          "gloss": "a branch cut from the validated baseline for ONE architecture change, tested as an arm of a paired batch against the baseline, and merged back only once the numbers say it won. The replacement for keeping unproven work switched off inside the shipped bot.",
+          "aliases": [
+            "feature branch",
+            "feature/<name>"
+          ],
+          "match": [
+            "feature branch"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "fertile ground",
+          "state": "native",
+          "gloss": "the board terrain that food can spawn on.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "floodfill",
+          "state": "internal",
+          "gloss": "the region-growing space count behind territory/survival heuristics.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "floodfill",
+            "flood-fill",
+            "flood fill"
+          ]
+        },
+        {
+          "term": "floor",
+          "state": "defined",
+          "gloss": "the guaranteed-at-least score of a position under the worst reading of its clouds (lower bound).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "FOGGED",
+          "state": "internal",
+          "gloss": "posture value: the unit is only a cloud.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "food spawn rate",
+          "state": "native",
+          "gloss": "the game-config knob controlling how often food appears.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "forced food collection",
+          "state": "native",
+          "gloss": "being compelled to eat because health is low.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "formation pinning",
+          "state": "defined",
+          "gloss": "the measured cluster-seed failure state: joint cell-claims compress own-team separation (10.70 to 6.51 cells) and push the team against the board edge (wall distance 3.95 to 2.00, pinned by median turn 5 in 48/48 games), after which wall/body-block/contest deaths follow.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "friendly fire",
+          "state": "native",
+          "gloss": "killing your own teammate; a failure class the owner tracks by name.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "frozen in the past",
+          "state": "native",
+          "gloss": "the owner's phrase for state captured at an earlier turn and not advanced.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "gainOrdering",
+          "state": "internal",
+          "gloss": "the flag/heuristic that orders candidates by expected gain.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "Gamma",
+          "state": "internal",
+          "gloss": "the correction term for cross-cluster coupling in the composition maths.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "gate() staleness",
+          "state": "internal",
+          "gloss": "the bug class where a cached gate result outlives the state it was computed from.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "gate()",
+            "gate staleness"
+          ]
+        },
+        {
+          "term": "governCohort",
+          "state": "internal",
+          "gloss": "the admission-governor entry point.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "Gumbel-top-k",
+          "state": "internal",
+          "gloss": "the without-replacement sampling scheme for picking k branches. The OWNER-facing term is \"weighted random selection\".",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "hazard damage",
+          "state": "native",
+          "gloss": "the per-turn health cost of standing in a hazard.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "hazards",
+          "state": "native",
+          "gloss": "board regions that damage units standing in them.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "heuristics",
+          "state": "native",
+          "gloss": "the scoring functions that price a position; owner speaks of a \"heuristics ladder\".",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "stick to weighted random selection in branch exploration decisions, weighted by the integrated prior scores of cheaper heuristics",
+              "where": "owner ruling, synthesis-pins.md:1372"
+            }
+          ]
+        },
+        {
+          "term": "high-dimensional tree",
+          "state": "native",
+          "gloss": "the owner's framing of a joint-move search where a node is a conjunction of moves.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "human overrides",
+          "state": "native",
+          "gloss": "the human's manual intervention in a centaur game.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "influenceOf",
+          "state": "internal",
+          "gloss": "the function returning which units can affect a given square.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "interaction proximity clusters",
+          "state": "native",
+          "gloss": "the owner's own phrasing for clustering by who can affect whom soon.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "invulnerability window",
+          "state": "native",
+          "gloss": "the turns during which a unit cannot be killed; the owner uses the status and the window interchangeably.",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "JIT",
+          "state": "defined",
+          "gloss": "just-in-time compiler: the runtime compiler inside Node's JavaScript engine that compiles hot code to native machine code with type feedback — the reason plain TypeScript-derived code is already fast.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)"
+            }
+          ]
+        },
+        {
+          "term": "kindSet",
+          "state": "internal",
+          "gloss": "a bitmask of every piece kind a clouded unit might currently be.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "ladder",
+          "state": "defined",
+          "gloss": "an ordered sequence of increasingly expensive stages, run until the budget runs out.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "lane (a)",
+          "state": "internal",
+          "gloss": "the first of the two ways a change reaches the bot: a new STRATEGY CANDIDATE at a decision joint, added to the collection that joint already has, chosen by configuration. A normal commit on the main branch. In a briefing, prefer the plain words — \"a new candidate at an existing decision point\" — and mention the lane only if the distinction between the two lanes is itself the subject.",
+          "aliases": [
+            "lane a",
+            "collection lane"
+          ],
+          "match": [
+            "lane (a)",
+            "lane a"
+          ],
+          "note": "Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "lane (b)",
+          "state": "internal",
+          "gloss": "the second way a change reaches the bot: an ARCHITECTURE change — which decision joints exist, how they compose, what the search is allowed to conclude. It gets its own branch, is tested against the current bot in long paired runs, and is merged only if it wins. In a briefing, prefer \"a branch for an architecture change\" over the label.",
+          "aliases": [
+            "lane b",
+            "architecture lane"
+          ],
+          "match": [
+            "lane (b)",
+            "lane b"
+          ],
+          "note": "Coined by us from the owner's own two-part ruling; he has not seen the shorthand. Define it inline or avoid it.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "lat",
+          "state": "corrected",
+          "gloss": "one lat = 10 score units = one lightest-unit material step. Derived, never chosen: unit weights are integers and material carries CLIFF_MATERIAL_WEIGHT=10 (src/lobster/search/edge-ev.ts: LAT=10); a meal's material half is exactly one lat. Name = lattice step. DEPRECATED BY OWNER RULING 2026-08-29: owner-facing communication states heuristic outputs as expected impact on team weight; do not use 'lat' in new text.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "corrected",
+              "quote": "explain the 'Lat' scoring rule (and name choice) in more detail.",
+              "where": "owner message 2026-08-29"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "corrected",
+              "quote": "explain the 'Lat' scoring rule (and name choice) in more detail.",
+              "where": "gloss-defect fix: the 2026-08-28 gloss ('decision latency') was WRONG against source; verified vs edge-ev.ts LAT=10 and the 'one lat is ten score units' law test"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "corrected",
+              "quote": "Total weight equals score. It's unnecessary additional complexity to introduce a new unit which is a factor of ten multiplier on weight called Lat.",
+              "where": "owner message 2026-08-29 (ruling: retire the unit)"
+            }
+          ],
+          "lesson": "The first lat definition did not land. Re-defined 2026-08-29 via the lattice: one lat = one lattice step = 10 raw score points = the lightest unit's material value; name is short for lattice step.",
+          "redefineOnNextUse": true
+        },
+        {
+          "term": "lattice",
+          "state": "defined",
+          "gloss": "the grid material scores live on: every finite material score in the corpus is an integer multiple of 10, so material differences come in steps of 10 with nothing in between (E3).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "lookahead",
+          "state": "native",
+          "gloss": "simulating more than one turn ahead.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "multi-turn lookahead absolutely wanted",
+              "where": "owner directive, synthesis-pins.md:1117"
+            }
+          ]
+        },
+        {
+          "term": "low health units",
+          "state": "native",
+          "gloss": "the units driving forced food collection.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "max health",
+          "state": "native",
+          "gloss": "the health ceiling a unit can be topped up to.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "maximin",
+          "state": "internal",
+          "gloss": "maximising the guaranteed floor against the worst reply.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "MCTS",
+          "state": "native",
+          "gloss": "Monte Carlo Tree Search; the owner named it as the inspiration to generalise from.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "Take inspiration from [MCTS / alpha-beta] and generalise in a principled way",
+              "where": "owner ruling, synthesis-pins.md:900"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "applies your deep understanding of the math behind the likes of MCTS",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
+            }
+          ]
+        },
+        {
+          "term": "mechanism metrics",
+          "state": "defined",
+          "gloss": "process measures: unforced deaths by cause, eats per 100 unit-turns, self/teammate kills, decision overruns. Resolve at 4-8 blocks.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "meta heuristic",
+          "state": "native",
+          "gloss": "the higher-level rule that decides which heuristics to run/trust for a given board.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "Mobius",
+          "state": "internal",
+          "gloss": "the inclusion-exclusion (Mobius) decomposition used to combine per-edge terms.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "Mobius",
+            "Möbius"
+          ]
+        },
+        {
+          "term": "move staging event",
+          "state": "native",
+          "gloss": "the moment a move is locked in for a unit.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "multi-second turns",
+          "state": "native",
+          "gloss": "the target turn budget (owner headline: 2000 ms).",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "serious parallel compute on multi-second turns",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        },
+        {
+          "term": "multi-turn simulation",
+          "state": "native",
+          "gloss": "owner-equivalent phrasing for lookahead.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "node evaluation",
+          "state": "native",
+          "gloss": "scoring one position in the search.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "null band",
+          "state": "defined",
+          "gloss": "the interval a batch's own concurrent A/A null reports; any treatment effect inside it is noise by that batch's own showing.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "one-translation rule",
+          "state": "corrected",
+          "gloss": "the architectural rule that a position may be translated from enumerable substrate to resolved state once and never back. Owner was explicitly lost by it; a plain-language explanation was owed and given, but the TERM itself stays corrected — say the rule, not the name.",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "internal",
+              "quote": null,
+              "where": "arch-synthesis.md, cluster-lookahead-synthesis.md"
+            },
+            {
+              "date": "2026-08-27",
+              "to": "corrected",
+              "quote": "I'm still completely mystified about the term 'one-translation rule'",
+              "where": "owner message, cloud coordinator session"
+            }
+          ],
+          "redefineOnNextUse": true,
+          "everCorrected": true
+        },
+        {
+          "term": "overhang",
+          "state": "internal",
+          "gloss": "the amount by which a bound exceeds what has actually been proven.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "P-experiment ids",
+          "state": "defined",
+          "gloss": "the simulation program's experiment labels: P1..P16 plus N0 (null), X9, and an R suffix for a re-run.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "P1",
+            "P2",
+            "P3",
+            "P4",
+            "P5",
+            "P6",
+            "P7",
+            "P8",
+            "P9",
+            "P10",
+            "P11",
+            "P12",
+            "P13",
+            "P14",
+            "P15",
+            "P16",
+            "N0",
+            "X9"
+          ]
+        },
+        {
+          "term": "P5R",
+          "state": "defined",
+          "gloss": "batch-2 rerun of the WASM experiment: scored on throughput/timing mechanism metrics rather than placement; headline-mix-king cell dropped; the refusal path must log which buffer was non-resident.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ],
+          "aliases": [
+            "P5 rerun"
+          ]
+        },
+        {
+          "term": "packed kernel",
+          "state": "internal",
+          "gloss": "the int32-packed evaluator built in W2.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "pair repair",
+          "state": "defined",
+          "gloss": "the two-unit companion to coordinate ascent: try improving two units' moves jointly while the rest stay fixed.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (four answers: cluster seed / lat / WASM / seed mechanics)"
+            }
+          ]
+        },
+        {
+          "term": "parallel compute",
+          "state": "native",
+          "gloss": "using many cores for one turn's decision.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "eventual serious parallel compute on multi-second turns",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        },
+        {
+          "term": "parking a search thread",
+          "state": "native",
+          "gloss": "suspending a line rather than discharging it; owner treats parking as a scheduling choice.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "partial board simulation",
+          "state": "native",
+          "gloss": "simulating forward on such boards.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "partial boards",
+          "state": "native",
+          "gloss": "boards where some units are clouds rather than definite positions.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "phi_u",
+          "state": "internal",
+          "gloss": "the singleton potential for unit u in that decomposition.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "phi_uv",
+          "state": "internal",
+          "gloss": "the pairwise potential for units u and v.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "piece names (king/pawn/queen/knight)",
+          "state": "native",
+          "gloss": "the chess-style non-trail units. Owner names them directly when specifying rosters.",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "pins",
+          "state": "native",
+          "gloss": "owner-equivalent for human overrides / manually fixed choices. NOTE: distinct from the coordinator's internal pins.ts machinery.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "placement metrics",
+          "state": "defined",
+          "gloss": "outcome measures: mean score, probability of first place. Slow to resolve (+/-0.10 at 16 blocks).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "possibility clouds",
+          "state": "native",
+          "gloss": "owner-equivalent phrasing for uncertainty clouds.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "possibility graph",
+          "state": "native",
+          "gloss": "the owner's framing of the cloud structure as a graph of possible worlds.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "posture",
+          "state": "internal",
+          "gloss": "a per-unit visibility state; its values are SIGHTED and FOGGED. ~149 hits.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "potions",
+          "state": "native",
+          "gloss": "the pickup items that grant an effect; the game config can turn them off.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "priors",
+          "state": "native",
+          "gloss": "cheap pre-scores used to bias exploration.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "we need to keep respecting the priors generated in previous rounds",
+              "where": "owner ruling, synthesis-pins.md:900"
+            }
+          ]
+        },
+        {
+          "term": "promotion",
+          "state": "corrected",
+          "gloss": "BANNED IN OWNER-FACING TEXT by the ruling below, along with \"promote\" and \"promoted\". It used to mean \"turning a dark flag on by default after a live paired sweep with a verified null\". SAY INSTEAD, and pick the one that is actually true of the thing you are describing: **validated** (the evidence cleared its verified null), **merged** (a feature branch landed on the primary branch), or **selected** (a collection member is what the shipped bot now runs). Those are three different events and \"promotion\" blurred them, which is part of why it went.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            },
+            {
+              "date": "2026-08-30",
+              "to": "corrected",
+              "quote": "Say MERGE, never \"promote\"; never \"dark\".",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ],
+          "everCorrected": true,
+          "redefineOnNextUse": true,
+          "note": "THIS IS A BAN, NOT AN UNFAMILIARITY, and `corrected` is the state that enforces it. The principal knows exactly what the word means — he used it himself before ruling it out — and told us to stop using it. The state machine has no `banned` edge, and `corrected` is the one state that makes check-briefing.js BLOCK every use and refuse to clear on anything short of an explicit --ack. That is the behaviour the ruling asks for, so it is the state used, and this note is here so a future reader does not mistake the record for a claim that he was confused.",
+          "aliases": [
+            "promote",
+            "promoted",
+            "promotes"
+          ]
+        },
+        {
+          "term": "promotion ledger",
+          "state": "defined",
+          "gloss": "`tools/learnloop/promotion-ledger.json` — the record of what each candidate has and has not earned. THE FILENAME KEEPS THE OLD WORD ON PURPOSE: it is named from six other files and both branches, and renaming it to change a word would break every link. Its rendered human view is titled \"Validation status\" and `VALIDATION-STATUS.md` points at it. When you must name the file in a briefing, name it as a path; when you mean the activity, say \"the validation record\".",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ],
+          "match": [
+            "promotion ledger",
+            "promotion-ledger.json"
+          ]
+        },
+        {
+          "term": "ratchet",
+          "state": "internal",
+          "gloss": "the monotone tightening of bounds that must never reset across rounds.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "refinementCost",
+          "state": "internal",
+          "gloss": "the estimated price of tightening a given subtree.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "refoldPlans",
+          "state": "internal",
+          "gloss": "the re-scoring of staged plans after a cohort flip.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "replay data",
+          "state": "native",
+          "gloss": "the recorded per-turn state of a finished game, used to re-derive decisions.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "restVerdict",
+          "state": "internal",
+          "gloss": "the verdict assigned to the un-expanded remainder of a subtree.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "resumption ladder",
+          "state": "internal",
+          "gloss": "the tiered options for restarting a parked search (tiers 3/4 = suffix re-simulate / re-cluster).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "rounds",
+          "state": "native",
+          "gloss": "successive passes of simulation at increasing cost within one turn.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "search rounds that have a different scoring function",
+              "where": "owner ruling, synthesis-pins.md:900"
+            }
+          ]
+        },
+        {
+          "term": "rungs B0-B3",
+          "state": "defined",
+          "gloss": "the four escalating bound-tightness levels a candidate can be evaluated at; B0 is cheapest.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "B0",
+            "B1",
+            "B2",
+            "B3",
+            "rung",
+            "rungs"
+          ]
+        },
+        {
+          "term": "ScoreBounds",
+          "state": "internal",
+          "gloss": "the {floor, est, ceiling, pending} record. The owner knows floor/ceiling/est; the TYPE NAME is internal.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "ScoreBounds.pending",
+          "state": "internal",
+          "gloss": "the marker for a feature that has not been computed yet and rides along as deferred.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "ScoreBounds.pending",
+            "pending feature",
+            "pending features"
+          ]
+        },
+        {
+          "term": "scout",
+          "state": "defined",
+          "gloss": "a cheap probe run ahead of the real search to find where the expensive work should go.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "search space",
+          "state": "native",
+          "gloss": "the set of lines reachable from the current position.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "search thread",
+          "state": "native",
+          "gloss": "one line of exploration; the owner speaks of parking or degrading one.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "search tree",
+          "state": "native",
+          "gloss": "the expanded portion of that space.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "seat rotation",
+          "state": "defined",
+          "gloss": "running the same seed three times with the contenders swapped between team seats, so seat advantage cancels.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "seed plan",
+          "state": "defined",
+          "gloss": "the cheap first plan a cluster starts from before refinement.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "selectable",
+          "state": "internal",
+          "gloss": "of a candidate: it is merged, it sits in its joint's collection, and a bot's configuration CAN choose it — but nothing chooses it yet. The replacement for the banned word \"dark\", and it says something different: not a hidden switch, a member of a list.",
+          "aliases": [
+            "in-collection",
+            "selectable"
+          ],
+          "match": [
+            "selectable",
+            "in-collection"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "sharePar",
+          "state": "defined",
+          "gloss": "the true-metric column: a team's share of total end-of-game weight × number of teams; par 1; mutual final wipes score on the previous turn's weights.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (metric fix landing)"
+            }
+          ]
+        },
+        {
+          "term": "SIGHTED",
+          "state": "internal",
+          "gloss": "posture value: the unit's position is known.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "single-threaded",
+          "state": "native",
+          "gloss": "the pre-worker-pool execution mode.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "slab",
+          "state": "internal",
+          "gloss": "a preallocated memory block in the substrate's allocator.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "slices",
+          "state": "defined",
+          "gloss": "the fixed time chunks the anytime kernel runs in, so it can yield between them.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "sliders",
+          "state": "native",
+          "gloss": "pieces that move an unbounded distance along a line (queen/bishop/rook-like); the reason clusters collapse in depth.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "the reach of sliders should be deliberately accounted for in making clustering decisions... any sliders on the board need to be included in all clusters",
+              "where": "owner ruling, synthesis-pins.md:1401"
+            }
+          ]
+        },
+        {
+          "term": "snake-only game",
+          "state": "native",
+          "gloss": "a board configuration whose rosters contain only snakes (no chess-style pieces).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "softmax",
+          "state": "native",
+          "gloss": "the exponential weighting used to turn priors into sampling probabilities.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            },
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "Then softmax select from candidate move combos thus found within the sub turn time budget",
+              "where": "owner message 2026-08-29"
+            }
+          ]
+        },
+        {
+          "term": "staged plan",
+          "state": "defined",
+          "gloss": "the multi-turn move sequence currently committed for a cluster.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "staging",
+          "state": "native",
+          "gloss": "committing a chosen move for a unit this turn (the move staging event).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "standingOf",
+          "state": "internal",
+          "gloss": "the function returning per-unit Standing records for an evaluation.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "substrate",
+          "state": "internal",
+          "gloss": "the enumerable board representation the search runs on. ~61 hits.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "SubtreeCertificate",
+          "state": "internal",
+          "gloss": "the object recording what a subtree's result was proven against.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "sweepId",
+          "state": "internal",
+          "gloss": "the identifier of one experimental sweep.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "team",
+          "state": "native",
+          "gloss": "a side in a game; the owner specifies \"3 teams x 6 units\".",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "territory evaluation",
+          "state": "native",
+          "gloss": "the space-control family of heuristics (the default evaluator profile).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "Thompson sampling",
+          "state": "defined",
+          "gloss": "allocation by drawing one sample from each branch's belief and spending the next slice on the argmax; randomized, with exploration carried by belief width.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
+          "term": "thread world",
+          "state": "internal",
+          "gloss": "one parallel unit of search work.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "tier-truth",
+          "state": "internal",
+          "gloss": "the flag (CENTAUR_TIER_TRUTH) controlling how widely potion tiers are modelled.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "tierRisk",
+          "state": "internal",
+          "gloss": "the risk score attached to a potion-tier assumption.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "trail",
+          "state": "corrected",
+          "gloss": "the codebase's bare noun for a snake body. NEVER use alone. The defined form is \"trail unit\"; in a briefing prefer \"snake\".",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "internal",
+              "quote": null,
+              "where": "engine flag leavesTrail / agent reports"
+            },
+            {
+              "date": "2026-08-28",
+              "to": "corrected",
+              "quote": "what does 'trail' mean? this is new terminology",
+              "where": "owner message, cloud coordinator session"
+            }
+          ],
+          "redefineOnNextUse": true,
+          "everCorrected": true
+        },
+        {
+          "term": "trail unit",
+          "state": "defined",
+          "gloss": "a snake: the body trails behind the head, blocks movement, and grows on eating. Opposite of the chess-style pieces. From the engine flag leavesTrail; counts matter (ownTrail >= 4 gates territory).",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-28, issued directly in response to the \"trail\" correction"
+            }
+          ],
+          "everCorrected": true,
+          "redefineOnNextUse": true,
+          "note": "Defined ONLY as the two-word phrase \"trail unit\". Bare \"trail\" remains CORRECTED. Because this term was born out of a correction, a reminder clause is owed on every use — the checker raises it as a NOTE."
+        },
+        {
+          "term": "UCB",
+          "state": "defined",
+          "gloss": "upper confidence bound: MCTS's selection rule — average value found + c*sqrt(ln parent-visits / branch-visits); c is the explicit exploration/exploitation exchange rate.",
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-30 (search-math translation)"
+            }
+          ]
+        },
+        {
+          "term": "uncertainty clouds",
+          "state": "native",
+          "gloss": "the set of positions an out-of-cluster unit might occupy, carried forward instead of resolved.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "we just need each heuristic to model its worst case score in terms of what the uncertainty clouds imply",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        },
+        {
+          "term": "unit",
+          "state": "native",
+          "gloss": "one controllable entity on a board (snake or piece).",
+          "evidence": [
+            {
+              "date": "2026-08-26",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "V8",
+          "state": "defined",
+          "gloss": "the JavaScript engine inside Node (and Chrome); JIT-compiles the bot's code to native machine code at runtime.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-29 (lat retirement / WASM whole-program / multi-start seeding)"
+            }
+          ]
+        },
+        {
+          "term": "validated baseline",
+          "state": "internal",
+          "gloss": "the branch the shipped bot is, and the thing every experimental branch is measured against — today `claude/mid-turn-collision-logic-mkxurg`. Every feature branch is cut from it and merges back into it.",
+          "aliases": [
+            "baseline branch",
+            "primary branch"
+          ],
+          "match": [
+            "validated baseline",
+            "baseline branch"
+          ],
+          "evidence": [
+            {
+              "date": "2026-08-30",
+              "to": "internal",
+              "attestation": "seeded from the owner's own branching ruling and from docs/BRANCHING.md, which was written to it. Never yet defined for him in a briefing.",
+              "where": "owner ruling 2026-08-30 (seventh message) — the branching paradigm; recorded in $SP/synthesis-pins.md under PIN 'OWNER RULINGS 2026-08-30 (seventh message) — BRANCHING PARADIGM', rulings 24 and 25, and in docs/BRANCHING.md on claude/cluster-lookahead"
+            }
+          ]
+        },
+        {
+          "term": "vendored engine",
+          "state": "defined",
+          "gloss": "the copy of the game engine kept inside this repo (src/partial-engine/) rather than imported, so sims run in-process.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing (cluster-lookahead program), coordinator session"
+            }
+          ]
+        },
+        {
+          "term": "VOC",
+          "state": "internal",
+          "gloss": "value of computation — the estimated gain from spending more time on a line.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ]
+        },
+        {
+          "term": "voronoi",
+          "state": "native",
+          "gloss": "space-partition control heuristic family the owner named for positional value.",
+          "evidence": [
+            {
+              "date": "2026-08-29",
+              "to": "native",
+              "quote": "develop the positional value heuristics like voronoi and potion control",
+              "where": "owner message 2026-08-29 (architecture/metric corrections)"
+            }
+          ]
+        },
+        {
+          "term": "W1-W3",
+          "state": "defined",
+          "gloss": "the perf-ladder stage codenames: W1 worker pool, W2 data layout, W3 WASM.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "defined",
+              "quote": null,
+              "where": "owner briefing 2026-08-27 (directive 0d) and 2026-08-28"
+            }
+          ],
+          "aliases": [
+            "W1",
+            "W2",
+            "W3"
+          ]
+        },
+        {
+          "term": "WASM",
+          "state": "native",
+          "gloss": "WebAssembly builds of the hot kernels.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "worker threads + WASM + data-layout improvements",
+              "where": "owner directive 0d, synthesis-pins.md:47"
+            }
+          ]
+        },
+        {
+          "term": "weighted random selection",
+          "state": "native",
+          "gloss": "sampling branches in proportion to prior scores rather than taking the best.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "stick to weighted random selection in branch exploration decisions",
+              "where": "owner ruling, synthesis-pins.md:1372"
+            }
+          ]
+        },
+        {
+          "term": "win rate",
+          "state": "native",
+          "gloss": "fraction of games a contender wins; the owner reads it as the headline strength number.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "native",
+              "quote": null,
+              "where": "owner messages, cloud coordinator session 2026-08-26..28",
+              "attestation": "owner used this term in his own messages during the 2026-08-26..28 session; no verbatim fragment was retained at seeding time. WEAKER than a quote — upgrade with the fragment the next time he uses it."
+            }
+          ]
+        },
+        {
+          "term": "witness",
+          "state": "internal",
+          "gloss": "the concrete line that proves a bound; \"witness-finding\" = producing it.",
+          "evidence": [
+            {
+              "date": "2026-08-28",
+              "to": "internal",
+              "quote": null,
+              "where": "agent reports / codebase (scratchpad/synthesis-pins.md, cl*-report.md, arch-*.md) — never briefed"
+            }
+          ],
+          "match": [
+            "witness",
+            "witnesses",
+            "witness-finding"
+          ]
+        },
+        {
+          "term": "worker threads",
+          "state": "native",
+          "gloss": "OS threads running decision work in parallel.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "implement worker threads + WASM + data-layout improvements BEFORE building the cluster-lookahead work",
+              "where": "owner directive 0d, synthesis-pins.md:47"
+            }
+          ]
+        },
+        {
+          "term": "worst-case scenarios",
+          "state": "native",
+          "gloss": "the pessimistic reading of a cloud; the owner asks heuristics to price it.",
+          "evidence": [
+            {
+              "date": "2026-08-27",
+              "to": "native",
+              "quote": "each heuristic to model its worst case score",
+              "where": "owner ruling, synthesis-pins.md:1577"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

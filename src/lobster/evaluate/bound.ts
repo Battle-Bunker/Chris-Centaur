@@ -166,6 +166,164 @@ export function evaluateFeature<C>(f: Feature<C>, ctx: C): Bound {
   return b;
 }
 
+// ---------------------------------------------------------------------------
+// The ADVISORY contract — the other half of the registry's soundness split
+// ---------------------------------------------------------------------------
+
+/**
+ * AN ADVISORY TERM — a registry `evaluator` entry marked `soundness:
+ * 'advisory'`, and the one shape in which such an entry may reach a decision.
+ *
+ * ── WHY IT IS NOT A `Feature` ──────────────────────────────────────────────
+ *
+ * A `Feature` returns a `Bound`, and `fold` sums those bounds into the total's
+ * lo AND hi. That is exactly what a sound-writing entry is for and exactly
+ * what an advisory entry may not do: the registry's seam rule says an entry
+ * that can change a sound bound owes the law harness (R1 soundness, R2
+ * monotonicity, R3 collapse) as its admission gate, and the potion terms have
+ * no such certificate — none of them can state, per uncertain input, which way
+ * it is monotone in that input.
+ *
+ * So an advisory term returns ONE NUMBER and that number lands on `est` alone,
+ * clamped back inside the sound interval the features proved. `est` is the
+ * consumer-policy point estimate constrained only by lo ≤ est ≤ hi, it orders
+ * moves among floor ties and it NEVER adjudicates — see this module's header.
+ * An advisory term therefore influences ordering and belief and can move no
+ * floor, no ceiling and no refusal, which is the registry's declared split
+ * made structural rather than promised.
+ *
+ * COLLAPSE IS FREE. When a position is exact the fold reports lo === hi, the
+ * clamp pins `est` to that value, and every advisory term in the lineup is
+ * arithmetically unable to move anything. Nothing has to enforce that.
+ */
+export interface AdvisoryTerm<C> {
+  /** The registry entry id this term is. What a measurement attaches to. */
+  readonly key: string;
+  /**
+   * The term's scale in the fold's own units. Zero means the term is in the
+   * lineup and contributes nothing — a MODIFIER of another term rather than a
+   * summand of its own (`eval/dodge-discount@2` is exactly that).
+   */
+  readonly weight: number;
+  /**
+   * The est-only reading, in the fold's units, for this (plan, board).
+   *
+   * `shared` is the per-evaluation scratch every term in one lineup reads
+   * through, so a board adapter built for the first term is not rebuilt for
+   * the fourth. Terms MUST be pure in it: it is a cache, never a channel
+   * between terms.
+   */
+  estimate(ctx: C, shared: AdvisoryCache): number;
+}
+
+/** Per-evaluation memo shared by one lineup's terms. Never crosses an
+ * evaluation, so nothing it holds can outlive the position it describes. */
+export interface AdvisoryCache {
+  for<T>(key: string, make: () => T): T;
+}
+
+export function makeAdvisoryCache(): AdvisoryCache {
+  const held = new Map<string, unknown>();
+  return {
+    for<T>(key: string, make: () => T): T {
+      if (held.has(key)) return held.get(key) as T;
+      const made = make();
+      held.set(key, made);
+      return made;
+    },
+  };
+}
+
+/**
+ * THE ADVISORY OVERLAY — the whole of what an advisory lineup may do.
+ *
+ * One weighted sum, added to `est`, clamped back into `[lo, hi]`. The bounds
+ * are handed back UNTOUCHED by construction: this function never writes them,
+ * and it returns the input object identically when the lineup is empty or its
+ * terms all read zero, so a bot whose slate names no advisory term takes a
+ * path with no arithmetic in it at all.
+ *
+ * A NON-FINITE READING IS DISCARDED. `±Infinity` is a lattice element in this
+ * algebra (WIN and DEAD), and a lattice element is a statement about a
+ * terminal outcome — which an advisory term is not entitled to make. A term
+ * that computes one (the exchange rate diverges when we hold the whole board)
+ * is treated as having said nothing.
+ */
+export function advisoryEst<C>(
+  total: Bound,
+  terms: ReadonlyArray<AdvisoryTerm<C>>,
+  ctx: C,
+  meter: AdvisoryMeter | null = null
+): Bound {
+  if (terms.length === 0) return total;
+  const shared = makeAdvisoryCache();
+  let delta = 0;
+  for (const t of terms) {
+    if (t.weight === 0) continue;
+    const v = t.estimate(ctx, shared);
+    if (!Number.isFinite(v)) continue;
+    delta += t.weight * v;
+  }
+  if (meter !== null) meter.evaluations++;
+  if (delta === 0) return total;
+  const est = clampEst(total.est + delta, total.lo, total.hi);
+  if (meter !== null) {
+    meter.engaged++;
+    meter.sumAbsAsked += Math.abs(delta);
+    meter.sumAbsApplied += Math.abs(est - total.est);
+    if (Math.abs(est - total.est) < Math.abs(delta) - 1e-9) meter.clamped++;
+    const width = total.hi - total.lo;
+    if (Number.isFinite(width)) {
+      meter.finiteWidth++;
+      meter.sumWidth += width;
+    }
+  }
+  return bound(total.lo, est, total.hi);
+}
+
+/**
+ * WHERE AN ADVISORY LINEUP'S VALUE ACTUALLY LANDS — read-only, and the one
+ * instrument that can tell "the terms said nothing" from "the terms spoke and
+ * the clamp ate it".
+ *
+ * The overlay is a weighted sum pinned back inside `[lo, hi]`, so a lineup can
+ * be fully engaged and still move no decision two separate ways: it can read
+ * zero (no potion in reach, no live window), or it can read large and be
+ * truncated because `est` was already at the ceiling the sound features proved.
+ * Those are different failures with different repairs, and without a counter on
+ * both sides of the clamp a sweep cannot tell them apart. Nothing here is read
+ * by any decision; it is drained by the mechanism report and reset never —
+ * an engine's counters are cumulative over its life, exactly like the
+ * adjudication counters they sit beside.
+ */
+export interface AdvisoryMeter {
+  /** Evaluations that ran a non-empty lineup. */
+  evaluations: number;
+  /** Of those, the ones whose weighted sum was non-zero. */
+  engaged: number;
+  /** Of the engaged, the ones the clamp truncated (in part or whole). */
+  clamped: number;
+  /** Σ |weighted sum| over the engaged — what the terms ASKED for. */
+  sumAbsAsked: number;
+  /** Σ |est moved| over the engaged — what the clamp LET THROUGH. */
+  sumAbsApplied: number;
+  /** Engaged evaluations whose sound interval was finite (a width to compare
+   * the ask against; a lattice end has none). */
+  finiteWidth: number;
+  /** Σ (hi − lo) over those. */
+  sumWidth: number;
+}
+
+export const makeAdvisoryMeter = (): AdvisoryMeter => ({
+  evaluations: 0,
+  engaged: 0,
+  clamped: 0,
+  sumAbsAsked: 0,
+  sumAbsApplied: 0,
+  finiteWidth: 0,
+  sumWidth: 0,
+});
+
 export type Weights = Readonly<Record<string, number>>;
 
 export interface Evaluation {

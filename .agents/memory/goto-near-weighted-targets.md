@@ -67,8 +67,9 @@ disagree. Do not add a second waypoint pathfinder.
 The bot computes `moveEvaluations` once per decision (one per snake per turn,
 fanned out across the worker pool), but a target can be set or moved mid-turn.
 `getWaypointBiasedMove` re-scores this turn's stored evaluations: subtract the
-waypoint contribution recorded at decision time
-(`weighted.gotoProgressScore + weighted.nearProgressScore`), add
+waypoint contribution recorded at decision time (`waypointBias.recorded` on the
+row — the re-bias's OWN five-number signal, since the heuristic breakdown blob
+was deleted 2026-09-01), add
 `weight × stat` for the target as it is NOW, then select with `pickBestMove`
 — the shared trapped-veto + argmax exported from `decision-engine.ts` and used
 by the engine itself. **Never reimplement the selection rule**; a second copy

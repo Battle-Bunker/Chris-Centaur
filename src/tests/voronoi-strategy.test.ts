@@ -39,6 +39,10 @@ jest.mock('../logic/decision-logger', () => ({
 }));
 
 import { VoronoiStrategy } from '../logic/voronoi-strategy';
+import { DecisionEngine, MoveEvaluationResult } from '../logic/decision-engine';
+import { DEFAULT_CONFIG } from '../config/game-config';
+import { HEURISTIC_KEYS, HeuristicWeights } from '../config/heuristics';
+import { TeamDetector } from '../logic/team-detector';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
 
 function makeSnake(id: string, color: string, body: Coord[]): Snake {
@@ -81,6 +85,38 @@ async function run(gameState: GameState) {
   });
 }
 
+// The heuristic stats are the ENGINE's own record, read where they live —
+// `BoardEvaluation` on the decision — not through any display shape. The
+// engine is constructed exactly as VoronoiStrategy constructs it under the
+// mocked (empty) ConfigStore, so this run is the same run, pinned.
+async function engineEvaluations(gameState: GameState): Promise<MoveEvaluationResult[]> {
+  const weights = {} as HeuristicWeights;
+  for (const key of HEURISTIC_KEYS) weights[key] = DEFAULT_CONFIG[key];
+  const engine = new DecisionEngine({
+    timeoutMs: DEFAULT_CONFIG.timeoutMs,
+    nearbyDistance: DEFAULT_CONFIG.nearbyDistance,
+    weights,
+  });
+  const teams = new TeamDetector().detectTeams(gameState.board.snakes);
+  const ourTeam = teams.find((t) => t.snakes.some((s) => s.id === gameState.you.id));
+  const teamSnakeIds = new Set<string>(
+    ourTeam ? ourTeam.snakes.map((s) => s.id) : [gameState.you.id],
+  );
+  const decision = await engine.decideIteratively(gameState, teamSnakeIds, {
+    waypoint: null,
+    deadlineMs: Date.now() + 60_000,
+  });
+  return decision.evaluations;
+}
+
+function statsFor(evaluations: MoveEvaluationResult[], move: Direction) {
+  const e = evaluations.find((x) => x.move === move);
+  expect(e).toBeDefined();
+  return e!;
+}
+
+// The candidate ENUMERATION the strategy publishes for the board: move id,
+// score, destination. Never a decomposition of the score.
 function evalFor(result: { moveEvaluations: any[] }, move: Direction) {
   const e = result.moveEvaluations.find((x) => x.move === move);
   expect(e).toBeDefined();
@@ -117,23 +153,27 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     expect(result.scores.get('left')).toBeCloseTo(920.878112807455, 6);
     expect(result.scores.get('right')).toBeCloseTo(935.9690218983641, 6);
 
-    const up = evalFor(result, 'up');
+    // The published rows are the candidate enumeration: one per evaluated move.
+    expect(evalFor(result, 'up').score).toBeCloseTo(969.6216116420064, 6);
+
+    const evaluations = await engineEvaluations(gameState);
+    const up = statsFor(evaluations, 'up');
     expect(up.numStates).toBe(1);
-    expect(up.breakdown.myTerritory).toBe(100);
-    expect(up.breakdown.foodDistance).toBe(5);
-    expect(up.breakdown.foodProximity).toBeCloseTo(0.5454545454545454, 9);
-    expect(up.breakdown.selfSpace).toBeCloseTo(5.686240703077327, 9);
-    expect(up.breakdown.trapped).toBe(0);
-    expect(up.breakdown.deaths).toBe(0);
+    expect(up.worstEvaluation.stats.myTerritory).toBe(100);
+    expect(up.worstEvaluation.stats.foodDistance).toBe(5);
+    expect(up.worstEvaluation.stats.foodProximity).toBeCloseTo(0.5454545454545454, 9);
+    expect(up.worstEvaluation.stats.selfSpace).toBeCloseTo(5.686240703077327, 9);
+    expect(up.worstEvaluation.stats.trapped).toBe(0);
+    expect(up.worstEvaluation.stats.deaths).toBe(0);
 
-    const left = evalFor(result, 'left');
-    expect(left.breakdown.myTerritory).toBe(90);
-    expect(left.breakdown.selfSpace).toBeCloseTo(5.446711546122731, 9);
+    const left = statsFor(evaluations, 'left');
+    expect(left.worstEvaluation.stats.myTerritory).toBe(90);
+    expect(left.worstEvaluation.stats.selfSpace).toBeCloseTo(5.446711546122731, 9);
 
-    const right = evalFor(result, 'right');
-    expect(right.breakdown.myTerritory).toBe(93);
-    expect(right.breakdown.foodDistance).toBe(3);
-    expect(right.breakdown.foodProximity).toBeCloseTo(0.7272727272727273, 9);
+    const right = statsFor(evaluations, 'right');
+    expect(right.worstEvaluation.stats.myTerritory).toBe(93);
+    expect(right.worstEvaluation.stats.foodDistance).toBe(3);
+    expect(right.worstEvaluation.stats.foodProximity).toBeCloseTo(0.7272727272727273, 9);
 
     // Current-board Voronoi payload: our midfield snake owns most of the
     // board against a cornered enemy.
@@ -195,28 +235,29 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     expect(result.scores.get('down')).toBeCloseTo(342.3281572999748, 6);
     expect(result.scores.get('right')).toBeCloseTo(180.191123211846, 6);
 
-    const up = evalFor(result, 'up');
+    const evaluations = await engineEvaluations(gameState);
+    const up = statsFor(evaluations, 'up');
     expect(up.numStates).toBe(3);
-    expect(up.breakdown.myTerritory).toBe(18);
-    expect(up.breakdown.foodDistance).toBe(3);
-    expect(up.breakdown.selfSpace).toBeCloseTo(2.23606797749979, 9);
-    expect(up.breakdown.deaths).toBe(0);
-    expect(up.breakdown.trapped).toBe(0);
+    expect(up.worstEvaluation.stats.myTerritory).toBe(18);
+    expect(up.worstEvaluation.stats.foodDistance).toBe(3);
+    expect(up.worstEvaluation.stats.selfSpace).toBeCloseTo(2.23606797749979, 9);
+    expect(up.worstEvaluation.stats.deaths).toBe(0);
+    expect(up.worstEvaluation.stats.trapped).toBe(0);
 
-    const down = evalFor(result, 'down');
+    const down = statsFor(evaluations, 'down');
     expect(down.numStates).toBe(3);
-    expect(down.breakdown.myTerritory).toBe(17);
+    expect(down.worstEvaluation.stats.myTerritory).toBe(17);
     // The heavier wall snake reaches (2,7) on the same turn we would from
     // here, so the food is not ours to count.
-    expect(down.breakdown.foodDistance).toBe(1000);
-    expect(down.breakdown.selfSpace).toBeCloseTo(2.23606797749979, 9);
+    expect(down.worstEvaluation.stats.foodDistance).toBe(1000);
+    expect(down.worstEvaluation.stats.selfSpace).toBeCloseTo(2.23606797749979, 9);
 
     // Worst case inside the corridor: squeezed to a sliver of space.
-    const right = evalFor(result, 'right');
+    const right = statsFor(evaluations, 'right');
     expect(right.numStates).toBe(3);
-    expect(right.breakdown.myTerritory).toBe(15);
-    expect(right.breakdown.selfSpace).toBeCloseTo(0.5773502691896257, 9);
-    expect(right.breakdown.deaths).toBe(0);
+    expect(right.worstEvaluation.stats.myTerritory).toBe(15);
+    expect(right.worstEvaluation.stats.selfSpace).toBeCloseTo(0.5773502691896257, 9);
+    expect(right.worstEvaluation.stats.deaths).toBe(0);
   });
 
   test('near-trapped pocket: picks the exit that preserves space', async () => {
@@ -250,20 +291,21 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     expect(result.scores.get('up')).toBeCloseTo(522.6049894151541, 6);
     expect(result.scores.get('down')).toBeCloseTo(428.0697580112788, 6);
 
-    const right = evalFor(result, 'right');
+    const evaluations = await engineEvaluations(gameState);
+    const right = statsFor(evaluations, 'right');
     expect(right.numStates).toBe(1);
-    expect(right.breakdown.myTerritory).toBe(53);
-    expect(right.breakdown.selfSpace).toBeCloseTo(2.4748737341529163, 9);
-    expect(right.breakdown.deaths).toBe(0);
-    expect(right.breakdown.trapped).toBe(0);
+    expect(right.worstEvaluation.stats.myTerritory).toBe(53);
+    expect(right.worstEvaluation.stats.selfSpace).toBeCloseTo(2.4748737341529163, 9);
+    expect(right.worstEvaluation.stats.deaths).toBe(0);
+    expect(right.worstEvaluation.stats.trapped).toBe(0);
 
-    const up = evalFor(result, 'up');
-    expect(up.breakdown.myTerritory).toBe(49);
-    expect(up.breakdown.selfSpace).toBeCloseTo(2.3717082451262845, 9);
+    const up = statsFor(evaluations, 'up');
+    expect(up.worstEvaluation.stats.myTerritory).toBe(49);
+    expect(up.worstEvaluation.stats.selfSpace).toBeCloseTo(2.3717082451262845, 9);
 
-    const down = evalFor(result, 'down');
-    expect(down.breakdown.myTerritory).toBe(40);
-    expect(down.breakdown.selfSpace).toBeCloseTo(2.1505813167606567, 9);
+    const down = statsFor(evaluations, 'down');
+    expect(down.worstEvaluation.stats.myTerritory).toBe(40);
+    expect(down.worstEvaluation.stats.selfSpace).toBeCloseTo(2.1505813167606567, 9);
   });
 
   test('snake vs snake: the heavier snake takes the contested midline (ties are no longer neutral)', async () => {
@@ -334,9 +376,10 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     // and the food pull decides — where the open-board fixture's step-walking
     // enemy did dent our territory enough for 'up' to win.
     expect(result.move).toBe('right');
-    expect(evalFor(result, 'up').breakdown.myTerritory).toBe(120);
-    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(120);
-    expect(evalFor(result, 'right').breakdown.foodDistance).toBe(3);
+    const evaluations = await engineEvaluations(knightBoard('gm-knight-even', 3));
+    expect(statsFor(evaluations, 'up').worstEvaluation.stats.myTerritory).toBe(120);
+    expect(statsFor(evaluations, 'right').worstEvaluation.stats.myTerritory).toBe(120);
+    expect(statsFor(evaluations, 'right').worstEvaluation.stats.foodDistance).toBe(3);
     expect(result.scores.get('right')).toBeCloseTo(1122.1413814712837, 6);
   });
 
@@ -371,10 +414,11 @@ describe('VoronoiStrategy.getBestMoveIterative golden masters', () => {
     // 'right', the one candidate that keeps the food inside what is left to us.
     expect(result.move).toBe('right');
     expect(result.scores.get('right')).toBeCloseTo(374.1635562995723, 6);
-    expect(evalFor(result, 'right').breakdown.myTerritory).toBe(14);
-    expect(evalFor(result, 'right').breakdown.foodDistance).toBe(3);
+    const evaluations = await engineEvaluations(knightBoard('gm-knight-heavy', 6));
+    expect(statsFor(evaluations, 'right').worstEvaluation.stats.myTerritory).toBe(14);
+    expect(statsFor(evaluations, 'right').worstEvaluation.stats.foodDistance).toBe(3);
     // From 'up' the knight holds the food square, so no food is ours at all.
-    expect(evalFor(result, 'up').breakdown.myTerritory).toBe(8);
-    expect(evalFor(result, 'up').breakdown.foodDistance).toBe(1000);
+    expect(statsFor(evaluations, 'up').worstEvaluation.stats.myTerritory).toBe(8);
+    expect(statsFor(evaluations, 'up').worstEvaluation.stats.foodDistance).toBe(1000);
   });
 });

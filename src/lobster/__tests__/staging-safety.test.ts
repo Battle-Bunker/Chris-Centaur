@@ -36,9 +36,11 @@ import {
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
-  royalMarginFrom,
-  stagingSafetyFrom,
+  DEFAULT_ROYAL_REACHERS,
+  STAGING_SAFETY_DEFAULT,
 } from '../staging-safety';
+import { DEFAULT_BOT_CONFIG, botConfigFromJson, resolveBotConfig } from '../bot-config';
+import type { StagingSafety } from '../staging-safety';
 import type { Candidate, CandidateSet, JointPlan, SearchContext, UnitId } from '../contracts';
 import {
   makeEvaluator,
@@ -170,23 +172,32 @@ describe('the flag', () => {
     expect(knobsForSafety('full')).toEqual({ pruneCertainSelfFatal: true, pruneRoyalPath: true });
   });
 
-  test('parses its four values and keeps the shipped default on anything else', () => {
+  test('the shipped level is `auto`, and a bot names any of the four', () => {
     // INTEGRATION NOTE (integ/round-a): the default was 'off' on the branch and
     // is 'auto' here — the ledger's ship condition (piece boards only) wired as
     // the default policy. See the `auto` block below.
-    expect(stagingSafetyFrom({})).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: '' })).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'off' })).toBe('off');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'auto' })).toBe('auto');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'guard' })).toBe('guard');
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'full' })).toBe('full');
-    const said: string[] = [];
-    expect(stagingSafetyFrom({ CENTAUR_STAGING_SAFETY: 'yes please' }, (m) => said.push(m))).toBe(
-      'auto'
-    );
-    expect(said).toHaveLength(1);
-    expect(royalMarginFrom({})).toBe(false);
-    expect(royalMarginFrom({ CENTAUR_ROYAL_MARGIN: '1' })).toBe(true);
+    expect(STAGING_SAFETY_DEFAULT).toBe('auto');
+    expect(DEFAULT_BOT_CONFIG.stagingSafety).toBe('auto');
+    expect(resolveBotConfig({}).stagingSafety).toBe('auto');
+    for (const level of ['off', 'auto', 'guard', 'full'] as const) {
+      expect(resolveBotConfig({ stagingSafety: level }).stagingSafety).toBe(level);
+    }
+    // And a hand-written contender file is validated rather than coerced: the
+    // whole reason this left the environment is that a typo used to become an
+    // arm wearing another arm's name, silently.
+    expect(() => botConfigFromJson({ stagingSafety: 'yes please' })).toThrow(/stagingSafety/);
+    // The royal-margin reading keeps the value that shipped — a correction
+    // still owed its own change. See DEFAULT_ROYAL_REACHERS.
+    expect(DEFAULT_ROYAL_REACHERS).toBe(false);
+  });
+
+  test('THE ENVIRONMENT IS NOT CONSULTED — the flag is gone', () => {
+    process.env.CENTAUR_STAGING_SAFETY = 'off';
+    try {
+      expect(resolveBotConfig({}).stagingSafety).toBe('auto');
+    } finally {
+      delete process.env.CENTAUR_STAGING_SAFETY;
+    }
   });
 });
 
@@ -484,6 +495,163 @@ describe('a refused action really is fatal — through the real resolver', () =>
   });
 });
 
+// ------------------------------------------------- the HELD king, and the hint
+
+/**
+ * A HELD TEAMMATE KING, AND THE TWO GEOMETRIES THAT KNOW ABOUT IT.
+ *
+ * The opponent-bounds lens (bs-opponent-bounds.md, failure mode 2) names this
+ * as a hole the clustering program opens: `rayShadowCells` considers only our
+ * MODELLED kings, so once distant units are frozen-in-past a cluster's slide
+ * can cross a HELD teammate king "and the check will not fire". Two different
+ * pieces of code are in that sentence and they have opposite polarities, so
+ * this describes what each one actually does.
+ *
+ *   THE REFUSAL (`killsOwnKing`) walks `sub.roster()`, which is every live
+ *   unit whether this decision models it or not. It never had the hole. Held
+ *   and modelled are refused identically, and the first two tests pin that,
+ *   because "already closed" is a claim that decays without one.
+ *
+ *   THE HINT (`rayShadowCells` → `shadowBonus`) is the modelled-only one. It
+ *   is an ATTRACTION: `compareOrder` sorts a higher `shadowBonus` first, so
+ *   marking a cell makes our units want to stand on it.
+ *
+ * SO THE HINT IS NOT EXTENDED, AND THAT IS A DECISION RATHER THAN AN OMISSION.
+ * The lens's own rule for every opponent-derived signal is that none of them
+ * may make one of our moves MORE attractive; enemy geometry has one legitimate
+ * polarity in an ordering, and it is down. Measured on the D2 board below with
+ * the guard off, extending the mark to held kings would move the slide that
+ * crosses the king from rank #5 to rank #0 — reproducing the defect D2
+ * recorded (203/753 king deaths self-inflicted, ×3.66 cascade) on held kings
+ * this time. The asymmetry is load-bearing in the protective direction, and
+ * the third test is the tripwire that says so to whoever tries to "fix" it.
+ *
+ * What the escort geometry deserves instead is the lens's own formulation —
+ * "do not PENALISE entering the line", never "prefer entering the line" —
+ * which is a change to a calibrated ordering and therefore not CL0's.
+ */
+describe('a held teammate king', () => {
+  /**
+   * D2's geometry. An enemy rook on (0,4) aims along the rank at our king on
+   * (4,4); our queen on (8,4) slides west down that same rank, through the
+   * king, onto the rook. The cells the hint marks are the open ones strictly
+   * between the rook and the king.
+   */
+  const D2_BOARD = (): Board =>
+    boardOf(
+      [
+        piece('E', { x: 0, y: 4 }, 'rook', 3, { teamID: 'blue' }),
+        piece('K', { x: 4, y: 4 }, 'king', 1, { teamID: 'red' }),
+        piece('Q', { x: 8, y: 4 }, 'queen', 4, { teamID: 'red' }),
+      ],
+      { width: 11, height: 11 }
+    );
+
+  /** The same board asked two ways: with the king a mover, and with it a claim. */
+  const withKing = <T,>(held: boolean, fn: (sub: EngineSubstrate) => T): T => {
+    const sub = makeSubstrate({
+      board: D2_BOARD(),
+      turn: TURN,
+      asTeam: 'red',
+      ...(held ? { modeled: ['Q'] } : {}),
+    });
+    try {
+      return fn(sub);
+    } finally {
+      sub.release();
+    }
+  };
+
+  test('is refused exactly as a modelled one is — the refusal reads the roster', () => {
+    for (const held of [false, true]) {
+      const shape = withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q') as { unitId: UnitId };
+        const king = sub.unitOfWireId('K') as { unitId: UnitId; cells: ReadonlyArray<number> };
+        expect(sub.modeled().has(king.unitId)).toBe(!held);
+        const set = GUARDED().candidatesFor(sub, queen.unitId);
+        const royal = set.prunedLedger.filter((e) => e.prune === PRUNE.royalPath);
+        return {
+          refused: royal.length,
+          // Every refusal really does cross the king, and nothing that crosses
+          // it survives.
+          allCross: royal.every((e) => e.candidate.path.includes(king.cells[0] as number)),
+          survivingCrossings: set.candidates.filter((c) =>
+            c.path.includes(king.cells[0] as number)
+          ).length,
+        };
+      });
+      expect([held, shape]).toEqual([
+        held,
+        { refused: 1, allCross: true, survivingCrossings: 0 },
+      ]);
+    }
+  });
+
+  test('answers killsOwnKing the same way whether it is a mover or a claim', () => {
+    // Straight at the predicate, so the property is about the predicate rather
+    // than about whichever knob happens to consult it.
+    const verdicts = [false, true].map((held) =>
+      withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q');
+        const king = sub.unitOfWireId('K');
+        if (queen === undefined || king === undefined) throw new Error('fixture');
+        const crossing = sub
+          .actionsOf(queen.unitId)
+          .filter((c) => c.path.includes(king.cells[0] as number));
+        expect(crossing.length).toBeGreaterThan(0);
+        return crossing.map((c) => killsOwnKing(sub, queen, c));
+      })
+    );
+    expect(verdicts[0]).toEqual(verdicts[1]);
+    expect(verdicts[0]?.every((v) => v)).toBe(true);
+  });
+
+  /**
+   * THE TRIPWIRE. Read the comment on this describe block before changing it.
+   *
+   * With the guard off, so that the crossing candidate survives to be ranked:
+   * a MODELLED king's shadow marks promote it to first, and a HELD king's do
+   * not, because the mark is not made. Adding held kings to `rayShadowCells`
+   * turns the second expectation into the first — which is the defect, not the
+   * fix.
+   */
+  test('the escort hint does not mark for a held king, and that is protective', () => {
+    const rankOfCrossing = (held: boolean): { rank: number; bonus: number; of: number } =>
+      withKing(held, (sub) => {
+        const queen = sub.unitOfWireId('Q');
+        const king = sub.unitOfWireId('K');
+        if (queen === undefined || king === undefined) throw new Error('fixture');
+        const seat = king.cells[0] as number;
+        const assessed = SHIPPED().assess(sub, queen.unitId);
+        const rank = assessed.findIndex((a) => a.candidate.path.includes(seat));
+        return {
+          rank,
+          bonus: assessed[rank]?.shadowBonus ?? -1,
+          of: assessed.length,
+        };
+      });
+
+    const modelled = rankOfCrossing(false);
+    const held = rankOfCrossing(true);
+
+    // The board is the same board; only the modelled set differs, so the same
+    // crossing candidate exists in both.
+    expect(modelled.of).toBe(held.of);
+    expect(modelled.rank).toBeGreaterThanOrEqual(0);
+    expect(held.rank).toBeGreaterThanOrEqual(0);
+
+    // MODELLED: the hint marks the line, the crossing candidate carries the
+    // bonus, and the bonus puts it first. This is D2, still reproducible.
+    expect(modelled.bonus).toBe(1);
+    expect(modelled.rank).toBe(0);
+
+    // HELD: no mark, no bonus, and the crossing candidate sinks. If this ever
+    // reads `1` and `0`, somebody extended the ATTRACTION to held kings.
+    expect(held.bonus).toBe(0);
+    expect(held.rank).toBeGreaterThan(0);
+  });
+});
+
 // ----------------------------------------------------------------- invariants
 
 describe('the invariants the candidate layer promises still hold', () => {
@@ -672,11 +840,23 @@ function generatorForcing(first: ReadonlyMap<UnitId, number>, inner = makeGenera
   } as unknown as SearchContext['gen'];
 }
 
+/**
+ * Drive `SearchCore.conform` at a NAMED staging-safety level.
+ *
+ * The level used to arrive on `process.env`; it arrives as tuning now, which is
+ * exactly what `TeamDecisionEngine` does in production — it resolves the level
+ * against the board it is deciding on and passes the two answers down, because
+ * `auto` is board-conditional and a core built without a board cannot resolve
+ * it. Naming the level here rather than mutating process state is why these
+ * arms no longer need a cleanup hook.
+ */
 function conformWith(
   spec: BoardSpec,
   gen: SearchContext['gen'],
-  onEvaluate?: () => void
+  onEvaluate?: () => void,
+  level: StagingSafety = STAGING_SAFETY_DEFAULT
 ): { plan: JointPlan; ourDead: ReadonlyArray<UnitId>; close(): void } {
+  const resolved = resolveStagingSafety(level, false);
   const board = makeTestBoard(spec);
   const sub = makeTestSubstrate(board, OURS);
   const inner = makeEvaluator();
@@ -698,7 +878,10 @@ function conformWith(
     witnesses: [],
     budget: unboundedBudget(),
   };
-  const core = makeSearchCore();
+  const core = makeSearchCore({
+    rungZeroRepair: resolved === 'full',
+    seedDeconflict: resolved !== 'off',
+  });
   const plan = core.conform(ctx, new Map());
   const ours = new Set(spec.units.filter((u) => u.team === OURS).map((u) => u.id as UnitId));
   const ourDead = sub.withResolution(plan, OURS, ({ resolution }) =>
@@ -723,9 +906,8 @@ describe('rung 0 reads the verdict it already paid for', () => {
     [2, victimCell],
   ]);
 
-  test('with the flag off the seed goes out as staged, casualty and all', () => {
-    process.env.CENTAUR_STAGING_SAFETY = 'off';
-    const h = conformWith(FRATRICIDE, generatorForcing(forced));
+  test('at level `off` the seed goes out as staged, casualty and all', () => {
+    const h = conformWith(FRATRICIDE, generatorForcing(forced), undefined, 'off');
     expect(h.plan.get(1)?.to).toBe(victimCell);
     // The negative control the repair is measured against: the first staged set
     // of the turn kills one of our own units, and rung 0 emits it anyway.
@@ -733,9 +915,8 @@ describe('rung 0 reads the verdict it already paid for', () => {
     h.close();
   });
 
-  test('with the flag full the self-harm is repaired before the first emission', () => {
-    process.env.CENTAUR_STAGING_SAFETY = 'full';
-    const h = conformWith(FRATRICIDE, generatorForcing(forced));
+  test('at level `full` the self-harm is repaired before the first emission', () => {
+    const h = conformWith(FRATRICIDE, generatorForcing(forced), undefined, 'full');
     // Either the killer moved or the victim did — what the repair owes is the
     // OUTCOME, not a particular edit.
     expect(h.ourDead).toEqual([]);
@@ -752,14 +933,12 @@ describe('rung 0 reads the verdict it already paid for', () => {
       [1, shared],
       [2, shared],
     ]);
-    process.env.CENTAUR_STAGING_SAFETY = 'off';
-    const off = conformWith(FRATRICIDE, generatorForcing(both));
+    const off = conformWith(FRATRICIDE, generatorForcing(both), undefined, 'off');
     expect(off.plan.get(1)?.to).toBe(shared);
     expect(off.plan.get(2)?.to).toBe(shared);
     off.close();
 
-    process.env.CENTAUR_STAGING_SAFETY = 'guard';
-    const on = conformWith(FRATRICIDE, generatorForcing(both));
+    const on = conformWith(FRATRICIDE, generatorForcing(both), undefined, 'guard');
     expect(on.plan.get(1)?.to === shared && on.plan.get(2)?.to === shared).toBe(false);
     // Still complete, still legal, and no casualty of ours.
     expect([...on.plan.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
@@ -779,18 +958,13 @@ describe('rung 0 reads the verdict it already paid for', () => {
       ],
     };
     const counts: number[] = [];
-    for (const flag of ['off', 'full']) {
-      process.env.CENTAUR_STAGING_SAFETY = flag;
+    for (const level of ['off', 'full'] as const) {
       let n = 0;
-      const h = conformWith(clean, makeGenerator(), () => n++);
+      const h = conformWith(clean, makeGenerator(), () => n++, level);
       h.close();
       counts.push(n);
     }
     expect(counts[0]).toBe(counts[1]);
-  });
-
-  afterEach(() => {
-    delete process.env.CENTAUR_STAGING_SAFETY;
   });
 });
 
@@ -806,9 +980,11 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
       ],
       { width: 11, height: 11 }
     );
+    // The reading is a PROFILE FIELD (`CriterionProfile.royalReachers`), not an
+    // environment variable: `undefined` takes `DEFAULT_ROYAL_REACHERS`, which
+    // is what ships. Both arms are named here rather than one being the
+    // ambient default, so the test says which is which.
     const read = (on: boolean): number => {
-      if (on) process.env.CENTAUR_ROYAL_MARGIN = '1';
-      else delete process.env.CENTAUR_ROYAL_MARGIN;
       const { makeContext, kingMarginFeature } = require('../evaluate') as typeof import('../evaluate');
       const sub: EngineSubstrate = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
       const plan = new Map<UnitId, Candidate>();
@@ -817,7 +993,9 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
         plan.set(u.unitId, { unitId: u.unitId, from: u.cells[0], to: u.cells[0], path: [] });
       }
       const out = sub.withResolution(plan, sub.teamNumber('red'), ({ resolution, bounds }) => {
-        const ctx = makeContext(sub, resolution, bounds, sub.teamNumber('red'), 4);
+        const ctx = makeContext(sub, resolution, bounds, sub.teamNumber('red'), 4, {
+          royalReachers: on,
+        });
         return kingMarginFeature.evaluate(ctx).lo;
       });
       sub.release();
@@ -832,9 +1010,8 @@ describe('the royal margin counts every reacher, not only the enemy ones', () =>
     expect(off).toBeGreaterThan(0);
     expect(on).toBeLessThan(off);
     expect(on).toBeLessThanOrEqual(0);
-  });
-
-  afterEach(() => {
-    delete process.env.CENTAUR_ROYAL_MARGIN;
+    // And the shipped reading is the OFF one, which is the correction this
+    // teardown deliberately did not make — see DEFAULT_ROYAL_REACHERS.
+    expect(DEFAULT_ROYAL_REACHERS).toBe(false);
   });
 });

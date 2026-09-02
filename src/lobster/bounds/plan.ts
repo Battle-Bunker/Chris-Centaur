@@ -16,20 +16,58 @@
 import type { Candidate, CellIndex, JointPlan, SubStep, UnitId } from "../contracts";
 
 /**
+ * INTERNED CANDIDATE KEYS.
+ *
+ * A `Candidate` is an immutable value the generator produces once per unit per
+ * decision and the search then puts into thousands of plans; its key is a pure
+ * function of it, and building that key means a `path.join` plus a three-part
+ * template. `planKey` was measured at 3.9% of a one-second decision's self
+ * time, essentially all of it here, re-deriving the same eight strings.
+ *
+ * Keyed on the candidate OBJECT, so nothing about a plan's mutability is
+ * assumed: a plan is a `ReadonlyMap` by contract, but plans are BUILT by
+ * mutation (`new Map(); ...set()`), and a cache on the plan would serve a
+ * half-built answer to anyone who asked for a key mid-build. A candidate has no
+ * such phase — the generator returns it finished.
+ */
+const CANDIDATE_KEYS = new WeakMap<object, string>();
+
+function keyOfCandidate(c: Candidate): string {
+  const hit = CANDIDATE_KEYS.get(c as unknown as object);
+  if (hit !== undefined) return hit;
+  const made = `${c.unitId}>${c.to}#${c.path.join(".")}`;
+  CANDIDATE_KEYS.set(c as unknown as object, made);
+  return made;
+}
+
+/** Scratch for `planKey`'s parts. The function calls nothing that can re-enter
+ * it, so one array serves every call; the sort and the join are what remain. */
+const partScratch: string[] = [];
+
+/**
  * A canonical, order-free key for a plan. Path-sensitive (see PATH IDENTITY);
  * cheap enough to be a memo key on the hot path.
  */
 export function planKey(plan: JointPlan): string {
-  const parts: string[] = [];
+  const parts = partScratch;
+  parts.length = 0;
   for (const [unitId, candidate] of plan) {
-    parts.push(`${unitId}>${candidate.to}#${candidate.path.join(".")}`);
+    // The map key is the identity the plan is INDEXED by; `candidate.unitId` is
+    // what the candidate says about itself. They agree everywhere in this
+    // repository, and where they would not, the interned key would be a lie —
+    // so that case builds its own string.
+    parts.push(
+      unitId === candidate.unitId
+        ? keyOfCandidate(candidate)
+        : `${unitId}>${candidate.to}#${candidate.path.join(".")}`,
+    );
   }
   parts.sort();
   return parts.join("|");
 }
 
 export function candidateKey(c: Candidate): string {
-  return `${c.unitId}>${c.to}#${c.path.join(".")}`;
+  return keyOfCandidate(c);
 }
 
 export function sameCandidate(a: Candidate, b: Candidate): boolean {

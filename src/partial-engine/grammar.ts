@@ -427,62 +427,122 @@ export function planAction(
   orientation: OrientationIndex,
   targets: Board | null,
 ): UnitAction | null {
+  const n = planActionInto(terrain, kind, origin, dest, orientation, targets, ACTION_SCRATCH);
+  if (n === ACTION_ILLEGAL) return null;
+  // A FRESH object, exactly as before. A shared singleton would be cheaper and
+  // would also change what `===` says about two callers' actions, and this is
+  // the published surface.
+  if (n === 0) return { kind: "stay" };
+  if (n > 0) {
+    const path = new Array<number>(n);
+    for (let i = 0; i < n; i++) path[i] = ACTION_SCRATCH[i] as number;
+    return { kind: "move", path };
+  }
+  return { kind: "rotate", orientation: (ACTION_ROTATE - n) as OrientationIndex };
+}
+
+/**
+ * `planAction`, WITHOUT THE ACTION OBJECT.
+ *
+ * The resolver asks this question once per live unit per turn and throws the
+ * answer's shape away immediately — it copies `path` into its own scratch and
+ * reads `orientation` into an array. Building `{ kind, path }` for it was
+ * pure garbage on the hottest path the grammar has; on a 23×23 piece board
+ * `planAction` was 12% of everything a resolution allocated.
+ *
+ * The encoding, and it is deliberately not an object:
+ *
+ *   `ACTION_ILLEGAL` (−1)  the destination is not legal for this kind; the
+ *                          caller substitutes the kind's own default.
+ *   `0`                    STAY. Nothing is written to `out`.
+ *   `n > 0`                MOVE. `out[0..n)` are the cells entered, in order.
+ *   `n ≤ −2`               ROTATE, to orientation `ACTION_ROTATE − n`.
+ *
+ * `out` must have room for a whole ray — `max(width, height)` cells, which is
+ * what the resolver's `maxPath` already is.
+ *
+ * NOT EXPORTED FROM `index.ts`: this is the internal form, and `planAction` /
+ * `pathFor` remain the surface every consumer outside this directory sees.
+ */
+export const ACTION_ILLEGAL = -1;
+/** `orientation = ACTION_ROTATE − code` for a rotate code (−2 ⇒ 0, −5 ⇒ 3). */
+export const ACTION_ROTATE = -2;
+const ACTION_SCRATCH: number[] = [];
+
+export function planActionInto(
+  terrain: Terrain,
+  kind: UnitKind,
+  origin: number,
+  dest: number,
+  orientation: OrientationIndex,
+  targets: Board | null,
+  out: number[],
+): number {
   const grid = terrain.grid;
-  if (!Number.isInteger(dest) || dest < 0 || dest >= grid.cells) return null;
+  if (!Number.isInteger(dest) || dest < 0 || dest >= grid.cells) return ACTION_ILLEGAL;
   const profile = profileOf(kind);
   const ox = origin % grid.width;
   const oy = (origin / grid.width) | 0;
   const dx = (dest % grid.width) - ox;
   const dy = ((dest / grid.width) | 0) - oy;
 
-  if (dest === origin) return profile.stayLegal ? { kind: "stay" } : null;
+  if (dest === origin) return profile.stayLegal ? 0 : ACTION_ILLEGAL;
 
   const standable = standableFor(terrain, kind);
   const legalTarget = bbTest(standable, dest);
 
   if (profile.oriented) {
-    const { forward, diagonals, sides } = orientedStepsOf(orientation);
+    const steps = orientedStepsOf(orientation);
+    const forward = steps.forward;
+    const sides = steps.sides;
     if (dx === forward[0] && dy === forward[1]) {
-      return legalTarget ? { kind: "move", path: [dest] } : null;
+      if (!legalTarget) return ACTION_ILLEGAL;
+      out[0] = dest;
+      return 1;
     }
     // Side squares: a full-turn quarter rotation toward that side. Never
     // entered, so legal wherever the cell falls — walls included.
-    if (dx === sides[0][0] && dy === sides[0][1]) {
-      return { kind: "rotate", orientation: rotLeft(orientation) };
-    }
-    if (dx === sides[1][0] && dy === sides[1][1]) {
-      return { kind: "rotate", orientation: rotRight(orientation) };
-    }
-    for (const [gx, gy] of diagonals) {
-      if (dx === gx && dy === gy) {
-        return legalTarget && targets !== null && bbTest(targets, dest)
-          ? { kind: "move", path: [dest] }
-          : null;
+    if (dx === sides[0][0] && dy === sides[0][1]) return ACTION_ROTATE - rotLeft(orientation);
+    if (dx === sides[1][0] && dy === sides[1][1]) return ACTION_ROTATE - rotRight(orientation);
+    const diagonals = steps.diagonals;
+    for (let k = 0; k < diagonals.length; k++) {
+      const g = diagonals[k] as Offset;
+      if (dx === g[0] && dy === g[1]) {
+        if (!legalTarget || targets === null || !bbTest(targets, dest)) return ACTION_ILLEGAL;
+        out[0] = dest;
+        return 1;
       }
     }
-    return null;
+    return ACTION_ILLEGAL;
   }
 
-  for (const [sx, sy] of profile.steps) {
-    if (sx === dx && sy === dy) {
+  const steps = profile.steps;
+  for (let k = 0; k < steps.length; k++) {
+    const s = steps[k] as Offset;
+    if (s[0] === dx && s[1] === dy) {
       // A trail unit may stage a wall cell — walking into the perimeter is a
       // legal, fatal move. A piece may only ever enter the interior.
-      if (!legalTarget && !profile.mayEnterWall) return null;
-      return { kind: "move", path: [dest] };
+      if (!legalTarget && !profile.mayEnterWall) return ACTION_ILLEGAL;
+      out[0] = dest;
+      return 1;
     }
   }
 
-  for (const [rx, ry] of profile.rays) {
+  const rays = profile.rays;
+  for (let k = 0; k < rays.length; k++) {
+    const r = rays[k] as Offset;
+    const rx = r[0];
+    const ry = r[1];
     // Same direction and a whole number of steps along it?
-    const steps = rx !== 0 ? dx / rx : dy / ry;
-    if (!Number.isInteger(steps) || steps <= 0) continue;
-    if (dx !== rx * steps || dy !== ry * steps) continue;
-    if (!legalTarget) return null;
-    const path: number[] = [];
-    for (let i = 1; i <= steps; i++) path.push(origin + (ry * grid.width + rx) * i);
-    return { kind: "move", path };
+    const n = rx !== 0 ? dx / rx : dy / ry;
+    if (!Number.isInteger(n) || n <= 0) continue;
+    if (dx !== rx * n || dy !== ry * n) continue;
+    if (!legalTarget) return ACTION_ILLEGAL;
+    const stride = ry * grid.width + rx;
+    for (let i = 1; i <= n; i++) out[i - 1] = origin + stride * i;
+    return n;
   }
-  return null;
+  return ACTION_ILLEGAL;
 }
 
 /**
@@ -500,10 +560,11 @@ export function pathFor(
   orientation: OrientationIndex = 0,
   targets: Board | null = null,
 ): number | null {
-  const action = planAction(terrain, kind, origin, dest, orientation, targets);
-  if (action === null || action.kind !== "move") return action?.kind === "stay" ? 0 : null;
-  for (let i = 0; i < action.path.length; i++) out[i] = action.path[i] as number;
-  return action.path.length;
+  // It says allocation-free at the top of this block and now it is one: it used
+  // to go through `planAction`, which built the very object this signature
+  // exists to avoid.
+  const n = planActionInto(terrain, kind, origin, dest, orientation, targets, out);
+  return n >= 0 ? n : null;
 }
 
 /**

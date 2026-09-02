@@ -373,17 +373,18 @@ describe('ActiveGameManager goto/near intents', () => {
     jest.useRealTimers();
   });
 
-  // Per-move evaluations shaped like the strategy's mapping: score + breakdown
-  // carrying trapped/weights/weighted, so getWaypointBiasedMove can re-bias.
+  // Per-move rows shaped like the strategy's mapping: the candidate, its
+  // score, and the waypoint re-bias's own five numbers.
   function makeEvaluations(scores: Partial<Record<Direction, number>>): MoveEvaluation[] {
     return (Object.keys(scores) as Direction[]).map((move) => ({
       move,
       score: scores[move]!,
-      numStates: 1,
-      breakdown: {
+      waypointBias: {
+        gotoWeight: 300,
+        nearWeight: 250,
+        recorded: 0,
         trapped: 0,
-        weights: { gotoProgress: 300, nearProgress: 250 },
-        weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
+        regicide: 0,
       },
     }));
   }
@@ -483,7 +484,7 @@ describe('ActiveGameManager goto/near intents', () => {
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
     const evaluations = makeEvaluations({ up: 100, right: 90, left: 80 });
     // Mark 'right' — the on-path move — as leading into a fatal pocket.
-    (evaluations.find(e => e.move === 'right')!.breakdown as any).trapped = 1;
+    evaluations.find(e => e.move === 'right')!.waypointBias!.trapped = 1;
     const cs = processMove(gameId, snakes, 1, 'up', evaluations);
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);

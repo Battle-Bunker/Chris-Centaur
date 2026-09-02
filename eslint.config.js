@@ -27,9 +27,13 @@ const RESTRICTED_IMPORTS = {
   workerThreads: {
     name: 'worker_threads',
     message:
-      'worker_threads is owned by src/logic/decision-worker-pool.ts (and its worker ' +
-      'entry src/logic/decision-worker.ts) — the pool idle entry terminates and ' +
-      'graceful shutdown tears down. Submit work through DecisionWorkerPool.',
+      'worker_threads has exactly two owners, each of which terminates its own ' +
+      'workers on idle entry AND at graceful shutdown: src/logic/decision-worker-pool.ts ' +
+      '(legacy per-snake chunks; submit through DecisionWorkerPool) and ' +
+      'src/lobster/parallel/pool.ts (the lobster evaluation pool; ask the ' +
+      'TeamDecisionEngine, whose lifecycle owns it). Their worker entries — ' +
+      'src/logic/decision-worker.ts and src/lobster/parallel/worker-entry.ts — are ' +
+      'exempt too, because a worker entry is the one file that must read parentPort.',
   },
   ws: {
     name: 'ws',
@@ -39,16 +43,45 @@ const RESTRICTED_IMPORTS = {
   },
 };
 
-function restrictedImports(exceptKeys = []) {
+function restrictedImports(exceptKeys = [], patterns = []) {
   return [
     'error',
     {
       paths: Object.entries(RESTRICTED_IMPORTS)
         .filter(([key]) => !exceptKeys.includes(key))
         .map(([, entry]) => entry),
+      ...(patterns.length > 0 ? { patterns } : {}),
     },
   ];
 }
+
+// ── Who may READ the per-branch belief ──────────────────────────────────────
+// Core redesign §3.1 gives every branch a posterior alongside its sound
+// interval. The increment that landed it made the belief non-deciding and said
+// this rule would change deliberately when it got its readers. It has, and this
+// is the changed rule.
+//
+// TWO READERS, AND THEY ARE NAMED: `src/lobster/kernel.ts` (the staging rows)
+// and `src/lobster/search/core.ts` (the acceptance comparator's depth rung).
+// Both are exempted below by file, not by pattern, so adding a third is a diff
+// against this list rather than an import somebody did not notice.
+//
+// EVERYTHING ELSE IS STILL BANNED, and the two most important bans are the
+// ones that never move: the BOUNDS layer, where a density reaching a proof
+// would be the one unsound thing in the build; and `search/scout/**`, the
+// depth layer itself, which publishes plain numbers and must not be able to
+// decide what they are worth. The evaluators and the selection lottery stay
+// out for the same reason they always were.
+const BELIEF_PATTERN = {
+  group: ['**/belief', '**/belief.ts', '../belief', '../../belief'],
+  message:
+    'This layer may not import src/lobster/belief.ts. Only the kernel and ' +
+    'search/core.ts read the per-branch belief; the bounds layer may never ' +
+    '(a density reaching a proof is the one unsound move in the build), and ' +
+    'the depth layer under search/scout/** may never (it publishes values and ' +
+    'does not decide what they are worth). Adding a reader is a change to the ' +
+    'named list in eslint.config.js, where it can be reviewed.',
+};
 
 const TIMER_MESSAGE_TAIL =
   'from src/server/activity-controller.ts so idle teardown stays reliable: managed ' +
@@ -131,6 +164,108 @@ module.exports = [
     },
   },
 
+  // ── CL4 contract rule 20: the selection layer has no clock and no RNG ─────
+  // "Every stochastic choice draws from the path-addressed PRNG keyed on the
+  // logged private per-match seed; per-arm draw counters; no Math.random,
+  // Date.now, performance.now in selection/**; the clock reaches selection only
+  // through BudgetHandle." A Math.random here would make a decision
+  // unreplayable, and an unreplayable decision cannot be attributed to a code
+  // change — which is this whole program's measurement discipline. A clock read
+  // here would put wall time inside a draw and break the two-budget prefix
+  // property. Both are structural, so both are lint errors rather than review
+  // notes.
+  {
+    files: ['src/lobster/selection/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message:
+            'Math.random is banned in src/lobster/selection/**: every draw must be a pure ' +
+            'function of (decision seed, node, arm, draw index) — see selection/rng.ts. ' +
+            'A non-replayable decision cannot be attributed to a code change.',
+        },
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message:
+            'Date.now is banned in src/lobster/selection/**: the clock reaches selection only ' +
+            'as a remaining-budget FRACTION the search computed from BudgetHandle, and it ' +
+            'reaches exactly one quantity (the temperature). See contract rule 20.',
+        },
+        {
+          selector:
+            "MemberExpression[object.name='performance'][property.name='now']",
+          message:
+            'performance.now is banned in src/lobster/selection/**: see the Date.now message. ' +
+            'The one clock is BudgetHandle, and the selection layer never holds it.',
+        },
+        {
+          selector: "MemberExpression[object.name='process'][property.name='hrtime']",
+          message:
+            'process.hrtime is banned in src/lobster/selection/**: see the Date.now message.',
+        },
+      ],
+    },
+  },
+
+  // ── CL6 Door A: the scout has no clock, and no route to a bound ──────────
+  // The scout spends in RESOLUTION-EQUIVALENTS, converted once from the
+  // decision budget the caller already read. A clock read per ply would make
+  // the park decision — and therefore the thread set, the findings and the
+  // candidate order — a function of how loaded the box was, which is a search
+  // whose result cannot be reproduced and therefore cannot be attributed to a
+  // code change. Same discipline as `selection/**`, same reason.
+  //
+  // The bound ban is the firewall (la-outside L2/L8) in its lint form: under a
+  // V-one frame, depth may move est, candidate order and scheduler priors, and
+  // nothing else. There is no third route, so there is no import.
+  {
+    files: ['src/lobster/search/scout/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message:
+            'Date.now is banned in src/lobster/search/scout/**: the scout spends in ' +
+            'resolution-equivalents, converted once from the decision budget. A clock read ' +
+            'here makes the thread set a function of the box and fails the determinism gate.',
+        },
+        {
+          selector: "MemberExpression[object.name='performance'][property.name='now']",
+          message: 'performance.now is banned in src/lobster/search/scout/**: see the Date.now message.',
+        },
+        {
+          selector: "MemberExpression[object.name='process'][property.name='hrtime']",
+          message: 'process.hrtime is banned in src/lobster/search/scout/**: see the Date.now message.',
+        },
+        {
+          selector: "MemberExpression[object.name='Math'][property.name='random']",
+          message:
+            'Math.random is banned in src/lobster/search/scout/**: a thread set that is not a ' +
+            'pure function of the board cannot be replayed, and an unreplayable finding cannot ' +
+            'be attributed.',
+        },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/bounds', '**/bounds/*'],
+              message:
+                'The scout may not import the bounds layer. Depth is provenance, never ' +
+                'denomination (la-outside L1): a thread finding reaches a decision only as an ' +
+                'ordering term through CL3\'s UnaryLookup seam, which feeds a surrogate and ' +
+                'never a bound. There is no second route, so there is no import.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── Keepalive ownership: restricted imports (base — applies everywhere) ───
   {
     files: ['src/**/*.ts'],
@@ -149,11 +284,56 @@ module.exports = [
     rules: { 'no-restricted-imports': restrictedImports(['pgPool']) },
   },
   {
-    files: ['src/logic/decision-worker-pool.ts', 'src/logic/decision-worker.ts'],
+    files: [
+      'src/logic/decision-worker-pool.ts',
+      'src/logic/decision-worker.ts',
+      'src/lobster/parallel/pool.ts',
+      'src/lobster/parallel/worker-entry.ts',
+    ],
     rules: { 'no-restricted-imports': restrictedImports(['workerThreads']) },
   },
   {
     files: ['src/server/websocket-server.ts'],
     rules: { 'no-restricted-imports': restrictedImports(['ws']) },
+  },
+
+  // ── Core redesign §3.1: who may read the belief ──────────────────────────
+  // The bounds bank, the depth layer, the evaluators and the selection lottery
+  // may not import it. `search/core.ts` is exempted by name in the block after
+  // this one — flat config's LAST matching entry wins, so the exemption has to
+  // come after the ban and not before it. See BELIEF_PATTERN above.
+  //
+  // LAST IN THE ARRAY ON PURPOSE. Flat-config rule entries REPLACE rather than
+  // merge, so a `no-restricted-imports` block placed before the keepalive base
+  // block below-the-fold is silently overwritten by it. This block therefore
+  // re-declares the base paths alongside the pattern, and sits after every
+  // other declaration of the rule.
+  //
+  // PRE-EXISTING AND DELIBERATELY NOT REPAIRED HERE: the scout's own
+  // `no-restricted-imports` (its bounds ban, above) is shadowed by exactly that
+  // ordering and does not currently fire. Repairing it would newly constrain
+  // the scout, which is out of this increment's scope; it is recorded rather
+  // than silently changed.
+  {
+    files: [
+      'src/lobster/bounds/**/*.ts',
+      'src/lobster/search/**/*.ts',
+      'src/lobster/evaluate/**/*.ts',
+      'src/lobster/selection/**/*.ts',
+    ],
+    rules: { 'no-restricted-imports': restrictedImports([], [BELIEF_PATTERN]) },
+  },
+
+  // ── The one exemption inside search/, by name ────────────────────────────
+  // `search/core.ts` owns `better()`, which is where a trial is accepted or
+  // refused — so it is where a deepened line's value has to be able to speak
+  // if depth is to change a decision at all. It reads the belief algebra and
+  // nothing else from that module: it folds one observation onto the same
+  // near-half assembly the kernel builds, and compares. It still cannot reach
+  // a bound (the bounds layer's own ban is unchanged), and the depth layer
+  // that PRODUCES the observation still cannot reach the belief at all.
+  {
+    files: ['src/lobster/search/core.ts'],
+    rules: { 'no-restricted-imports': restrictedImports([]) },
   },
 ];

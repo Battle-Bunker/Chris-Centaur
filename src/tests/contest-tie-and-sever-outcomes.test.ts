@@ -34,7 +34,6 @@
 import { evaluatePathOnBoard } from '../logic/turn-oracle';
 import { ActiveGameManager } from '../server/active-game-manager';
 import { apiCoordToIndex } from '../firebase/translate';
-import { DEFAULT_CONFIG } from '../config/game-config';
 import { GameState, Snake, Coord } from '../types/battlesnake';
 
 jest.mock('../logic/command-logger', () => {
@@ -464,15 +463,16 @@ describe('the piece candidate path: a winning king trade is scored, not discarde
     const gameId = 'g-tie-trade-row';
     const cs = feed(gameId, tradeBoard(gameId), 'B');
 
-    const row = cs.latestTurnData!.moveEvaluations.find(e => e.move === fullIdx(CONTESTED))!;
+    const row = mgr.computePieceCandidates(gameId, 'B').find(e => e.move === fullIdx(CONTESTED))!;
     expect(row).toBeDefined();
-    expect(row.breakdown.deaths).toBe(1);
-    expect(row.breakdown.healthLoss).toBe(100);
-    expect(row.breakdown.kills).toBe(1);
-    expect(row.breakdown.enemyRegicide).toBe(1);
-    expect(row.breakdown.regicide).toBe(0);
-    expect(row.breakdown.allyCasualty).toBe(0);
-    expect(row.breakdown.weighted.enemyRegicideScore).toBe(DEFAULT_CONFIG.enemyRegicide);
+    expect(row.fatal).toBe(true);
+    expect(row.healthCost).toBe(100);
+    expect(row.casualties.kills).toBe(1);
+    expect(row.casualties.enemyRegicide).toBe(1);
+    expect(row.casualties.regicide).toBe(0);
+    expect(row.casualties.allyCasualty).toBe(0);
+    // Enumerated for the board too — annotated, never hidden.
+    expect(cs.latestTurnData!.moveEvaluations.some(e => e.move === fullIdx(CONTESTED))).toBe(true);
 
     // The reward outweighs the death and the health it costs, so the trade is
     // genuinely SCORABLE rather than pinned below every alternative.

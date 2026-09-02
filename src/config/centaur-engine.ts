@@ -1,15 +1,24 @@
 /**
- * The CENTAUR_ENGINE flag: which decision engine drives the FULL pass.
+ * WHICH DECISION ENGINE drives the FULL pass — `BotConfig.engine`.
  *
  *   lobster  (default) the team decision engine: one joint decision per TEAM
  *            per turn through the LOBSTER kernel, staged through the same
  *            per-unit manager surface (precedence and the fatal-consent gate
  *            run untouched) and batched by the team submitter.
  *   legacy   the per-snake VoronoiStrategy fan-out that used to be the default.
- *            Still complete, still tested, and one environment variable away.
+ *            Still complete, still tested, and one config field away.
  *
  * The fast-pass reflex (quickSafeMove / piece intake) runs identically under
- * BOTH values: the flag routes only the full strategy pass.
+ * BOTH values: this routes only the full strategy pass.
+ *
+ * NOT A FEATURE FLAG, WHICH IS WHY IT SURVIVED THE TEARDOWN AS CONFIG. The two
+ * values are two whole substrates, each complete and each the shipped default at
+ * some point in this branch's history — a legitimate deployment choice, not a
+ * dark path waiting on a gate. It was `CENTAUR_ENGINE`, read from the
+ * environment at every routing decision so it could "flip back mid-game"; it is
+ * now a field on the bot the process is playing, fixed for that bot's life,
+ * which is the honest shape: a centaur does not change engines halfway through
+ * a game, and a comparison between the two is a comparison between two bots.
  *
  * ── THE FLIP, AND WHAT PAID FOR IT ─────────────────────────────────────────
  *
@@ -79,36 +88,31 @@
  * the 2026-08-23 gate, and the snake row it WAS blocked on moved by +1.41.
  *
  * It is, though, the number to watch. If it firms up as a real regression the
- * knob is the EVALUATOR and not this flag: `materialEvaluator` is still an
+ * knob is the EVALUATOR and not this field: `materialEvaluator` is still an
  * exported profile, and `TeamDecisionOptions.evaluate` takes it by name.
  */
 
 export type CentaurEngineKind = 'legacy' | 'lobster';
 
-export const CENTAUR_ENGINE_ENV = 'CENTAUR_ENGINE';
-
-/** The value an absent, empty or unrecognised flag resolves to. */
+/** What a bot that names no engine plays. */
 export const CENTAUR_ENGINE_DEFAULT: CentaurEngineKind = 'lobster';
 
-/** Parse the flag from an environment. Unrecognised values keep the default
- * and say so — a typo must never silently reroute production decisions. */
-export function centaurEngineFrom(
-  env: NodeJS.ProcessEnv,
+/**
+ * Normalise a value from a contender's JSON. An unrecognised value keeps the
+ * default and SAYS SO — a typo must never silently reroute production
+ * decisions, which was true of the environment variable and is no less true of
+ * a hand-written config file.
+ */
+export function centaurEngineOf(
+  raw: unknown,
   log: (message: string) => void = (m) => console.warn(m)
 ): CentaurEngineKind {
-  const raw = env[CENTAUR_ENGINE_ENV];
-  if (raw === undefined || raw === '') return CENTAUR_ENGINE_DEFAULT;
+  if (raw === undefined || raw === null || raw === '') return CENTAUR_ENGINE_DEFAULT;
   if (raw === 'legacy') return 'legacy';
   if (raw === 'lobster') return 'lobster';
   log(
-    `[centaur-engine] Ignoring ${CENTAUR_ENGINE_ENV}="${raw}" — expected "legacy" or "lobster"; ` +
+    `[centaur-engine] Ignoring engine="${String(raw)}" — expected "legacy" or "lobster"; ` +
       `keeping ${CENTAUR_ENGINE_DEFAULT}`
   );
   return CENTAUR_ENGINE_DEFAULT;
-}
-
-/** The live flag. Read at each routing decision (not cached at import time)
- * so a test can flip it per case; production sets it once at process start. */
-export function centaurEngine(): CentaurEngineKind {
-  return centaurEngineFrom(process.env);
 }

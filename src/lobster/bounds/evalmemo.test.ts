@@ -8,7 +8,14 @@
  * not. These tests are the fence around that.
  */
 
-import { BoundBank, DEFAULT_BANK_CONFIG, EvaluationMemo, basisKeyOf, evalNamespace } from './index';
+import {
+  BoundBank,
+  DEFAULT_BANK_CONFIG,
+  EvaluationDivergenceError,
+  EvaluationMemo,
+  basisKeyOf,
+  evalNamespace,
+} from './index';
 import type { Assumption, Bound, Evaluator, JointPlan, Substrate } from '../contracts';
 import { BoundEvaluator, MATERIAL_ONLY_PROFILE, TERRITORY_PROFILE } from '../evaluate';
 import {
@@ -139,6 +146,77 @@ describe('the store', () => {
     memo.score('a', () => bound(1));
     memo.clear();
     expect(memo.stats).toMatchObject({ entries: 0, hits: 0, misses: 0 });
+  });
+});
+
+// -------------------------------------------- entries somebody else computed
+
+describe('an imported entry is indistinguishable from a local one', () => {
+  const bound = (lo: number): Bound => ({ lo, est: lo, hi: lo });
+
+  test('an import is served instead of computing, and is counted apart', () => {
+    const memo = new EvaluationMemo(16);
+    let calls = 0;
+    expect(memo.import('a', bound(7))).toBe(true);
+    expect(memo.score('a', () => (calls++, bound(99)))).toEqual(bound(7));
+    expect(calls).toBe(0);
+    expect(memo.stats).toMatchObject({ imported: 1, hits: 1, misses: 0, entries: 1 });
+  });
+
+  test('an import never OVERWRITES: the entry already here is the same value', () => {
+    const memo = new EvaluationMemo(16);
+    memo.score('a', () => bound(1));
+    expect(memo.import('a', bound(2))).toBe(false);
+    expect(memo.score('a', () => bound(3))).toEqual(bound(1));
+    expect(memo.stats.imported).toBe(0);
+  });
+
+  test('imports respect the capacity — a prefetch cannot grow the ceiling', () => {
+    const memo = new EvaluationMemo(4);
+    for (let i = 0; i < 50; i++) memo.import(`k${i}`, bound(i));
+    expect(memo.stats.entries).toBe(4);
+  });
+
+  test('capacity 0 refuses imports rather than caching forever', () => {
+    const memo = new EvaluationMemo(0);
+    expect(memo.import('a', bound(1))).toBe(false);
+    expect(memo.stats.entries).toBe(0);
+  });
+
+  test('AUDIT recomputes an imported entry once and agrees', () => {
+    const memo = new EvaluationMemo(16, true);
+    memo.import('a', bound(5));
+    let calls = 0;
+    expect(memo.score('a', () => (calls++, bound(5)))).toEqual(bound(5));
+    expect(calls).toBe(1);
+    expect(memo.stats).toMatchObject({ importHits: 1, audited: 1 });
+    // Audited once, then it is an ordinary entry.
+    expect(memo.score('a', () => (calls++, bound(5)))).toEqual(bound(5));
+    expect(calls).toBe(1);
+  });
+
+  test('AUDIT throws on a disagreement — the divergence the key cannot express', () => {
+    const memo = new EvaluationMemo(16, true);
+    memo.import('a', bound(5));
+    expect(() => memo.score('a', () => bound(6))).toThrow(EvaluationDivergenceError);
+    // And it is loud about WHICH pair disagreed, because a counter would not
+    // identify the board that is wrong.
+    const other = new EvaluationMemo(16, true);
+    other.import('b', bound(5));
+    expect(() => other.score('b', () => bound(6))).toThrow(/imported \(5, 5, 5\) vs local \(6, 6, 6\)/);
+  });
+
+  test('recording hands back exactly what this memo computed, once', () => {
+    const memo = new EvaluationMemo(16);
+    memo.startRecording();
+    memo.score('a', () => bound(1));
+    memo.score('a', () => bound(1)); // a hit: not new work, not recorded twice
+    memo.score('b', () => bound(2));
+    expect(memo.takeRecording()).toEqual([
+      ['a', bound(1)],
+      ['b', bound(2)],
+    ]);
+    expect(memo.takeRecording()).toEqual([]);
   });
 });
 

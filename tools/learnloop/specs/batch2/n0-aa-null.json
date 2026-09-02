@@ -1,0 +1,256 @@
+{
+ "_comment": [
+  "THE A/A NULL — one per batch, MANDATORY, and sized like the treatment cells.",
+  "",
+  "CELLS ARE DERIVED, NOT CHOSEN: every board any scheduled spec in this batch",
+  "runs on appears here, because a treatment metric with no floor in the A/A",
+  "cell is UNREADABLE rather than null, and an unfloored treatment cell is box",
+  "time spent on a row nobody may read. This batch floors:",
+  "    headline-mix-king, snake5-knight, null-snake6, snake5-queen, hazard-mix-king",
+  "",
+  "Run with two arms that are the SAME bundle and the SAME env under two names:",
+  "    --arm nullA=<bundle-search-arch> --arm nullB=<bundle-search-arch>",
+  "Its paired delta measures run-to-run variance and nothing else. That number",
+  "is the yardstick every treatment delta in this batch is read against.",
+  "",
+  "WHICH BUNDLE: both arms are claude/cluster-lookahead",
+  "(origin/claude/cluster-lookahead) — the feature branch.",
+  "    tools/simworker/build-bot.sh origin/claude/cluster-lookahead <bundle-search-arch> --fetch",
+  "",
+  "LIKE WITH LIKE, AND IT IS THE SAME CONVENTION BATCH 1 USED. An A/A null is",
+  "ONE bundle seated twice under two names (verify-null.js asserts an identical",
+  "bundle SHA in both arms), so a cross-branch batch has to choose which bundle",
+  "that is. The kit's convention is the bundle the batch's arms SHARE: batch 1",
+  "floored on `integrated` @ 66904d256103 because that build was the base arm",
+  "of P1, P2 and P3, and then read P1 — integrated against perf-substrate, two",
+  "different branches — against that floor. Batch 2's shared bundle is the",
+  "search-architecture tip: it is the base arm of P7F, P9, P10, P12, P13, X9",
+  "and all three budget rungs, and one of P11's two arms. So the null is TWO",
+  "SEARCH-ARCHITECTURE BUILDS.",
+  "",
+  "P11's baseline arm therefore has no floor of its own, and that asymmetry is",
+  "named rather than hidden. It is the same asymmetry batch 1 accepted in the",
+  "other direction. What makes it tolerable is what the floor is a fact ABOUT:",
+  "the arms are launched at the same instant on the same boards with the same",
+  "seeds and pair by gameId, so the paired delta's floor is dominated by the",
+  "board and the box rather than by which of two builds of one repository",
+  "generated the moves. A reader who wants that assumption tested should",
+  "schedule a second null pair on the baseline bundle; it is the cheapest box",
+  "time available and nothing here forbids it.",
+  "",
+  "SIZED AT 16 BLOCKS to match the treatment cells. A null at 4 blocks",
+  "beside a treatment at 16 understates the floor, because the floor narrows",
+  "with block count — the direction that makes a treatment look significant",
+  "when it is not.",
+  "",
+  "Batch 20260827 measured this floor at +/-0.097 (mix-king) and +/-0.032",
+  "(snake6) with 0 illegal and 0 errors. Those are the numbers to beat, and a",
+  "wider band this time is an INSTRUMENT EVENT, not a nuisance.",
+  "",
+  "PIECE-BEARING CELLS MAY NOT FLOOR AT THIS SIZE, AND THAT IS A MEASUREMENT.",
+  "A sandbox A/A on a piece-bearing potions-ON hazard cell — two IDENTICAL",
+  "bundles, identical configs, identical seeds — returned sharePar",
+  "+0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. All-snake cells at the",
+  "same size floored cleanly at +/-0.10. Extrapolating the widest measured",
+  "piece-cell half-width, +/-0.234 at 8 blocks, a +/-0.10 floor needs",
+  "8 x (0.234/0.10)^2 = 44 blocks per piece cell; the crossover itself has",
+  "never been measured and batch 3 proposes the run that measures it.",
+  "SO: REPORT THIS NULL PER CELL, NEVER POOLED. A cell whose own null does not",
+  "contain zero has NO FLOOR, and every treatment delta on that cell is",
+  "UNREADABLE rather than null — which is a finding about the instrument and",
+  "must be written as one. Do not borrow the snake cell's floor for a piece",
+  "cell, and do not borrow one bundle's floor for the other: the same cell",
+  "floored +/-0.120 on one bundle and +/-0.234 on the other in the same night.",
+  "",
+  "Then check it:",
+  "    node tools/simworker/bin/verify-null.js --batch <dir> --null nullA,nullB"
+ ],
+ "sweepId": "n0-aa-null",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  54501,
+  54502,
+  54503,
+  54504,
+  54505,
+  54506,
+  54507,
+  54508,
+  54509,
+  54510,
+  54511,
+  54512,
+  54513,
+  54514,
+  54515,
+  54516
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-knight",
+   "config": {
+    "name": "snake5-knight",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "knight",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "snake5-queen",
+   "config": {
+    "name": "snake5-queen",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "queen",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

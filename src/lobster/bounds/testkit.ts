@@ -749,3 +749,48 @@ export function expiredBudget(): {
 } {
   return { remainingMs: () => 0, elapsedMs: () => 0, shouldStop: () => true, now: () => 0 };
 }
+
+// ------------------------------------------------------------- chaos scheduler
+
+/**
+ * THE CHAOS SCHEDULER: a generator that returns the same option multiset in a
+ * different order, every time, deterministically.
+ *
+ * The bank sweeps an enemy's replies in the order the generator hands them
+ * over (`for (const option of options)`), so reordering that list is the one
+ * scheduling freedom the bank has today — and it is the freedom a learned
+ * ordering, a double-oracle column generator or an `EdgePolicy` would all
+ * exercise. Everything those could do to the sweep, this does at random.
+ *
+ * PERMUTATION-PRESERVING BY CONSTRUCTION, and it checks itself: same length,
+ * same members, same `legalCount`, same pruned ledger. A scheduler that DROPS
+ * an option is a different (and unsound) thing from one that reorders, and the
+ * whole licence for reordering rests on the difference.
+ *
+ * `seed` picks the permutation; the unit id is mixed in so different units get
+ * different orders within one run, which is what makes a joint sweep's
+ * traversal actually change rather than merely relabel.
+ */
+export function chaosGenerator(inner: CandidateGenerator, seed: number): CandidateGenerator {
+  return {
+    candidatesFor(
+      sub: Substrate,
+      unitId: UnitId,
+      purpose?: "ours" | "adversary",
+    ): CandidateSet {
+      const set = inner.candidatesFor(sub, unitId, purpose);
+      const out = [...set.candidates];
+      const rand = mulberry32((seed * 7919 + unitId * 104729 + 1) >>> 0);
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        const a = out[i] as Candidate;
+        out[i] = out[j] as Candidate;
+        out[j] = a;
+      }
+      if (out.length !== set.candidates.length) {
+        throw new Error("chaosGenerator dropped an option");
+      }
+      return { ...set, candidates: out };
+    },
+  };
+}

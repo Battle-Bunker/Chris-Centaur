@@ -9,7 +9,6 @@
 
 import { TacticToesFirebaseInterface, FirebaseInterfaceConfig } from '../firebase/firebase-interface';
 import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
-import { CENTAUR_ENGINE_ENV } from '../config/centaur-engine';
 
 // Full board 7x6 (perimeter walls included), same layout as translate tests.
 const W = 7;
@@ -63,19 +62,18 @@ const config: FirebaseInterfaceConfig = {
   region: 'test',
   centaurId: 'centA',
   centaurApiKey: 'test',
+  bot: { engine: 'legacy' },
 };
 
-// THIS SUITE ASSERTS ON THE LEGACY PATH, so it pins the flag EXPLICITLY rather
-// than riding the ambient default. The default is a measured decision that can
-// move; what this file is about does not. Without the pin, a flag flip would
-// reroute the full pass out from under these assertions and read as a
-// regression in something unrelated.
-beforeEach(() => {
-  process.env[CENTAUR_ENGINE_ENV] = 'legacy';
-});
-afterEach(() => {
-  delete process.env[CENTAUR_ENGINE_ENV];
-});
+// THIS SUITE ASSERTS ON THE LEGACY PATH, so it names the engine EXPLICITLY in
+// the config rather than riding the ambient default. The default is a measured
+// decision that can move; what this file is about does not. Without it, a
+// default flip would reroute the full pass out from under these assertions and
+// read as a regression in something unrelated.
+//
+// It used to pin `CENTAUR_ENGINE` in a beforeEach/afterEach pair, which is one
+// more reason the environment was the wrong home for this: a suite could only
+// pin it by mutating process state it then had to remember to restore.
 
 describe('fire-and-forget decision pass', () => {
   test('a throwing setBotRecommendation in the error path never rejects the voided pass', async () => {

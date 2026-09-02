@@ -4,10 +4,9 @@
  */
 
 import { GameState, Direction, TeamInfo } from '../types/battlesnake';
-import { BoardEvaluation } from './board-evaluator';
 import { DecisionEngine, MoveDecision } from './decision-engine';
 import { WaypointContext } from './waypoint-pathing';
-import { DecisionLogEntry, DecisionLogger } from './decision-logger';
+import { DecisionLogger } from './decision-logger';
 import { TeamDetector } from './team-detector';
 import { ConfigStore } from '../server/configStore';
 import { DEFAULT_CONFIG, GameConfig } from '../config/game-config';
@@ -183,41 +182,29 @@ export class VoronoiStrategy {
     return entry;
   }
 
-  // The per-move breakdown blob logged to the DB and consumed by the UI: every
-  // registry stat, the raw foodDistance, the weights/weighted tables, plus the
-  // legacy wire aliases.
-  private buildBreakdown(
-    evaluation: BoardEvaluation
-  ): NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']> {
-    const { stats } = evaluation;
-    const breakdown: { [key: string]: any } = {};
-    for (const key of HEURISTIC_KEYS) breakdown[key] = stats[key];
-    breakdown.foodDistance = stats.foodDistance;
-    breakdown.weights = evaluation.weights;
-    breakdown.weighted = evaluation.weighted;
-    // LEGACY WIRE ALIASES — a UI/DB contract (history viewer and stored rows
-    // read these names). Keep them exactly as-is; do not fold into the
-    // registry-driven block above.
-    breakdown.fertileTerritory = stats.teamTerritory + stats.teamControlledFood * 10;
-    breakdown.foodDistanceInverse = stats.foodProximity;
-    breakdown.myFoodCount = stats.myControlledFood;
-    breakdown.teamFoodCount = stats.teamControlledFood;
-    breakdown.teamFertileScore = stats.teamTerritory + stats.teamControlledFood * 10;
-    return breakdown as NonNullable<DecisionLogEntry['moveEvaluations'][number]['breakdown']>;
-  }
-
   private assembleDebugResult(gameState: GameState, decision: MoveDecision): StrategyResult {
     // Prepare decision data for database logging
     const moveEvaluations = decision.evaluations.map(evaluation => ({
       move: evaluation.move,
       score: evaluation.worstScore,
-      numStates: evaluation.numStates,
       // Destination cell (api coords) when the projection pass computed it —
       // keeps the wire/DB row destination-carrying alongside the move id.
       dest: evaluation.dest,
       projectedTerritoryCells: evaluation.projectedTerritoryCells || {},
       projectedCellOwnership: evaluation.projectedCellOwnership || null,
-      breakdown: this.buildBreakdown(evaluation.worstEvaluation)
+      // The operator waypoint re-bias's own five numbers (see
+      // ActiveGameManager.MoveEvaluation.waypointBias). Emitted here because
+      // only the engine knows the weights it scored with and the waypoint
+      // contribution it already folded into `score`.
+      waypointBias: {
+        gotoWeight: evaluation.worstEvaluation.weights.gotoProgress,
+        nearWeight: evaluation.worstEvaluation.weights.nearProgress,
+        recorded:
+          (evaluation.worstEvaluation.weighted.gotoProgressScore ?? 0) +
+          (evaluation.worstEvaluation.weighted.nearProgressScore ?? 0),
+        trapped: evaluation.worstEvaluation.stats.trapped ?? 0,
+        regicide: evaluation.worstEvaluation.stats.regicide ?? 0,
+      },
     }));
     
     // Current-board territory + ownership for visualization. Owner/distance
@@ -295,35 +282,14 @@ export class VoronoiStrategy {
     console.log(`Position: (${gameState.you.head.x}, ${gameState.you.head.y}), Health: ${gameState.you.health}`);
     console.log(`Candidate moves: ${decision.candidateMoves.join(', ')}`);
     
-    // Log detailed breakdown for each evaluated move. Rows are derived from
-    // the heuristic registry: one row per key (labelled by the key itself),
-    // shown when the stat or its weighted score is non-zero, plus the raw
-    // (never-weighted) foodDistance row.
     for (const evaluation of decision.evaluations) {
       if (evaluation.worstScore === -Infinity) {
-        console.log(`\nMove ${evaluation.move}: DEATH (no valid scenarios)`);
+        console.log(`Move ${evaluation.move}: DEATH (no valid scenarios)`);
         continue;
       }
-
-      const breakdown = evaluation.worstEvaluation;
-      console.log(`\nMove ${evaluation.move}: Total Score = ${breakdown.score.toFixed(2)} (${evaluation.numStates} states evaluated)`);
-      console.log('┌──────────────────────┬──────────┬──────────┬──────────┐');
-      console.log('│ Component            │     Stat │ × Weight │  = Score │');
-      console.log('├──────────────────────┼──────────┼──────────┤');
-
-      for (const key of HEURISTIC_KEYS) {
-        if (key === 'foodProximity') {
-          console.log(`│ ${'foodDistance'.padEnd(20)} │ ${breakdown.stats.foodDistance.toFixed(1).padStart(8)} │          │  (raw)   │`);
-        }
-        const stat = breakdown.stats[key];
-        const weighted = breakdown.weighted[`${key}Score`];
-        if (stat === 0 && weighted === 0) continue;
-        console.log(`│ ${key.padEnd(20)} │ ${stat.toFixed(2).padStart(8)} │ ×${breakdown.weights[key].toString().padStart(7)} │ ${weighted.toFixed(2).padStart(8)} │`);
-      }
-
-      console.log('└──────────────────────┴──────────┴──────────┴──────────┘');
+      console.log(`Move ${evaluation.move}: ${evaluation.worstEvaluation.score.toFixed(2)}`);
     }
-    
+
     console.log(`\nCHOSEN: ${decision.move.toUpperCase()}`);
   }
 }

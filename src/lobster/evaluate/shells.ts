@@ -112,7 +112,8 @@ function stampFronts(
   words: number,
   cells: number
 ): Int32Array {
-  const earliest = new Int32Array(cells).fill(NEVER);
+  const earliest = new Int32Array(cells);
+  earliest.fill(NEVER);
   for (let i = 0; i < fronts.length; i++) {
     const stamp = heldAtTurn + i;
     bbForEach(fronts[i] as Board, words, (c) => {
@@ -145,6 +146,8 @@ class Shells implements UnitShells {
       const stamp = this.horizonTurn + 1;
       this.fronts.push(this.timeline.at(Math.max(0, stamp - this.heldAtTurn)).headPossible);
       this.horizonTurn = stamp;
+      // Dropping the cached grid means the NEXT `earliest()` re-stamps rather
+      // than handing back a grid built for a shorter horizon.
       this.stamped = null;
     }
   }
@@ -217,10 +220,18 @@ export class ShellTable {
     return this.map.size;
   }
 
+  /**
+   * `held` carries the timeline the caller already holds; otherwise `source`
+   * dilates one, and only on a miss. Two nullable parameters rather than the
+   * `() => CloudTimeline` thunk this used to take: the thunk was allocated on
+   * EVERY call, hit or miss, once per unit per evaluation, to be invoked on
+   * roughly none of them.
+   */
   private intern(
     record: FrozenRecord,
     prefix: string,
-    make: () => CloudTimeline,
+    held: CloudTimeline | null,
+    source: CloudSource | null,
     horizonTurn: number
   ): UnitShells {
     const known = this.byIdentity.get(record);
@@ -234,7 +245,8 @@ export class ShellTable {
     let entry = this.map.get(key);
     if (entry === undefined) {
       this.misses++;
-      entry = new Shells(record.unitId, make(), record.heldAtTurn, this.grid);
+      const timeline = held ?? (source as CloudSource).timelineFor(record);
+      entry = new Shells(record.unitId, timeline, record.heldAtTurn, this.grid);
       this.map.set(key, entry);
       if (this.map.size > this.capacity) {
         const oldest = this.map.keys().next();
@@ -253,13 +265,69 @@ export class ShellTable {
 
   /** Shells for a record whose timeline the caller already holds. */
   forTimeline(timeline: CloudTimeline, record: FrozenRecord, horizonTurn: number): UnitShells {
-    return this.intern(record, 'H|', () => timeline, horizonTurn);
+    return this.intern(record, 'H|', timeline, null, horizonTurn);
   }
 
   /** Shells for a record the engine must dilate — never through `arrival()`. */
   forRecord(source: CloudSource, record: FrozenRecord, horizonTurn: number): UnitShells {
-    return this.intern(record, `${sourceIdOf(source)}|`, () => source.timelineFor(record), horizonTurn);
+    return this.intern(record, `${sourceIdOf(source)}|`, null, source, horizonTurn);
   }
+
+  /**
+   * THE LIVE UNIT'S RECORD, REUSED WHEN IT HAS NOT CHANGED.
+   *
+   * `recordOfView` is a pure function of the view, and a fresh object out of it
+   * is an `byIdentity` MISS by construction — so every live unit of every
+   * evaluation paid `frozenRecordKey`, which interpolates eleven fields and
+   * JOINS the occupancy array. Measured at 4.2% of a decision's self time,
+   * entirely on records that were identical to the one built for the same unit
+   * a moment earlier: across the branches of one price most units stand where
+   * they stood.
+   *
+   * So the table keeps the last record per unit and hands the SAME OBJECT back
+   * when every field of `FROZEN_RECORD_KEY_FIELDS` still matches — which is
+   * exactly the condition under which the string key would have matched too.
+   * Field-for-field, not by a shortcut: the fields are enumerated below in the
+   * order that constant declares them, and `occupancy` is compared elementwise.
+   */
+  recordForView(view: UnitView, turn: number): FrozenRecord {
+    const cached = this.lastRecord.get(view.unitId);
+    if (cached !== undefined && sameAsView(cached, view, turn)) return cached;
+    const made = recordOfView(view, turn);
+    this.lastRecord.set(view.unitId, made);
+    return made;
+  }
+
+  private readonly lastRecord = new Map<UnitId, FrozenRecord>();
+}
+
+/**
+ * Would `recordOfView(view, turn)` produce a record equal to `r`?
+ *
+ * Every field `FROZEN_RECORD_KEY_FIELDS` names is compared. `narrowedTo` is
+ * not: `recordOfView` always writes `null`, so a cached record that has
+ * anything else in it did not come from here — the check refuses it.
+ */
+function sameAsView(r: FrozenRecord, view: UnitView, turn: number): boolean {
+  if (
+    r.unitId !== view.unitId ||
+    r.kind !== view.kind ||
+    r.team !== view.team ||
+    r.heldAtTurn !== turn ||
+    r.health !== view.health ||
+    r.tier !== view.tier ||
+    (r.tierExpiresAtTurn ?? null) !== (view.tierExpiresAtTurn ?? null) ||
+    r.weight !== view.weight ||
+    (r.orientation as number) !== (view.orientation as number) ||
+    r.narrowedTo !== null
+  ) {
+    return false;
+  }
+  const a = r.occupancy;
+  const b = view.cells;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /**
@@ -317,7 +385,7 @@ export function buildShells(
     if (into.has(view.unitId)) continue;
     into.set(
       view.unitId,
-      table.forRecord(source, recordOfView(view, resolution.state.turn), horizon)
+      table.forRecord(source, table.recordForView(view, resolution.state.turn), horizon)
     );
   }
   return into;

@@ -1,0 +1,161 @@
+{
+ "_comment": [
+  "P10 — CENTAUR_TERRITORY_REFINE (CL5), status probe-passed.",
+  "",
+  "QUESTION: Does a floor that is 1-2 cells tighter on a quarter of emissions pay for a third more territory time, at equal wall clock?",
+  "",
+  "ARMS: default  |  refiner",
+  "",
+  "ARM CONFIGS (both arms from POST-TEARDOWN bundles):",
+  "    --arm 'default=<bundle>'",
+  "    --arm 'refiner=<bundle>,bot={\"territoryRefine\":true}'",
+  "READS OUT: refineMovedLo, refineInverted, worstWallMs, decisions, score",
+  "",
+  "DESIGN NOTE: RESPECIFIED 20260830: the base arm is now the SHIPPED BOT, not `enum-on`. The refiner requires the enumeration and the enumeration is unconditional, so `default` already carries it and an off-vs-refine pair no longer measures their sum. Two contenders, both post-teardown bundles: `default`, and `refiner` = `bot={\"territoryRefine\":true}`. Unchanged from the original spec: a cell that never exercises a held teammate will never move the `hi` channel — build the arm knowing that.",
+  "",
+  "POWER: PIECE-BEARING CELLS ARE NOT SIZED BY THIS SPEC'S BLOCK COUNT — MEASURED 20260830. An A/A null on a piece-bearing cell, potions ON + hazard cross, TWO IDENTICAL BUNDLES with identical configs and identical seeds, returned sharePar +0.271 [0.037, 0.506] at 8 blocks. IT EXCLUDES ZERO. A cell whose null excludes zero has no floor, and a treatment delta with no floor is UNREADABLE rather than null — the ledger's own rule. All-snake cells at the same size floored cleanly at +/-0.10 (measurements: snakes potions-off +0.041 +/- 0.097, snakes potions-ON hazard -0.093 +/- 0.159 and -0.064 +/- 0.099, against queen potions-ON hazard +0.053 +/- 0.120 on one bundle and +0.271 +/- 0.234 on the other). Carrying the widest measured piece-cell half-width forward, +/-0.234 at 8 blocks, the arithmetic for a +/-0.10 floor is 8 x (0.234/0.10)^2 = 44 BLOCKS PER PIECE CELL. THE CROSSOVER HAS NOT BEEN MEASURED and 44 is an extrapolation from one point, which is why batch 3's rank-2 item is the calibration run that measures it (A/A pairs at 8/16/32/64 blocks on one piece cell, both bundles) rather than a guess repeated at owner-shape prices.",
+  "",
+  "REQUIRES: MINIMUM BLOCKS FOR A CLAIMABLE READ ON A PIECE-BEARING CELL: 44, and this spec is emitted at 16. Blocks are a property of the SPEC and not of a cell (the standing CELL-QUALITY open item), so a piece cell cannot be raised without raising the all-snake cell beside it and the mandatory A/A null with it. Until the calibration lands, read this spec's PIECE cells (hazard-mix-king, headline-mix-king) under one rule: A DELTA ON A PIECE CELL IS QUOTED ONLY AGAINST N0's FLOOR MEASURED ON THAT SAME CELL, ON THE SAME BUNDLE, AT THE SAME BLOCK COUNT — and if that floor does not contain zero, the cell reports UNREADABLE and no verdict is written from it. The all-snake cells in this spec are unaffected and floor at +/-0.10. This is not a reason to skip the spec: its mechanism rows are per-decision counts, they are readable at this size, and they are what most of these experiments were designed to read.",
+  "",
+  "HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The",
+  "feature flags are gone (owner ruling 20260829; the search-layer half",
+  "landed with the depth work). An arm is a BUNDLE plus a named BotConfig:",
+  "    --arm 'treat=<bundle>,bot={\"territoryRefine\":true}'",
+  "or a `contenders` map in the spec. Exporting a CENTAUR_* variable now",
+  "does NOTHING — an arm that sets one plays the shipped bot under a",
+  "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+  "refuses the dead names; a bad config field is a refusal from",
+  "botConfigFromJson rather than a silent off.",
+  "THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no",
+  "bot-config module and ignores the config entirely, so BOTH arms of a",
+  "pair must be built from post-teardown refs. Read the per-game rows'",
+  "mechanism.config stamp — the bot that actually resolved — not the spec.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p10-territory_refine",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  50401,
+  50402,
+  50403,
+  50404,
+  50405,
+  50406,
+  50407,
+  50408,
+  50409,
+  50410,
+  50411,
+  50412,
+  50413,
+  50414,
+  50415,
+  50416
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "hazard-mix-king",
+   "config": {
+    "name": "hazard-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "cross",
+     "damageRatio": 0.15
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ]
+}

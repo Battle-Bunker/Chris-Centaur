@@ -1,8 +1,8 @@
 /**
- * WHAT THE SEARCH IS ALLOWED TO KNOW ABOUT TIER — a measurement seam.
+ * WHAT THE SEARCH KNOWS ABOUT TIER — the whole truth, and no switch.
  *
  * Two facts about invulnerability ride the wire on every turn and neither one
- * reached the possibility-cloud layer:
+ * used to reach the possibility-cloud layer:
  *
  *   1. `Snake.invulnerabilityExpiryTurn` — a tier is a WINDOW, not a property.
  *      `substrate.ts` used to hard-wire `tierExpiresAtTurn: null` on every
@@ -16,60 +16,82 @@
  *      `[min(0,tier), max(0,tier)]`. The machinery was present, correct and
  *      unreachable.
  *
- * Feeding the two is not one change with one sign. Expiry is a NARROWING — a
- * lapsed window shrinks a tier interval toward zero. The potion board is a
- * WIDENING — a reachable potion raises a ceiling and drops a floor below zero.
- * A single on/off switch measures their sum and can only report the sum, so
- * the seam names them separately.
+ * Both are now fed, unconditionally. They used to sit behind
+ * `CENTAUR_TIER_TRUTH`, whose three levels (`off` / `expiry` / `full`) let a
+ * measurement arm feed one, both or neither. The flag is gone with the rest of
+ * the flag system, and the value it is gone AT is `full`.
  *
- * The other two exist so an arm can be attributed. Read once, at module load,
- * because a setting that changes mid-game would put two incomparable bases in
- * one bound bank.
+ * ── WHY `full` AND NOT THE `expiry` THAT SHIPPED ───────────────────────────
  *
- * ── STAGE 3 SHIP SUBSET (integ/round-a) ────────────────────────────────────
+ * The flag shipped at `expiry` on a Stage 2.5 verdict that HELD the potion
+ * board: the widening was said to cause an "858-inversion interaction storm
+ * (class: B0 floor > B1 ceiling)" and to be gated on an upstream engine demand.
+ * That demand was met by `engine/fix5`, which ALSO changed the widening's
+ * arithmetic — `couldCollectPotion` is now gated `n >= 2` (the commit-time lag,
+ * cloud.ts) instead of firing at the turn-start field, and own reach only
+ * LOWERS own tier, with the ally ceiling moved to `field.ts::build`. The storm
+ * numbers describe code that no longer exists, and the re-measure was never
+ * run. So the choice could not be made on the old measurement either way.
  *
- * THE DEFAULT IS `expiry`, NOT `full`. I4's branch shipped `full`; the ledger's
- * Stage 2.5 verdict ships only half of it:
+ * It is made on two facts that ARE current, and they point the same way.
  *
- *   "ship the EXPIRY threading + the tier-defense layer ... HOLD the potion-
- *    board widening: causes an 858-inversion interaction storm (class: B0
- *    floor > B1 ceiling), gated on a NEW UPSTREAM ENGINE DEMAND"
+ * ONE — AT THE DEPTH PRODUCTION ACTUALLY RUNS, `full` IS A MEASURED NO-OP.
+ * `n = 1` is the only reading a ply-1 decision consults, and a potion taken on
+ * the move being resolved is applied at THAT turn's commit, so it governs
+ * nothing in the contest being asked about. Measured over 160 replays of the
+ * full trio on 40 potion-bearing piece boards at two budgets, `full` moved the
+ * argmax on 0 of them and the published bracket on 0 of them, while
+ * `couldCollectPotion` fired on 36 of the 40 once the field was dilated
+ * (`__tests__/tier-window.test.ts`, "cannot move the turn-start field"). The
+ * belief changes; the ply-1 decision does not. So this default costs today's
+ * bot nothing, and the byte-identity gate says so rather than assuming it.
  *
- * That upstream demand is now met — `engine/fix5` landed the tierMax fix — but
- * the widening's RE-MEASURE has not been run, and the fix5 report says so in
- * as many words: "I4 storm NOT re-measured ... report says what to rebase+run."
- * A widening whose interaction storm was never re-priced does not ship on the
- * strength of the fix that was supposed to enable it. So the widening stays
- * dark and `CENTAUR_TIER_TRUTH=full` is the arm that re-measures it.
+ * TWO — AT DEPTH >= 2, `expiry` IS THE UNSOUND ONE. An empty potion board is
+ * not a missing refinement, it is a FALSE PREMISE: the cloud's tier-ceiling
+ * arithmetic concludes that no held unit can raise its tier, on a board where
+ * the potions to raise it are sitting there and reachable. A ceiling derived
+ * from that is too tight, and a too-tight ceiling is a claim of impossibility
+ * that the rules do not support — exactly the class of error the floor/ceiling
+ * laws exist to forbid. It cannot bite at `n = 1` (see above), which is why it
+ * was survivable to ship; it bites the moment anything reads `n >= 2`, which
+ * is the depth work now starting.
  *
- * NOTE FOR THAT ARM: fix5 also changed the widening's TIMING. `couldCollectPotion`
- * is now gated `n >= 2` (the commit-time lag, cloud.ts) rather than firing at
- * the turn-start field, and own reach only LOWERS own tier — the ally ceiling
- * moved to `field.ts::build`. The storm must be re-measured against THAT
- * arithmetic; the old numbers describe code that no longer exists.
+ * A default that is free today and sound tomorrow beats one that is free today
+ * and wrong tomorrow. The choice is recorded here rather than left to a switch
+ * so that the depth work inherits a premise it can trust.
  *
- * The EXPIRY half is unaffected by any of this and ships: it is a NARROWING,
- * it needs no potion board, and it is what stops a three-turn buff being
- * priced as a permanent one.
+ * ── THE SECOND SEAM, AND WHY IT IS NOT A SWITCH EITHER ─────────────────────
+ *
+ * Feeding the cloud the truth about tier changes what the search BELIEVES; the
+ * tier-window filter in `candidates.ts` changes what it is allowed to CONSIDER.
+ * One is a correction, the other is a policy, and `CENTAUR_TIER_DEFENSE` let an
+ * arm separate them. The policy ships ON and has since Stage 3; it is now a
+ * plain `DEFAULT_KNOBS` default (`tierSafeStaging`, `selfDebuffOrdering`) like
+ * every other candidate-layer policy, which a `BotConfig` overrides by naming
+ * the knob. The seam survives; the environment variable does not.
+ *
+ * ── WHERE THIS IS GOING ────────────────────────────────────────────────────
+ *
+ * The core redesign (§1.4) sentences potion-tier modelling to socket-3 entries
+ * carrying their own records. Until an entry exists to carry it, the truth the
+ * substrate feeds the cloud is a kernel premise and not a strategy: it decides
+ * what is TRUE about the board, not what is worth doing about it, and by the
+ * seam rule ("if it can change a sound bound, it is kernel") it could not be a
+ * slot entry in any case.
  */
 
-/** What the substrate feeds the cloud layer about tier. */
+/** What the substrate feeds the cloud layer about tier.
+ *
+ * Retained as a type because the scout's door still names it and because a
+ * later socket-3 entry will carry it as a param. There is one shipped value. */
 export type TierTruth = 'off' | 'expiry' | 'full';
 
-const PARSE: Record<string, TierTruth> = {
-  off: 'off',
-  expiry: 'expiry',
-  full: 'full',
-};
-
 /**
- * `off` reproduces the pre-change behaviour exactly (null expiry, empty potion
- * board); `expiry` feeds real expiry only; `full` feeds both.
- *
- * Defaults to `expiry` — the Stage 3 ship subset. See the header.
+ * THE PREMISE, and it is a constant. `full` feeds real expiry AND the real
+ * potion board — see the header for why that is both free at ply 1 and the only
+ * sound reading past it.
  */
-export const TIER_TRUTH: TierTruth =
-  PARSE[String(process.env.CENTAUR_TIER_TRUTH ?? '').trim()] ?? 'expiry';
+export const TIER_TRUTH: TierTruth = 'full';
 
 /** Does the search get the real expiry turn, or the old permanent-tier lie? */
 export function tierExpiryEnabled(mode: TierTruth = TIER_TRUTH): boolean {
@@ -80,15 +102,3 @@ export function tierExpiryEnabled(mode: TierTruth = TIER_TRUTH): boolean {
 export function potionBoardEnabled(mode: TierTruth = TIER_TRUTH): boolean {
   return mode === 'full';
 }
-
-/**
- * The SECOND seam, and it is a different question from the first.
- *
- * Feeding the cloud the truth about tier changes what the search BELIEVES;
- * the tier-window filter in `candidates.ts` changes what it is allowed to
- * CONSIDER. One is a correction, the other is a policy, and an arm that moves
- * both at once can only report their sum. Default on; `off` gives the
- * corrected-beliefs-only arm.
- */
-export const TIER_DEFENSE: boolean =
-  String(process.env.CENTAUR_TIER_DEFENSE ?? '').trim().toLowerCase() !== 'off';

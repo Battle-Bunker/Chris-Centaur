@@ -46,6 +46,7 @@ import type {
   Bound,
   BudgetHandle,
   CrossfadeVerdict,
+  DepthNote,
   EmitRecord,
   JointPlan,
   Kernel,
@@ -59,6 +60,8 @@ import type {
   UnitId,
   Witness,
 } from "./contracts"
+import { beliefReportOf, foldObservation, posteriorOfBranch, precisionOfSigma } from "./belief"
+import type { BeliefReport, BranchPosterior } from "./belief"
 import {
   DEFAULT_DEAD_BELOW,
   PostureGovernor,
@@ -72,6 +75,9 @@ import {
   StickyStager,
   VocOrchestrator,
   asRefiner,
+  depthSpoke,
+  pickLeader,
+  pickLeaderWithoutDepth,
   planKey,
   rootSlack,
   type CandidateView,
@@ -138,6 +144,10 @@ class SliceBudget implements BudgetHandle {
     private readonly clock: () => number,
     private readonly start: number,
     private readonly end: number,
+    /** The DECISION's stop time, which is `end` only on the last slice. Carried
+     * so `decisionFraction` can answer a turn-scale question from a slice-scale
+     * handle; see `BudgetHandle.decisionFraction`. */
+    private readonly decisionEnd: number = end,
   ) {}
   now(): number {
     return this.clock()
@@ -150,6 +160,20 @@ class SliceBudget implements BudgetHandle {
   }
   shouldStop(): boolean {
     return this.clock() >= this.end
+  }
+  /** Share of the whole decision still unspent, in [0, 1]. A decision with no
+   * span at all (a deadline already reached) reads 0 — cold, which is the right
+   * answer for a turn that is over. */
+  decisionFraction(): number {
+    const span = this.decisionEnd - this.start
+    if (!(span > 0)) return 0
+    const left = (this.decisionEnd - this.clock()) / span
+    return left > 1 ? 1 : left > 0 ? left : 0
+  }
+  /** The same quantity in milliseconds — see `BudgetHandle.decisionRemainingMs`
+   *  for why a per-decision layer must read this and not `remainingMs`. */
+  decisionRemainingMs(): number {
+    return Math.max(0, this.decisionEnd - this.clock())
   }
 }
 
@@ -403,6 +427,34 @@ export interface KernelOptions {
    * expensive one has been measured to be.
    */
   readonly maxSliceFraction: number
+  /**
+   * THE SHARE OF THE TURN RUNG 0 MAY SPEND ON ITS ONE PRICE.
+   *
+   * Rung 0's contract is *"a conforming, legal joint plan on the wire before
+   * any refinement runs"*, and `SearchCore.conform` implements it as one
+   * `price()` to prove the seed resolves plus a repair of whatever that price
+   * says we killed ourselves. Both are bounded by the budget handle they are
+   * given, and `conformNow` used to give them the WHOLE DECISION — so the
+   * bank's ladder had nothing to stop it and neither did the repair.
+   *
+   * Measured on the batch-2 replay corpus: 210 ms mean and 415 ms worst for
+   * that single price on a 25×25 mixed king board, and a time-to-first-staged-
+   * plan of 907 ms p50 / 2,462 ms max against a 500 ms turn. Every one of that
+   * cell's missed deadlines was a decision still waiting for its first plan.
+   *
+   * A REAL SLICE, THEN — and 0.1 is the same share `maxSliceFraction` already
+   * gives every other slice, for the same reason: no single stretch of work
+   * may own more of the turn than that, however expensive it has been measured
+   * to be. Where the ladder fits inside it (small boards, generous turns) rung
+   * 0 completes and stages exactly what it staged before; where it does not,
+   * it degrades the way every other truncated sweep does — `finished: false`,
+   * a lower ceiling, never a raised floor — and the refinement slices that
+   * follow re-price the same plan from the same bank at full depth.
+   *
+   * The floor is `sliceMs`, so a turn too short to have a tenth still gets a
+   * price rather than an empty budget.
+   */
+  readonly rungZeroFraction: number
   /** Minimum wall gap between writes. The wire has no server-side rate limit; this is it. */
   readonly minWriteIntervalMs: number
   /** Fraction of the standing gap a re-emission of the SAME plan must remove. */
@@ -458,6 +510,7 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   sliceMs: 0.5,
   sliceCostFactor: 5,
   maxSliceFraction: 0.1,
+  rungZeroFraction: 0.1,
   minWriteIntervalMs: 2,
   gapImprovementFraction: 0.15,
   switchRule: "floor",
@@ -616,6 +669,34 @@ export interface KernelReport {
     readonly witnesses: number
     readonly stepCostMs: number
   }>
+  /**
+   * PER-PLAN WORK, as data. One row per plan the decision ever held.
+   *
+   * `visits` is the visit count `N` — how many times a slice committed a score
+   * for that plan; `evaluations` is the kernel evaluations charged to it. This
+   * is telemetry and a later selection layer's denominator; nothing in the
+   * kernel reads it, and nothing may: a work count is not a bound, and rule 17
+   * keeps it out of every comparator.
+   */
+  readonly planWork: ReadonlyArray<{
+    readonly key: string
+    readonly visits: number
+    readonly evaluations: number
+    readonly horizon: number
+    /** The branch's belief as the decision ended (core redesign §3.1). Carried
+     * on the same terms as `visits`: populated, reported, read by nothing. */
+    readonly belief: BranchPosterior
+  }>
+  /**
+   * THE DECISION'S BELIEFS, folded (core redesign §3.1).
+   *
+   * Assembled at report time from the posteriors the plan table already
+   * carried — no second pass over anything, and no decision consulted. Its
+   * `deciding: false` is published rather than assumed: the increment that
+   * gives the belief its readers flips it, and a sweep can then tell the two
+   * builds apart without reading the source.
+   */
+  readonly belief: BeliefReport
   /** The context the wire's last record came from. */
   readonly activeContextKey: string
   /** True only if the kernel never put a plan on the wire. Must never happen. */
@@ -673,6 +754,90 @@ interface PlanCandidate {
   score: PlanScore | null
   bound: Bound
   horizon: number
+  /**
+   * WORK ACCUMULATES; THE SCORE REPLACES.
+   *
+   * `score` and `bound` are the LATEST reading and are overwritten on every
+   * commit, which is correct — a later reading is proved at a later horizon
+   * and supersedes. But the two counters below are the plan's history, and
+   * overwriting them would have thrown away the only record of how much of the
+   * decision each plan actually cost.
+   *
+   * `visits` is the visit count a selection layer denominates confidence in
+   * (the `N` of every bandit index): how many times a slice committed a score
+   * for this plan. `evaluations` is the kernel evaluations charged to it —
+   * work, not visits, and the two diverge because `conform` evaluates without
+   * committing a search score.
+   *
+   * Nothing reads them yet. They are recorded now because they cannot be
+   * reconstructed later: the commit that would have added to them has already
+   * happened and left no trace.
+   */
+  visits: number
+  evaluations: number
+  /**
+   * THE PER-BRANCH BELIEF (core redesign §3.1) — CARRIED, POPULATED, AND READ
+   * BY NOTHING.
+   *
+   * The same standing as `visits` above, and for the same reason: it is the
+   * quantity the increment that turns it on will be judged against, and it
+   * cannot be reconstructed after the fact. It is REBUILT from the latest
+   * triple on every update rather than folded observation by observation —
+   * see `refreshBelief` for why accumulating precision over a re-priced plan
+   * would manufacture confidence out of repeat work.
+   *
+   * Nothing in this file reads it. Every decision this kernel makes still runs
+   * through `rows()` -> the stager -> the gates, on `lo`/`est`/`hi`, exactly as
+   * before. `src/lobster/belief.ts` carries the structural argument, and
+   * `eslint.config.js` keeps the bounds, search and evaluate layers from
+   * importing it at all.
+   */
+  belief: BranchPosterior
+  /**
+   * WHAT DEPTH SAID ABOUT THIS BRANCH, or null.
+   *
+   * Kept alongside the near reading rather than folded once and forgotten,
+   * because `refreshBelief` REBUILDS the posterior every time the near reading
+   * is replaced (see below) and a deep observation that was folded into a
+   * superseded posterior would silently vanish on the next re-price.
+   */
+  deep: DepthNote | null
+}
+
+/**
+ * REBUILD a branch's posterior from its latest reading.
+ *
+ * The sound support is the one the staging row uses — `bounds?.worst ?? bound.lo`
+ * — so the belief and the row can never disagree about which interval they are
+ * describing. The density is the computed `est` at the precision that interval
+ * earns.
+ *
+ * REBUILT, NOT FOLDED. `score` and `bound` are the LATEST reading and replace;
+ * a plan re-priced by a later slice returns the identical number (the
+ * evaluation memo proves it — 99.7% of evaluations on the measured board were
+ * repeats), so folding each one in as a fresh observation would add precision
+ * for work that learned nothing.
+ */
+function refreshBelief(cand: PlanCandidate): void {
+  const bounds = cand.score?.bounds
+  const lo = bounds?.worst ?? cand.bound.lo
+  const hi = bounds?.best ?? cand.bound.hi
+  let post = posteriorOfBranch(lo, hi, cand.bound.est)
+  // THE DEEP HALF, folded on top and never truncated into the one-ply
+  // interval. One observation per branch, so the "accumulating precision over
+  // a repeat reading" hazard the rebuild exists to avoid cannot arise here
+  // either: a re-price re-folds the same single note onto a fresh near half.
+  const note = cand.deep
+  if (note !== null) {
+    post = foldObservation(post, {
+      kind: "deep-finding",
+      value: note.value,
+      precision: precisionOfSigma(note.sigma),
+      plies: note.plies,
+    })
+  }
+  cand.belief = post
+  cand.horizon = post.plies
 }
 
 /** Consecutive slices that charge nothing to the clock before the loop gives
@@ -774,6 +939,22 @@ interface Run {
   evaluateCalls: number
   sliceCostTotal: number
   boundViolations: number
+  /**
+   * THE DEEP OBSERVATIONS THIS DECISION HAS BEEN TOLD ABOUT, by plan key.
+   *
+   * Drained from the core's depth surface after every slice, because a slice
+   * that opens a session is the first slice that can have any. They are folded
+   * into the matching branch's belief and RE-folded whenever that branch's
+   * near reading is replaced, which is why they are kept here rather than
+   * being applied once and forgotten.
+   */
+  deep: Map<string, DepthNote>
+  /** Did the search core report that the deep channel changed the plan it
+   *  returned? The primary half of the depth-effect indicator. */
+  depthChangedPlan: boolean
+  /** Did the BELIEF rung change which row the stager led with, on any slice?
+   *  The kernel-side half of the same indicator. */
+  depthChangedLeader: boolean
   refusals: Record<EmitRefusal, number>
   crossfade: {
     independent: number
@@ -904,6 +1085,9 @@ export class LobsterKernel implements Kernel {
       evaluateCalls: 0,
       sliceCostTotal: 0,
       boundViolations: 0,
+      deep: new Map<string, DepthNote>(),
+      depthChangedPlan: false,
+      depthChangedLeader: false,
       refusals: {
         "ratchet-floor": 0,
         "ratchet-gap": 0,
@@ -1082,7 +1266,7 @@ export class LobsterKernel implements Kernel {
       const cap = Math.max(run.budgetMs * this.opts.maxSliceFraction, this.opts.sliceMs)
       const sliceLength = Math.min(Math.max(this.opts.sliceMs, measured), cap)
       const sliceEnd = Math.min(run.searchDeadline, run.now() + sliceLength)
-      const budget = new SliceBudget(run.now, run.t0, sliceEnd)
+      const budget = new SliceBudget(run.now, run.t0, sliceEnd, run.searchDeadline)
       const ctx = this.searchContext(run, entry, budget)
       const s0 = run.now()
       let score: PlanScore | null = null
@@ -1116,8 +1300,14 @@ export class LobsterKernel implements Kernel {
         // handful of decisions — so printing them unconditionally would bury a
         // log, and printing none makes the counter unactionable. Env-gated:
         // CENTAUR_DEBUG_INVERSION=1 while reproducing.
+        //
+        // The CHANNEL is named because there are two and this one is not the
+        // one the corpus uses: `search/core.ts` absorbs a rung-0 inversion
+        // without ever reaching this catch, and the two are folded into the
+        // SAME counter at `drainRefusals`. An untagged line under a climbing
+        // counter reads as "the seam is covering it" when it is not.
         if (process.env.CENTAUR_DEBUG_INVERSION) {
-          process.stderr.write(`INVERSION ${(err as Error).message}\n`)
+          process.stderr.write(`INVERSION slice: ${(err as Error).message}\n`)
         }
         run.boundViolations++
         run.refusals["bounds-inversion"]++
@@ -1126,6 +1316,10 @@ export class LobsterKernel implements Kernel {
       run.slices++
       this.observeSliceCost(run, entry, s1 - s0)
       entry.cursor++
+      // THE DEPTH SURFACE, CONSULTED — before the slice's score is absorbed,
+      // so a branch that arrives this slice arrives with whatever depth has
+      // already said about it rather than a slice late.
+      this.drainDepth(run)
       if (score === null) continue
       this.absorb(run, entry, score)
 
@@ -1390,14 +1584,33 @@ export class LobsterKernel implements Kernel {
     if (entry.speculative) return
     const key = planKey(score.plan)
     const bound = this.evaluateBound(run, score.plan)
-    const horizon = run.lastView?.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
-      run.plans.set(key, { key, plan: score.plan, score, bound, horizon })
+      const made: PlanCandidate = {
+        key,
+        plan: score.plan,
+        score,
+        bound,
+        // Overwritten immediately by `refreshBelief`, which is the ONE place a
+        // horizon is decided now: it is the deepest ply any observation on
+        // this branch was denominated at, and 1 when nothing deeper spoke.
+        // The `run.lastView?.horizon ?? 1` this used to read was a constant
+        // dressed as a measurement — `lastView` is null for the life of every
+        // production decision, so the expression was literally `1`.
+        horizon: 1,
+        visits: 1,
+        evaluations: 1,
+        belief: posteriorOfBranch(score.bounds.worst, score.bounds.best, bound.est),
+        deep: run.deep.get(key) ?? null,
+      }
+      run.plans.set(key, made)
+      refreshBelief(made)
     } else {
       existing.score = score
       existing.bound = bound
-      existing.horizon = horizon
+      existing.visits++
+      existing.evaluations++
+      refreshBelief(existing)
     }
   }
 
@@ -1418,7 +1631,14 @@ export class LobsterKernel implements Kernel {
       score: null,
       bound: { lo: c.lo, est: c.est, hi: c.hi },
       horizon: c.horizon,
+      // Materialised from the view, not scored here: no visit and no
+      // evaluation has been charged to it yet.
+      visits: 0,
+      evaluations: 0,
+      belief: posteriorOfBranch(c.lo, c.hi, c.est),
+      deep: run.deep.get(c.key) ?? null,
     }
+    refreshBelief(cand)
     run.plans.set(c.key, cand)
     return cand
   }
@@ -1440,6 +1660,44 @@ export class LobsterKernel implements Kernel {
     return Math.max(0, row.hi - row.lo)
   }
 
+  /**
+   * CONSULT THE DEPTH SURFACE, and fold what it says into the branches it is
+   * about.
+   *
+   * This is the missing half of the depth machinery, and it is deliberately
+   * NOT the refinement seam. It carries no lever, no rung and no view; it
+   * carries the VALUES deepened lines produced, keyed by the ply-1 plan each
+   * line started from. Wiring the lever seam alone would have made the report
+   * say `horizon: 2` while the decision was still made on one-turn floors — a
+   * report that says the search got deeper when it did not.
+   *
+   * Idempotent and cheap: the core republishes the same notes every slice of a
+   * decision (the threads run once, at session open), so this is a map write
+   * per note and a rebuild only for branches whose note is new.
+   */
+  private drainDepth(run: Run): void {
+    const report = run.input.search.depthReport?.()
+    if (report === null || report === undefined) return
+    if (report.changedPlan) run.depthChangedPlan = true
+    for (const note of report.notes) {
+      const key = planKey(note.plan)
+      const prior = run.deep.get(key)
+      if (
+        prior !== undefined &&
+        prior.value === note.value &&
+        prior.sigma === note.sigma &&
+        prior.plies === note.plies
+      ) {
+        continue
+      }
+      run.deep.set(key, note)
+      const cand = run.plans.get(key)
+      if (cand === undefined) continue
+      cand.deep = note
+      refreshBelief(cand)
+    }
+  }
+
   /** Fold in whatever the core absorbed on our behalf. A refusal it swallowed
    * to keep a legal plan on the wire is still a refusal, and it is counted on
    * the same channel a slice's would be. */
@@ -1456,7 +1714,15 @@ export class LobsterKernel implements Kernel {
   }
 
   private conformNow(run: Run, from: JointPlan): PlanCandidate {
-    const budget = new SliceBudget(run.now, run.t0, run.searchDeadline)
+    // A BOUNDED HANDLE, NOT THE WHOLE TURN — see `rungZeroFraction`. The
+    // decision's own stop time is still carried as the fourth argument, so
+    // `decisionFraction` and `decisionRemainingMs` stay turn-scale for the
+    // layers that ration themselves against the turn; only `shouldStop` and
+    // `remainingMs`, which is what the bank's ladder and the repair loops
+    // read, are bounded here.
+    const span = Math.max(this.opts.sliceMs, run.budgetMs * this.opts.rungZeroFraction)
+    const end = Math.min(run.searchDeadline, run.now() + span)
+    const budget = new SliceBudget(run.now, run.t0, end, run.searchDeadline)
     const ctx = this.searchContext(run, run.active, budget)
     run.conformCalls++
     const plan = run.input.search.conform(ctx, from)
@@ -1466,17 +1732,32 @@ export class LobsterKernel implements Kernel {
     const existing = run.plans.get(key)
     if (existing !== undefined) {
       existing.bound = bound
+      existing.evaluations++
+      refreshBelief(existing)
       return existing
     }
+    const carried =
+      run.active.incumbent !== null && planKey(run.active.incumbent.plan) === key
+        ? run.active.incumbent
+        : null
     const cand: PlanCandidate = {
       key,
       plan,
-      score: run.active.incumbent !== null && planKey(run.active.incumbent.plan) === key
-        ? run.active.incumbent
-        : null,
+      score: carried,
       bound,
       horizon: 1,
+      // `conform` evaluates but does not commit a search score, so this is one
+      // unit of work and no visit — the divergence the two counters exist for.
+      visits: 0,
+      evaluations: 1,
+      belief: posteriorOfBranch(
+        carried?.bounds.worst ?? bound.lo,
+        carried?.bounds.best ?? bound.hi,
+        bound.est,
+      ),
+      deep: run.deep.get(key) ?? null,
     }
+    refreshBelief(cand)
     run.plans.set(key, cand)
     return cand
   }
@@ -1517,7 +1798,10 @@ export class LobsterKernel implements Kernel {
       // candidate table updated with it.
       const bound = this.evaluateBound(run, carriedPlan)
       const cand = run.plans.get(planKey(carriedPlan))
-      if (cand !== undefined) cand.bound = bound
+      if (cand !== undefined) {
+        cand.bound = bound
+        refreshBelief(cand)
+      }
       // The incumbent carries over as the STAGED record — the wire did not
       // change — but its FLOOR does not: it was proved while a different
       // channel led, and comparing across the flip is the thing this basis
@@ -1583,7 +1867,18 @@ export class LobsterKernel implements Kernel {
         : lo <= this.opts.deadBelow
           ? "material-dead"
           : "alive"
-      out.push({ key: cand.key, lo, est: cand.bound.est, hi, horizon: cand.horizon, vacuity })
+      out.push({
+        key: cand.key,
+        lo,
+        est: cand.bound.est,
+        hi,
+        // THE HONEST HORIZON: the deepest ply any observation on this branch
+        // was denominated at, and 1 when nothing deeper than this turn spoke.
+        horizon: cand.horizon,
+        vacuity,
+        mu: cand.belief.mu,
+        prec: cand.belief.prec,
+      })
     }
     return out
   }
@@ -1592,12 +1887,28 @@ export class LobsterKernel implements Kernel {
   private stageAndGate(run: Run, forced: boolean): EmitRecord | null {
     const rows = this.rows(run)
     if (rows.length === 0) return null
+    // THE COUNTERFACTUAL, taken before the stager runs and on the same rows:
+    // which row would have led with the belief rung removed. A difference is
+    // the kernel-side half of the depth-effect indicator.
+    if (depthSpoke(rows)) {
+      const withDepth = pickLeader(rows, run.governor.policy)
+      const without = pickLeaderWithoutDepth(rows, run.governor.policy)
+      if (withDepth >= 0 && without >= 0 && rows[withDepth].key !== rows[without].key) {
+        run.depthChangedLeader = true
+      }
+    }
     const decision = run.stager.stage(rows, run.governor.policy)
     const cand = this.candidateFor(run, decision.staged)
     if (cand === null) return null
     const idx = rows.findIndex((r) => r.key === decision.staged.key)
     const slack = this.slackFor(run, rows, idx, decision.staged)
-    return this.gate(run, cand, decision.staged, slack, decision.horizon, forced)
+    // THE STAGED ROW'S OWN HORIZON, not the barrier's minimum. `EmitRecord.
+    // horizon` is a claim about the plan on the wire — "this move's value
+    // carries N turns of play" — and the min over every row is a claim about
+    // the comparison, which is `StagingDecision.horizon` and stays where it
+    // is. Reporting the barrier here made the record read 1 whenever any
+    // branch was undeepened, which is most of them.
+    return this.gate(run, cand, decision.staged, slack, decision.staged.horizon, forced)
   }
 
   /**
@@ -1867,8 +2178,19 @@ export class LobsterKernel implements Kernel {
   ): EmitRecord {
     const lo = row.lo
     const hi = Math.max(row.hi, row.lo)
+    // CL4's audit field, and only when there is one. `?? null` rather than a
+    // bare call because `selectionReport` is optional on `SearchCore` and a
+    // core that never sampled returns null — the spread then adds no key at
+    // all, so a flag-off record is structurally what it always was and the
+    // standing replay baselines do not have to be regenerated.
+    const selection = run.input.search.selectionReport?.() ?? null
+    // CL6's, on the same terms and for the same reason: absent when the scout
+    // never ran, so a flag-off record is structurally the one that shipped.
+    const scout = run.input.search.scoutReport?.() ?? null
     return {
       plan: cand.plan,
+      ...(selection === null ? {} : { selection }),
+      ...(scout === null ? {} : { scout }),
       // THE RECORD CARRIES THE est THE GATE USED (V4 R6). `gate` ratchets on
       // `row.est` — which comes from the lever view whenever the core exposes
       // one, and from the kernel's own evaluation otherwise — so writing
@@ -1979,6 +2301,11 @@ export class LobsterKernel implements Kernel {
         epoch: e.boundsBasis?.epoch ?? null,
       })
     }
+    // The belief of whatever the wire ended up holding. Read from the plan
+    // table, not recomputed: the report describes the decision that happened.
+    const stagedPlan = run.basis.stagedPlan
+    const stagedBelief =
+      stagedPlan === null ? null : (run.plans.get(planKey(stagedPlan))?.belief ?? null)
     return {
       elapsedMs: end - run.t0,
       budgetMs: run.budgetMs,
@@ -2008,6 +2335,25 @@ export class LobsterKernel implements Kernel {
       committedUnits: [...run.committedUnits].sort((a, b) => a - b),
       speculative,
       contexts,
+      planWork: [...run.plans.values()].map((c) => ({
+        key: c.key,
+        visits: c.visits,
+        evaluations: c.evaluations,
+        horizon: c.horizon,
+        belief: c.belief,
+      })),
+      belief: beliefReportOf(
+        [...run.plans.values()].map((c) => c.belief),
+        stagedBelief,
+        // THE DEPTH-EFFECT INDICATOR, and it is two honest counterfactuals
+        // rather than one. The search core's is a shadow incumbent kept under
+        // the shipped ladder over the same trial stream, from the same seed:
+        // "the plan this decision would have returned with the deep channel
+        // silent". The kernel's is the staging half: the row the stager would
+        // have led with, on the same rows, with the belief rung removed. The
+        // report carries both and their disjunction.
+        { changedSearchAnswer: run.depthChangedPlan, changedLeader: run.depthChangedLeader },
+      ),
       activeContextKey: run.active.key,
       stagedNothing: run.journal.length === 0,
       leverOrderBinding: run.refiner !== null,

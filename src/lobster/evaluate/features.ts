@@ -55,7 +55,7 @@ import type {
 } from '../../partial-engine/index';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
-import { royalMargin } from '../staging-safety';
+import { DEFAULT_ROYAL_REACHERS } from '../staging-safety';
 import { type Bound, type Feature, bound, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
@@ -63,6 +63,15 @@ import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
+import {
+  buildShield,
+  maskedShellsFor,
+  meetIntervals,
+  refineScopeOf,
+  refineWorkspaceFor,
+  shieldCells,
+  shieldIsEmpty,
+} from './refine';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -121,6 +130,17 @@ export interface EvalContext {
   /** The two-plane partition, per reading, computed once and shared by every
    * feature that reads territory. */
   partition(reading: 'lo' | 'hi'): Partition<Standing>;
+  /**
+   * THE SAME PARTITION, WITH THE HELD SIDE'S FLOOD STOPPED AT OUR BODIES.
+   *
+   * Door C (CL5). Null whenever the refiner does not run — no scope registered
+   * by the enumeration, no shield, or nothing held that the shield touches —
+   * and then every consumer keeps the reading it had, byte for byte. The value
+   * it returns is a SECOND SOUND READING of the same quantity, never a
+   * replacement: consumers publish the MEET of the two, so the interval can
+   * only narrow. See `./refine.ts`.
+   */
+  refined(reading: 'lo' | 'hi'): Partition<Standing> | null;
   /**
    * What one team's worth of room is, on THIS board: the largest trail-unit
    * count any team started the turn with. A board constant — read off the
@@ -266,8 +286,8 @@ export function makeContext(
   horizonTurns: number = REACH_HORIZON_TURNS,
   /**
    * The profile's optional knobs. Absent means every optional term keeps the
-   * reading it had: I2's two are off, and `royalReachers` falls back to
-   * `CENTAUR_ROYAL_MARGIN` exactly as I1's defaulted parameter did.
+   * reading it had: I2's two are off, and `royalReachers` takes
+   * `DEFAULT_ROYAL_REACHERS` — the value that shipped.
    *
    * INTEGRATION NOTE (integ/round-a): I1 added a trailing positional
    * `royalReachers: boolean = royalMargin()` here and I2 added a trailing
@@ -291,6 +311,14 @@ export function makeContext(
     lo: null,
     hi: null,
   };
+  // Door C's scope, resolved ONCE per context: the enumeration registers it per
+  // decision, and a `null` here is the whole flag-off world — no shield is
+  // built, no second partition is swept, and nothing below this line runs.
+  const scope = refineScopeOf(sub);
+  const refinedParts: {
+    lo?: Partition<Standing> | null;
+    hi?: Partition<Standing> | null;
+  } = {};
   const ctx: EvalContext = {
     sub,
     asTeam,
@@ -300,11 +328,11 @@ export function makeContext(
     horizonTurns,
     teams,
     roomScale,
-    // I1's default was a defaulted PARAMETER (`= royalMargin()`), which fires
-    // on `undefined`; reading it off the optional bag with the same fallback is
-    // the identical behaviour for a caller that passes no profile and for a
-    // profile that does not set the field.
-    royalReachers: profile?.royalReachers ?? royalMargin(),
+    // A profile that names the field wins; anything else takes the shipped
+    // reading. This used to fall through to `CENTAUR_ROYAL_MARGIN` — see
+    // `DEFAULT_ROYAL_REACHERS` for the correction that switch is owed and why
+    // this change deliberately does not make it.
+    royalReachers: profile?.royalReachers ?? DEFAULT_ROYAL_REACHERS,
     pieceScale,
     command: profile?.command ?? null,
     healthReserveRatio: profile?.healthReserveRatio ?? null,
@@ -326,6 +354,14 @@ export function makeContext(
         ws.domainFor(reading)
       );
       parts[reading] = made;
+      return made;
+    },
+    refined(reading) {
+      if (scope === null) return null;
+      const cached = refinedParts[reading];
+      if (cached !== undefined) return cached;
+      const made = refinedPartition(ctx, reading);
+      refinedParts[reading] = made;
       return made;
     },
     arrivals() {
@@ -419,6 +455,146 @@ export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
 };
 
 // ---------------------------------------------------------------------------
+// Door C — the refined reading (CL5)
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE READING'S PARTITION, RE-SWEPT WITH THE HELD SIDE'S FLOOD STOPPED AT OUR
+ * OWN LIVING BODIES.
+ *
+ * Four declines before any work, in cost order — a decision on which the
+ * refiner has nothing to say pays a set lookup and a board test:
+ *
+ *   1. no unit of ours in scope is a certainly-alive located trail unit that
+ *      nothing out-tiers ⇒ no shield;
+ *   2. the shield is empty (a length-1 body writes nothing);
+ *   3. this reading holds nobody it admits ⇒ nothing to mask, and this is the
+ *      case that makes R3 collapse structural rather than argued;
+ *   4. no held unit this reading admits even TOUCHES the shield inside the
+ *      horizon (`maskedShellsFor` answers 3 and 4 together).
+ *
+ * WHICH UNITS ARE MASKED, PER READING. Exactly the ones the reading both
+ * ADMITS and HOLDS, which by `ADMISSION` above is the enemy side in `lo` and
+ * our own side in `hi`. Masking anything located would move a determinate
+ * position's value, which is a feature change wearing a tightening's clothes;
+ * see `refine.ts`'s header.
+ */
+function refinedPartition(
+  ctx: EvalContext,
+  reading: 'lo' | 'hi'
+): Partition<Standing> | null {
+  const scope = refineScopeOf(ctx.sub);
+  if (scope === null) return null;
+  const rw = refineWorkspaceFor(ctx.sub);
+  const ws = workspaceFor(ctx.sub);
+  const turn = ctx.resolution.state.turn;
+
+  // "Can anything on this board ever acquire a severing tier?" — asked once per
+   // decision, because the answer is a property of the board and the shield's
+  // DEPTH turns on it. See `SHIELD_TURNS_MAX`.
+  if (rw.quiet === null) rw.quiet = boardIsQuiet(ctx);
+  const shield = buildShield(ctx.sub, ctx.standing, scope, turn, rw.shieldSlabs, rw.quiet);
+  if (shield === null || shieldIsEmpty(shield)) return null;
+  refineWorkspaceFor(ctx.sub).counters.shieldCells = shieldCells(shield);
+
+  // The cached wrappers are keyed on WHO contributed a body: the held units'
+  // base shells are one stable object for the decision, so the only thing that
+  // can invalidate a wrapper between two plans is a contributor's fate
+  // changing. On the plans where it has not, this is a string compare.
+  const key = shield.contributors.join(',');
+  if (rw.key !== key) {
+    rw.key = key;
+    rw.wrappers.lo.clear();
+    rw.wrappers.hi.clear();
+  }
+
+  const admit = ADMISSION[reading];
+  const held = new Set<UnitId>();
+  for (const s of ctx.standing) {
+    if (!s.held) continue;
+    const mine = s.team === ctx.asTeam;
+    if (mine ? admit.ours(s) : admit.theirs(s)) held.add(s.unitId);
+  }
+  if (held.size === 0) return null;
+
+  const shells = maskedShellsFor(
+    ctx.shells(),
+    (unitId) => held.has(unitId),
+    shield,
+    ctx.sub.grid,
+    rw.shellsOut[reading],
+    rw.wrappers[reading]
+  );
+  if (shells === null) return null;
+
+  return partitionOf(ws, ctx.standing, shells, ctx.asTeam, admit, rw.domains[reading]);
+}
+
+/**
+ * IS THIS BOARD FREE OF EVERY ROUTE TO A SEVERING TIER?
+ *
+ * A tier already on the board, or a potion anywhere on it that something could
+ * collect. Either one means a unit could out-tier one of our bodies later in
+ * the horizon and sever it, and a severed body's cells beyond the cut are not
+ * occupied by anyone — so the multi-turn shield's shrinking-suffix argument
+ * fails. One pass over the potion board, once per decision.
+ *
+ * The ONE-turn shield does not need this: a potion collected on the move is not
+ * in force until two turns later (`cloud.ts`), so nothing can acquire the tier
+ * in time to sever us at the resolved turn.
+ */
+function boardIsQuiet(ctx: EvalContext): boolean {
+  for (const s of ctx.standing) if (s.tierMax > 0) return false;
+  const cells = ctx.sub.grid.cells;
+  for (let c = 0; c < cells; c++) if (ctx.sub.potionAt(c)) return false;
+  return true;
+}
+
+/**
+ * THE PUBLICATION — the meet of the unrefined and refined readings, with the
+ * counters that let the stage be measured.
+ *
+ * `read` is what a reading's partition is worth to this feature: `balance` for
+ * `reach`, the normalised room sum for `room`. A reading the refiner declined
+ * falls back to its unrefined value, which is exactly right — the two are then
+ * the same number, and the meet is the identity.
+ */
+function meetOverReadings(
+  ctx: EvalContext,
+  read: (p: Partition<Standing>, reading: 'lo' | 'hi') => number,
+  channel: 'reach' | 'room'
+): Bound {
+  const plainLo = read(ctx.partition('lo'), 'lo');
+  const plainHi = read(ctx.partition('hi'), 'hi');
+  const lo = Math.min(plainLo, plainHi);
+  const hi = Math.max(plainLo, plainHi);
+
+  const rLoPart = ctx.refined('lo');
+  const rHiPart = ctx.refined('hi');
+  if (rLoPart === null && rHiPart === null) return bound(lo, (lo + hi) / 2, hi);
+
+  const counters = refineWorkspaceFor(ctx.sub).counters;
+  if (channel === 'reach') {
+    counters.evaluations++;
+    if (rLoPart !== null) counters.refinedLo++;
+    if (rHiPart !== null) counters.refinedHi++;
+  }
+  const rLo = rLoPart === null ? plainLo : read(rLoPart, 'lo');
+  const rHi = rHiPart === null ? plainHi : read(rHiPart, 'hi');
+  const met = meetIntervals(lo, hi, Math.min(rLo, rHi), Math.max(rLo, rHi));
+  if (met.inverted) {
+    counters.inverted++;
+    return bound(lo, (lo + hi) / 2, hi);
+  }
+  if (met.lo > lo) counters.movedLo++;
+  if (met.hi < hi) counters.movedHi++;
+  const narrowed = hi - lo - (met.hi - met.lo);
+  if (channel === 'reach') counters.narrowedReach += narrowed;
+  else counters.narrowedRoom += narrowed;
+  return bound(met.lo, (met.lo + met.hi) / 2, met.hi);
+}
+
+// ---------------------------------------------------------------------------
 // F1 — material (the cliff lives inside it)
 // ---------------------------------------------------------------------------
 
@@ -507,9 +683,11 @@ export const reachFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = ctx.partition('lo').balance;
-    const hi = ctx.partition('hi').balance;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    // Door C: the same two readings, MET with the same two readings taken over
+    // floods that stop at our own living bodies. With the refiner off this is
+    // `bound(min(lo,hi), …, max(lo,hi))` and nothing else — see
+    // `meetOverReadings`.
+    return meetOverReadings(ctx, (p) => p.balance, 'reach');
   },
 };
 
@@ -565,9 +743,15 @@ export const roomFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
-    const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    // Door C, same shape as `reach` — but note that per-unit `owned` is NOT
+    // monotone under the mask the way the team balance is (removing one enemy
+    // from a tie can hand the cell to the enemy it tied with), which is exactly
+    // why publication is a MEET and not a replacement. See `refine.ts`.
+    return meetOverReadings(
+      ctx,
+      (p, reading) => roomSum(p, reading) / ctx.roomScale,
+      'room'
+    );
   },
 };
 
@@ -598,6 +782,16 @@ function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
  * worst reading gives our held units nothing and theirs everything, and the
  * best reading the reverse — loose, sound, and collapsing the moment nothing is
  * held.
+ *
+ * THE NORMALISER IS PER-KIND, and this used to be the one place it was not
+ * (O-P6). `EngineConfig.maxHealth` is the DEFAULT for kinds the board does not
+ * configure; `maxHealthPerKind` carries the ones it does, and the engine's own
+ * food phase restores a unit to `maxHealthOf(kind)` (`engine.ts:2353`). So a
+ * board with a low-maximum kind on it read that kind's full health as a
+ * FRACTION of somebody else's maximum: a 50-max unit at full health scored
+ * 0.5 where it should score 1, its whole movement budget priced as half a
+ * budget. Flat boards are unaffected — `maxHealthOf` returns the flat number
+ * for every kind when there is no table — which is why this sat here.
  */
 export const healthEconomyFeature: Feature<EvalContext> = {
   key: 'healthEconomy',
@@ -611,13 +805,13 @@ export const healthEconomyFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    const cap = Math.max(1, ctx.sub.engine.config.maxHealth);
+    const engine = ctx.sub.engine;
     const reserve = ctx.healthReserveRatio;
     let lo = 0;
     let hi = 0;
     for (const s of ctx.standing) {
       const mine = s.team === ctx.asTeam;
-      const share = budgetShare(s, cap, reserve);
+      const share = budgetShare(s, Math.max(1, engine.maxHealthOf(s.kind)), reserve);
       if (mine) {
         if (s.worstAlive && !s.held) lo += share;
         if (s.bestAlive) hi += share;
@@ -652,6 +846,12 @@ export const healthEconomyFeature: Feature<EvalContext> = {
  * than over the whole maximum, so exhaustion is priced MORE sharply than before,
  * not less. Monotone increasing in health either way, so both bound endpoints
  * keep the direction the contract declares.
+ *
+ * `cap` IS THIS UNIT'S KIND'S MAXIMUM, not the board's. The caller reads it
+ * from `engine.maxHealthOf(s.kind)` — the same function the food phase restores
+ * to — so "share of the budget" is a share of the budget this unit can actually
+ * hold. Passing a flat board-wide ceiling here is O-P6 and it under-reads every
+ * kind whose maximum is below it.
  */
 export function budgetShare(
   s: Pick<Standing, 'health' | 'kind'>,
@@ -805,7 +1005,7 @@ function popcount32(x: number): number {
  * claim allows onto the square, `hi` only located ones. With nothing held they
  * are the same set.
  *
- * ── WHO COUNTS AS A REACHER (CENTAUR_ROYAL_MARGIN) ─────────────────────────
+ * ── WHO COUNTS AS A REACHER (`CriterionProfile.royalReachers`) ────────────
  *
  * "The heaviest THING that can stand on its square" — and the code read only
  * the units on other teams. These rules grant no friendly-fire exemption and
@@ -814,8 +1014,10 @@ function popcount32(x: number): number {
  * the same rule behind it; and it is the larger half of it in practice —
  * 27.0% of every king death in the measured corpus was inflicted by the dying
  * king's own team, against a bot whose own material term prices its king at one
- * point. Under the flag the loop reads every unit that is not this king,
- * team-mates included, which is what the sentence above already said.
+ * point. With `royalReachers` on, the loop reads every unit that is not this
+ * king, team-mates included, which is what the sentence above already said —
+ * and it is off in the shipped profile, which `DEFAULT_ROYAL_REACHERS`
+ * (`staging-safety.ts`) records as a correction still owed its own change.
  *
  * It stays an ORDERING term. The floor does not need it: a resolution in which
  * our king dies is `subjectGone`, which the terminal clamp replaces with DEAD.

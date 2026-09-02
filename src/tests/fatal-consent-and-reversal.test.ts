@@ -197,11 +197,12 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     const evaluations: MoveEvaluation[] = (['down', 'up', 'left'] as Direction[]).map((move) => ({
       move,
       score: move === 'down' ? 500 : 10,
-      numStates: 1,
-      breakdown: {
+      waypointBias: {
+        gotoWeight: 300,
+        nearWeight: 250,
+        recorded: 0,
         trapped: 0,
-        weights: { gotoProgress: 300, nearProgress: 250 },
-        weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
+        regicide: 0,
       },
     }));
     const gs = makeGameState(gameId, 0, snakes, 'A');

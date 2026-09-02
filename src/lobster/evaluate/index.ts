@@ -37,9 +37,10 @@ import type {
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
-import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
-import type { Evaluation, Feature, Weights } from './bound';
+import { DEAD, WIN, advisoryEst, clampEst, clampTo, fold, makeAdvisoryMeter } from './bound';
+import type { AdvisoryMeter, AdvisoryTerm, Evaluation, Feature, Weights } from './bound';
 import {
+  CLIFF_MATERIAL_WEIGHT,
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
   TERRITORY_SLIDER_PROFILE,
@@ -48,6 +49,7 @@ import {
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
 import type { EvalContext } from './features';
+import { mutualWipeAwardFor, mutualWipeCountersFor } from './mutual-wipe';
 
 export * from './bound';
 export * from './calibration';
@@ -73,6 +75,24 @@ export type { EvalContext, Standing, UnitShells } from './features';
 export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export type { Admission, Partition, TrailRoom } from './territory';
+export {
+  DEFAULT_TERRITORY_REFINE,
+  SHIELD_TURNS_MAX,
+  buildShield,
+  meetIntervals,
+  refineReportOf,
+  refineScopeOf,
+  setRefineScope,
+} from './refine';
+export type { RefineReport, RefineScope, Shield } from './refine';
+export {
+  MutualWipeCounters,
+  mutualWipeAwardFor,
+  mutualWipeCountersFor,
+  mutualWipeReportOf,
+  mutualWipeVerdict,
+} from './mutual-wipe';
+export type { MutualWipeAward, MutualWipeReport, MutualWipeVerdict } from './mutual-wipe';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
 
@@ -93,14 +113,36 @@ export class BoundEvaluator implements Evaluator {
    * That difference is the only reason the seam exists.
    */
   readonly features: ReadonlyArray<Feature<EvalContext>>;
+  /**
+   * THE ADVISORY LINEUP — registry `evaluator` entries marked `advisory`,
+   * which may move `est` and may not touch a bound. Empty by default, and
+   * empty is a path with no arithmetic in it: `advisoryEst` returns its input
+   * identically, so a bot that names no advisory term evaluates byte for byte
+   * what shipped. See `./bound.ts` for the contract and
+   * `./potion-lineup.ts` for the lineup the `potion-aware` slate resolves to.
+   */
+  readonly advisory: ReadonlyArray<AdvisoryTerm<EvalContext>>;
+  /**
+   * WHERE THE ADVISORY LINEUP'S VALUE LANDED — telemetry, never read by a
+   * decision. Null for the shipped evaluator, whose lineup is empty and whose
+   * overlay path has no arithmetic in it: a counter there would be a cost the
+   * default bot pays for a number nobody can vary.
+   */
+  readonly meter: AdvisoryMeter | null;
+  /** The lineup half of `evaluationIdentity`, built once. */
+  private readonly advisoryIdentity: string;
   private readonly weights: Weights;
 
   constructor(
     profile: CriterionProfile = DEFAULT_PROFILE,
-    features: ReadonlyArray<Feature<EvalContext>> = FEATURES
+    features: ReadonlyArray<Feature<EvalContext>> = FEATURES,
+    advisory: ReadonlyArray<AdvisoryTerm<EvalContext>> = NO_ADVISORY
   ) {
     this.profile = profile;
     this.features = features;
+    this.advisory = advisory;
+    this.meter = advisory.length === 0 ? null : makeAdvisoryMeter();
+    this.advisoryIdentity = advisory.map((t) => `${t.key}*${t.weight}`).join('+');
     this.weights = profile.weights;
   }
 
@@ -122,7 +164,21 @@ export class BoundEvaluator implements Evaluator {
    * be serving the previous profile's numbers.
    */
   get evaluationIdentity(): string {
-    return `BoundEvaluator(${structuralIdentity(this.profile)})`;
+    const base = `BoundEvaluator(${structuralIdentity(this.profile)})`;
+    // THE ADVISORY LINEUP IS PART OF WHAT THIS EVALUATOR IS. Two evaluators
+    // over one profile that differ in their advisory terms report different
+    // `est` on the same board, and `est` is inside the memoised `Bound` — so a
+    // shared key would serve one lineup's numbers to the other. Appended only
+    // when the lineup is non-empty, so the default evaluator's identity is the
+    // string it has always been, character for character.
+    if (this.advisory.length === 0) return base;
+    // The lineup half is BUILT ONCE. This getter is read on every plan
+    // evaluation — it is the bound bank's memo key — and the lineup is fixed
+    // for the evaluator's life, so rebuilding the join per call was pure
+    // repetition. The profile half stays a getter because a profile may be
+    // amended between decisions and a captured identity would then be serving
+    // the previous profile's numbers.
+    return `${base}+advisory(${this.advisoryIdentity})`;
   }
 
   scorePlan(sub: Substrate, plan: JointPlan, asTeam: number): Bound {
@@ -148,9 +204,65 @@ export class BoundEvaluator implements Evaluator {
         this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
-      return finish(ctx, evaluation);
+      // The material weight is the fold's own denominator, and the terminal
+      // mutual-wipe value has to land on the same scale — so it is the
+      // PROFILE's, not the default, or a recalibrated profile would price its
+      // terminals in the shipped profile's units.
+      const sound = finish(ctx, evaluation, this.weights.material ?? CLIFF_MATERIAL_WEIGHT);
+      // THE ADVISORY OVERLAY, LAST AND ON `est` ALONE. After the terminal
+      // clamp, so a lattice end is never argued with, and clamped back inside
+      // the interval the features proved — an advisory entry may reorder the
+      // floor-tie class and may not move the floor that defines it. With no
+      // lineup this returns `sound.bound` itself and the object below is the
+      // one `finish` built.
+      const withAdvisory = advisoryEst(sound.bound, this.advisory, ctx, this.meter);
+      return withAdvisory === sound.bound ? sound : { ...sound, bound: withAdvisory };
     });
   }
+}
+
+/** The empty lineup, shared, so "no advisory terms" is one identity rather
+ * than a fresh array per evaluator. */
+const NO_ADVISORY: ReadonlyArray<AdvisoryTerm<EvalContext>> = [];
+
+/**
+ * THE ADVISORY LINEUP'S OWN MECHANISM ROW.
+ *
+ * Null on the shipped bot, which is a statement and not a gap: the default
+ * evaluator has no lineup, so there is nothing for the row to be about. On a
+ * bot that names one, the three numbers a reader needs are `engagedRate` (did
+ * the terms ever read non-zero), `clampedRate` (did the sound interval have
+ * room for what they read) and `meanApplied / meanAsked` (how much of the ask
+ * survived). A lineup that is engaged and fully clamped is a lineup whose
+ * value dies at `clampEst`, and that diagnosis is not available from any
+ * outcome metric.
+ */
+export interface AdvisoryReport {
+  readonly terms: ReadonlyArray<string>;
+  readonly evaluations: number;
+  readonly engaged: number;
+  readonly clamped: number;
+  readonly meanAsked: number | null;
+  readonly meanApplied: number | null;
+  /** Mean sound-interval width over the engaged evaluations with a finite one
+   * — the room the clamp had to give. */
+  readonly meanWidth: number | null;
+}
+
+export function advisoryReportOf(evaluate: unknown): AdvisoryReport | null {
+  if (!(evaluate instanceof BoundEvaluator)) return null;
+  const m = evaluate.meter;
+  if (m === null) return null;
+  const mean = (sum: number, n: number): number | null => (n === 0 ? null : sum / n);
+  return {
+    terms: evaluate.advisory.map((t) => t.key),
+    evaluations: m.evaluations,
+    engaged: m.engaged,
+    clamped: m.clamped,
+    meanAsked: mean(m.sumAbsAsked, m.engaged),
+    meanApplied: mean(m.sumAbsApplied, m.engaged),
+    meanWidth: mean(m.sumWidth, m.finiteWidth),
+  };
 }
 
 /**
@@ -160,18 +272,69 @@ export class BoundEvaluator implements Evaluator {
  * anyone else's, in each reading independently. Adding a "my team wiped" term to
  * a "their team wiped" term lets the two cancel, and a mutual annihilation then
  * scores as a wash — which is how an evaluator ends up trading its own last unit
- * for the opponent's. It is not a wash: it is a loss.
+ * for the opponent's. It is not a wash.
+ *
+ * IS IT A LOSS, THOUGH. Not always, and this file used to say it was. TacticToes
+ * settles a game in which every remaining team dies on the same turn from the
+ * PREVIOUS COMMITTED TURN's board, and the metric this program optimizes is the
+ * owner's continuous `sharePar` — share of the end weight times the team count,
+ * par 1 — not a winner flag. So a mutual final wipe BANKS THE PREVIOUS TURN'S
+ * POSITION, and it is worth more the further ahead we were. The ordering above
+ * prices it at the lattice bottom whatever we were holding, and it is most
+ * wrong when we were holding most. `./mutual-wipe.ts` is the repair —
+ * UNCONDITIONAL, because it is a correction and not a strategy — and it carries
+ * the rule, the value, the four guards it refuses on, and the R1–R3 argument
+ * for the clamp shape below.
+ *
+ * `award` is that value — the previous board's subject-frame material fold on
+ * the fold's own scale — and it is `null` whenever the flag is off or a guard
+ * refused, which is what makes both expressions collapse term for term to the
+ * ones that shipped: `X ? ((null !== null && Y) ? V : DEAD) : Z` is
+ * `X ? DEAD : Z`. Nothing in `./mutual-wipe.ts` is even reached off the flag —
+ * the environment is read only from inside a world where every team is gone.
  */
-export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
+export function finish(
+  ctx: EvalContext,
+  evaluation: Evaluation,
+  materialWeight: number = CLIFF_MATERIAL_WEIGHT
+): PlanEvaluation {
   const { worst, best } = terminalVerdicts(ctx);
 
-  const lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : evaluation.total.lo;
-  const hi = best.subjectGone ? DEAD : best.othersGone ? WIN : evaluation.total.hi;
+  const wipeWorst = worst.subjectGone && worst.othersGone;
+  const wipeBest = best.subjectGone && best.othersGone;
+  const award =
+    wipeWorst || wipeBest ? mutualWipeAwardFor(ctx.sub, ctx.asTeam, materialWeight) : null;
+
+  const lo = worst.subjectGone
+    ? award !== null && worst.othersGone
+      ? award
+      : DEAD
+    : worst.othersGone
+      ? WIN
+      : evaluation.total.lo;
+  const hi = best.subjectGone
+    ? award !== null && best.othersGone
+      ? award
+      : DEAD
+    : best.othersGone
+      ? WIN
+      : evaluation.total.hi;
+
+  if (award !== null) {
+    // Endpoints this award actually moved off DEAD. Counted here rather than in
+    // the module because only the clamp knows which end it changed.
+    const c = mutualWipeCountersFor(ctx.sub);
+    if (wipeWorst) c.movedLo += 1;
+    if (wipeBest) c.movedHi += 1;
+  }
 
   // Elimination in the BEST world implies elimination in the worst (our
   // best-world alive set contains our worst-world one), and a clean sweep in
   // the worst world implies one in the best. So the clamps can only ever
-  // tighten an interval, never invert it — asserted rather than assumed.
+  // tighten an interval, never invert it — asserted rather than assumed. The
+  // award preserves that: `lo = award` needs `worst.othersGone`, which implies
+  // `best.othersGone`, so `hi` is either the same finite `award` or `WIN`, and
+  // the award is finite.
   const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
 
   const basis = ctx.resolution.state.field.assumptions();

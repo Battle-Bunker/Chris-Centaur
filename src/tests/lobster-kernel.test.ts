@@ -1246,3 +1246,47 @@ describe("a slice is long enough to contain the work it starts (V2-BUG-4)", () =
     expect(Math.max(...lengths)).toBeGreaterThan(1)
   })
 })
+
+// ===========================================================================
+
+describe("per-plan work accumulates; the score replaces", () => {
+  it("counts a visit per commit and never loses one to an overwrite", async () => {
+    // The same plan committed by every slice. Before the accumulator the last
+    // commit's `existing.score = score` erased every trace that the earlier
+    // ones happened, and the visit count `N` a selection layer needs was not
+    // reconstructible from anything the report carried.
+    const r = rig([step({ plan: P1, worst: 10, best: 50 })])
+    await collect(r.kernel.decide(r.input()))
+    const report = reportOf(r.kernel)
+    const row = report.planWork.find((w) => w.key === planKey(P1))
+    expect(row).toBeDefined()
+    const seen = row as { visits: number; evaluations: number }
+    // Every improve call committed this plan, and every one of them counted.
+    expect(report.improveCalls).toBeGreaterThan(1)
+    expect(seen.visits).toBe(report.improveCalls)
+    // Plus `conform`'s own evaluation, which is work and NOT a visit — the
+    // divergence the two counters exist to record.
+    expect(seen.evaluations).toBe(seen.visits + 1)
+  })
+
+  it("splits work across the distinct plans that earned it", async () => {
+    // The script clamps on its last step, so P1 is committed exactly once and
+    // every later slice commits P2.
+    const r = rig([
+      step({ plan: P1, worst: 10, best: 50 }),
+      step({ plan: P2, worst: 20, best: 50 }),
+    ])
+    await collect(r.kernel.decide(r.input()))
+    const report = reportOf(r.kernel)
+    const work = new Map(report.planWork.map((w) => [w.key, w]))
+    expect(work.get(planKey(P1))?.visits).toBe(1)
+    expect(work.get(planKey(P2))?.visits).toBe(report.improveCalls - 1)
+    let total = 0
+    for (const w of work.values()) {
+      // A commit always evaluates; an evaluation need not commit.
+      expect(w.evaluations).toBeGreaterThanOrEqual(w.visits)
+      total += w.visits
+    }
+    expect(total).toBe(report.improveCalls)
+  })
+})

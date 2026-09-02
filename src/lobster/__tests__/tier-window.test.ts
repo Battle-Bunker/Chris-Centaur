@@ -24,7 +24,7 @@ import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
 import { exposureOf, gradePath, heldTierAt, selfDebuffOf } from '../tier-window';
-import { potionBoardEnabled, tierExpiryEnabled } from '../tier-truth';
+import { TIER_TRUTH, potionBoardEnabled, tierExpiryEnabled } from '../tier-truth';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -80,18 +80,50 @@ afterEach(() => clearGeometryCache());
 // --------------------------------------------------------------------- THREADED
 
 describe('the wire reaches the cloud', () => {
-  it('feeds EXPIRY by default and holds the potion widening dark', () => {
-    // INTEGRATION NOTE (integ/round-a): was `both facts by default`. The
-    // ledger's Stage 2.5 verdict ships the expiry threading and the
-    // tier-defense layer, and HOLDS the potion-board widening pending the
-    // re-measure of its 858-inversion storm against the post-fix5 engine.
-    // `CENTAUR_TIER_TRUTH=full` is the arm that re-measures it.
+  it('feeds BOTH facts, unconditionally — the premise is `full`', () => {
+    // THE SECOND DELIBERATE BEHAVIOUR CHANGE OF THE FLAG TEARDOWN, and it is a
+    // DEFAULT MOVE rather than a code change: the premise was `expiry` behind
+    // `CENTAUR_TIER_TRUTH`, held there by a Stage 2.5 verdict about an
+    // 858-inversion storm measured against engine code that fix5 replaced and
+    // never re-measured.
+    //
+    // It is `full` now on two current facts, and they point the same way. At
+    // ply 1 — the only depth production reads — the widening is a MEASURED
+    // no-op: 0 argmaxes and 0 brackets moved over 160 replays on 40
+    // potion-bearing boards, because a potion taken on the move being resolved
+    // applies at that turn's commit (see "cannot move the turn-start field"
+    // below, which asserts it on this build). At depth >= 2 the OTHER arm is
+    // the unsound one: an empty potion board makes the cloud's tier ceiling
+    // too tight, which is a claim of impossibility the rules do not support.
+    // Free today, sound tomorrow — see `tier-truth.ts` for the full argument.
+    expect(TIER_TRUTH).toBe('full');
     expect(tierExpiryEnabled()).toBe(true);
-    expect(potionBoardEnabled()).toBe(false);
-    // The seam still knows how to turn it on — this is a held feature, not a
-    // deleted one, and the arm needs the mode to exist.
-    expect(potionBoardEnabled('full')).toBe(true);
+    expect(potionBoardEnabled()).toBe(true);
+    // The type still distinguishes the three premises, because the scout's
+    // door is written against it and a later socket-3 entry will carry it.
+    expect(potionBoardEnabled('expiry')).toBe(false);
     expect(tierExpiryEnabled('off')).toBe(false);
+  });
+
+  it('THE ENVIRONMENT IS NOT CONSULTED — both tier flags are gone', () => {
+    const saved = [process.env.CENTAUR_TIER_TRUTH, process.env.CENTAUR_TIER_DEFENSE];
+    try {
+      process.env.CENTAUR_TIER_TRUTH = 'off';
+      process.env.CENTAUR_TIER_DEFENSE = 'off';
+      // Read through the live accessors, not the frozen constant, so a
+      // re-introduced read would have somewhere to show up.
+      expect(tierExpiryEnabled()).toBe(true);
+      expect(potionBoardEnabled()).toBe(true);
+      // And the tier-defense policy is a plain candidate-knob default now.
+      const { DEFAULT_KNOBS } = require('../candidates') as typeof import('../candidates');
+      expect(DEFAULT_KNOBS.tierSafeStaging).toBe(true);
+      expect(DEFAULT_KNOBS.selfDebuffOrdering).toBe(true);
+    } finally {
+      if (saved[0] === undefined) delete process.env.CENTAUR_TIER_TRUTH;
+      else process.env.CENTAUR_TIER_TRUTH = saved[0];
+      if (saved[1] === undefined) delete process.env.CENTAUR_TIER_DEFENSE;
+      else process.env.CENTAUR_TIER_DEFENSE = saved[1];
+    }
   });
 
   it('converts the wire expiry from inclusive to exclusive exactly once', () => {
@@ -225,6 +257,177 @@ describe('the wire reaches the cloud', () => {
     const m = sub.marshalled;
     expect(sub.potionAt(m.toIndex({ x: 4, y: 4 }))).toBe(true);
     expect(sub.potionAt(m.toIndex({ x: 4, y: 5 }))).toBe(false);
+    sub.release();
+  });
+
+  /**
+   * O-P5's SAFETY PROPERTY, from the consumer's side.
+   *
+   * `potion-tier-bounds.test.ts` pins the arithmetic at the engine layer: a
+   * potion taken on the move being resolved is applied at THAT turn's commit,
+   * so it governs nothing in the contest being asked about, and
+   * `couldCollectPotion` is gated on `n >= 2`. This is the same fact where it
+   * is actually load-bearing — on a substrate built from a real board, through
+   * the seam, on the field the risk layer and the evaluator read.
+   *
+   * IT IS WHY THE WIDENING IS CHEAP TO TURN ON. The turn-start field is the
+   * only one a ply-1 decision consults, and the potion board cannot move it.
+   * Measured over 160 replays of the full trio on 40 potion-bearing piece
+   * boards at two budgets, the `full` premise moves the argmax on 0 of them
+   * and the published bracket on 0 of them, while `couldCollectPotion` fires
+   * on 36 of the 40 boards once the field is dilated. The belief changes; the
+   * ply-1 decision does not.
+   *
+   * THIS IS THE MEASUREMENT THE DEFAULT NOW RESTS ON, so it matters that it is
+   * live rather than describing a dark arm: with `full` shipped, the
+   * `potionBoardEnabled()` branch below takes the ASSERTING side, and the
+   * widening being a ply-1 no-op is checked on every run instead of argued.
+   */
+  it('cannot move the turn-start field, whichever arm is running', () => {
+    const board = boardOf(
+      [
+        piece('A1', { x: 4, y: 4 }, 'king', 1, { teamID: 'A' }),
+        piece('B1', { x: 5, y: 5 }, 'rook', 3, { teamID: 'B' }),
+        piece('B2', { x: 2, y: 6 }, 'knight', 2, { teamID: 'B' }),
+      ],
+      {
+        invulnerabilityPotions: [
+          { x: 4, y: 5 },
+          { x: 5, y: 4 },
+          { x: 3, y: 6 },
+        ],
+      }
+    );
+    const sub = subFor(board);
+    const field = sub.claimField();
+
+    // n = 1 — the ONE reading a ply-1 decision makes. Nothing has been
+    // collected yet in any continuation, in either arm.
+    for (const slot of field.slots) {
+      expect([slot.record.unitId, slot.cloud.couldCollectPotion]).toEqual([
+        slot.record.unitId,
+        false,
+      ]);
+    }
+
+    // Beyond it, the two arms diverge, and each one is asserted rather than
+    // assumed: the widening is either live or dark, never "probably off".
+    const laterCollectors = [2, 3, 4].flatMap((n) =>
+      field
+        .advanceTo(TURN + n)
+        .slots.filter((s) => s.cloud.couldCollectPotion)
+        .map((s) => `${n}:${s.record.unitId}`)
+    );
+    if (potionBoardEnabled()) {
+      expect(laterCollectors.length).toBeGreaterThan(0);
+    } else {
+      expect(laterCollectors).toEqual([]);
+    }
+    sub.release();
+  });
+});
+
+// ------------------------------------------------------------- O-P4 / D-0
+
+/**
+ * THE TWO SIDES, ON ONE BOARD, AT ONE PLY (O-P4, la-inside.md's D-0).
+ *
+ * A unit is priced by one of two machines depending on whether this decision
+ * MODELS it. Modelled, its tier is a number in the engine's arena, read
+ * verbatim by every contest (`engine.ts` U_TIER). Held, its tier is an
+ * INTERVAL the cloud derives from the frozen record, lapsed at the record's
+ * expiry (`cloud.ts` `expired`). Nothing makes those two machines agree except
+ * that they are fed the same fact, so this is the test that they are.
+ *
+ * WHAT THIS PINS, AND WHAT IT DOES NOT. `marshalBoard` collapses the wire's
+ * level+expiry to `tierAtArrival(unit, currentTurn)` for BOTH sides, so at one
+ * ply the agreement is by construction, and the interesting boundary is the
+ * arrival turn itself: a window whose last governing turn IS the current turn
+ * does not govern the arrival. The DILATED side is where the two machines can
+ * come apart, and it is where the fix shows: with the expiry threaded, a frozen
+ * ceiling lapses as the field advances; without it the cloud prices a
+ * three-turn buff as a permanent one. The live side has no advance of its own
+ * at one ply — recomputing its tier at a NEW arrival turn is the door's job
+ * (la-inside D-1), and what CL0 owes that work is the fact itself, which is now
+ * in the arena beside the tier (`U_TIEREXP`) rather than dropped at marshal
+ * time.
+ */
+describe('the live and frozen sides price one tier the same way', () => {
+  const boardWithExpiry = (wireExpiry: number): Board =>
+    boardOf([
+      piece('A1', { x: 1, y: 1 }, 'rook', 3, { teamID: 'A' }),
+      piece('B1', { x: 5, y: 5 }, 'rook', 3, {
+        teamID: 'B',
+        invulnerabilityLevel: 1,
+        invulnerabilityExpiryTurn: wireExpiry,
+      }),
+    ]);
+
+  it.each([
+    // [wire expiry, the tier that governs the ARRIVAL turn]
+    ['lapsed two turns before the arrival', 29, 0],
+    ['lapses exactly ON the arrival boundary', TURN, 0],
+    ['still governs the arrival turn', ARRIVAL, 1],
+    ['governs the arrival turn and one more', TURN + 2, 1],
+  ])('a window that %s is one number to both machines', (_name, wireExpiry, governing) => {
+    const board = boardWithExpiry(wireExpiry as number);
+
+    // LIVE: B1 is a mover, so its tier is whatever the engine's arena holds.
+    const live = subFor(board, 'A');
+    const liveUnit = unitNamed(live, 'B1');
+    const view = live.viewOf(liveUnit.unitId);
+    expect(view).not.toBeNull();
+    expect(liveUnit.tier).toBe(governing);
+    expect((view as { tier: number }).tier).toBe(governing);
+    // The arena carries the SCHEDULE too, not just the collapsed level — this
+    // is what a ply-2 root will recompute from, and dropping it here is the
+    // half of D-0 that made the whole thing undebuggable.
+    expect((view as { tierExpiresAtTurn: number | null }).tierExpiresAtTurn).toBe(
+      (wireExpiry as number) + 1
+    );
+    live.release();
+    clearGeometryCache();
+
+    // FROZEN: B1 is a claim, so its tier comes off the record through the cloud.
+    const frozen = makeSubstrate({ board, turn: TURN, asTeam: 'A', modeled: ['A1'] });
+    const slot = slotNamed(frozen, 'B1');
+    expect(slot.record.tier).toBe(governing);
+    expect(slot.record.tierExpiresAtTurn).toBe((wireExpiry as number) + 1);
+    expect(heldTierAt(slot.record, ARRIVAL)).toBe(governing);
+    // The interval's own ceiling agrees at the arrival turn: it may sit ABOVE
+    // the governing tier only when a widening is live, and it never sits below.
+    expect(slot.bounds.tierMax).toBeGreaterThanOrEqual(governing as number);
+    expect(slot.bounds.tierMin).toBeLessThanOrEqual(governing as number);
+    frozen.release();
+  });
+
+  /**
+   * THE REGRESSION, in the shape the pre-fix code actually had.
+   *
+   * The defect was never visible at ply 1 — it was that the frozen side had
+   * NOTHING TO LAPSE, because `substrate.ts` hard-coded `tierExpiresAtTurn:
+   * null` onto every record it built. So the way to assert the fix is to
+   * advance the field past the window and watch the ceiling come down; the
+   * `off` arm of the tier-truth seam reproduces the pre-fix behaviour exactly
+   * and is the control.
+   */
+  it('a frozen buff LAPSES as the field advances, which it could not do before', () => {
+    const board = boardWithExpiry(TURN + 1); // governs the arrival, then stops
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'A', modeled: ['A1'] });
+    const unit = unitNamed(sub, 'B1');
+    const field = sub.claimField();
+    const at = (turn: number): number => {
+      const s = field.advanceTo(turn).slots.find((x) => x.record.unitId === unit.unitId);
+      return (s as { bounds: { tierMax: number } }).bounds.tierMax;
+    };
+
+    // Threaded: the record knows its horizon, so the ceiling falls to 0 once
+    // the window is behind the field.
+    expect(heldTierAt(unit, ARRIVAL)).toBe(1);
+    expect(heldTierAt(unit, TURN + 2)).toBe(0);
+    expect(at(TURN + 6)).toBe(0);
+    // ... and it is a real drop, not a ceiling that was 0 the whole way.
+    expect(at(ARRIVAL)).toBeGreaterThan(0);
     sub.release();
   });
 });

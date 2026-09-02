@@ -70,7 +70,6 @@ import { profileOf, scalarOf } from '../partial-engine/index';
 import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { TIER_DEFENSE } from './tier-truth';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import {
@@ -78,9 +77,13 @@ import {
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
-  stagingSafety,
+  STAGING_SAFETY_DEFAULT,
 } from './staging-safety';
 import type { StagingSafety } from './staging-safety';
+import { CertainOccupancy, classifyUnit } from './fatality';
+import type { CandidateFatality } from './fatality';
+import { DecisionEconomy, unaryEv, unaryParts } from './search/edge-ev';
+import type { EdgeEvTuning } from './search/edge-ev';
 import type {
   Candidate,
   CandidateGenerator,
@@ -110,6 +113,7 @@ export const PRUNE = {
   certainSelfFatal: 'certain-self-fatal',
   allyBody: 'ally-body',
   royalPath: 'royal-path',
+  forcedSibling: 'forced-sibling',
 } as const;
 
 export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
@@ -152,6 +156,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.certainSelfFatal]: false,
   [PRUNE.allyBody]: false,
   [PRUNE.royalPath]: false,
+  [PRUNE.forcedSibling]: false,
 };
 
 /** What each lossy prune can cost, in the class of tactic it deletes. */
@@ -184,6 +189,8 @@ export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
     "a move into a MODELLED team-mate's body, whose cells cannot vacate before we arrive — near-certain rather than certain, because a team-mate that dies this turn leaves a pile settled on weight instead of a body settled on tier. It costs a slide that would have paid off precisely because the team-mate was about to die on it",
   [PRUNE.royalPath]:
     'a move whose path crosses our own king at a strength that wins or ties the contest — certain team elimination WHILE THE KING STANDS THERE, and only while it does. It costs an escort that would have been safe because the king was leaving',
+  [PRUNE.forcedSibling]:
+    'a sibling of the ONE option the fatality classifier left standing. Set-level and monotone: it fires only when the unit is collapsed to a single survivor, so it can never empty an option set and never removes a live alternative. It costs whatever the surviving classification was wrong about — an ally-body cell whose owner was about to die on it, which is the same world the ally-body prune already pays for',
 };
 
 // ---------------------------------------------------------------------------
@@ -212,6 +219,16 @@ export interface CandidateKnobs {
    * no candidate is ever refused for it.
    */
   readonly selfDebuffOrdering?: boolean;
+  /**
+   * ORDER A PLAIN PICKUP AS A GAIN — see `AssessedCandidate.potionGain`.
+   *
+   * Off in the shipped bot. It is the ORDERING half of the potion doctrine,
+   * and it exists because the evaluator half cannot reach a plan the candidate
+   * cap closed in front of: an advisory term can only reorder plans the search
+   * priced, and a collection that sorts among the quiet moves may never be one
+   * of them.
+   */
+  readonly potionOrdering?: boolean;
   /** Order slider destinations that shadow an enemy ray to our king first. */
   readonly escortShadowOrdering?: boolean;
   /**
@@ -267,6 +284,56 @@ export interface CandidateKnobs {
   readonly pruneCertainSelfFatal?: boolean;
   /** Take a move whose path crosses our own king at a winning-or-tying strength. */
   readonly pruneRoyalPath?: boolean;
+  /**
+   * RUN THE RUNG-0 FATALITY CLASSIFIER over the surviving option set.
+   *
+   * Two effects, and they are deliberately unequal in weight:
+   *
+   * 1. DATA. Every kept candidate carries its post-move escape count and the
+   *    calibrated survival prior for it — the strongest singleton signal in
+   *    the ladder at 35 ns, and a `CandidateSet` carries the unit's FORCED /
+   *    SEALED marks with their provenance. Nothing in this file reads any of
+   *    it. It is ordered by nothing, prunes nothing, and is stored because a
+   *    later rung consumes it and cannot recompute it after the fact.
+   *
+   * 2. THE FORCED COLLAPSE. When exactly ONE option survives the classifier,
+   *    the siblings go under `forced-sibling`. That is set-level and monotone
+   *    — it cannot empty an option set and cannot remove a live alternative —
+   *    which is what makes it a strictly weaker policy than the per-candidate
+   *    refusal `pruneCertainSelfFatal` applies, and therefore shippable on
+   *    boards where that one measured badly.
+   *
+   * DEFAULT OFF. With it off the classifier does not run and every set is
+   * byte-identical to the one the shipped build produces.
+   */
+  readonly unitFatality?: boolean;
+  /**
+   * RUN THE RUNG-1/2 EDGE-EV PASS and let it break the order.
+   *
+   * See `./search/edge-ev.ts` for what the terms are and what currency they are
+   * in. What matters here is the SLOT: the composed EV sits below every
+   * material-class key the two comparators already carry — tier, tier risk, the
+   * regicide shot, the capture class, and (in the gain order) the meal itself —
+   * and immediately above `healthSpent`, which is the key it exists to sharpen.
+   *
+   * That placement is the whole soundness argument at this seam and it is worth
+   * stating rather than deriving. The EV is a REFINEMENT, not a replacement: it
+   * decides among the eats that `foodGain` already promoted, among the quiet
+   * moves that nothing else discriminates, and nowhere else. When every term is
+   * zero — no food, no potions, no margin, no survivor count — the comparison
+   * falls through and the order is byte-for-byte the shipped one. That is
+   * asserted, not assumed (`edge-ev.test.ts`, "orderKey is unchanged when every
+   * term is zero").
+   *
+   * DEFAULT OFF, and per-engine, pending its own empirical gate.
+   */
+  readonly edgeEv?: boolean;
+  /**
+   * Tuning for the edge-EV pass. Only read when `edgeEv` is on; the defaults
+   * are `DEFAULT_EDGE_EV_TUNING`, whose turn cap is ABSENT because production
+   * has none.
+   */
+  readonly edgeEvTuning?: EdgeEvTuning;
 }
 
 export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
@@ -274,29 +341,47 @@ export const DEFAULT_KNOBS: Required<CandidateKnobs> = {
   pruneFatalNoGain: true,
   kingHardSafety: true,
   refusePromotion: false,
-  tierSafeStaging: TIER_DEFENSE,
-  selfDebuffOrdering: TIER_DEFENSE,
+  // The tier-defense policy, ON since Stage 3 and now a plain default: it used
+  // to read `CENTAUR_TIER_DEFENSE`, whose only job was to let one arm separate
+  // this policy from the tier-truth CORRECTION it shipped beside. A `BotConfig`
+  // that wants the corrected-beliefs-only bot names these two knobs.
+  tierSafeStaging: true,
+  selfDebuffOrdering: true,
   escortShadowOrdering: true,
   chargeStandingTerrain: true,
   refuseTerrainFatal: true,
   gainOrdering: true,
-  // Both default OFF; `flaggedKnobs()` turns them on when the staging-safety
-  // flag asks for them, so an explicit knob in a test still wins.
+  // OFF: the ordering half of the potion doctrine, selected by the arm that
+  // races it and by nothing else.
+  potionOrdering: false,
+  // Both default OFF; the staging-safety level turns them on (`knobsForSafety`),
+  // so an explicit knob from the bot still wins.
   pruneCertainSelfFatal: false,
   pruneRoyalPath: false,
+  // Default OFF pending its own empirical gate, and its OWN knob — never folded
+  // into the staging-safety level, because two features behind one setting is a
+  // paired experiment that measures their sum. A bot that wants it names it
+  // (`BotConfig.candidates.unitFatality`).
+  unitFatality: false,
+  // Likewise: the rung-1/2 EV pass is ONE feature (one decomposition, one
+  // currency) behind ONE flag, and it is not folded into either of the other
+  // two. Its fatal term reads `survivalPrior`, which is 1 unless
+  // `unitFatality` is also on — so the two compose additively instead of being
+  // a paired experiment, and each stays promotable on its own evidence.
+  edgeEv: false,
+  edgeEvTuning: {},
 };
 
 /**
- * The knobs the CENTAUR_STAGING_SAFETY flag implies. Read once per generator —
- * that is once per team decision — and overridden by anything the caller passes
- * explicitly, so a test can exercise either polarity without touching the
- * environment.
+ * The knobs a staging-safety level implies. Read once per generator — that is
+ * once per team decision — and overridden by anything the bot names explicitly,
+ * so an arm can exercise either polarity as a configured bot.
  */
 export function knobsForSafety(level: StagingSafety): CandidateKnobs {
-  // Both polarities NAMED, never omitted. An omitted knob falls through to
-  // `flaggedKnobs()`, which reads the environment — so a caller that asked for
-  // 'off' would get whatever the process-wide flag said, and the one thing a
-  // per-engine override exists to guarantee is that it does not.
+  // Both polarities NAMED, never omitted. An omitted knob would fall through to
+  // `DEFAULT_KNOBS`, so a caller that asked for 'off' would get whatever the
+  // default said, and the one thing this seam exists to guarantee is that it
+  // does not.
   //
   // `auto` is board-conditional and this function has no board, so it resolves
   // OFF here — see `resolveStagingSafety`. A caller that HAS a board resolves
@@ -306,9 +391,22 @@ export function knobsForSafety(level: StagingSafety): CandidateKnobs {
   return { pruneCertainSelfFatal: on, pruneRoyalPath: on };
 }
 
-/** The knobs the process-wide flag implies, for a caller that names none. */
-export function flaggedKnobs(): CandidateKnobs {
-  return knobsForSafety(stagingSafety());
+/**
+ * THE BASE KNOBS a generator built with no bot behind it runs.
+ *
+ * A `TeamDecisionEngine` never reaches this: it resolves the level against the
+ * board it is deciding on and passes `knobsForSafety(resolved)` explicitly,
+ * which is the only reading that can express `auto`. This is for the harnesses
+ * and probes that build a generator with no board — and it takes the shipped
+ * level, resolved conservatively (`auto` with no board is `off`), which is what
+ * that caller used to get from an unset environment.
+ *
+ * The search-layer teardown finished the job: `edgeEv` is configuration on the
+ * search surface now, defaulted off there, so this function has no environment
+ * read left at all.
+ */
+export function baseKnobs(): CandidateKnobs {
+  return knobsForSafety(STAGING_SAFETY_DEFAULT);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,10 +454,51 @@ export interface AssessedCandidate {
    */
   readonly foodGain: number;
   /**
+   * Could this move come to rest on a potion the mover would plainly SPEND —
+   * `selfDebuff === 'spend'`, i.e. a pickup that burns no teammate's window,
+   * exposes the collector to nothing the grader can see, and is not a king
+   * debuffing itself. Ordering hint only, and zero unless `potionOrdering` is
+   * on.
+   *
+   * WHY AN ORDERING HINT AND NOT A VALUE. The evaluator already prices a
+   * pickup — that is the whole of the potion lineup — but it can only price
+   * plans the search REACHES, and the order decides which of a unit's options
+   * the anytime path reaches before its budget runs out. `spend` ranks zero in
+   * `SELF_DEBUFF_RANK`, which is the honest reading of a pickup's COST and
+   * says nothing about its gain, so a collection currently sorts among the
+   * quiet moves and a busy unit's cap can close in front of it. This is the
+   * one slot where the doctrine can say "look at this one first".
+   */
+  readonly potionGain: number;
+  /**
    * Could this move come to rest on the square of an enemy team's LAST king,
    * with a capture the engine does not rule out? Ordering hint only.
    */
   readonly regicideShot: number;
+  /**
+   * Escapes from this move's landing cell once the mover has moved, or `-1`
+   * where the classifier did not run or the count has no meaning (a piece).
+   *
+   * DATA, and only data, in this stage. P(die within one turn) is monotone in
+   * it with a 7.8–10.6× spread across the range, so it is the strongest
+   * singleton signal available at any price — and it does not touch `orderKey`
+   * here, because promoting an ordering key is a measured change and this
+   * layer's job was to make the number exist.
+   */
+  readonly survivorsAfter: number;
+  /** The calibrated survival prior for `survivorsAfter`, or 1 for unknown. */
+  readonly survivalPrior: number;
+  /**
+   * φ_u(a) — the composed rung-1/2 edge EV for this option, IN LAT, or exactly
+   * 0 where the pass did not run.
+   *
+   * One number and not five because a comparator reads one number; the five
+   * named parts are in the store (`search/edge-ev.ts`), which is what the
+   * calibration regression and the EV-CLIFF law read. A total that cannot be
+   * attributed is a total nobody can falsify, so both forms exist and the
+   * cheap one lives here.
+   */
+  readonly edgeEv: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,9 +511,36 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
   /** Enemy last-king squares, per substrate. An ordering hint, computed once. */
   private readonly regicideCells = new WeakMap<EngineSubstrate, ReadonlyMap<CellIndex, number>>();
+  /**
+   * The certain-occupancy reading the escape count tests against. PER
+   * SUBSTRATE AND PER TEAM: a generator serves one team on one board, but the
+   * bounds layer hands the same generator proxies over sibling substrates, and
+   * a board's own team is not a property this class carries. Keyed on both so
+   * a sibling never reads the parent's answer.
+   */
+  private readonly occupancy = new WeakMap<EngineSubstrate, Map<number, CertainOccupancy>>();
+  /**
+   * The per-decision economy the edge-EV terms read — the two race fronts, the
+   * horizon and the pressure scalar. PER SUBSTRATE AND PER TEAM for exactly the
+   * reason the occupancy cache is: the race margin is "ours against theirs",
+   * and which side is ours is not a property this class carries.
+   */
+  private readonly economy = new WeakMap<EngineSubstrate, Map<number, DecisionEconomy>>();
 
   constructor(knobs: CandidateKnobs = {}) {
-    this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
+    this.knobs = { ...DEFAULT_KNOBS, ...baseKnobs(), ...knobs };
+  }
+
+  /**
+   * THE KNOBS THIS GENERATOR RESOLVED — telemetry, and an ARM AUDIT.
+   *
+   * A batch manifest says which bot a run was ASKED for; this says what the
+   * generator actually resolved, which is the quantity a promotion verdict
+   * depends on. A copy, so no caller can reach
+   * the live object: nothing outside this class may write a knob mid-decision.
+   */
+  resolvedKnobs(): Required<CandidateKnobs> {
+    return { ...this.knobs };
   }
 
   candidatesFor(sub: Substrate, unitId: UnitId, purpose: 'ours' | 'adversary' = 'ours'): CandidateSet {
@@ -397,13 +563,28 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub));
+    return generate(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.occupancyFor(sub, unitId),
+      this.economyFor(sub, unitId)
+    );
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub))
-      .kept;
+    return generateAssessed(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.occupancyFor(sub, unitId),
+      this.economyFor(sub, unitId)
+    ).kept;
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -411,6 +592,49 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     if (hit !== undefined) return hit;
     const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
     this.shadows.set(sub, made);
+    return made;
+  }
+
+  /**
+   * The mover's own team's certain occupancy, built once per (substrate, team)
+   * and shared by every unit of it. `null` when the classifier is off, so the
+   * pass costs nothing it does not use.
+   */
+  private occupancyFor(sub: EngineSubstrate, unitId: UnitId): CertainOccupancy | null {
+    if (!this.knobs.unitFatality) return null;
+    const unit = sub.unitOf(unitId);
+    if (unit === undefined) return null;
+    let byTeam = this.occupancy.get(sub);
+    if (byTeam === undefined) {
+      byTeam = new Map<number, CertainOccupancy>();
+      this.occupancy.set(sub, byTeam);
+    }
+    const hit = byTeam.get(unit.team);
+    if (hit !== undefined) return hit;
+    const made = new CertainOccupancy(sub, unit.team);
+    byTeam.set(unit.team, made);
+    return made;
+  }
+
+  /**
+   * The decision's economy, built once per (substrate, team). `null` when the
+   * pass is off, so the shipped path never floods a board it will not read —
+   * the same discipline that keeps the conflict index out of a decision nothing
+   * consumes it in.
+   */
+  private economyFor(sub: EngineSubstrate, unitId: UnitId): DecisionEconomy | null {
+    if (!this.knobs.edgeEv) return null;
+    const unit = sub.unitOf(unitId);
+    if (unit === undefined) return null;
+    let byTeam = this.economy.get(sub);
+    if (byTeam === undefined) {
+      byTeam = new Map<number, DecisionEconomy>();
+      this.economy.set(sub, byTeam);
+    }
+    const hit = byTeam.get(unit.team);
+    if (hit !== undefined) return hit;
+    const made = new DecisionEconomy(sub, unit.team, this.knobs.edgeEvTuning);
+    byTeam.set(unit.team, made);
     return made;
   }
 
@@ -441,6 +665,7 @@ interface Generated {
   kept: AssessedCandidate[];
   pruned: PrunedEntry[];
   legalCount: number;
+  marks: CandidateSet['marks'];
 }
 
 function generate(
@@ -448,21 +673,38 @@ function generate(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  occupancy: CertainOccupancy | null,
+  economy: DecisionEconomy | null
 ): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(
+  const { kept, pruned, legalCount, marks } = generateAssessed(
     sub,
     unitId,
     knobs,
     shadows,
-    regicideCells
+    regicideCells,
+    occupancy,
+    economy
   );
-  return {
+  const base: CandidateSet = {
     unitId,
     candidates: kept.map((k) => k.candidate),
     prunedLedger: pruned,
     legalCount,
   };
+  // Absent, not `undefined`-valued: a set built with the classifier off must
+  // be indistinguishable from the one the shipped build produced, and an own
+  // property holding `undefined` is not.
+  const set = marks === undefined ? base : { ...base, marks };
+  // THE PRIORS, PUBLISHED, and only where the pass actually ran.
+  //
+  // `economy === null` is the edge-EV pass switched off, and then every
+  // `edgeEv` on the assessment is the structural zero `priceEdges` left there
+  // rather than a measurement — publishing that would be a selection layer
+  // downstream reading zeros as if a heuristic had said something. Same
+  // discipline as `marks`: absent, not present-and-empty.
+  if (economy === null) return set;
+  return { ...set, edgeEv: kept.map((k) => k.edgeEv) };
 }
 
 function generateAssessed(
@@ -470,7 +712,9 @@ function generateAssessed(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  occupancy: CertainOccupancy | null,
+  economy: DecisionEconomy | null
 ): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
@@ -536,14 +780,121 @@ function generateAssessed(
   const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
   const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
 
+  // ---- rung 0: the fatality classifier ------------------------------------
+  // AFTER every other prune, deliberately. The classifier's question is "what
+  // does the set of verdicts say about the UNIT", and the set it must ask
+  // about is the one the search will actually see. Running it earlier would
+  // report a unit forced onto an option a later prune then takes away.
+  const { after: afterFatality, marks } = classifyFatality(
+    sub,
+    unit,
+    afterKing,
+    pruned,
+    knobs,
+    occupancy
+  );
+
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
   // taken by a LOSSY prune, the least-bad tier comes back — exact prunes are
   // never restored, because their representatives are still in the set.
-  const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
+  const kept = afterFatality.length > 0 ? afterFatality : restoreLeastBad(assessed, pruned);
 
-  kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
-  return { kept, pruned, legalCount };
+  // ---- rung 1/2: the edge-EV pass ----------------------------------------
+  // AFTER the fatality pass and AFTER the emptiness guarantee, deliberately.
+  // After fatality because the fatal term reads the prior that pass writes;
+  // after the guarantee because a restored least-bad option is still an option
+  // the comparator will order, and an unscored one would sort as if every term
+  // were zero.
+  const priced = priceEdges(sub, unit, kept, economy);
+
+  priced.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
+  return { kept: priced, pruned, legalCount, marks };
+}
+
+/**
+ * φ_u for every surviving option, written onto the assessment the comparator
+ * reads.
+ *
+ * Returns the input array UNCHANGED — same object, same order — when the pass
+ * is off. Not "an equivalent array": the flags-off path must be structurally
+ * identical rather than identical-by-measurement, and a map that rebuilds every
+ * record with the same values is a different object graph for no reason.
+ */
+function priceEdges(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  assessed: AssessedCandidate[],
+  economy: DecisionEconomy | null
+): AssessedCandidate[] {
+  if (economy === null) return assessed;
+  return assessed.map((a) => ({
+    ...a,
+    edgeEv: unaryEv(
+      unaryParts(economy, sub, unit, {
+        candidate: a.candidate,
+        landing: a.landing,
+        healthSpent: a.healthSpent,
+        tier: a.tier,
+        capture: a.capture,
+        survivalPrior: a.survivalPrior,
+      })
+    ),
+  }));
+}
+
+/**
+ * The rung-0 fatality pass: attach the survivor-count data, emit the unit's
+ * marks, and collapse the search over a unit the classifier left one option.
+ *
+ * The collapse is the only behaviour here, and it is deliberately the weakest
+ * policy the classifier could license. It fires only at `survivors === 1`, so
+ * it can never empty a set and never removes an option a unit still had a live
+ * alternative to. A per-candidate refusal on the same evidence is what
+ * `pruneCertainSelfFatal` already offers and what measured badly on dense
+ * snake boards; this is the set-level form of the same fact.
+ */
+function classifyFatality(
+  sub: EngineSubstrate,
+  unit: SubstrateUnit,
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  knobs: Required<CandidateKnobs>,
+  occupancy: CertainOccupancy | null
+): { after: AssessedCandidate[]; marks: CandidateSet['marks'] } {
+  if (!knobs.unitFatality || occupancy === null || assessed.length === 0) {
+    return { after: [...assessed], marks: undefined };
+  }
+  const verdict = classifyUnit(
+    sub,
+    unit,
+    assessed.map((a) => a.candidate),
+    occupancy,
+    // The ally arm rides the same knob the ally-body prune does: with that one
+    // off the team-mate's body is not a refusal anywhere in this file, and a
+    // mark that counted it would be reporting a certainty the set does not
+    // reflect.
+    knobs.pruneCertainSelfFatal
+  );
+  const marks: CandidateSet['marks'] = {
+    forced: verdict.forced !== null,
+    sealed: verdict.sealed,
+    survivors: verdict.survivors,
+    provenance: verdict.provenance,
+  };
+  const withData = assessed.map((a, i) => {
+    const one = verdict.options[i] as CandidateFatality;
+    return { ...a, survivorsAfter: one.survivorsAfter, survivalPrior: one.survivalPrior };
+  });
+  if (verdict.forced === null) return { after: withData, marks };
+  const after: AssessedCandidate[] = [];
+  for (let i = 0; i < withData.length; i++) {
+    const one = verdict.options[i] as CandidateFatality;
+    const kept = withData[i] as AssessedCandidate;
+    if (one.cause === null) after.push(kept);
+    else pruned.push({ candidate: kept.candidate, prune: PRUNE.forcedSibling, exact: false });
+  }
+  return { after, marks };
 }
 
 // ---------------------------------------------------------------------------
@@ -809,6 +1160,10 @@ function assessOne(
   const selfDebuff = knobs.selfDebuffOrdering
     ? selfDebuffOf(sub, unit, exposure, landing)
     : ('none' as SelfDebuff);
+  // ZERO WHENEVER THE KNOB IS OFF, so the comparator below stays unconditional
+  // and a bot without this knob sorts byte for byte what it always did — the
+  // same discipline `edgeEv` follows in the slot beneath it.
+  const potionGain = knobs.potionOrdering && selfDebuff === 'spend' ? 1 : 0;
 
   return {
     candidate,
@@ -822,7 +1177,15 @@ function assessOne(
     contingencies,
     shadowBonus,
     foodGain,
+    potionGain,
     regicideShot,
+    // Filled in by the fatality pass when its knob is on; absent otherwise, so
+    // an assessment with the classifier off costs exactly what it cost.
+    survivorsAfter: -1,
+    survivalPrior: 1,
+    // Filled in by the edge-EV pass when ITS knob is on, and after the fatality
+    // pass, because the fatal term reads the prior that pass writes.
+    edgeEv: 0,
   };
 }
 
@@ -1121,6 +1484,11 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
+  // THE EDGE-EV SLOT. Below every material-class key above it, immediately
+  // above the health cost it exists to sharpen, and IDENTICALLY ZERO wherever
+  // the rung-1/2 pass did not run — so the chain below is byte-for-byte the one
+  // it has always been. Exactly the standing `tierRisk` has one slot up.
+  if (a.edgeEv !== b.edgeEv) return b.edgeEv - a.edgeEv;
   if (a.healthSpent.hi !== b.healthSpent.hi) return a.healthSpent.hi - b.healthSpent.hi;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
@@ -1128,6 +1496,26 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
 
 const captureRank = (c: AssessedCandidate['capture']): number =>
   c === 'yes' ? 2 : c === 'maybe' ? 1 : 0;
+
+/**
+ * THE ORDERING COMPARATOR, BY NAME — exported so the laws can be asserted on
+ * the comparator itself rather than inferred from an ordering it produced.
+ *
+ * The one law that needs it: an edge-EV pass may change the order ONLY through
+ * `AssessedCandidate.edgeEv`. Zeroing that field on a set the pass priced and
+ * re-sorting must reproduce, candidate for candidate, the order the same board
+ * produces with the pass off. Inferring that from two generated orders would
+ * prove something weaker — that the two agreed on one board — and would go on
+ * agreeing if a second field started leaking.
+ *
+ * It is a pure function of two assessments. Exporting it adds no seam: nothing
+ * can be configured through it and it reaches nothing.
+ */
+export function orderingComparator(
+  gainOrdering: boolean
+): (a: AssessedCandidate, b: AssessedCandidate) => number {
+  return gainOrdering ? gainOrderKey : orderKey;
+}
 
 /**
  * THE GAIN ORDER — `orderKey` with what a move TAKES sorted before what it
@@ -1174,7 +1562,23 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const capture = captureRank(b.capture) - captureRank(a.capture);
   if (capture !== 0) return capture;
   if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
+  // THE PICKUP SLOT. Below the eats, because food is the resource a unit dies
+  // without and a window is a resource it merely wins with; above everything
+  // quiet, because a collection that never enters the priced set cannot be
+  // valued by any evaluator, however loudly that evaluator prices it. Zero on
+  // every bot that does not set `potionOrdering`, so this line is inert in the
+  // shipped comparator.
+  if (a.potionGain !== b.potionGain) return b.potionGain - a.potionGain;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
+  // THE EDGE-EV SLOT — and note where it is NOT. It sits BELOW `foodGain`,
+  // which already separates the eats from everything else, so the EV's job here
+  // is the one E2 named: deciding WHICH meal, among meals the comparator
+  // already promoted, gets the one slot inside `candidateCap`. A queen at h=8
+  // gains 92 cells of future travel from a meal; the same queen at h=95 gains
+  // 5, and until now the order could not tell them apart. Below the eats it
+  // does the same job for the quiet moves, where nothing else discriminates at
+  // all. Identically zero when the pass did not run.
+  if (a.edgeEv !== b.edgeEv) return b.edgeEv - a.edgeEv;
   const ha = a.foodGain === 1 ? 0 : a.healthSpent.hi;
   const hb = b.foodGain === 1 ? 0 : b.healthSpent.hi;
   if (ha !== hb) return ha - hb;
