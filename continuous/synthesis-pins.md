@@ -4115,3 +4115,21 @@ final synthesis prematurely.
     the missing slot, not the cap ordering.
   * Third bounded-statistic trap caught pre-publication (saturating win
     probabilities); logit form correct.
+- MIXED-STRATEGY DIRECTION RETIRED ON EVIDENCE (search lens @ a97ce83,
+  doc 09, restricted-gap probe on real bank/enum/resolutions, 9 boards,
+  zero games): pureDuality = minMax−maxMin = 0 on EVERY column-producing
+  board at all three readings (floor/mid/ceil) — every restricted matrix
+  has a PURE SADDLE, exactly, solver-free. Non-vacuous (4-9 weight-unit
+  spans, 3-5 distinct security values). Five of nine boards produce no
+  columns at all (gate admits only contacting held units) — the question
+  isn't posed off contact, and on contact the gap is exactly zero.
+  Author's own corrections recorded: rowSupport is degeneracy not value
+  (measured 3-11 with gap exactly 0); "microseconds"→milliseconds;
+  floor-saturation prediction UNTESTED (deadFrac 0%) and leaning the
+  other way (floor discriminates MORE on contested-3). CONSEQUENCE: the
+  set-valued/Centaur case now STANDS ALONE as the only surviving reason
+  to move off Γ-maximin — its argument was never game-theoretic.
+  C-T1 dissolved. D2 dissolves into D2' (occupancy-overlap confirmed in
+  influenceOf; real gap = point-reach under staleness; strong public-cut
+  reading retracted). Corrected S0 spec: lead with pureDuality; solver
+  only when >0.
