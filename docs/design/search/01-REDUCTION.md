@@ -469,6 +469,122 @@ C-B1.
 | **R3** | resolve C-B1 before shipping any `τ > 0`: run the belief lens's B7 falsifier | analysis | whether `sigmaOfPly.theirMiss` survives |
 | **R4** | *only if R0 says the gap is large*: the equilibrium reading, landed in the epistemics object as a third `w` constructor, with the ratchet restatement C-T1 as its prerequisite | large, cross-lens | — |
 
+---
+
+## 8. The third axis: point-valued vs set-valued output
+
+Added after the prior-art lens's C12, which I consider the strongest
+architectural argument for the Centaur direction produced anywhere in this
+program. It is a property of *this* joint, so it lands here.
+
+Troffaes (2007), *Decision making under uncertainty using imprecise
+probabilities*, classifies the decision criteria available once beliefs are a
+credal set rather than a measure:
+
+| criterion | output | shrinks as `𝒫` shrinks? |
+|---|---|---|
+| **Γ-maximin** — maximise the lower prevision | one decision | **no.** It "usually only selects a single decision, even in case of complete ignorance" |
+| **E-admissibility** — optimal for *some* `P ∈ 𝒫` | a set | yes |
+| **maximality** — not strictly dominated under *every* `P ∈ 𝒫` | a set | yes |
+| **interval dominance** — interval not wholly below another's | a set | yes (weakest) |
+
+Everything in §§1–2 of this document is Γ-maximin: `reduce(v) = inf_P E_P[v]`,
+argmax over `a`, one plan out. That is the point-valued corner of a joint that
+has a set-valued one, and the difference is not cosmetic.
+
+### 8a. Γ-maximin makes compute invisible in the output
+
+The TIME lens's entire design is an economy: allowance grants buy spent quanta,
+spent quanta sharpen beliefs. Under Γ-maximin the **output is one plan whether
+the belief is razor-sharp or vacuous**. The criterion is not a function of how
+sharp `𝒫` became; it is a function of its infimum, which a huge amount of
+sharpening can leave untouched.
+
+That is a structural mismatch between what the economy sells and what the
+criterion buys, and it explains an oddity in the kernel that otherwise reads as
+incidental engineering: the ratchet's `maxGap` — a scalar that must monotonically
+narrow within a basis — is a **hand-built proxy for a shrinking option set**.
+It had to be invented as a separate mechanism precisely because the decision
+criterion produces no set to watch.
+
+### 8b. The Centaur case is being built on the criterion that discards the option list
+
+Surfacing live options to a human co-player *is* set-valued output. Under
+maximality the option set is the reduction's **native** result, and its cardinality
+over time is a legible, monotone progress indicator: *four moves still worth
+considering; ninety milliseconds later, two.* Under Γ-maximin it must be
+reconstructed by machinery that does not exist, from a criterion that threw it
+away.
+
+So:
+
+> **Finding R-4.** The REDUCTION joint has a third axis — **arity**
+> (`point | set`) — and the ADVICE consumer takes the set-valued member. It is
+> orthogonal to both the ambiguity axis (§2) and the reading axis (§4): one can
+> be Γ-maximin over a Huber ball (point, calibrated) or maximal over a vacuous
+> set (set, paranoid). Today we are at `point` and have never considered the
+> alternative, and the one product direction the owner has named needs `set`.
+
+### 8c. Interval dominance is already in our code, in a position the same paper forbids
+
+`refutedAt(candidate.best, incumbent.worst)` — a candidate whose sound ceiling
+sits at or below the incumbent's sound floor is retired — **is interval
+dominance**. As a static, one-ply pre-filter it is exactly correct and it is one
+of the best things in the comparator.
+
+But it also appears inside `depthRung`:
+
+```ts
+if (refutedAt(incumbent.bounds.best, trial.bounds.worst)) return null;
+```
+
+which uses it to *gate a multi-ply comparison*. Troffaes shows that dominance
+criteria of this family do not propagate through dynamic programming once
+dynamics enter — the set of undominated options at a node is not recoverable
+from the undominated sets of its children. So this line is doing something the
+theory says it cannot do, and it is *the same line* that document 00 §6.2
+identifies as the source of the acceptance relation's intransitivity.
+
+> **Two independent literatures, one line, same verdict.** Delete the early-out;
+> order by `µ` always; let sound dominance veto and never select a comparator.
+> That is Law A1, and it now has a second proof.
+
+### 8d. The SHAPE sub-axis, and the three-team member list
+
+The prior-art lens's member list — `{paranoid (ours), MaxN, share-weighted
+asymmetric fold}` — satisfies the composition lens's no-single-member refusal for
+this joint, and it does so by converting a known defect into a member selection.
+
+It fits Law R1 without amendment, as a **shape** restriction rather than a
+**size** one:
+
+- **paranoid**: `𝒫 = Δ(B)` over *joint* opponent profiles — every opponent may
+  coordinate against us. Ours.
+- **MaxN**: `𝒫` restricted to product distributions in which each opponent
+  best-responds to *their own* payoff. A strictly smaller set, so by R1's
+  monotonicity a strictly higher (less pessimistic) value — and the standard
+  choice for a multiplayer game (it is what OpenSpiel's own MCTS backs up, and
+  it says so).
+- **share-weighted asymmetric fold**: `𝒫` restricted by each opponent's stake in
+  the contested resource.
+
+And it retires a bug by absorbing it. The VALUE lens's M1 finding — *"symmetric
+balance form definitionally wrong on 3-team boards (exactly 2.00 all cells)"* —
+is the paranoid member applied where MaxN or the share-weighted member belongs.
+Under this carve that is a **member selection on a three-team board**, not a
+definitional error to patch.
+
+So the ambiguity axis has two sub-axes and they are independent:
+
+```
+SHAPE : who may coordinate, and whose payoff they maximise
+SIZE  : how much probability mass may deviate from P0   (τ / ε)
+```
+
+Today we are at `(paranoid, vacuous)` — the most pessimistic point of both.
+
+---
+
 R0 is the whole point of this document. It converts a four-times-confirmed
 qualitative verdict ("worst-case play is structurally passive") into a number
 per decision, computed from data we already have, with no games played and no

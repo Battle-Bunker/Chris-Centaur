@@ -275,11 +275,40 @@ Two consequences, both currently unguarded:
 - The word "converged unit-wise" in that comment becomes false, and the
   telemetry that reads it (`sweeps`, `restarts`) becomes uninterpretable.
 
-**This is a finding, not a speculation about a hypothetical.** It is
-structurally present the moment `s.deep.size > 0`, which is every decision the
-scout reaches. Whether it *fires* on real boards is an empirical question with a
-one-line instrument: count accept-events per plan key inside one `improve` call
-and report `max`. A key accepted more than once in one slice is a cycle.
+**This is not a speculation. Here is the cycle, run against the shipped
+arithmetic.** `docs/design/search/probes/accept-cycle.probe.ts` reimplements
+`accept()`'s control flow exactly (same order of gates, same early-outs) while
+importing the **real** `posteriorOfBranch`, `foldObservation`,
+`precisionOfSigma` and `refutedAt`. Dropped into
+`src/lobster/__tests__/` on `claude/cluster-lookahead` and run under the repo's
+own jest, it passes:
+
+```
+A = { lo: 0, hi: 12, est: 6, deep: { value: 9, sigma: 0.5 } }
+B = { lo: 5, hi: 5.2, est: 5.1 }                       // no deep note
+C = { lo: 4, hi: 20,  est: 19 }                        // no deep note
+
+mu: { A: 8.958904109589042, B: 5.1, C: 15.5 }
+A>B true   B>C true   C>A true
+```
+
+`A ≻ B` because both have the rung available (A has a note) and `µ_A > µ_B`;
+`B ≻ C` because neither has a note so the rung returns null and the **floor**
+decides (`5 > 4`); `C ≻ A` because the rung is available again and
+`µ_C > µ_A`. Three accepts, one cycle, no contrived arithmetic — B is a narrow
+high-floor plan, C is a wide speculative one, A is a plan depth has spoken well
+of. All three are ordinary.
+
+And the split is **systematic, not random**: deep notes are published only for
+`this.offered` thread keys, i.e. exactly the cluster enumeration's own
+proposals. So the comparator uses `µ` whenever a *proposal* is one of the two
+and the **floor** whenever two *sweep neighbours* meet — which is precisely the
+mixed-comparator condition, arising by construction on every decision the scout
+reaches.
+
+Whether it *fires often* is still empirical, and the instrument is one line:
+count accept-events per plan key inside one `improve` call and report the max.
+A key accepted more than once in one slice is a realised cycle.
 
 The repair is a **law**, not a patch, and it belongs in the joint:
 
