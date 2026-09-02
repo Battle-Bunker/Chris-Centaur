@@ -1,0 +1,173 @@
+# 04 — Mismatches with sibling lenses, the build order, open questions
+
+Named frictions, not smoothed. Each is a place where a sibling's object
+resists this surface as designed, or where this surface needs something no
+sibling currently plans to build.
+
+## 1. The SET has no native supplier yet (search-theory / joints)
+
+The primary signal is set-valued, and the shipped REDUCTION (Γ-maximin)
+returns one plan however sharp the belief — the search lens's own C-T5:
+every quantum the economy buys is invisible in the output. Until the
+arity-SET member (maximality) is seated:
+
+- SET signals are **reconstructed** from the bank's floors over the priced
+  set plus the restricted matrix rows that B2 computes and discards today
+  (search 05 §2.4½: retention is one number per cell, zero extra
+  resolutions).
+- The two suppliers (reconstructed vs native) are distinguished **only by
+  premise ref** — consumers are written once.
+- Dominance *conditions* are the part reconstruction cannot fake: today's
+  bank yields "which witness minimised this row" (a weak condition); real
+  dominance regions arrive with the member. The SET payload's
+  `dominance: ... | null` exists for exactly this gap.
+
+Standing note: the set-valued/Centaur case is the *only surviving reason*
+to move off Γ-maximin (search 09 §5) — this surface is that case's
+consumer, so its requirements (dominance conditions, shrinkage traces) are
+the member's acceptance criteria.
+
+## 2. Flow retention vs the memo boundary (value)
+
+The fold telescopes; the engine only ever needed the sum. This surface
+needs the pre-fold `Contribution` records per decision (the flows law).
+Costs and owners are unsettled:
+
+- Retention size: flow records × decisions/turn; expected tens of KB per
+  decision on piece boards (same order as the matrix rows). Needs a
+  measured number, not this guess.
+- **Who owns the retention policy?** The store outlives the decision
+  (digests need a game's worth; replay/audit wants everything). Proposal:
+  store retains the full game live (it is the decision-transparency record
+  the platform's replay story already wants); post-game custody transfers
+  to the replay capability. Needs the owner's product call on retention
+  beyond the game.
+- The memo-design constraint stands unchanged engine-side: caches keep
+  flows unsummed *or* the cached entry is disqualified as a surface source
+  (C14/R-2). The surface reads the ledger, never the memo.
+
+## 3. The ADVICE economy needs an allocation row (time)
+
+Assembling frames, digests, and read-time folds costs quanta. The time
+lens's ECONOMY has six joints (tranche / phase-split / window / market /
+reaction / conversion) and **no allocation row for surface assembly**. The
+two-currencies law says attention has no exchange rate to quanta — but the
+*production* of signals is priced in quanta like any work. Required: a
+small fixed allocation ("surface tithe") in the phase-split, spent at
+frame-assembly points, never competing at the market (a market bid would
+let a starving search silence its own surface — the failure mode where the
+operator goes blind exactly when the bot is struggling, which is exactly
+when supervision matters). Flagged to the time lens; their phase-split
+table is where it lands.
+
+## 4. HELD is mostly future machinery (joints / time) — but its v1 is live today
+
+The bot is memoryless across turns; commitments (B6) and the worldline
+hypothesis table are unbuilt. But three HELD kinds need no new machinery:
+
+- **pins, echoed with health** — matchPin already plays; the echo
+  ("stale, conflicting, crossed a refusal") is a read of existing state
+  and is the single cheapest high-value signal in the whole inventory;
+- **the staged incumbent** — always exists;
+- **settings** (appetite dial, active guidance) — echoes of IN state.
+
+So HELD ships in v1 with `author: 'operator'` dominant, and grows
+bot-authored kinds as the worldline lands. The surface does not wait.
+
+## 5. The platform's decision-transparency record is a projection of this design (platform — context only)
+
+The platform capability's record (score-coloured per-direction labels,
+worst-case preview, portfolio weight + display label per contributing
+heuristic) maps onto this vocabulary as:
+
+- per-direction score labels = SET restricted to one unit's options,
+  squeezed to a color scale (an AGG-2 "entry point" aggregate — lawful,
+  with drill);
+- worst-case preview = the witness/minimiser of the examined option — a
+  drill into the retained matrix row (§1 retention is its prerequisite);
+- per-heuristic weight + label = FLOW citations, one abstraction coarser
+  (heuristic-level rather than event-level).
+
+No contradiction — but the platform record renders *from its own snapshot
+slots*, so the frame/store split here must eventually be the thing that
+writes those slots, or there will be two transparency records (the
+value-and-premise-travel-separately disease at the product layer). This
+session does not write to the platform repo; the convergence is recorded
+here for the later platform session.
+
+## 6. Shared vocabulary with the IN lens (operator-guidance) — and one factoring offer
+
+Shared objects (single definitions, no forks): **AttentionPolicy** (03
+§2), **AffordanceId** (asks name the affordance that answers them, 01 §4),
+**the conformance deadline** (≤1 tranche, 03 §5), **guidance flow
+channels** (`guidance:<target>`, 01 §2.2).
+
+The factoring offer, from this side's vocabulary: the mandate notes `goto`
+(target + completion event) vs `near` (target, continuous, no completion)
+strains the drives/preferences factoring. Seen from the OUT surface:
+
+> a **drive** = a HELD (operator-authored, with a completion/invalidation
+> condition) **plus** a flow channel;
+> a **preference** = a flow channel **only**.
+>
+> `goto` is a drive (its HELD completes on arrival); `near` is a
+> preference *with a target-parameterised channel* (nothing to complete,
+> so no HELD — its whole being is the continuous stat). The "new factoring
+> needed" dissolves: target-having is a property of the channel's
+> parameterisation; event-having is the presence of a HELD. Two orthogonal
+> bits, four quadrants, all four meaningful (a fear-with-target that never
+> completes = "keep distance from X" is near's mirror; a global goal with
+> completion = "collect any potion" is a HELD on a non-target channel).
+
+Every quadrant's OUT echo is then automatic: channels report as FLOW,
+HELDs report health and completion edges. Offered to the guidance lens on
+their branch's terms; adopted here regardless, since the echo side must
+render whatever they mint.
+
+## 7. Smaller frictions
+
+- **Bot address on frames needs B0** (joints): production has no bot
+  binding site; until botId/behaviourId are stamped, frames carry a
+  placeholder address and cross-game signal comparisons are unlabeled —
+  acceptable for a live surface, poison for mining (the miners' refuse-
+  unknown rule covers it).
+- **WIDTH.decisionRelevance needs the market pricing** (time): v1 fallback
+  is margin-at-deciding-rung overlap (already telemetry); the honest
+  market weight arrives with the economy build.
+- **Belief(observer)** (belief): build the constructor observer-generic
+  (M28) — the operator index is this surface's eventual consumer for
+  presentation selection; v1 uses only the sinceLook cursor.
+- **Headline language**: presentation templates are owner-facing text and
+  go through the principal-glossary checker like any owner-facing doc;
+  banned vocabulary enforced at template review, not per-frame.
+
+## 8. Build order (each step falsifiable, behaviour-inert engine-side)
+
+| # | increment | depends on | falsifier / acceptance |
+|---|---|---|---|
+| **O0** | retention: the foil column (runner-up, deciding rung, margin — "one column, three consumers"), matrix-row keep, pre-fold flow records per decision | search L0 types help but not required | byte-identical play; retention size measured against the §2 guess |
+| **O1** | frame v1: SET (reconstructed) + pins-echo HELD + share-state FLOW context + freshness; fixed cadence; no selection (budget = ∞, items ordered by relevance) | O0 | a harness game produces frames whose SET cardinality is non-trivial (>1 on contested boards, =1 on quiet ones — search 09's contact structure predicts which) |
+| **O2** | the store + pull surface (get/query/trace/contrast); read-time folds | O0 | the platform-record projections (§5) derivable from store alone |
+| **O3** | select + AttentionPolicy + digests with cursors | O1, O2 | submodularity spot-check (greedy prefix property); pinned classes always present; a seeded "coincidence" event (02 §6) costs one item, not three |
+| **O4** | asks: WIDTH removal='ask' + requires-pin SET members; ask lifecycle; conformance acks | O3, IN-lens affordances | on a seeded fog board the ask surfaces exactly when decisionRelevance clears the price; answering via pin conditions S within one turn |
+| **O5** | traces + verdicts (squeeze, saturation/climbing) riding the gapCurve field | time build 1 | the snake6/queen split reproduces as verdicts ("saturated" vs "climbing") from live frames alone |
+
+O0 is the whole unlock and changes no behaviour — the same shape as every
+other lens's first increment, and deliberately so.
+
+## 9. Open questions (not blocking, recorded)
+
+1. Retention beyond game end — product call (replay custody proposed, §2).
+2. Spectator/broadcast frames — a different selection over the public
+   projection; unscoped here; interacts with the tournament story.
+3. Presentation generation — templated strings vs a small grammar over
+   (shape, anchors, units); templated first; revisit when headlines repeat.
+4. Digest budget scaling law (sublinear in absence length) — constant
+   pending any observation of real operator rhythm; no data exists.
+5. Whether `index` (the everything-stub list) needs its own cap on very
+   wide decisions (a queen's 64-option SET stubs fine; 5000 flow stubs do
+   not — probably index lists aggregates' entry points only, with counts).
+6. Multi-operator teams: per-operator frames are cheap reads, but per-
+   operator *asks* need an addressing rule (who answers?) — likely the
+   selection-lock holder of the unit the ask anchors to; coordinate with
+   the IN lens's exclusive-selection vocabulary.
