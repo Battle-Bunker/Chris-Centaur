@@ -327,3 +327,12 @@
       ranks match the formulas, the constants stop mattering; if not, the
       metalevel has been choosing computations by a model that disagrees
       with its own outcomes.
+- [ ] Induced-width distribution of conflict graphs (librarian C49) over the
+      replay archive: one integer decides how much variable-elimination /
+      max-plus buys; doubles as the premise coordinate for per-instance
+      {enumerate, VE, max-plus, ascent} selection.
+- [ ] Metamorphic test suite v0 (librarian M54 — scoring-rule-immune
+      evidence, answers ruling 49's oracle problem): seat symmetry as a
+      TEST; iteration-order invariance; allowance monotonicity (more quanta
+      never worsens the proved floor); premise widening (wider premise
+      bounds narrower). Three of four nearly free.
