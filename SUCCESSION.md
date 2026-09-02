@@ -1,5 +1,56 @@
 # SUCCESSION — orchestrator handoff (written 2026-09-02, end of design session)
 
+## Addendum, 2026-09-02 pickup session (read this block first)
+
+Avenues 1-3 below LANDED on `develop` (head 29f1a0c), each gated by tsc,
+eslint, full jest (98 suites) and watched games; the owner is testing it.
+
+- Contest avoidance: `src/lobster/evaluate/contest.ts`, weight `contest: 3`.
+  Prices a destination an equal-or-heavier enemy head can also reach this
+  turn (rules: strictMaximum on tier then weight, unique winner). Measured
+  10 seeds x 100 turns @150ms: contest deaths -39%/unit-turn mixed, -56%
+  snake-only; meals inside band; dither down. Not priced: edge-exchange
+  (head-swap) contests; own-team coordination. Weight 3 argued from the
+  food gate; 2 and 5 watched, neither better.
+- Weight-aware captures: `captureValue` (victim weight x certainty) in
+  `candidates.ts` drives orderKey and gainOrderKey. Evaluator material term
+  verified already weight-aware (features.ts materialBounds). Unpriced
+  captures (cloud defeats, mutual kills) keep the old certainty order.
+- Engine re-cut E1+E2 landed in TacticToes (PR #23, branch
+  claude/succession-doc-subagent-orchestration-n41iua): `settleTurn` in
+  engine/ settles effects, tiers, potions; golden replay byte-identical;
+  `invulnerabilityPotionWindowTurns` on GameSetup. Vendored here; the bot's
+  forward step (`turn-oracle.ts::resolvePartialTurn`, `simulator.ts`) reads
+  Settlement.tiers/effects/potions; `tier-window.ts` asks settlement what a
+  pickup does (ally +1 now modelled). NOT DONE: `local-game.ts::stepGame`
+  still calls resolveTurn and plays potion-free (so the merge bar cannot
+  watch a potion game yet — do this first); `marshalBoard` still reads a
+  unit's tier from the earliest expiry (buff+debuff with different expiries
+  reads 0; the schedule is on the board now); partial-engine cloud/field
+  tier bounds kept (dead on default; hash-manifested tree).
+- Vendored rules re-synced (maxTurns may be null); sync script lists
+  settleTurn.ts.
+
+Measurement caveat found twice this session: the 150ms runner is NOT
+reproducible at a fixed seed (same build, unitTurns 1501 vs 1329). At 20ms
+it is deterministic but the seed plan plays ~98% of the time, so evaluator
+terms barely reach the staged move there. A deterministic replay harness
+(fixed node budget, not ms) is the missing instrument for any A/B on
+counters; build it before tuning weights.
+
+Next, in order: (1) potions in the local runner + a tier-value term in the
+fold + botId on reports (M1/M2); (2) engage horizon 2-3 for pieces with
+DEFAULT_SWITCH_MARGIN revisited, gated on watched games; (3) the queued
+fat-account potion re-test, which decides whether potions pay at all;
+(4) E3-E7.
+
+Process this session: one orchestrator, four opus subagents (three in git
+worktrees, merged by the orchestrator; one directly on TacticToes),
+~200k tokens each, final report only. Worktrees were created from a stale
+base and each agent had to fast-forward to the work branch first — brief
+successors to check `git log -1` before starting.
+
+
 Read this first. It replaces reading any transcript. The durable memory of
 the whole session is `continuous/synthesis-pins.md` on `origin/coordination`
 (rulings 0-52, every landing and verdict); this file is the shorter map.
