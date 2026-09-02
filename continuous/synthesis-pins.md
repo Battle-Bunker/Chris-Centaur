@@ -4174,3 +4174,11 @@ search. Owner also noted the pool ran thin (1 task) — keep 4-8 active.
   arms — the domain-26 distinction survived contact. BOTH halves of
   ruling 49 now quantitative: bot population 25%-dense w/ +0.996
   duplicate; instance spend ~10% on non-discriminating cells.
+
+## RULING 52 (owner, 2026-09-02): coordinator restraint
+I must do MUCH LESS reading and relaying — expensive context, and it
+collapses the diversity of thoughts in flight prematurely. Agent briefs
+must encourage LONGER PRIVATE EXPLORATION SESSIONS and a HIGHER BAR OF
+INSIGHT QUALITY before proactively messaging the coordinator. Agents
+cross-read sibling branches directly; pushed branches are the durable
+record; coordinator relays only what genuinely cannot wait.
