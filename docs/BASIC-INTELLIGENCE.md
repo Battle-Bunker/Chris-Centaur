@@ -10,18 +10,67 @@ watching one game.
 So this pass is built on watching games. `src/tests/local-game.ts` runs the
 SHIPPED decision path — the same substrate, candidate generator, evaluator,
 search core and kernel that `team-decision-engine.ts` assembles, minus the
-Firebase wire — against the vendored rules (`engine-vendor/engine/resolveTurn`),
-and prints one line per unit per turn: where it stood, where it staged, and the
-three best-scoring options with the number the evaluator gave each.
+Firebase wire — against the vendored rules (`engine-vendor/engine/settleTurn`,
+which is `resolveTurn` plus the end-of-turn effect, tier and potion bookkeeping
+the real server does above it), and prints one line per unit per turn: where it
+stood, where it staged, and the three best-scoring options with the number the
+evaluator gave each.
 
     npx tsc && node dist/tests/local-game.js <scenario> <turns> <seed> <budgetMs>
+    node dist/tests/local-game.js --help
 
 Scenarios: `snakes` (6 snakes, 6 meals, 11x11 — food-rich), `mixed` (snakes +
 pawn + knight + queen, 3 teams), `sparse` (4 snakes, 2 meals, 13x13 — the
-starvation board, where a bot with no food gradient dies of old age).
+starvation board, where a bot with no food gradient dies of old age), `potions`
+(the `mixed` roster with the invulnerability rules live: four potions standing,
+respawned every third turn from the seeded rng, a three-turn window).
 
 The assertions live in `src/tests/basic-intelligence.test.ts`, which reads the
 same counters.
+
+---
+
+## Measuring a change: the deterministic mode
+
+**A wall-clock budget cannot measure a weight change.** At the standard 150 ms
+the runner is not reproducible at a fixed seed: the same build played `mixed`
+for 1501 unit-turns on one run and 1329 on the next, and the worst single
+decision swung by 2x. Every counter here is downstream of how much search the
+box afforded, so an A/B is a reading of the machine's load. Dropping the budget
+to 20 ms does make it reproducible — by making the decision the generator's seed
+plan ~98% of the time, which measures nothing either.
+
+`--nodes[=N]` budgets each decision by a fixed count of kernel WORK UNITS
+instead — evaluator calls that actually reached the evaluator, plus a hundredth
+of a unit per clock read so a stretch of search that prices nothing new still
+ends. It goes in through `KernelInput.now`, the injection point the kernel
+already documents for exactly this, and it also turns off the kernel's
+wall-gated event-loop yield, which nothing in this runner needs. The default
+`N = 550` is the median work a 150 ms decision was measured to spend on the
+calibration box, over four runs of `mixed` at seeds 1-3 (nodes per decision
+362-551, slices per decision 18-92, work units 414-662, median 596; 550 is where
+the deterministic mode's node, read and slice profile all land inside that
+spread). The ms mode is untouched and is still the default.
+
+    node dist/tests/local-game.js sum all 60 3 --nodes --json=A.jsonl --label=before
+    #  ...same command in the other worktree, --json=B.jsonl --label=after
+    node scripts/ab-compare.js A.jsonl B.jsonl
+
+`--json[=FILE]` writes one summary object per run — per-board-class counters and
+their per-100-unit-turn rates, deaths by cause, and the work spent. In the
+deterministic mode it carries no wall-clock field at all, which is what lets two
+runs be compared byte for byte: two full 60-turn three-seed runs of `mixed` and
+`snakes` produce identical files (sha256 926a180a…). `scripts/ab-compare.js`
+pairs two such files by (scenario, seed) and prints per-seed deltas, the paired
+mean and a sign test — **per board class, never pooled across board classes**,
+because a mean over `snakes`, `mixed` and `sparse` hides a change that helps
+snakes and wrecks pieces. Two builds cannot coexist in one process, which is why
+the A/B is two builds writing two files rather than a subcommand.
+
+Potion counters (`potions` board only): pickups, tier-ups, tier-downs, and
+deaths adjudicated at a negative or positive tier. First reading, 3 seeds x 60
+turns, `--nodes`: 22 pickups, 44 tier-ups, 1 death while debuffed, 0 while
+buffed, against 22.46 meals/100 and 12 contest deaths.
 
 ---
 

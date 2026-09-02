@@ -18,8 +18,9 @@ import { writeFileSync } from 'fs';
 import type { Board, Coord, Snake } from '../types/battlesnake';
 import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
 import { marshalBoard } from '../logic/turn-oracle';
-import { resolveTurn } from '../engine-vendor/engine/resolveTurn';
+import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
+import { aggregateExpiryTurn } from '../firebase/translate';
 import { EngineSubstrate, makeSubstrate, clearGeometryCache } from '../lobster/substrate';
 import { GrammarCandidateGenerator, knobsForSafety } from '../lobster/candidates';
 import { defaultEvaluator } from '../lobster/evaluate';
@@ -298,6 +299,23 @@ export function buildBoard(spec: GameSpec): Board {
     pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
     maxHealthPerUnit: {},
     snakes,
+    // A POTION-FREE BOARD CARRIES NO POTION FIELDS AT ALL, not empty ones.
+    // `marshalBoard` reads "potions enabled" off the board's own contents when
+    // the flag is absent, and `Simulator` decides whether a unit's expiry turn
+    // may be written from whether the board carried a SCHEDULE — so a board
+    // that states nothing and a board that states nothing-yet are two
+    // different inputs. Spreading the whole group in only when the spec names
+    // potions is what keeps the three potion-free scenarios byte-identical
+    // across the settleTurn switch.
+    ...(spec.potions === undefined
+      ? {}
+      : {
+          invulnerabilityPotions: spec.potions.map((c) => ({ ...c })),
+          invulnerabilityPotionsEnabled: true,
+          invulnerabilityPotionWindowTurns:
+            spec.potionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS,
+          activeEffects: [],
+        }),
   };
 }
 
@@ -545,8 +563,15 @@ function traceFor(
 
 export interface TurnOutcome {
   readonly board: Board;
-  readonly deaths: ReadonlyArray<{ id: string; cause: string }>;
+  /** Every unit the turn removed, with the tier it was ADJUDICATED at. */
+  readonly deaths: ReadonlyArray<{ id: string; cause: string; tier: number }>;
   readonly ate: ReadonlyArray<string>;
+  /** Potions collected this turn, as the difference in the module's own list. */
+  readonly potionsTaken: number;
+  /** Units whose tier ROSE over the turn — an ally of a collector, mostly. */
+  readonly tierUps: ReadonlyArray<string>;
+  /** Units whose tier FELL — the collector itself, and every lapsing buff. */
+  readonly tierDowns: ReadonlyArray<string>;
 }
 
 export function stepGame(
@@ -554,7 +579,8 @@ export function stepGame(
   turn: number,
   staged: ReadonlyMap<string, number>,
   rng: () => number,
-  foodTarget: number
+  foodTarget: number,
+  potions: { target: number; everyTurns: number } = { target: 0, everyTurns: 0 }
 ): TurnOutcome {
   const marshalled = marshalBoard(board, turn);
   // The wire stages a DESTINATION and the server's own movement grammar turns
@@ -565,18 +591,51 @@ export function stepGame(
     return to === undefined ? { ...u, path: [] } : { ...u, stagedMove: to };
   });
   const before = new Map(marshalled.units.map((u) => [u.id, u.occupancy.length]));
-  const result = resolveTurn({ ...marshalled.config, units });
+  const tierBefore = new Map(marshalled.units.map((u) => [u.id, u.tier]));
+
+  // SETTLEMENT, NOT RESOLUTION. `resolveTurn` answers "where is everything and
+  // what died" and stops there; `settleTurn` is that plus the end-of-turn
+  // bookkeeping the server does above it — potion collection, the ally-buff
+  // cancel, effect expiry — and it hands back `tiers`, `effects` and `potions`
+  // as the NEXT turn starts from them. This runner is the SERVER's stand-in,
+  // and the server calls settlement, so calling `resolveTurn` here meant every
+  // potion on the board was scenery and every tier window was frozen at its
+  // observed value for the whole game. Nothing below recomputes any of the
+  // three: a caller that charges its own pickup has written the second
+  // encoding of the rules that engine-vendor/VENDOR.md exists to prevent.
+  //
+  // Every unit is staged, so there is no frozen half and this is settlement
+  // proper — `resolvePartialTurn` (turn-oracle.ts) is the BOT's entry point,
+  // with the partial-time-advance contract that comes with predicting a turn
+  // nobody has told you about, and it would be the wrong shape here.
+  const result = settleTurn({
+    ...marshalled.config,
+    units,
+    turn: marshalled.arrivalTurn,
+    teamOf: Object.fromEntries(marshalled.teamOf),
+    effects: marshalled.effects,
+    potions: marshalled.potions,
+    potionsEnabled: marshalled.potionsEnabled,
+    potionWindowTurns: marshalled.potionWindowTurns,
+  });
 
   const w = marshalled.fullWidth;
   const h = marshalled.fullHeight;
+  const hadSchedule = board.activeEffects !== undefined;
   const snakes: Snake[] = [];
   const ate: string[] = [];
+  const tierUps: string[] = [];
+  const tierDowns: string[] = [];
   for (const snake of board.snakes ?? []) {
     const settled = result.board[snake.id];
     if (!settled) continue;
     const cells = settled.occupancy.map((c) => toApiCoord(c, w, h));
     const piece = snake.unitType !== undefined && snake.unitType !== 'snake';
     if (settled.occupancy.length > (before.get(snake.id) ?? 0)) ate.push(snake.id);
+    const tier = result.tiers[snake.id] ?? 0;
+    const was = tierBefore.get(snake.id) ?? 0;
+    if (tier > was) tierUps.push(snake.id);
+    if (tier < was) tierDowns.push(snake.id);
     const next: Snake = {
       ...snake,
       body: piece ? [cells[0] as Coord] : cells,
@@ -587,7 +646,15 @@ export function stepGame(
       orientation: result.rotations[snake.id]
         ? { ...result.rotations[snake.id] }
         : { ...snake.orientation },
+      invulnerabilityLevel: tier,
     };
+    // How long that level is safe to bank on: the earliest expiry among the
+    // effects settlement left this unit holding. A board carrying no schedule
+    // can say nothing new, so its stated expiry rides across untouched — which
+    // for the potion-free scenarios means the field stays absent, exactly as
+    // it was before settlement was called at all.
+    const expiry = aggregateExpiryTurn(result.effects, snake.id);
+    if (hadSchedule && expiry !== null) next.invulnerabilityExpiryTurn = expiry;
     promoteIfDue(next, board);
     snakes.push(next);
   }
@@ -595,26 +662,59 @@ export function stepGame(
   const deaths = Object.entries(result.deaths).map(([id, d]) => ({
     id,
     cause: String((d as { cause?: string }).cause ?? 'unknown'),
+    // The tier the turn was ADJUDICATED at, which is the one that decided
+    // whether this unit survived the clash — not the settled one, which the
+    // dead do not have.
+    tier: tierBefore.get(id) ?? 0,
   }));
 
   const food = result.food.map((c) => toApiCoord(c, w, h));
+  const standing = result.potions.map((c) => toApiCoord(c, w, h));
   const occupied = new Set<number>();
   for (const s of snakes) for (const c of s.body) occupied.add(apiCoordToIndex(c, w, h));
   for (const f of food) occupied.add(apiCoordToIndex(f, w, h));
-  let guard = 0;
-  while (food.length < foodTarget && guard++ < 200) {
-    const x = Math.floor(rng() * board.width);
-    const y = Math.floor(rng() * board.height);
-    const idx = apiCoordToIndex({ x, y }, w, h);
-    if (occupied.has(idx)) continue;
-    occupied.add(idx);
-    food.push({ x, y });
+  for (const p of standing) occupied.add(apiCoordToIndex(p, w, h));
+  const free = (): Coord | null => {
+    for (let guard = 0; guard < 200; guard++) {
+      const x = Math.floor(rng() * board.width);
+      const y = Math.floor(rng() * board.height);
+      const idx = apiCoordToIndex({ x, y }, w, h);
+      if (occupied.has(idx)) continue;
+      occupied.add(idx);
+      return { x, y };
+    }
+    return null;
+  };
+  while (food.length < foodTarget) {
+    const cell = free();
+    if (cell === null) break;
+    food.push(cell);
+  }
+  // SPAWNING IS THE CALLER'S, and it is a die roll: `settleTurn` collects a
+  // potion and deliberately does not place one (VENDOR.md, "What is
+  // deliberately NOT in the module"). The schedule is the seeded rng and a
+  // fixed cadence, so it is reproducible like everything else — and it draws
+  // NOTHING from the rng on a board with no potions configured, which is what
+  // keeps the potion-free scenarios' food stream identical.
+  if (potions.target > 0 && potions.everyTurns > 0 && turn % potions.everyTurns === 0) {
+    while (standing.length < potions.target) {
+      const cell = free();
+      if (cell === null) break;
+      standing.push(cell);
+    }
   }
 
+  const next: Board = { ...board, snakes, food };
+  if (board.invulnerabilityPotions !== undefined) next.invulnerabilityPotions = standing;
+  if (hadSchedule || result.effects.length > 0) next.activeEffects = result.effects;
+
   return {
-    board: { ...board, snakes, food },
+    board: next,
     deaths,
     ate,
+    potionsTaken: marshalled.potions.length - result.potions.length,
+    tierUps,
+    tierDowns,
   };
 }
 
@@ -663,6 +763,16 @@ export interface GameMetrics {
   starvationDeaths: number;
   otherDeaths: number;
   deathsByCause: Record<string, number>;
+  /** Potions collected — settlement's own before/after count, not a re-derived rule. */
+  potionPickups: number;
+  /** Unit-turns that ended on a HIGHER tier: an ally of a collector, mostly. */
+  potionTierUps: number;
+  /** Unit-turns that ended on a lower tier: the collector, and lapsing buffs. */
+  potionTierDowns: number;
+  /** Deaths of a unit adjudicated at a NEGATIVE tier — it paid for its potion. */
+  deathsWhileDebuffed: number;
+  /** Deaths of a unit adjudicated at a positive tier — invulnerability is not immunity. */
+  deathsWhileBuffed: number;
   /** Health of every living unit at the end. */
   endHealth: number[];
   /** Wall time of the slowest single team decision, ms. NOT reproducible. */
@@ -697,6 +807,10 @@ export async function runGame(
       : { kind: 'nodes', nodes: spec.nodeBudget };
   const maxTurns = spec.maxTurns ?? 100;
   const foodTarget = spec.foodTarget ?? spec.food.length;
+  const potionSchedule = {
+    target: spec.potions === undefined ? 0 : (spec.potionTarget ?? spec.potions.length),
+    everyTurns: spec.potionRespawnTurns ?? 1,
+  };
   let board = buildBoard(spec);
   const log: string[] = [];
   const emit = (line: string): void => {
@@ -717,6 +831,11 @@ export async function runGame(
     starvationDeaths: 0,
     otherDeaths: 0,
     deathsByCause: {},
+    potionPickups: 0,
+    potionTierUps: 0,
+    potionTierDowns: 0,
+    deathsWhileDebuffed: 0,
+    deathsWhileBuffed: 0,
     endHealth: [],
     worstDecisionMs: 0,
     nodes: 0,
@@ -803,12 +922,17 @@ export async function runGame(
     for (const s of board.snakes ?? []) {
       bodies.set(s.id, s.body.map((c) => `(${c.x},${c.y})`).join(''));
     }
-    const outcome = stepGame(board, turn, staged, rng, foodTarget);
+    const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule);
     metrics.foodEaten += outcome.ate.length;
+    metrics.potionPickups += outcome.potionsTaken;
+    metrics.potionTierUps += outcome.tierUps.length;
+    metrics.potionTierDowns += outcome.tierDowns.length;
     for (const d of outcome.deaths) {
       metrics.deathsByCause[d.cause] = (metrics.deathsByCause[d.cause] ?? 0) + 1;
       if (d.cause === 'exhaustion' || d.cause === 'hazard') metrics.starvationDeaths++;
       else metrics.otherDeaths++;
+      if (d.tier < 0) metrics.deathsWhileDebuffed++;
+      if (d.tier > 0) metrics.deathsWhileBuffed++;
     }
     board = outcome.board;
     metrics.turns = turn;
@@ -817,9 +941,18 @@ export async function runGame(
     for (const r of rows) emit(r);
     for (const d of outcome.deaths) {
       const before = bodies.get(d.id);
-      emit(`  DEATH ${d.id} (${d.cause})  body was ${before ?? '?'}`);
+      emit(
+        `  DEATH ${d.id} (${d.cause})${d.tier === 0 ? '' : ` tier${d.tier > 0 ? '+' : ''}${d.tier}`}` +
+          `  body was ${before ?? '?'}`
+      );
     }
     if (outcome.ate.length > 0) emit(`  ATE ${outcome.ate.join(', ')}`);
+    if (outcome.potionsTaken > 0) {
+      emit(
+        `  POTION x${outcome.potionsTaken}  tier up: ${outcome.tierUps.join(', ') || '(none)'}` +
+          `  tier down: ${outcome.tierDowns.join(', ') || '(none)'}`
+      );
+    }
     clearGeometryCache();
   }
 
@@ -912,10 +1045,44 @@ export const SPARSE_SCENARIO: GameSpec = {
   maxTurns: 100,
 };
 
+/**
+ * THE POTION BOARD — the mixed roster with the invulnerability rules live.
+ *
+ * A potion is not a pickup that makes you stronger. Collecting one takes the
+ * COLLECTOR down a tier and gives each of its living allies one, for a window
+ * of turns; a unit that was vulnerable when it collided drags its whole team's
+ * borrowed tiers down with it; and every level given is given back when the
+ * window lapses. So the board asks a question none of the other three do — is
+ * the bot willing to pay a tier to arm its team, and does it survive the turns
+ * it spends debuffed — and it is the only board on which `settleTurn`'s
+ * `tiers`, `effects` and `potions` outputs do anything at all.
+ *
+ * The roster is `mixed`'s, deliberately: the potion counters are then readable
+ * against that board's own numbers rather than against a board that differs in
+ * two ways at once. Four potions standing, replaced on a fixed cadence from the
+ * seeded rng, so the schedule is reproducible like everything else here.
+ */
+export const POTION_SCENARIO: GameSpec = {
+  ...MIXED_SCENARIO,
+  potions: [
+    { x: 5, y: 2 },
+    { x: 2, y: 5 },
+    { x: 8, y: 5 },
+    { x: 5, y: 8 },
+  ],
+  potionTarget: 4,
+  // Every third turn, which is the default window: a board that refilled every
+  // turn would keep a potion under every unit's nose and never let a window
+  // lapse, and one that refilled every twentieth would spend the game empty.
+  potionRespawnTurns: 3,
+  potionWindowTurns: DEFAULT_POTION_WINDOW_TURNS,
+};
+
 export const SCENARIOS: Record<string, GameSpec> = {
   snakes: SNAKE_SCENARIO,
   mixed: MIXED_SCENARIO,
   sparse: SPARSE_SCENARIO,
+  potions: POTION_SCENARIO,
 };
 
 // ---------------------------------------------------------------------------
@@ -959,6 +1126,11 @@ export interface RunSummary {
     readonly seedKept: number;
     readonly starvationDeaths: number;
     readonly otherDeaths: number;
+    readonly potionPickups: number;
+    readonly potionTierUps: number;
+    readonly potionTierDowns: number;
+    readonly deathsWhileDebuffed: number;
+    readonly deathsWhileBuffed: number;
     readonly survivors: number;
     readonly healthTotal: number;
   };
@@ -1007,6 +1179,11 @@ export function summaryOf(
       seedKept: metrics.seedKept,
       starvationDeaths: metrics.starvationDeaths,
       otherDeaths: metrics.otherDeaths,
+      potionPickups: metrics.potionPickups,
+      potionTierUps: metrics.potionTierUps,
+      potionTierDowns: metrics.potionTierDowns,
+      deathsWhileDebuffed: metrics.deathsWhileDebuffed,
+      deathsWhileBuffed: metrics.deathsWhileBuffed,
       survivors: metrics.endHealth.length,
       healthTotal: metrics.endHealth.reduce((a, b) => a + b, 0),
     },
@@ -1018,6 +1195,8 @@ export function summaryOf(
       dithersPer100: per(metrics.dithers),
       seedKeptPer100: per(metrics.seedKept),
       deathsPer100: per(metrics.starvationDeaths + metrics.otherDeaths),
+      potionPickupsPer100: per(metrics.potionPickups),
+      potionTierUpsPer100: per(metrics.potionTierUps),
     },
     deathsByCause: Object.fromEntries(
       Object.entries(metrics.deathsByCause).sort(([a], [b]) => (a < b ? -1 : 1))
@@ -1057,6 +1236,10 @@ async function summarise(
     seedKept: 0,
     starvationDeaths: 0,
     otherDeaths: 0,
+    potionPickups: 0,
+    potionTierUps: 0,
+    deathsWhileDebuffed: 0,
+    deathsWhileBuffed: 0,
   };
   const causes: Record<string, number> = {};
   let worst = 0;
@@ -1091,7 +1274,12 @@ async function summarise(
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
       `stationary%=${per(totals.stationary as number)} seedKept%=${per(totals.seedKept as number)} ` +
       `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
-      `causes=${JSON.stringify(causes)} nodes=${nodes} ` +
+      `causes=${JSON.stringify(causes)} ` +
+      ((totals.potionPickups as number) > 0
+        ? `potions=${totals.potionPickups} tierUps=${totals.potionTierUps} ` +
+          `deadDebuffed=${totals.deathsWhileDebuffed} deadBuffed=${totals.deathsWhileBuffed} `
+        : '') +
+      `nodes=${nodes} ` +
       (budget.kind === 'ms' ? `worstMs=${worst.toFixed(0)}` : 'deterministic')
   );
 }

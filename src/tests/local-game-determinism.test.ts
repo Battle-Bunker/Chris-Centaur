@@ -18,6 +18,7 @@
 import {
   DEFAULT_NODE_BUDGET,
   MIXED_SCENARIO,
+  POTION_SCENARIO,
   SNAKE_SCENARIO,
   runGame,
   summaryOf,
@@ -83,6 +84,38 @@ describe('the deterministic mode', () => {
     const second = await play(SNAKE_SCENARIO, 'snakes');
     expect(second.json).toBe(first.json);
     expect(second.log).toBe(first.log);
+  });
+
+  /**
+   * The potion board is the one where `settleTurn` earns its keep: with
+   * `resolveTurn` under the runner every potion on it was scenery and every
+   * tier window was frozen at its observed value for the whole game, so this
+   * asserts the rules are actually running — and that they run identically
+   * twice, which the effect schedule and the seeded respawn both have to obey.
+   */
+  test('the potion board collects potions, moves tiers, and does it identically twice', async () => {
+    const first = await play(POTION_SCENARIO, 'potions');
+    const second = await play(POTION_SCENARIO, 'potions');
+    expect(second.json).toBe(first.json);
+    expect(second.log).toBe(first.log);
+    const summary = JSON.parse(first.json) as {
+      counters: { potionPickups: number; potionTierUps: number; potionTierDowns: number };
+    };
+    expect(summary.counters.potionPickups).toBeGreaterThan(0);
+    // The pickup rule is inverted — the collector pays a tier and its allies
+    // are paid one — so a board that collects anything must show both.
+    expect(summary.counters.potionTierUps).toBeGreaterThan(0);
+    expect(summary.counters.potionTierDowns).toBeGreaterThan(0);
+  });
+
+  test('and a potion-free board reports no potion activity at all', async () => {
+    const { json } = await play(MIXED_SCENARIO, 'mixed');
+    const summary = JSON.parse(json) as { counters: Record<string, number> };
+    expect(summary.counters.potionPickups).toBe(0);
+    expect(summary.counters.potionTierUps).toBe(0);
+    expect(summary.counters.potionTierDowns).toBe(0);
+    expect(summary.counters.deathsWhileDebuffed).toBe(0);
+    expect(summary.counters.deathsWhileBuffed).toBe(0);
   });
 
   test('the summary carries no wall-clock reading — that is what makes it comparable', async () => {
