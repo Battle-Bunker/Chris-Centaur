@@ -40,7 +40,7 @@ falsifier that changes no behaviour.
 | joint | question it answers | law | today |
 |---|---|---|---|
 | **REDUCTION** | a plan's value is a function over enemy actions — what scalar (or set) stands for it? | **R1** every member is a lower prevision `inf_{P∈𝒫} E_P[v]`; members differ only in the shape and size of `𝒫` | vacuous `𝒫` (pure maximin), point-valued, with three undeclared non-vacuous suppliers leaking in at three layers |
-| **DECOMPOSITION** | which units get solved jointly, and who decides? | **D1** a decomposition may GENERATE proposals and may never compute, bound, order or compare a value | coordination graph + slider cutset, computed once per decision, four sub-joints of which three are at their null member |
+| **DECOMPOSITION** | which units get solved jointly, and who decides? | **D1** a decomposition may GENERATE proposals and may never compute, bound, order or compare a value. **D2** the cut must be measurable on the coarsest *shared* information — geometry is the full-observability special case | coordination graph + slider cutset, computed once per decision, four sub-joints of which three are at their null member; the cut is public today and **not** public at ply ≥ 2 |
 | **PROPOSAL** | where does a trial come from? | **P1** every option-set restriction is adaptive on value OR carries a bound on what it removed. **P2** proposals are proposals | eight operators, nine constants, no socket, no record of which one won |
 | **BACKUP** | what is a deep line worth and how does it come home? | **B1** one reduction at every ply. **B2** a bound may not be consumed as a mean without a declared conversion | a floor folded into a mean slot, over an odometer prefix, with an excellent combiner |
 
@@ -291,8 +291,9 @@ is in *evaluations* and its conversion to wall time runs through `evalsPerMs:
 beside the temperature); the pool's first-come-capped policy is **not** the
 problem and its defence is correct (i.i.d. draws make the first 512 an unbiased
 sample; evicting the worst would break the prefix property); and the layer is
-**dark by default**, so this is a cost to the redesign the owner ruled binding
-rather than to production today.
+an **unseated member** — built, argued, played by no roster bot — so this is a
+cost to the redesign the owner ruled binding rather than to production today,
+and it lands with the first bot that seats it.
 
 The fix is two lines — bound `budgetSamples` by `∏_v |choose_v|` and `poolCap`,
 exit when the pool stops growing, and **hand the unspent budget back**. As a
@@ -302,12 +303,70 @@ from a clock, and a clock does not know a five-point space has been exhausted.
 All nine constants in §3.3 have that shape; this is the one where the gap is
 arithmetically visible.
 
+### 2.4⅚ Law D1 is what exempts us from the imperfect-information decomposition theorem — and the exemption is already partly spent at depth
+
+Burch, Johanson & Bowling (AAAI 2014) proved that under imperfect information a
+subgame **re-solved in isolation** abandons its guarantees: it opens a hole an
+opponent can steer into, with **unbounded** exploitability. The structural fix is
+that decomposition may only cut at **public states** — the coarsest shared
+information — with the re-solve additionally constrained by the opponent's value
+at the cut.
+
+Three consequences, in increasing order of how much they should change what we do.
+
+**(a) The theorem's hypothesis is not satisfied today, and Law D1 is why.** We
+never re-solve a subgame for its value; cluster results are proposals, every one
+is priced by the unconditional whole-board bank, and `better()` adjudicates on
+the proved floor. That is a better justification for Law D1 than the additive
+one I first gave, and it upgrades the law from prudent to load-bearing. The
+defence has to be maintained, though: three places today let the decomposition
+**filter** or **order** the priced set (`requireSurrogateGain`, `offerOrder`'s
+surrogate-level weights, Door C's `setRefineScope`). None touches a bound; all
+three make *what gets priced* a function of the cut.
+
+**(b) Our cut is geometric, which is public only under full observability** —
+hence **Law D2**. Under fog, `influenceOf` on a hidden unit reads our *cloud*,
+so two players compute two different partitions from one board. And
+`cluster-enum.ts`'s claim that cross-cluster terms are **provably zero** is a
+perfect-information theorem: under fog a hidden enemy's cloud spans components,
+the same possible occupant appears in two clusters' influence sets, and the
+identity **goes false silently** — no exception, no counter, and no law-suite
+subject with a set-valued position to catch it. The prophylactic is one fixture
+and should be specified now (S2½).
+
+**(c) The problem is already live at depth, today, under full observability.**
+`door.ts` sets `staleness = rootTurn − record.heldAtTurn` on every held unit, so
+**ply ≥ 2 manufactures partial information as a side effect of looking ahead**,
+and `expandCluster` redraws cluster boundaries at those roots on cloud-derived
+geometry. What contains it is the scout's import law — *"it reaches no bound, no
+`lo`, no `hi`, and no staged plan … the exposure is a mis-ordered candidate,
+never a wrong staging. That asymmetry is the entire reason Door A was the door
+that shipped."* That rule is Law D1 applied to depth and enforced structurally,
+and it turns out to be load-bearing for a reason its authors did not name. It is
+also the argument against ever relaxing it: a door that let a thread write a
+floor would satisfy Burch et al.'s hypothesis exactly.
+
+**And the fix for re-solving, when we want it, needs no solver.** The CFR-D
+gadget — an opponent branch that may *decline* and take its bound, rejecting any
+plan that lets the enemy beat it — is in our vocabulary a **witness
+constructor**. We already have the object ("a reply whose value is a certificate
+against every plan") and the rule that rejects a plan a reply holds below the
+incumbent's floor (`refutedAt`). Synthesise the bound-realising reply for each
+held unit, bank it as a column, and the existing floor discipline does the rest:
+no solver, no new comparator, riding B2 and doc 06's column set unchanged.
+
+Nothing here invalidates a measurement taken so far — full observability is the
+point-mass case of a range — and fog stays buildable, with DeepStack as the
+existence proof. What changes is the **order of work**: the clause has to exist
+before anyone builds on the decomposition, because retrofitting a public cut into
+a geometric one is a rewrite and adding the clause now is a paragraph.
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
 enumeration, sweep, pair repair, joint polish, perturb restart), nine budget
 constants, hard-coded as a control-flow sequence inside `improve()`, two of them
-dark by default — and **nothing records which operator proposed the trial that
+unseated — and **nothing records which operator proposed the trial that
 was accepted.** `adjudication` counts which *rung* decided; nothing counts which
 *operator* won. By the composition lens's own standard this is worse than a
 one-member joint: an eight-member joint with no socket at all.
@@ -501,6 +560,7 @@ decide alone.
 | **C-T6** | TIME | **W-1**: the witness set only grows, B2 is `O(\|witnesses\|)` per priced plan, so `price()` cost drifts upward through a decision. The kernel sizes slices from that measured cost, so slices lengthen late in a turn and operator-pin latency worsens — against a cap their design states in fixed milliseconds. The slice-sizing comment attributes the cost to roster size, which is constant within a decision; witness count is not | their exchange rate must be a function of a *measured, drifting* step cost, which it already is — but the **latency cap** must be enforced as a hard slice ceiling independent of measured cost, or it is not a cap. Column pruning (doc 06 §3b) removes the drift at source |
 | **C-T7** | TIME | **W-2**: the parallel one-way witness rule is a determinism decision. Their design turns wall cuts inside work into counting cuts precisely so worker timing cannot influence the decision sequence | a returned-witness channel folded at a **slice or epoch boundary** in canonical `witnessKey` order preserves that property, using the discipline `foldParallel` already applies to evaluations. **Ask: does the counting-cut redesign make a returned-column channel deterministic by construction?** If so, W-2's fix is nearly free once their work lands |
 | **C-B1** | BELIEF | two paranoia dials double-charge one ignorance: `sigmaOfPly.theirMiss` charges un-covered replies as **precision**, an ε-contaminated reduction charges the same ignorance as **value** | Law R1's composition rule: one ambiguity set per decision; composing two restrictions is the **intersection of the sets**, never the sequential application of two reductions. Decide before either lens ships a dial — their B7 falsifier already suspects it |
+| **C-B2½** | BELIEF | **Law D2**: `influenceOf` on a hidden unit reads a cloud, so the partition becomes a function of *our* belief and stops being a public cut. `cluster-enum`'s cross-cluster-zero identity then goes false **silently**, and the law suite cannot catch it because no subject has a set-valued position | their observation record is the natural home for "what is public". The cut predicate must be evaluated on the *shared* projection of `(S, w)`, not on our own. And S2½ — the set-valued law-suite subject — should land in **their** validation path, since they own when the observation model changes |
 | **C-B2** | BELIEF | `influenceOf` reads clouds, so the partition is a function of the belief state, but `schedule = once-per-decision` means a mid-decision narrowing cannot reach it. Free today, expensive under the fog programme where C1/C2 evidence arrives during play | add `on-observation` to the `schedule` sub-joint, driven by their reducibility tag |
 | **C-B3** | BELIEF | stage 0's *provably-safe* draw domain is a projection of the support `S` that their inventory of nine projections omits | add **the safe action set** as a ninth projection; its degradation ladder (unit-safe → safe joint combos → rules-certain death only when nothing else exists) is already built and correct |
 | **C-B4** | BELIEF | their value table (`{envelope, estSound, estAdvised, advisoryPrecision}`) fixes laundering at `BankResult` and leaves it open at `DeepObservation`, which is the harder seam because the number crosses a **horizon** boundary as well as a quantifier one | extend the table's type to observations; Law B2 is the general statement |
@@ -529,6 +589,7 @@ whose population is modest variations of one lineage.
 | **S0½** | **bound the seed's sample count by the size of the space** (§2.4⅞) and return the unspent budget | yes, but strictly less work for the same output | nothing to decide — a pure win, and it must land before `multistartSeed` is ever seated or the redesign ships spending most of a 100 ms slice re-drawing five options |
 | **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
 | **S2** | **`planDistance(staged, nearestProposal)`** per decision | no | whether the enumeration reaches the plan we stage. No decomposition design survives a bad answer |
+| **S2½** | **a law-suite subject with a set-valued position** (§2.4⅚b) | one fixture | the cheapest prophylactic on the books. It makes `cluster-enum`'s cross-cluster-zero identity break *inside the suite and localised* on the day the observation model changes, instead of surfacing as an unlocalisable regression alongside six other changes |
 | **S3** | **split `adjudication.*Decided` by contested-vs-quiet** | no | Prediction P-1: whether the floor really goes flat where the decision is hardest (§2.3) |
 | **S4** | **B-3 falsifier**: round-robin vs odometer on a slider-board scenario set, comparing `argmaxMoved` / `estSpread` per ply | no (probe only) | the magnitude of §2.2. The *scope* is already derived |
 | **S5** | **accept-cycle counter**: accept-events per plan key within one `improve` call | no | whether §2.1's cycle is realised, not merely admitted |
@@ -546,7 +607,7 @@ whose population is modest variations of one lineage.
 Two rules over the whole order, borrowed from the composition lens because they
 are right: **byte-identity at every step**, and **nothing lands without a roster
 bot that plays it** — which applies immediately to `multistartSeed` and
-`sampledCap`, both built and dark.
+`sampledCap`, both built and unseated.
 
 ---
 
@@ -566,6 +627,10 @@ bot that plays it** — which applies immediately to `multistartSeed` and
 - **No second acceptance comparator.** Law A1. If a channel deserves to decide,
   it belongs in the key — not in a branch that selects a different comparator for
   some pairs.
+- **No door that lets a thread write a floor.** The scout's import law is the
+  only thing standing between the depth layer's non-public cut (§2.4⅚c) and
+  Burch et al.'s unbounded-exploitability hypothesis. It looks like defensive
+  over-engineering and it is load-bearing.
 - **No mixed play until the ratchet is restated.** C-T1 is a real invariant doing
   a real job; routing around it by exempting draws would delete the property the
   wire discipline exists to provide.

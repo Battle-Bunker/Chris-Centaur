@@ -27,12 +27,13 @@ been listed together.
 
 Two facts about that table matter more than any individual row.
 
-**Two of the seven are off by default.** `multistarting()` is
-`cfg.multistartSeed ?? false` and `sampling()` is `cfg.sampledCap ?? false`.
-The owner's seeding ruling was *"recorded as binding and now building,
-flag-gated and dark"* — it is built, and it is dark. That is a fact about the
-roster, not about the design, but it means every number quoted about "our
-seeding" today describes operator 1 followed by 4–7, not the redesign.
+**Two of the seven are unseated members.** `multistarting()` is
+`cfg.multistartSeed ?? false` and `sampling()` is `cfg.sampledCap ?? false`, and
+no roster bot names either — so both are built, argued and played by nobody.
+That is Law R's exhibit class, with the composition lens's two remedies (seat it
+in a raceable bot, or delete it) and no third state. It is a fact about the
+roster rather than about the design, but it means every number quoted about
+"our seeding" today describes operator 1 followed by 4–7, not the redesign.
 
 **They have no common type.** Each is a bespoke function with its own budget
 accounting, its own randomness (three separate `NODE_*` streams plus the
@@ -110,7 +111,7 @@ incumbent they keep**:
 
 | member | keeps | our status |
 |---|---|---|
-| **uniform random restart** | nothing | stage 0/1 (dark) |
+| **uniform random restart** | nothing | stage 0/1 — **unseated** |
 | **constructive greedy** | nothing, but biased | `cluster-seed.ts` — **rejected on measurement**, and correctly |
 | **ILS kick** | all but a few units | `perturb`: 1 unit, deterministic, `restarts: 2` |
 | **LNS / ruin-and-recreate** | all but one *related* subset, re-optimised **exactly** | **absent** (doc 02 §5 shows the machinery exists) |
@@ -260,9 +261,11 @@ Three honest qualifications, because the finding should survive scrutiny:
    worst would indeed be "a deterministic filter wearing a lottery's clothes"
    and would break the prefix property. The defect is the absence of a **stopping
    rule**, not the presence of an ordering.
-3. **The layer is dark by default** (`multistartSeed: undefined → false`), so
-   this is not costing production today. It is costing the *redesign the owner
-   ruled binding*, and it would land the moment the flag is seated.
+3. **The layer is an unseated member** (`multistartSeed: undefined → false`, and
+   no roster bot names it), so this is not costing production today. It is
+   costing the *redesign the owner ruled binding*, and it lands with the first
+   bot that seats it — which the composition lens's reachability law is about to
+   force a decision on either way.
 
 **The fix is two lines and it is a pure win.**
 
@@ -522,10 +525,10 @@ action set*.
 | **P0** | `proposedBy` on every priced trial; report accepted-trial counts by operator (Finding P-7) | one tag | which of the eight operators does any work. Prerequisite for everything adaptive, and it will probably retire two of them outright |
 | **P1** | measure the gap-scale distribution in the multi-start pool and normalise `t₀` by spread (Finding P-2) | analysis + one line | removes a constant whose meaning varies by board class |
 | **P2** | charge the candidate cap: emit `1 − admitted/available` per unit; do not yet fold it (Finding P-5) | one counter | makes Law P1's violation visible per board class, which is what decides whether the slider case is a real capability loss or a 98.9%-inert ration like `maxClusterCells` |
-| **P0½** | **bound `budgetSamples` by the space** (Finding P-9): `min(maxSamples, poolCap, ∏\|choose_v\|, max(minSamples, share))`, plus a no-new-entry early exit, plus **returning the unspent budget** | two lines | nothing to decide — it is a pure win, and on 88.7% of boards it hands most of a 100 ms slice back to the ascent. Do it before the flag is ever seated |
+| **P0½** | **bound `budgetSamples` by the space** (Finding P-9): `min(maxSamples, poolCap, ∏\|choose_v\|, max(minSamples, share))`, plus a no-new-entry early exit, plus **returning the unspent budget** | two lines | nothing to decide — it is a pure win, and on 88.7% of boards it hands most of a 100 ms slice back to the ascent. Do it before any bot seats the member |
 | **P2½** | **hub-first group order** in `groupsOf` (Finding P-8) — emit the slider group before the components | one line | whether the seed's cluster-level conditioning order matters. Falsifier: the multi-start's own separation regression test, on a slider board rather than a trail board |
 | **P3** | **conflict-chain repair** as an eighth operator (§4) | small, self-contained, existing `ConflictIndex` | the corridor lock-in hypothesis. Falsifier already written (the multi-start's separation regression test, generalised) |
-| **P4** | seat the dark operators: `multistartSeed` and `sampledCap` get roster bots (the composition lens's reachability law) | config | they are built, argued and unmeasured |
+| **P4** | resolve the unseated members: `multistartSeed` and `sampledCap` get roster bots that play them, or they go (the composition lens's reachability law, whose two remedies are the only two) | config | they are built, argued and unplayed — Law R's exhibit class |
 | **P5** | derive the restart schedule from the measured improvement-time distribution (Finding P-4); Luby if heavy-tailed, `restarts: 0` if not | analysis | removes another constant |
 | **P6** | the `schedule` sub-joint with a bandit over realised gain — **only after P0** | medium | — |
 

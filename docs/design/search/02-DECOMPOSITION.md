@@ -86,6 +86,159 @@ and it wants a coverage instrument, not a soundness one. We have neither.
 > nothing to; a distribution of those distances is the coverage curve, and it
 > costs one loop over ≤32 proposals.
 
+### 2b. Law D2 — the cut must be PUBLIC, and Law D1 is why the theorem does not already bite us
+
+Added after the prior-art lens's R-5, which supplies the one thing Law D1 was
+missing. This is the most consequential amendment in this document.
+
+**The theorem.** Burch, Johanson & Bowling (AAAI 2014, *Solving imperfect
+information games using decomposition*) established that under imperfect
+information, a subgame re-solved in isolation **abandons the guarantees the
+decomposition was supposed to provide**: the re-solved strategy opens a hole
+that an opponent can *steer into*, and the resulting exploitability is
+**unbounded**. Every decomposition technique that worked under perfect
+information had to be rebuilt. The fix is structural: **a decomposition may only
+cut at PUBLIC STATES** — the coarsest information shared by all players — and a
+re-solve must additionally be constrained by the opponent's value at the cut
+(the CFR-D gadget).
+
+**Our cut is geometric, which is a public predicate only under full
+observability.** `influenceOf(u) ∩ influenceOf(v) ≠ ∅` is a statement about
+where units are. Today every unit's position is a fact both players know, so the
+predicate is public and the cut is legal. Under fog it is a statement about our
+*cloud* for a hidden unit — our belief, not a shared fact — and two players
+would compute two different partitions from the same board. That is not a legal
+cut.
+
+> **Law D2 (the cut must be public).** A decomposition's boundary must be
+> measurable with respect to the coarsest information shared by all players.
+> Geometry is the **full-observability special case** of that law, not the law
+> itself.
+
+**Finding D-5 (the prior-art lens's C36, confirmed against the code).**
+`cluster-enum.ts` argues that cross-cluster terms are *provably zero*. That
+proof assumes each unit occupies a **known cell**. Under fog a hidden enemy's
+cloud spans components, so the same possible occupant appears in two clusters'
+influence sets and the identity **goes false silently** — no exception, no
+counter, no refusal. And the law suite that would catch it cannot: no subject in
+it has a **set-valued position**.
+
+The prophylactic is cheap and should be specified now rather than after fog
+lands: **add a law-suite subject whose position is a set.** Then the identity
+breaks inside the suite, localised, on the day someone changes the observation
+model — instead of surfacing later as an unlocalisable regression in a system
+where six other things also changed.
+
+**Why this does not invalidate anything measured so far, stated plainly.** Full
+observability is the point-mass case of a range, so every number this program has
+taken stands. And fog remains buildable — DeepStack is the existence proof that
+sound decomposition under imperfect information exists. What changes is the
+*order of work*: the law clause has to exist before anyone builds on the
+decomposition, because retrofitting a public-state cut into a geometric one is a
+rewrite and adding the clause now is a paragraph.
+
+#### 2b.1 Law D1 is exactly what makes the theorem non-binding today — a stronger argument than the one I first gave
+
+I originally justified Law D1 by the additive-decomposition failure
+(`u(a) ≠ Σ_c u_c(a_c)`). R-5 supplies a better justification, and it is worth
+stating because it upgrades the law from prudent to load-bearing:
+
+> Burch et al.'s unbounded exploitability comes from **re-solving a subgame for
+> its value**. Under Law D1 we never do: cluster results are proposals, every one
+> is priced by the unconditional whole-board bank, and `better()` adjudicates on
+> the proved floor. **So the theorem's hypothesis is not satisfied, and its
+> conclusion does not apply to our floors.** Law D1 is the property that buys
+> that exemption.
+
+That is a strong position and it should be defended, because there are exactly
+three places where the decomposition today does more than generate, and each is
+a small step toward satisfying the theorem's hypothesis:
+
+1. **the surrogate gate** — `offerClusterJoints`'s `requireSurrogateGain` skips a
+   proposal that does not beat the incumbent on `cluster.score`. That is the
+   decomposition **filtering** the priced set;
+2. **the offer order** — `offerOrder` weights the dispatch permutation by
+   `score(p) − score(map)`, so the decomposition **orders** what gets priced
+   first under a clock that may not reach the rest;
+3. **Door C's refine scope** — `setRefineScope(sub, { members })` lets the
+   cluster membership decide **where evaluation budget may be spent**.
+
+None of the three touches a bound, so none violates D1's letter. All three make
+the *set of plans actually priced* a function of the decomposition. Under full
+observability that costs coverage. Under fog, where the cut itself is not
+information-consistent, it becomes something worse:
+
+> **Finding D-6 (a conjecture with a named mechanism, not a theorem).** Under
+> partial information, a coverage failure is not merely a missed opportunity —
+> it is a **steerable** hole. Our proposal generator's blind region is a function
+> of our clouds; the opponent's actions determine where our clouds are wrong;
+> so an opponent who models our generator can drive play toward the region it
+> cannot propose in. Burch et al.'s theorem is about re-solving and does not
+> prove this; the mechanism is the same one, applied to generation rather than
+> valuation, and it is the reason Law D2 should govern the *generator's* cut and
+> not only a hypothetical value decomposition.
+
+#### 2b.2 The problem is already live at depth, today, and one existing rule is what contains it
+
+This is not only a fog-programme concern, and I think this is the sharpest
+consequence of R-5 for the code as it stands.
+
+`scout/door.ts` builds shell 2 with `staleness = max(0, rootTurn −
+record.heldAtTurn)`, so **at ply ≥ 2 held units carry dilated clouds** — a
+partial-information state, reached by simulation rather than by fog. And
+`scout/scout.ts::deepen` calls `expandCluster(...)` at those roots, redrawing
+cluster boundaries over cloud-derived geometry.
+
+> **Finding D-7.** The imperfect-information decomposition problem is live in the
+> depth layer **today**, under full observability, because the door manufactures
+> partial information as a side effect of looking ahead. Cluster boundaries are
+> redrawn at ply ≥ 2 on a non-public cut.
+
+And the thing that contains it is a rule written for a different reason:
+
+> *"under Door A a thread ceiling reaches exactly two things: `estSpread` (a
+> discrimination number) and the scheduler's priors. It reaches no bound, no
+> `lo`, no `hi`, and no staged plan, because nothing in `scout/` may write one
+> (see `scout/index.ts`'s import law and its structural test). So the exposure is
+> a mis-ordered candidate, never a wrong staging. That asymmetry is the entire
+> reason Door A was the door that shipped."*
+
+The scout's import law is Law D1 applied to depth, enforced structurally, and it
+is the reason the deep layer's non-public cut costs an ordering rather than a
+bound. **The design's most defensive choice turns out to be load-bearing for a
+reason its authors did not name.** Which is also the argument against ever
+relaxing it: any future door that lets a thread write a floor would satisfy
+Burch et al.'s hypothesis exactly.
+
+#### 2b.3 The CFR-D gadget is a synthetic witness — no solver required
+
+The prior-art lens's M34 observes that the CFR-D re-solving gadget is copyable
+without CFR: a synthetic *"decline and take your bound"* opponent branch,
+rejecting any plan that lets the enemy beat its bound. I want to add where it
+lands in our machinery, because the fit is exact and it is one line of vocabulary
+rather than a new subsystem.
+
+In CFR-D the opponent at a subgame root chooses between **entering** the subgame
+and **declining** — taking their counterfactual value from the trunk. Requiring
+our strategy to beat the declined value is what bounds the re-solve's
+exploitability.
+
+We already have the object that expresses "a reply the opponent could make, whose
+value is a certificate against every plan": **a witness.** And we already have
+the rule that rejects a plan a reply holds below the incumbent's proved floor:
+`refutedAt`. So:
+
+> **The gadget is a witness constructor.** For each held unit (or each cloud),
+> synthesise the reply that realises the opponent's bound, bank it as a column,
+> and the existing floor discipline does the rest. No solver, no new comparator,
+> no new soundness argument — it rides `bank.ts`'s B2 rung and doc 06's column
+> set unchanged.
+
+That also means the cost is already understood: a synthetic column costs exactly
+what a real one costs (Finding W-1), and it is exactly the kind of column that
+support-based pruning would keep, since a bound-realising reply is rarely
+dominated.
+
 ## 3. Where the factorization DOES introduce bias, and it is not where you'd guess
 
 Three distinct bias sources, only one of which is about independence.
@@ -308,8 +461,7 @@ explicitly rather than by two documents pointing in opposite directions.
 
 Under this document's carve the resolution is clean: the `graph` sub-joint has a
 `singleton` null member, which *is* "no decomposition", reachable, addressed and
-measurable — so the capability the flag provided survives as a member while the
-flag itself goes.
+measurable — so the capability survives as a member while the field itself goes.
 
 ### C-T2 — the enumeration's budget should be conditional on the partition (TIME lens)
 
@@ -349,7 +501,8 @@ this width*, and for a held unit whose hold is game-imposed the answer is
 | # | increment | cost | what it decides |
 |---|---|---|---|
 | **D0** | coverage instrument (Finding D-1): `planDistance(staged, nearestProposal)` per decision | one loop over ≤32 proposals | whether the enumeration contributes to the plan we actually stage. No design survives a "distance 4 on 90% of decisions" answer |
-| **D1** | write Law D1 down and give it a structural test (the scout's import-law test is the model: nothing under `search/cluster-*` may be imported by `bounds/`) | a test | prevents the one failure mode the architecture is currently safe from by accident |
+| **D0½** | **a law-suite subject with a SET-VALUED position** (Finding D-5) | one fixture | the cheapest possible prophylactic. It makes cluster-enum's "cross-cluster terms are provably zero" identity break *inside the suite, localised*, on the day the observation model changes — instead of surfacing later as an unlocalisable regression. Spec it now; it costs a fixture and it is the difference between a caught break and a hunt |
+| **D1** | write Laws D1 **and D2** down and give them a structural test (the scout's import-law test is the model: nothing under `search/cluster-*` may be imported by `bounds/`). D2's clause: *cuts at public-state boundaries only; geometry is the full-observability special case* | a test + a paragraph | prevents the one failure mode the architecture is currently safe from by accident, and puts the fog clause in before anyone builds on the decomposition — retrofitting a public-state cut into a geometric one is a rewrite; adding the clause now is a paragraph |
 | **D2** | the `focus` sub-joint with two members — `fixed-order` (today) and `deficit-seeded` — plus **cluster-conditioned re-enumeration** as the operator it feeds (§5) | small: existing `conditioned` path, existing signals | the largest capability-per-ms item found. Falsifier: it must beat today on the crowded tail *and* not regress the 88.7% scattered case, which `minHamming` already protects |
 | **D3** | `schedule` sub-joint: add `on-refusal` (re-enumerate when `adjudication.refused` or the ratchet's `switch-floor` spikes) | small | whether re-derivation timing matters independently of focus |
 | **D4** | `size` sub-joint + a bandit over `(focus, size)` per BALANCE — **only after D2/D3 show the two dials both matter**, and rule-based members only (the 2025 re-evaluation) | medium | — |
