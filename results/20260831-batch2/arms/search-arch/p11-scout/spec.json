@@ -1,0 +1,331 @@
+{
+ "spec": {
+  "_comment": [
+   "P11 — CENTAUR_SCOUT (CL6a), status probe-passed.",
+   "",
+   "QUESTION: At 2000 ms, does the depth ration buy placement on the owner's board, and what does it cost the one-turn search that pays for it?",
+   "",
+   "ARMS: default  |  depthless",
+   "",
+   "ARM CONFIGS (both arms from POST-TEARDOWN bundles):",
+   "    --arm 'default=<bundle>'",
+   "    --arm 'depthless=<bundle>,bot={\"depth\":{\"plyCap\":0}}'",
+   "READS OUT: deepestPlies, deepBranches, depthEffectRate, worstWallMs, decisions, score",
+   "",
+   "DESIGN NOTE: RESPECIFIED 20260830 FOR THE POST-TEARDOWN ENGINE, and it is the same question in the new paradigm rather than a new experiment. Two contenders, both the shipped post-teardown bundle, differing only by a named BotConfig: `default` takes DEFAULT_SCOUT_TUNING whole, `depthless` is `bot={\"depth\":{\"plyCap\":0}}`. That pair is the faithful translation of the old off-vs-on, and it is strictly better than what the flag could express: the two arms share every line of evaluator, every bound and every seed, and differ only in how many turns the search was allowed to look. THE OLD THREE-ARM SHAPE IS GONE, deliberately. `enum-on` as a base is meaningless now that the enumeration is unconditional; `observe` was \"run the layer and change nothing\", a setting that no longer exists; and depth is no longer advisory at all — it lands in the belief, so `advise` is simply what the shipped bot does. THIS IS THE LIVE PAIRED SWEEP THE DEPTH LANDING OWES. Deterministic paired probes exist and are not enough by this ledger's founding rule; the deep layer currently runs in the DEFAULT bot while its row still reads `probe-passed`, which is the open finding on this row. NOTE THE DIRECTION OF THE PAIR: `depthless` is the arm that departs from the shipped bot, so a reader must not mistake it for the base. AND READ THE RATE FOR WHAT IT IS: the 30% and 22.5% figures on this branch are DISAGREEMENT rates — how often removing depth would stage a different move — measured on 11x11 two-team piece boards. They are not improvement and they are not the owner's board; src/lobster/__tests__/DEPTH-NUMBERS.md is the committed record of what each figure measures, and the owner-shape rates are measured by the `depth-effect rate at the owner's shape` block of src/lobster/__tests__/depth-acceptance.test.ts.",
+   "",
+   "REQUIRES: BOTH ARMS FROM POST-TEARDOWN BUNDLES. A pre-teardown bundle has no bot-config module, would ignore `depth` entirely and play the shipped bot under the depthless arm's name — the exact silent A/A that voided P5. `checkContenders` refuses that pairing; do not override it here. Verify engagement from `belief.deepestPlies`/`deepBranches` on the per-game rows.",
+   "",
+   "HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The",
+   "feature flags are gone (owner ruling 20260829; the search-layer half",
+   "landed with the depth work). An arm is a BUNDLE plus a named BotConfig:",
+   "    --arm 'treat=<bundle>,bot={\"territoryRefine\":true}'",
+   "or a `contenders` map in the spec. Exporting a CENTAUR_* variable now",
+   "does NOTHING — an arm that sets one plays the shipped bot under a",
+   "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+   "refuses the dead names; a bad config field is a refusal from",
+   "botConfigFromJson rather than a silent off.",
+   "THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no",
+   "bot-config module and ignores the config entirely, so BOTH arms of a",
+   "pair must be built from post-teardown refs. Read the per-game rows'",
+   "mechanism.config stamp — the bot that actually resolved — not the spec.",
+   "",
+   "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+   "re-run make-promotion-batch.js."
+  ],
+  "sweepId": "p11-scout",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "seeds": [
+   43301,
+   43302,
+   43303,
+   43304,
+   43305,
+   43306,
+   43307,
+   43308,
+   43309,
+   43310,
+   43311,
+   43312,
+   43313,
+   43314,
+   43315,
+   43316
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "resolved": {
+  "sweepId": "p11-scout",
+  "bots": [
+   "lobster-territory",
+   "lobster-material",
+   "reflex"
+  ],
+  "contenders": {},
+  "seeds": [
+   43301,
+   43302,
+   43303,
+   43304,
+   43305,
+   43306,
+   43307,
+   43308,
+   43309,
+   43310,
+   43311,
+   43312,
+   43313,
+   43314,
+   43315,
+   43316
+  ],
+  "rotateSeats": true,
+  "cells": [
+   {
+    "cell": "headline-mix-king",
+    "config": {
+     "name": "headline-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "hazard-mix-king",
+    "config": {
+     "name": "hazard-mix-king",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "king",
+      "queen",
+      "rook",
+      "knight",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "cross",
+      "damageRatio": 0.15
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   },
+   {
+    "cell": "null-snake6",
+    "config": {
+     "name": "null-snake6",
+     "size": 25,
+     "teams": [
+      "red",
+      "blue",
+      "green"
+     ],
+     "roster": [
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake",
+      "snake"
+     ],
+     "budgetMs": 2000,
+     "turnCap": 120,
+     "food": {
+      "initial": 6,
+      "spawnRate": 0.5
+     },
+     "hazards": {
+      "layout": "none"
+     },
+     "potions": {
+      "enabled": false
+     }
+    }
+   }
+  ]
+ },
+ "games": 144,
+ "workers": 10,
+ "poolSize": 2,
+ "bundle": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "env": {
+  "CENTAUR_ENGINE": null,
+  "CENTAUR_STAGING_SAFETY": null,
+  "CENTAUR_TIER_TRUTH": null,
+  "CENTAUR_TIER_DEFENSE": null,
+  "CENTAUR_ROYAL_MARGIN": null,
+  "CENTAUR_WASM": null,
+  "CENTAUR_WORKERS": null,
+  "CENTAUR_WORKERS_AUDIT": null,
+  "CENTAUR_COHORT_POLICY": null,
+  "CENTAUR_CLUSTER_SEED": null,
+  "CENTAUR_UNIT_FATALITY": null
+ },
+ "host": {
+  "node": "v22.23.2",
+  "platform": "linux",
+  "cpus": 24,
+  "totalmemGb": 31.3,
+  "loadavgAtStart": [
+   0.25,
+   1.51,
+   8.27
+  ]
+ },
+ "startedAt": "2026-08-31T03:43:59.934Z",
+ "resumedAt": []
+}

@@ -1,0 +1,126 @@
+{
+ "_comment": [
+  "P13 — CENTAUR_WORKERS (W1), status probe-passed.",
+  "",
+  "QUESTION: At 2000 ms on a 24-core box, does the pool convert throughput into strength once the budget is long enough for the extra plans to matter?",
+  "",
+  "ARMS: workers-off  |  workers-auto",
+  "READS OUT: workers, decisions, worstWallMs, score",
+  "",
+  "HOW AN ARM IS SELECTED, AND THE TRAP THAT REPLACED THE OLD ONE. The",
+  "feature flags are gone (owner ruling 20260829; the search-layer half",
+  "landed with the depth work). An arm is a BUNDLE plus a named BotConfig:",
+  "    --arm 'treat=<bundle>,bot={\"territoryRefine\":true}'",
+  "or a `contenders` map in the spec. Exporting a CENTAUR_* variable now",
+  "does NOTHING — an arm that sets one plays the shipped bot under a",
+  "treatment's name, which is the silent A/A that voided P5. run-pair.js",
+  "refuses the dead names; a bad config field is a refusal from",
+  "botConfigFromJson rather than a silent off.",
+  "THE REMAINING TRAP IS THE BUNDLE. A pre-teardown bundle has no",
+  "bot-config module and ignores the config entirely, so BOTH arms of a",
+  "pair must be built from post-teardown refs. Read the per-game rows'",
+  "mechanism.config stamp — the bot that actually resolved — not the spec.",
+  "",
+  "Generated from tools/learnloop/promotion-ledger.json. Do not hand-edit;",
+  "re-run make-promotion-batch.js."
+ ],
+ "sweepId": "p13-workers",
+ "bots": [
+  "lobster-territory",
+  "lobster-material",
+  "reflex"
+ ],
+ "seeds": [
+  8201,
+  8202,
+  8203,
+  8204,
+  8205,
+  8206,
+  8207,
+  8208,
+  8209,
+  8210,
+  8211,
+  8212,
+  8213,
+  8214,
+  8215,
+  8216
+ ],
+ "rotateSeats": true,
+ "cells": [
+  {
+   "cell": "headline-mix-king",
+   "config": {
+    "name": "headline-mix-king",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "king",
+     "queen",
+     "rook",
+     "knight",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  },
+  {
+   "cell": "null-snake6",
+   "config": {
+    "name": "null-snake6",
+    "size": 25,
+    "teams": [
+     "red",
+     "blue",
+     "green"
+    ],
+    "roster": [
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake",
+     "snake"
+    ],
+    "budgetMs": 2000,
+    "turnCap": 120,
+    "food": {
+     "initial": 6,
+     "spawnRate": 0.5
+    },
+    "hazards": {
+     "layout": "none"
+    },
+    "potions": {
+     "enabled": false
+    }
+   }
+  }
+ ],
+ "contenders": {
+  "lobster-territory": {
+   "base": "lobster-territory",
+   "bot": {
+    "workers": "auto"
+   }
+  }
+ }
+}

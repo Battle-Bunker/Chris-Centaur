@@ -1,0 +1,1933 @@
+{
+ "batch": "p13-workers",
+ "base": "workers-off",
+ "generatedAt": "2026-08-31T02:23:29.241Z",
+ "sweeps": [
+  {
+   "sweepId": "p13-workers",
+   "subject": "workers-auto:lobster-territory workers-off:lobster-territory",
+   "arms": [
+    "workers-auto",
+    "workers-off"
+   ],
+   "gamesPaired": 96,
+   "gamesDropped": 0,
+   "flagStamps": {
+    "workers-auto": {
+     "name": "default",
+     "engine": "lobster",
+     "territoryRefine": false,
+     "stagingSafety": "full",
+     "unitFatality": false,
+     "gainOrdering": true,
+     "edgeEv": false,
+     "workers": 0,
+     "multistartSeed": false,
+     "sampledCap": false,
+     "depthPlyCap": 24
+    },
+    "workers-off": {
+     "name": "lobster-territory",
+     "engine": "lobster",
+     "territoryRefine": false,
+     "stagingSafety": "full",
+     "unitFatality": false,
+     "gainOrdering": true,
+     "edgeEv": false,
+     "workers": 0,
+     "multistartSeed": false,
+     "sampledCap": false,
+     "depthPlyCap": 24
+    }
+   },
+   "shareParGapUnscoreable": {},
+   "cells": [
+    {
+     "cell": "headline-mix-king",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "workers-auto": {
+       "sharePar": {
+        "mean": 1.4933,
+        "lo": 0.9675,
+        "hi": 2.0191,
+        "n": 16,
+        "sd": 0.9869
+       },
+       "score": {
+        "mean": 0.7292,
+        "lo": 0.6222,
+        "hi": 0.8361,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "win": {
+        "mean": 0.5,
+        "lo": 0.3166,
+        "hi": 0.6834,
+        "n": 16,
+        "sd": 0.3443
+       },
+       "place": {
+        "mean": 1.5417,
+        "lo": 1.3278,
+        "hi": 1.7555,
+        "n": 16,
+        "sd": 0.4014
+       },
+       "finalMaterial": {
+        "mean": 16.6875,
+        "lo": 10.5803,
+        "hi": 22.7947,
+        "n": 16,
+        "sd": 11.4636
+       },
+       "finalUnits": {
+        "mean": 2.8542,
+        "lo": 1.8006,
+        "hi": 3.9077,
+        "n": 16,
+        "sd": 1.9775
+       },
+       "survived": {
+        "mean": 0.5625,
+        "lo": 0.3603,
+        "hi": 0.7647,
+        "n": 16,
+        "sd": 0.3794
+       },
+       "turns": {
+        "mean": 58.7292,
+        "lo": 50.2407,
+        "hi": 67.2176,
+        "n": 16,
+        "sd": 15.9333
+       },
+       "decisive": {
+        "mean": 0.875,
+        "lo": 0.7862,
+        "hi": 0.9638,
+        "n": 16,
+        "sd": 0.1667
+       },
+       "decisions": {
+        "mean": 58.5417,
+        "lo": 50.0764,
+        "hi": 67.007,
+        "n": 16,
+        "sd": 15.8898
+       },
+       "worstWallMs": {
+        "mean": 1952.5208,
+        "lo": 1943.8688,
+        "hi": 1961.1729,
+        "n": 16,
+        "sd": 16.2403
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0039,
+        "lo": -0.0006,
+        "hi": 0.0083,
+        "n": 16,
+        "sd": 0.0083
+       },
+       "deathsSelf": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "deathsWall": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "deathsExhaustion": {
+        "mean": 0.0625,
+        "lo": -0.0091,
+        "hi": 0.1341,
+        "n": 16,
+        "sd": 0.1344
+       },
+       "deathsBodyBlock": {
+        "mean": 0.2083,
+        "lo": 0.0984,
+        "hi": 0.3183,
+        "n": 16,
+        "sd": 0.2064
+       },
+       "deathsContest": {
+        "mean": 1.2917,
+        "lo": 1.0175,
+        "hi": 1.5658,
+        "n": 16,
+        "sd": 0.5146
+       },
+       "deathsTeammate": {
+        "mean": 0.0833,
+        "lo": 0.0039,
+        "hi": 0.1628,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "clusterJoints": {
+        "mean": 169731.1667,
+        "lo": 143756.7011,
+        "hi": 195705.6322,
+        "n": 16,
+        "sd": 48755.4491
+       },
+       "clusterEnumMs": {
+        "mean": 16700.875,
+        "lo": 14347.9543,
+        "hi": 19053.7957,
+        "n": 16,
+        "sd": 4416.557
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "scoutThreads": {
+        "mean": 1498.9167,
+        "lo": 1257.9037,
+        "hi": 1739.9296,
+        "n": 16,
+        "sd": 452.3941
+       },
+       "scoutPlies": {
+        "mean": 1375,
+        "lo": 1184.4771,
+        "hi": 1565.5229,
+        "n": 16,
+        "sd": 357.6216
+       },
+       "scoutRefusals": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "ceilingDecided": {
+        "mean": 1518.3958,
+        "lo": 850.9309,
+        "hi": 2185.8608,
+        "n": 16,
+        "sd": 1252.8671
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 6505.1042,
+        "lo": 2217.327,
+        "hi": 10792.8813,
+        "n": 16,
+        "sd": 8048.3851
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      },
+      "workers-off": {
+       "sharePar": {
+        "mean": 1.2994,
+        "lo": 0.927,
+        "hi": 1.6718,
+        "n": 16,
+        "sd": 0.699
+       },
+       "score": {
+        "mean": 0.6875,
+        "lo": 0.6089,
+        "hi": 0.7661,
+        "n": 16,
+        "sd": 0.1475
+       },
+       "win": {
+        "mean": 0.4167,
+        "lo": 0.2954,
+        "hi": 0.538,
+        "n": 16,
+        "sd": 0.2277
+       },
+       "place": {
+        "mean": 1.625,
+        "lo": 1.4678,
+        "hi": 1.7822,
+        "n": 16,
+        "sd": 0.295
+       },
+       "finalMaterial": {
+        "mean": 13.625,
+        "lo": 8.9707,
+        "hi": 18.2793,
+        "n": 16,
+        "sd": 8.7364
+       },
+       "finalUnits": {
+        "mean": 2.5625,
+        "lo": 1.9248,
+        "hi": 3.2002,
+        "n": 16,
+        "sd": 1.197
+       },
+       "survived": {
+        "mean": 0.4792,
+        "lo": 0.35,
+        "hi": 0.6083,
+        "n": 16,
+        "sd": 0.2425
+       },
+       "turns": {
+        "mean": 55.3542,
+        "lo": 45.41,
+        "hi": 65.2983,
+        "n": 16,
+        "sd": 18.6657
+       },
+       "decisive": {
+        "mean": 0.9167,
+        "lo": 0.8372,
+        "hi": 0.9961,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "decisions": {
+        "mean": 55.0208,
+        "lo": 45.1537,
+        "hi": 64.8879,
+        "n": 16,
+        "sd": 18.521
+       },
+       "worstWallMs": {
+        "mean": 1956.7917,
+        "lo": 1955.2587,
+        "hi": 1958.3246,
+        "n": 16,
+        "sd": 2.8774
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0091,
+        "lo": -0.0095,
+        "hi": 0.0278,
+        "n": 16,
+        "sd": 0.035
+       },
+       "deathsSelf": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "deathsWall": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "deathsExhaustion": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "deathsBodyBlock": {
+        "mean": 0.2292,
+        "lo": 0.0741,
+        "hi": 0.3842,
+        "n": 16,
+        "sd": 0.2911
+       },
+       "deathsContest": {
+        "mean": 1.2708,
+        "lo": 0.9325,
+        "hi": 1.6091,
+        "n": 16,
+        "sd": 0.635
+       },
+       "deathsTeammate": {
+        "mean": 0.0625,
+        "lo": -0.0091,
+        "hi": 0.1341,
+        "n": 16,
+        "sd": 0.1344
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "clusterJoints": {
+        "mean": 154630.4167,
+        "lo": 133987.9429,
+        "hi": 175272.8904,
+        "n": 16,
+        "sd": 38747.0179
+       },
+       "clusterEnumMs": {
+        "mean": 16037.1042,
+        "lo": 13335.2899,
+        "hi": 18738.9184,
+        "n": 16,
+        "sd": 5071.4486
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "scoutThreads": {
+        "mean": 1368.0417,
+        "lo": 1128.2704,
+        "hi": 1607.813,
+        "n": 16,
+        "sd": 450.0634
+       },
+       "scoutPlies": {
+        "mean": 1297.0625,
+        "lo": 1061.9187,
+        "hi": 1532.2063,
+        "n": 16,
+        "sd": 441.3774
+       },
+       "scoutRefusals": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ceilingDecided": {
+        "mean": 1329.0208,
+        "lo": 492.1863,
+        "hi": 2165.8554,
+        "n": 16,
+        "sd": 1570.7828
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 5475.875,
+        "lo": 2511.797,
+        "hi": 8439.953,
+        "n": 16,
+        "sd": 5563.7315
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       }
+      }
+     },
+     "deltas": {
+      "workers-auto": {
+       "sharePar": {
+        "mean": 0.1939,
+        "lo": -0.3782,
+        "hi": 0.7661,
+        "n": 16,
+        "sd": 1.074,
+        "bootLo": -0.3421,
+        "bootHi": 0.6883,
+        "excludesZero": false
+       },
+       "score": {
+        "mean": 0.0417,
+        "lo": -0.073,
+        "hi": 0.1563,
+        "n": 16,
+        "sd": 0.2152,
+        "bootLo": -0.0625,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": 0.0833,
+        "lo": -0.1057,
+        "hi": 0.2724,
+        "n": 16,
+        "sd": 0.3549,
+        "bootLo": -0.1042,
+        "bootHi": 0.25,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": -0.0833,
+        "lo": -0.3126,
+        "hi": 0.1459,
+        "n": 16,
+        "sd": 0.4303,
+        "bootLo": -0.2708,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": 3.0625,
+        "lo": -4.2919,
+        "hi": 10.4169,
+        "n": 16,
+        "sd": 13.8046,
+        "bootLo": -3.7708,
+        "bootHi": 9.4167,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": 0.2917,
+        "lo": -0.7657,
+        "hi": 1.349,
+        "n": 16,
+        "sd": 1.9847,
+        "bootLo": -0.6875,
+        "bootHi": 1.2292,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": 0.0833,
+        "lo": -0.1366,
+        "hi": 0.3032,
+        "n": 16,
+        "sd": 0.4128,
+        "bootLo": -0.125,
+        "bootHi": 0.2708,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": 3.375,
+        "lo": -10.0015,
+        "hi": 16.7515,
+        "n": 16,
+        "sd": 25.1083,
+        "bootLo": -8.3958,
+        "bootHi": 15.1458,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": -0.0417,
+        "lo": -0.1305,
+        "hi": 0.0471,
+        "n": 16,
+        "sd": 0.1667,
+        "bootLo": -0.125,
+        "bootHi": 0.0417,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": 3.5208,
+        "lo": -9.9148,
+        "hi": 16.9564,
+        "n": 16,
+        "sd": 25.2193,
+        "bootLo": -8.3125,
+        "bootHi": 15.3542,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -4.2708,
+        "lo": -13.1761,
+        "hi": 4.6344,
+        "n": 16,
+        "sd": 16.7156,
+        "bootLo": -13.1458,
+        "bootHi": 2.4167,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": -0.0053,
+        "lo": -0.0249,
+        "hi": 0.0144,
+        "n": 16,
+        "sd": 0.0369,
+        "bootLo": -0.0251,
+        "bootHi": 0.0069,
+        "excludesZero": false
+       },
+       "deathsSelf": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": 0,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "deathsWall": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "deathsExhaustion": {
+        "mean": 0.0625,
+        "lo": -0.0091,
+        "hi": 0.1341,
+        "n": 16,
+        "sd": 0.1344,
+        "bootLo": 0,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "deathsBodyBlock": {
+        "mean": -0.0208,
+        "lo": -0.2204,
+        "hi": 0.1787,
+        "n": 16,
+        "sd": 0.3745,
+        "bootLo": -0.2083,
+        "bootHi": 0.1458,
+        "excludesZero": false
+       },
+       "deathsContest": {
+        "mean": 0.0208,
+        "lo": -0.3429,
+        "hi": 0.3846,
+        "n": 16,
+        "sd": 0.6828,
+        "bootLo": -0.3125,
+        "bootHi": 0.3333,
+        "excludesZero": false
+       },
+       "deathsTeammate": {
+        "mean": 0.0208,
+        "lo": -0.0811,
+        "hi": 0.1227,
+        "n": 16,
+        "sd": 0.1912,
+        "bootLo": -0.0625,
+        "bootHi": 0.1042,
+        "excludesZero": false
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "clusterJoints": {
+        "mean": 15100.75,
+        "lo": -16676.7118,
+        "hi": 46878.2118,
+        "n": 16,
+        "sd": 59647.9808,
+        "bootLo": -13242.1667,
+        "bootHi": 42322.5833,
+        "excludesZero": false
+       },
+       "clusterEnumMs": {
+        "mean": 663.7708,
+        "lo": -3040.851,
+        "hi": 4368.3926,
+        "n": 16,
+        "sd": 6953.7716,
+        "bootLo": -2637.5833,
+        "bootHi": 3909.5,
+        "excludesZero": false
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "scoutThreads": {
+        "mean": 130.875,
+        "lo": -227.4092,
+        "hi": 489.1592,
+        "n": 16,
+        "sd": 672.5185,
+        "bootLo": -187.3333,
+        "bootHi": 438.2292,
+        "excludesZero": false
+       },
+       "scoutPlies": {
+        "mean": 77.9375,
+        "lo": -236.678,
+        "hi": 392.553,
+        "n": 16,
+        "sd": 590.55,
+        "bootLo": -197.5208,
+        "bootHi": 352.4167,
+        "excludesZero": false
+       },
+       "scoutRefusals": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": 0,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "ceilingDecided": {
+        "mean": 189.375,
+        "lo": -608.0959,
+        "hi": 986.8459,
+        "n": 16,
+        "sd": 1496.8952,
+        "bootLo": -552.9583,
+        "bootHi": 851.1458,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 1029.2292,
+        "lo": -4325.1567,
+        "hi": 6383.6151,
+        "n": 16,
+        "sd": 10050.4663,
+        "bootLo": -3573.7292,
+        "bootHi": 6107.1042,
+        "excludesZero": false
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "workers-auto": 0.125,
+      "workers-off": 0.083
+     }
+    },
+    {
+     "cell": "null-snake6",
+     "games": 48,
+     "blocks": 16,
+     "shape": {
+      "size": 25,
+      "teams": 3,
+      "unitsPerTeam": 6,
+      "budgetMs": 2000,
+      "turnCap": 120,
+      "food": 0.5,
+      "hazards": "none",
+      "potions": false,
+      "fertile": false
+     },
+     "levels": {
+      "workers-auto": {
+       "sharePar": {
+        "mean": 2.1869,
+        "lo": 1.9905,
+        "hi": 2.3832,
+        "n": 16,
+        "sd": 0.3685
+       },
+       "score": {
+        "mean": 0.9479,
+        "lo": 0.8704,
+        "hi": 1.0255,
+        "n": 16,
+        "sd": 0.1455
+       },
+       "win": {
+        "mean": 0.9375,
+        "lo": 0.8409,
+        "hi": 1.0341,
+        "n": 16,
+        "sd": 0.1813
+       },
+       "place": {
+        "mean": 1.1042,
+        "lo": 0.9491,
+        "hi": 1.2592,
+        "n": 16,
+        "sd": 0.2911
+       },
+       "finalMaterial": {
+        "mean": 36.8958,
+        "lo": 33.221,
+        "hi": 40.5707,
+        "n": 16,
+        "sd": 6.8979
+       },
+       "finalUnits": {
+        "mean": 4.6458,
+        "lo": 4.1673,
+        "hi": 5.1244,
+        "n": 16,
+        "sd": 0.8983
+       },
+       "survived": {
+        "mean": 0.9792,
+        "lo": 0.9348,
+        "hi": 1.0236,
+        "n": 16,
+        "sd": 0.0833
+       },
+       "turns": {
+        "mean": 117.8542,
+        "lo": 115.3927,
+        "hi": 120.3157,
+        "n": 16,
+        "sd": 4.6204
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": 0.0039,
+        "hi": 0.1628,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "decisions": {
+        "mean": 117.25,
+        "lo": 113.6236,
+        "hi": 120.8764,
+        "n": 16,
+        "sd": 6.8069
+       },
+       "worstWallMs": {
+        "mean": 1981.1458,
+        "lo": 1974.1556,
+        "hi": 1988.1361,
+        "n": 16,
+        "sd": 13.1211
+       },
+       "overrunRate": {
+        "mean": 0.0024,
+        "lo": 0.0009,
+        "hi": 0.0039,
+        "n": 16,
+        "sd": 0.0028
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.0132,
+        "lo": 0.0087,
+        "hi": 0.0177,
+        "n": 16,
+        "sd": 0.0084
+       },
+       "deathsSelf": {
+        "mean": 0.5833,
+        "lo": 0.2025,
+        "hi": 0.9642,
+        "n": 16,
+        "sd": 0.7149
+       },
+       "deathsWall": {
+        "mean": 0.125,
+        "lo": 0.0362,
+        "hi": 0.2138,
+        "n": 16,
+        "sd": 0.1667
+       },
+       "deathsExhaustion": {
+        "mean": 0.1042,
+        "lo": -0.0028,
+        "hi": 0.2111,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "deathsBodyBlock": {
+        "mean": 0.1667,
+        "lo": 0.0544,
+        "hi": 0.279,
+        "n": 16,
+        "sd": 0.2108
+       },
+       "deathsContest": {
+        "mean": 0.375,
+        "lo": 0.2178,
+        "hi": 0.5322,
+        "n": 16,
+        "sd": 0.295
+       },
+       "deathsTeammate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "clusterJoints": {
+        "mean": 4845.1667,
+        "lo": 4380.314,
+        "hi": 5310.0193,
+        "n": 16,
+        "sd": 872.553
+       },
+       "clusterEnumMs": {
+        "mean": 1392.2708,
+        "lo": 1317.4892,
+        "hi": 1467.0525,
+        "n": 16,
+        "sd": 140.3692
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "scoutThreads": {
+        "mean": 1384.8542,
+        "lo": 1327.035,
+        "hi": 1442.6733,
+        "n": 16,
+        "sd": 108.5296
+       },
+       "scoutPlies": {
+        "mean": 1011.2917,
+        "lo": 963.3881,
+        "hi": 1059.1952,
+        "n": 16,
+        "sd": 89.9175
+       },
+       "scoutRefusals": {
+        "mean": 304.3542,
+        "lo": 289.3298,
+        "hi": 319.3785,
+        "n": 16,
+        "sd": 28.2015
+       },
+       "ceilingDecided": {
+        "mean": 949.0417,
+        "lo": 299.4096,
+        "hi": 1598.6737,
+        "n": 16,
+        "sd": 1219.3938
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 546890.0417,
+        "lo": 513745.8347,
+        "hi": 580034.2486,
+        "n": 16,
+        "sd": 62213.434
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 1302.3958,
+        "lo": -1473.0097,
+        "hi": 4077.8014,
+        "n": 16,
+        "sd": 5209.5833
+       }
+      },
+      "workers-off": {
+       "sharePar": {
+        "mean": 2.3069,
+        "lo": 2.1704,
+        "hi": 2.4433,
+        "n": 16,
+        "sd": 0.2562
+       },
+       "score": {
+        "mean": 0.9792,
+        "lo": 0.9488,
+        "hi": 1.0095,
+        "n": 16,
+        "sd": 0.0569
+       },
+       "win": {
+        "mean": 0.9583,
+        "lo": 0.8977,
+        "hi": 1.019,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "place": {
+        "mean": 1.0417,
+        "lo": 0.981,
+        "hi": 1.1023,
+        "n": 16,
+        "sd": 0.1139
+       },
+       "finalMaterial": {
+        "mean": 38.4375,
+        "lo": 35.4415,
+        "hi": 41.4335,
+        "n": 16,
+        "sd": 5.6237
+       },
+       "finalUnits": {
+        "mean": 4.7917,
+        "lo": 4.4954,
+        "hi": 5.0879,
+        "n": 16,
+        "sd": 0.5561
+       },
+       "survived": {
+        "mean": 1,
+        "lo": 1,
+        "hi": 1,
+        "n": 16,
+        "sd": 0
+       },
+       "turns": {
+        "mean": 118.7083,
+        "lo": 117.4084,
+        "hi": 120.0083,
+        "n": 16,
+        "sd": 2.44
+       },
+       "decisive": {
+        "mean": 0.0833,
+        "lo": 0.0039,
+        "hi": 0.1628,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "decisions": {
+        "mean": 118.7083,
+        "lo": 117.4084,
+        "hi": 120.0083,
+        "n": 16,
+        "sd": 2.44
+       },
+       "worstWallMs": {
+        "mean": 1981.8542,
+        "lo": 1973.4835,
+        "hi": 1990.2248,
+        "n": 16,
+        "sd": 15.7122
+       },
+       "overrunRate": {
+        "mean": 0.0021,
+        "lo": 0.0005,
+        "hi": 0.0037,
+        "n": 16,
+        "sd": 0.003
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "ratchetRate": {
+        "mean": 0.012,
+        "lo": 0.0076,
+        "hi": 0.0164,
+        "n": 16,
+        "sd": 0.0082
+       },
+       "deathsSelf": {
+        "mean": 0.4583,
+        "lo": 0.1842,
+        "hi": 0.7325,
+        "n": 16,
+        "sd": 0.5146
+       },
+       "deathsWall": {
+        "mean": 0.1042,
+        "lo": -0.0028,
+        "hi": 0.2111,
+        "n": 16,
+        "sd": 0.2007
+       },
+       "deathsExhaustion": {
+        "mean": 0.0833,
+        "lo": 0.0039,
+        "hi": 0.1628,
+        "n": 16,
+        "sd": 0.1491
+       },
+       "deathsBodyBlock": {
+        "mean": 0.1667,
+        "lo": 0.075,
+        "hi": 0.2584,
+        "n": 16,
+        "sd": 0.1721
+       },
+       "deathsContest": {
+        "mean": 0.3958,
+        "lo": 0.2341,
+        "hi": 0.5575,
+        "n": 16,
+        "sd": 0.3035
+       },
+       "deathsTeammate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "clusterJoints": {
+        "mean": 5114.8958,
+        "lo": 4656.8681,
+        "hi": 5572.9236,
+        "n": 16,
+        "sd": 859.7423
+       },
+       "clusterEnumMs": {
+        "mean": 1241.1667,
+        "lo": 1190.7872,
+        "hi": 1291.5462,
+        "n": 16,
+        "sd": 94.565
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null
+       },
+       "scoutThreads": {
+        "mean": 1409.0417,
+        "lo": 1377.691,
+        "hi": 1440.3923,
+        "n": 16,
+        "sd": 58.8468
+       },
+       "scoutPlies": {
+        "mean": 963.25,
+        "lo": 937.2371,
+        "hi": 989.2629,
+        "n": 16,
+        "sd": 48.8275
+       },
+       "scoutRefusals": {
+        "mean": 303.2917,
+        "lo": 296.9671,
+        "hi": 309.6162,
+        "n": 16,
+        "sd": 11.8715
+       },
+       "ceilingDecided": {
+        "mean": 794.3333,
+        "lo": 141.9386,
+        "hi": 1446.728,
+        "n": 16,
+        "sd": 1224.5795
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": 626336.7083,
+        "lo": 599347.2423,
+        "hi": 653326.1743,
+        "n": 16,
+        "sd": 50660.6588
+       },
+       "boundsInversions_RETIRED": {
+        "mean": 2453.2292,
+        "lo": -1118.5802,
+        "hi": 6025.0386,
+        "n": 16,
+        "sd": 6704.4756
+       }
+      }
+     },
+     "deltas": {
+      "workers-auto": {
+       "sharePar": {
+        "mean": -0.12,
+        "lo": -0.2429,
+        "hi": 0.0029,
+        "n": 16,
+        "sd": 0.2307,
+        "bootLo": -0.2399,
+        "bootHi": -0.025,
+        "excludesZero": false
+       },
+       "score": {
+        "mean": -0.0313,
+        "lo": -0.0978,
+        "hi": 0.0353,
+        "n": 16,
+        "sd": 0.125,
+        "bootLo": -0.0937,
+        "bootHi": 0.0208,
+        "excludesZero": false
+       },
+       "win": {
+        "mean": -0.0208,
+        "lo": -0.0994,
+        "hi": 0.0578,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0833,
+        "bootHi": 0.0417,
+        "excludesZero": false
+       },
+       "place": {
+        "mean": 0.0625,
+        "lo": -0.0707,
+        "hi": 0.1957,
+        "n": 16,
+        "sd": 0.25,
+        "bootLo": -0.0417,
+        "bootHi": 0.1875,
+        "excludesZero": false
+       },
+       "finalMaterial": {
+        "mean": -1.5417,
+        "lo": -4.7269,
+        "hi": 1.6436,
+        "n": 16,
+        "sd": 5.9788,
+        "bootLo": -4.5833,
+        "bootHi": 0.9792,
+        "excludesZero": false
+       },
+       "finalUnits": {
+        "mean": -0.1458,
+        "lo": -0.5008,
+        "hi": 0.2091,
+        "n": 16,
+        "sd": 0.6663,
+        "bootLo": -0.4792,
+        "bootHi": 0.125,
+        "excludesZero": false
+       },
+       "survived": {
+        "mean": -0.0208,
+        "lo": -0.0652,
+        "hi": 0.0236,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": -0.0625,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "turns": {
+        "mean": -0.8542,
+        "lo": -3.1903,
+        "hi": 1.482,
+        "n": 16,
+        "sd": 4.3851,
+        "bootLo": -3.1875,
+        "bootHi": 0.625,
+        "excludesZero": false
+       },
+       "decisive": {
+        "mean": 0,
+        "lo": -0.0648,
+        "hi": 0.0648,
+        "n": 16,
+        "sd": 0.1217,
+        "bootLo": -0.0625,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "decisions": {
+        "mean": -1.4583,
+        "lo": -5.0669,
+        "hi": 2.1502,
+        "n": 16,
+        "sd": 6.7735,
+        "bootLo": -5,
+        "bootHi": 0.625,
+        "excludesZero": false
+       },
+       "worstWallMs": {
+        "mean": -0.7083,
+        "lo": -11.1422,
+        "hi": 9.7255,
+        "n": 16,
+        "sd": 19.5849,
+        "bootLo": -10.3542,
+        "bootHi": 8.3958,
+        "excludesZero": false
+       },
+       "overrunRate": {
+        "mean": 0.0003,
+        "lo": -0.0019,
+        "hi": 0.0026,
+        "n": 16,
+        "sd": 0.0042,
+        "bootLo": -0.0017,
+        "bootHi": 0.0023,
+        "excludesZero": false
+       },
+       "unstagedRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "stagedNothingRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "assumptionRate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "ratchetRate": {
+        "mean": 0.0012,
+        "lo": -0.0031,
+        "hi": 0.0056,
+        "n": 16,
+        "sd": 0.0081,
+        "bootLo": -0.0026,
+        "bootHi": 0.0051,
+        "excludesZero": false
+       },
+       "deathsSelf": {
+        "mean": 0.125,
+        "lo": -0.1713,
+        "hi": 0.4213,
+        "n": 16,
+        "sd": 0.5561,
+        "bootLo": -0.0833,
+        "bootHi": 0.4167,
+        "excludesZero": false
+       },
+       "deathsWall": {
+        "mean": 0.0208,
+        "lo": -0.0578,
+        "hi": 0.0994,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0417,
+        "bootHi": 0.0833,
+        "excludesZero": false
+       },
+       "deathsExhaustion": {
+        "mean": 0.0208,
+        "lo": -0.0236,
+        "hi": 0.0652,
+        "n": 16,
+        "sd": 0.0833,
+        "bootLo": 0,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "deathsBodyBlock": {
+        "mean": 0,
+        "lo": -0.0648,
+        "hi": 0.0648,
+        "n": 16,
+        "sd": 0.1217,
+        "bootLo": -0.0625,
+        "bootHi": 0.0625,
+        "excludesZero": false
+       },
+       "deathsContest": {
+        "mean": -0.0208,
+        "lo": -0.0994,
+        "hi": 0.0578,
+        "n": 16,
+        "sd": 0.1475,
+        "bootLo": -0.0833,
+        "bootHi": 0.0417,
+        "excludesZero": false
+       },
+       "deathsTeammate": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "wasmRuns": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "wasmRefused": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "clusterJoints": {
+        "mean": -269.7292,
+        "lo": -619.7442,
+        "hi": 80.2859,
+        "n": 16,
+        "sd": 656.9969,
+        "bootLo": -600.7708,
+        "bootHi": 18.875,
+        "excludesZero": false
+       },
+       "clusterEnumMs": {
+        "mean": 151.1042,
+        "lo": 105.6319,
+        "hi": 196.5764,
+        "n": 16,
+        "sd": 85.3539,
+        "bootLo": 106.375,
+        "bootHi": 184.8542,
+        "excludesZero": true
+       },
+       "selectionFar": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "selectionDraws": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "refineMovedLo": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "refineInverted": {
+        "mean": null,
+        "lo": null,
+        "hi": null,
+        "n": 0,
+        "sd": null,
+        "bootLo": null,
+        "bootHi": null,
+        "excludesZero": false
+       },
+       "scoutThreads": {
+        "mean": -24.1875,
+        "lo": -71.0932,
+        "hi": 22.7182,
+        "n": 16,
+        "sd": 88.0444,
+        "bootLo": -71.0625,
+        "bootHi": 9.3125,
+        "excludesZero": false
+       },
+       "scoutPlies": {
+        "mean": 48.0417,
+        "lo": 2.4106,
+        "hi": 93.6728,
+        "n": 16,
+        "sd": 85.652,
+        "bootLo": 4.25,
+        "bootHi": 84.3125,
+        "excludesZero": true
+       },
+       "scoutRefusals": {
+        "mean": 1.0625,
+        "lo": -10.1891,
+        "hi": 12.3141,
+        "n": 16,
+        "sd": 21.1198,
+        "bootLo": -10.3333,
+        "bootHi": 8.6875,
+        "excludesZero": false
+       },
+       "ceilingDecided": {
+        "mean": 154.7083,
+        "lo": -215.2286,
+        "hi": 524.6452,
+        "n": 16,
+        "sd": 694.3911,
+        "bootLo": -124.125,
+        "bootHi": 528.4375,
+        "excludesZero": false
+       },
+       "illegal": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "errors": {
+        "mean": 0,
+        "lo": 0,
+        "hi": 0,
+        "n": 16,
+        "sd": 0,
+        "bootLo": 0,
+        "bootHi": 0,
+        "excludesZero": false
+       },
+       "plansEvaluated_RETIRED": {
+        "mean": -79446.6667,
+        "lo": -102204.5435,
+        "hi": -56688.7898,
+        "n": 16,
+        "sd": 42717.7416,
+        "bootLo": -101670.4792,
+        "bootHi": -62189.1458,
+        "excludesZero": true
+       },
+       "boundsInversions_RETIRED": {
+        "mean": -1150.8333,
+        "lo": -3827.7453,
+        "hi": 1526.0786,
+        "n": 16,
+        "sd": 5024.7057,
+        "bootLo": -3738.625,
+        "bootHi": 286.125,
+        "excludesZero": false
+       }
+      }
+     },
+     "capRate": {
+      "workers-auto": 0.917,
+      "workers-off": 0.917
+     }
+    }
+   ]
+  }
+ ],
+ "problems": []
+}

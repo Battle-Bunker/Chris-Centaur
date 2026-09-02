@@ -1,0 +1,206 @@
+{
+ "batch": "20260831-batch2",
+ "sweepId": "p16-budget-500",
+ "startedAt": "2026-08-31T02:38:38.745Z",
+ "finishedAt": "2026-08-31T02:45:37.726Z",
+ "note": "P16 rung 500 ms: where does the perf substrate stop being speed and start being strength?",
+ "workersPerArm": 10,
+ "arms": [
+  {
+   "arm": "integrated",
+   "bundle": "/home/chris/lobster/bundles/b2-integrated",
+   "bundleStamp": {
+    "ref": "origin/claude/mid-turn-collision-logic-mkxurg",
+    "sha": "66904d256103a1d3f32d060fe742e98b092d33b6",
+    "subject": "Merge idea/i2 into integ/round-a: the slider repair (command + movement budget)",
+    "committedAt": "2026-08-27T05:37:01+00:00",
+    "repo": "/home/chris/lobster/Chris-Centaur",
+    "builtAt": "2026-08-30T14:05:26.643Z",
+    "node": "v22.23.2",
+    "platform": "linux",
+    "arch": "x64",
+    "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+    "lockfileHash": "53fbfa4116fe6a3f",
+    "tscErrors": 6
+   },
+   "botConfig": null,
+   "envOverrides": {},
+   "legacyEnv": false,
+   "exit": {
+    "arm": "integrated",
+    "code": 0,
+    "signal": null,
+    "logPath": "/home/chris/lobster/results/20260831-batch2/arms/integrated/p16-budget-500.log"
+   },
+   "games": 48
+  },
+  {
+   "arm": "perf-substrate",
+   "bundle": "/home/chris/lobster/bundles/b2-perf",
+   "bundleStamp": {
+    "ref": "origin/claude/cluster-lookahead",
+    "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+    "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+    "committedAt": "2026-08-30T14:00:35+00:00",
+    "repo": "/home/chris/lobster/Chris-Centaur",
+    "builtAt": "2026-08-30T14:05:22.823Z",
+    "node": "v22.23.2",
+    "platform": "linux",
+    "arch": "x64",
+    "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+    "lockfileHash": "53fbfa4116fe6a3f",
+    "tscErrors": 6
+   },
+   "botConfig": null,
+   "envOverrides": {},
+   "legacyEnv": false,
+   "exit": {
+    "arm": "perf-substrate",
+    "code": 0,
+    "signal": null,
+    "logPath": "/home/chris/lobster/results/20260831-batch2/arms/perf-substrate/p16-budget-500.log"
+   },
+   "games": 48
+  }
+ ],
+ "host": {
+  "hostname": "DESKTOP-6DUTJPI",
+  "platform": "linux",
+  "arch": "x64",
+  "cpus": 24,
+  "cpuModel": "AMD Ryzen 9 5900X 12-Core Processor",
+  "totalmemGb": 31.3,
+  "node": "v22.23.2"
+ },
+ "loadavg": {
+  "before": [
+   4.1,
+   12.3,
+   15.35
+  ],
+  "after": [
+   8.06,
+   15.47,
+   16.51
+  ],
+  "trace": [
+   {
+    "t": "2026-08-31T02:39:08.762Z",
+    "load": [
+     13.51,
+     13.84,
+     15.77
+    ],
+    "freeGb": 25.77
+   },
+   {
+    "t": "2026-08-31T02:39:38.767Z",
+    "load": [
+     18.23,
+     14.96,
+     16.08
+    ],
+    "freeGb": 24.42
+   },
+   {
+    "t": "2026-08-31T02:40:08.768Z",
+    "load": [
+     22.42,
+     16.31,
+     16.5
+    ],
+    "freeGb": 24.06
+   },
+   {
+    "t": "2026-08-31T02:40:38.772Z",
+    "load": [
+     22.78,
+     16.97,
+     16.71
+    ],
+    "freeGb": 23.94
+   },
+   {
+    "t": "2026-08-31T02:41:08.798Z",
+    "load": [
+     22.05,
+     17.36,
+     16.85
+    ],
+    "freeGb": 23.89
+   },
+   {
+    "t": "2026-08-31T02:41:38.806Z",
+    "load": [
+     22.81,
+     17.98,
+     17.07
+    ],
+    "freeGb": 23.88
+   },
+   {
+    "t": "2026-08-31T02:42:08.810Z",
+    "load": [
+     22.48,
+     18.38,
+     17.24
+    ],
+    "freeGb": 23.88
+   },
+   {
+    "t": "2026-08-31T02:42:38.822Z",
+    "load": [
+     22.43,
+     18.76,
+     17.4
+    ],
+    "freeGb": 23.83
+   },
+   {
+    "t": "2026-08-31T02:43:08.827Z",
+    "load": [
+     22.85,
+     19.2,
+     17.59
+    ],
+    "freeGb": 23.83
+   },
+   {
+    "t": "2026-08-31T02:43:38.828Z",
+    "load": [
+     22.43,
+     19.5,
+     17.75
+    ],
+    "freeGb": 23.84
+   },
+   {
+    "t": "2026-08-31T02:44:08.838Z",
+    "load": [
+     18.42,
+     18.84,
+     17.58
+    ],
+    "freeGb": 23.84
+   },
+   {
+    "t": "2026-08-31T02:44:38.858Z",
+    "load": [
+     14.47,
+     17.85,
+     17.29
+    ],
+    "freeGb": 24.36
+   },
+   {
+    "t": "2026-08-31T02:45:08.862Z",
+    "load": [
+     11.34,
+     16.77,
+     16.95
+    ],
+    "freeGb": 25.79
+   }
+  ]
+ }
+}

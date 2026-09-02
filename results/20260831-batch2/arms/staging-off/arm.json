@@ -1,0 +1,28 @@
+{
+ "arm": "staging-off",
+ "bundle": "/home/chris/lobster/bundles/b2-perf",
+ "bundleStamp": {
+  "ref": "origin/claude/cluster-lookahead",
+  "sha": "b68ce98d54f1dbc8db4a453e2af193f7a92ef9fa",
+  "subject": "The branching paradigm, written down — and P11 becomes a merge decision",
+  "committedAt": "2026-08-30T14:00:35+00:00",
+  "repo": "/home/chris/lobster/Chris-Centaur",
+  "builtAt": "2026-08-30T14:05:22.823Z",
+  "node": "v22.23.2",
+  "platform": "linux",
+  "arch": "x64",
+  "harnessCommit": "cee34dd97a49d4ebe6856d4d7ad4079edb849a87",
+  "lockfileHash": "53fbfa4116fe6a3f",
+  "tscErrors": 6
+ },
+ "botConfig": {
+  "stagingSafety": "off"
+ },
+ "envOverrides": {},
+ "legacyEnv": false,
+ "spec": "x9-exploration-slice",
+ "specPath": "/home/chris/lobster/results/20260831-batch2/arms/staging-off/spec.json",
+ "workers": 10,
+ "startedAt": "2026-08-31T02:12:36.784Z",
+ "note": "X9 ratchet guard, staging-safety slice: shipped default vs stagingSafety=off, 4 blocks, mechanism-first. Placement is NOT readable at this block count."
+}
