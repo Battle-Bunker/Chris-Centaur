@@ -511,3 +511,20 @@ import a fix for a problem we only half have. And a standing caution: **a pinned
 seed is reproducible, not representative** — our determinism work removes two of
 the three known failure sources, and reproducibility makes an unrepresentative
 sample harder to detect, not easier.
+
+**VALUE / BELIEF — extrapolation error** (d31). The fold is fitted on flows that
+OCCURRED and is intended to price plans that were NEVER PLAYED, under an
+**argmax** — which offline RL identifies as the operator that *selects for*
+extrapolation error rather than sampling it (*"agents learn to prefer
+out-of-distribution actions whose value has been overestimated"*). Scope it
+correctly, because the counter-argument is strong: **the fold's ACCOUNTING half is
+near-identity and safe to extrapolate; the flow ESTIMATORS are not** — which is the
+value lens's own §6.2 caveat with a mechanism and a direction attached. Cheap test
+on the existing archive: bin scored decisions by distance from the nearest
+same-shape plan in the fitting corpus, report residual per bin. And the remedy
+family lands on machinery we have: **`advisoryPrecision` gets a second producer
+(coverage distance)**, which is CQL's pessimism in our own vocabulary, with domain
+15's risk budget as its consumer. Read together with the belief lens's queued
+alignment meter: extrapolation error predicts the fold retrodicts OUTCOMES well
+while ordering COUNTERFACTUALS less well, so a mediocre meter beside an excellent
+R² is this mechanism's signature, not a contradiction.
