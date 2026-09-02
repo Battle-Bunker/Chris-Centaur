@@ -35,23 +35,27 @@
  *    one of their units took +1. Nothing about us changed. Detecting it needs
  *    the enemy's tier, which is on the wire.
  *
- * 2. OUR OWN TIER FELL, because WE are the collector. The pickup rule is
- *    inverted: the unit that lands on the potion takes −1 and its allies take
- *    +1 (`TeamSnekProcessor.ts:596-623`). A unit that walks onto a potion
- *    hands itself a window in which it cannot win any contest at all.
- *    Detecting THAT needs no enemy modelling whatsoever — a unit knows where
- *    it is going and it knows what is on that cell.
+ * 2. OUR OWN TIER MOVED, because WE are the collector. A unit that walks onto
+ *    a potion changes its own tier and its whole team's, and detecting THAT
+ *    needs no enemy modelling whatsoever — a unit knows where it is going and
+ *    it knows what is on that cell.
  *
  * Channel 2 is priced by `selfDebuffOf`; channel 1 by `threatsFor`.
  *
- * ── WHAT IS DELIBERATELY NOT MODELLED ──────────────────────────────────────
+ * ── WHAT THE PICKUP DOES IS ASKED, NOT ASSERTED ────────────────────────────
  *
- * The pickup's +1 to every ALLY. It is real and it is why the collector's
- * sacrifice is not pure loss, but it is a TEAM-level quantity that lands a
- * turn later on units whose contests this decision does not see, and pricing
- * it here would put a speculative credit against a certain debit. The
- * offensive side of the window (collect deliberately, converge on a contest
- * the buff decides) is a separate feature and is not this one.
+ * This layer used to carry the pickup rule as a pair of literals — the
+ * collector takes −1, and the +1 to every ally was written down as
+ * deliberately not modelled. That made a pickup look like pure loss with no
+ * credit anywhere, and it made this file a second copy of a rule that has
+ * already moved once (the citation it carried, `TeamSnekProcessor.ts:596-623`,
+ * does not exist any more).
+ *
+ * Settlement writes both halves, so both are read: `Substrate.tiersAfterPickupBy`
+ * hands back the tier vector the turn after a pickup opens at, for the whole
+ * board, and every judgement below is a comparison against that vector. The
+ * collector's own level, the allies' gain, and the case where there are no
+ * living allies to gain anything, all fall out of one reading.
  */
 
 import { bbTest, headSubStepLBOf } from '../partial-engine/index';
@@ -99,8 +103,16 @@ export interface TierExposure {
   readonly ownTier: number;
   /** Claims that strictly outrank the subject. Empty on a potion-free board. */
   readonly threats: ReadonlyArray<TierThreat>;
-  /** Claims that would outrank the subject if it took a potion's −1. */
-  readonly threatsAfterDebuff: ReadonlyArray<TierThreat>;
+  /**
+   * The tier the subject would carry the turn after collecting a potion — the
+   * settled figure, not `ownTier − 1`: an ally collecting on the same turn, or
+   * a window of the subject's own lapsing, both move it. Null when a pickup is
+   * impossible on this board (potions off, or none on it), which is the case
+   * that keeps the whole layer free where it should be free.
+   */
+  readonly tierAfterPickup: number | null;
+  /** Claims that would outrank the subject at `tierAfterPickup`. */
+  readonly threatsAfterPickup: ReadonlyArray<TierThreat>;
 }
 
 const NO_THREATS: ReadonlyArray<TierThreat> = [];
@@ -123,13 +135,25 @@ const NO_THREATS: ReadonlyArray<TierThreat> = [];
 export function exposureOf(sub: EngineSubstrate, unit: SubstrateUnit): TierExposure {
   const arrivalTurn = sub.turn + 1;
   const ownTier = heldTierAt(unit, arrivalTurn);
+  // What a pickup would leave this unit at is settlement's answer, asked once
+  // per unit and only where a pickup is possible at all. On a board with
+  // potions off, or none on it, there is nothing to ask and nothing to pay for.
+  const tierAfterPickup = pickupPossible(sub)
+    ? sub.tiersAfterPickupBy(unit.unitId).get(unit.unitId) ?? ownTier
+    : null;
   const field = sub.claimField();
   if (field.isEmpty) {
-    return { arrivalTurn, ownTier, threats: NO_THREATS, threatsAfterDebuff: NO_THREATS };
+    return {
+      arrivalTurn,
+      ownTier,
+      tierAfterPickup,
+      threats: NO_THREATS,
+      threatsAfterPickup: NO_THREATS,
+    };
   }
 
   const threats: TierThreat[] = [];
-  const afterDebuff: TierThreat[] = [];
+  const afterPickup: TierThreat[] = [];
   for (const slot of field.slots) {
     if (slot.record.unitId === unit.unitId) continue;
     if (slot.cloud.certainlyGone) continue;
@@ -139,14 +163,26 @@ export function exposureOf(sub: EngineSubstrate, unit: SubstrateUnit): TierExpos
     // would also have produced.
     const decisive = unit.weight >= slot.bounds.weightMax;
     if (tier > ownTier) threats.push({ slot, tier, decisive });
-    if (tier > ownTier - 1) afterDebuff.push({ slot, tier, decisive });
+    if (tierAfterPickup !== null && tier > tierAfterPickup) {
+      afterPickup.push({ slot, tier, decisive });
+    }
   }
   return {
     arrivalTurn,
     ownTier,
+    tierAfterPickup,
     threats: threats.length === 0 ? NO_THREATS : threats,
-    threatsAfterDebuff: afterDebuff.length === 0 ? NO_THREATS : afterDebuff,
+    threatsAfterPickup: afterPickup.length === 0 ? NO_THREATS : afterPickup,
   };
+}
+
+/**
+ * Could ANY unit collect a potion on this board at all? The same gate
+ * `potionAt` has always applied, so this adds no precondition of its own —
+ * whether a potion cell is live is settled once, in `marshalBoard`.
+ */
+function pickupPossible(sub: EngineSubstrate): boolean {
+  return sub.potionsEnabled() && sub.marshalled.potions.length > 0;
 }
 
 /**
@@ -234,27 +270,33 @@ export type SelfDebuff =
   | 'none'
   /** A pickup that costs the team nothing this unit was using. */
   | 'spend'
+  /** A pickup with NO living ally to take the other half of the rule. */
+  | 'solo'
   /** A pickup that throws away a +1 a teammate paid a −1 for. */
   | 'waste'
   /** A pickup that puts the unit into a window where something outranks it. */
   | 'exposed'
-  /** A pickup by a king — a self-inflicted −1 on the unit the team ends with. */
+  /** A pickup by a king — a self-inflicted debuff on the unit the team ends with. */
   | 'king';
 
 /**
- * `spend` ranks ZERO on purpose. A plain pickup buys one unit-window of −1 and
- * roughly three ally unit-windows of +1; the matched control in the corpus put
- * the team-level material swing at −0.05 with an interval a full unit wide
- * either way, i.e. not measurably a loss. Charging it here would be a
+ * `spend` ranks ZERO on purpose. A plain pickup buys one unit-window of loss
+ * and roughly three ally unit-windows of gain; the matched control in the
+ * corpus put the team-level material swing at −0.05 with an interval a full
+ * unit wide either way, i.e. not measurably a loss. Charging it here would be a
  * preference this evidence does not license, and it would also foreclose the
  * offensive side of the window — a deliberate collection — before it is built.
- * What IS charged is the three cases where the corpus is unambiguous: burning
- * a teammate's sacrifice, walking into a window something can punish, and a
- * king debuffing itself.
+ *
+ * `solo` is the case that reading only half the rule could not see. The whole
+ * argument for `spend` being free is the ally half of the pickup; settlement
+ * says when there is no ally to receive it, and then the pickup is the debit
+ * with the credit removed. It is charged like `waste`, which is the same
+ * shape of mistake: a window paid for and not used.
  */
 const SELF_DEBUFF_RANK: Readonly<Record<SelfDebuff, number>> = {
   none: 0,
   spend: 0,
+  solo: 1,
   waste: 1,
   exposed: 2,
   king: 3,
@@ -265,17 +307,21 @@ export const selfDebuffRank = (d: SelfDebuff): number => SELF_DEBUFF_RANK[d];
 /**
  * Price this unit's own pickup, for a move that could come to rest on a potion.
  *
- * Collection is DESTINATION-ONLY (`TeamSnekProcessor.ts:585-589`) — a slider
- * passing over a potion does not collect it — so this reads the landing set,
- * not the path. The landing set is the risk layer's, which is a SET when a
- * possible halt makes the resting cell uncertain; a potion on any member is a
- * possible pickup and is priced as one.
+ * Collection is DESTINATION-ONLY — a slider passing over a potion does not
+ * collect it, because settlement reads a surviving head's resting cell — so
+ * this reads the landing set, not the path. The landing set is the risk
+ * layer's, which is a SET when a possible halt makes the resting cell
+ * uncertain; a potion on any member is a possible pickup and is priced as one.
  *
- * The debuff does not bite until the turn AFTER the pickup (collection runs
- * after `resolveTurn`), so `exposed` is a statement about the next turn made
- * with this turn's claim field. That field is one turn dilated already, which
- * makes it the cheapest sound-ish proxy available at this altitude; it is used
- * to ORDER, never to refuse.
+ * WHAT THE PICKUP DOES IS SETTLEMENT'S ANSWER. `exposure.tierAfterPickup` is
+ * the tier this unit opens the next turn at, and the ally half of the rule is
+ * read off the same vector rather than written off as unmodelled. Neither
+ * polarity nor magnitude appears in this file.
+ *
+ * The effect does not bite until the turn AFTER the pickup, so `exposed` is a
+ * statement about the next turn made with this turn's claim field. That field
+ * is one turn dilated already, which makes it the cheapest sound-ish proxy
+ * available at this altitude; it is used to ORDER, never to refuse.
  */
 export function selfDebuffOf(
   sub: EngineSubstrate,
@@ -283,6 +329,7 @@ export function selfDebuffOf(
   exposure: TierExposure,
   landing: ReadonlyArray<CellIndex>
 ): SelfDebuff {
+  if (exposure.tierAfterPickup === null) return 'none';
   let onPotion = false;
   for (const cell of landing) {
     if (sub.potionAt(cell)) {
@@ -292,19 +339,39 @@ export function selfDebuffOf(
   }
   if (!onPotion) return 'none';
   if (unit.isKing) return 'king';
-  if (exposure.threatsAfterDebuff.length > 0) {
+  if (exposure.threatsAfterPickup.length > 0) {
     for (const cell of landing) {
       if (!sub.potionAt(cell)) continue;
-      if (gradePath(sub, exposure, cell, [], exposure.threatsAfterDebuff) !== 'clear') {
+      if (gradePath(sub, exposure, cell, [], exposure.threatsAfterPickup) !== 'clear') {
         return 'exposed';
       }
     }
   }
-  // A unit already carrying a buff converts its own +1 to 0 and burns the
-  // window a teammate bought with a −1. Corpus-wide that is a fifth of every
-  // pickup made.
+  // A unit already carrying a buff burns the window a teammate bought.
+  // Corpus-wide that is a fifth of every pickup made.
   if (exposure.ownTier > 0) return 'waste';
+  // THE OTHER HALF OF THE RULE, which used to be written off. Settlement pays
+  // every LIVING ally; ask it whether anybody was there to be paid.
+  if (!anyAllyGains(sub, unit)) return 'solo';
   return 'spend';
+}
+
+/**
+ * Does a pickup by `unit` raise any teammate's tier? Read straight off the
+ * settled vector, so "who counts as an ally" and "what a living ally receives"
+ * are both the engine's answers and neither is restated here.
+ */
+function anyAllyGains(sub: EngineSubstrate, unit: SubstrateUnit): boolean {
+  const after = sub.tiersAfterPickupBy(unit.unitId);
+  const arrivalTurn = sub.turn + 1;
+  for (const other of sub.roster()) {
+    if (other.unitId === unit.unitId) continue;
+    if (other.team !== unit.team) continue;
+    const settled = after.get(other.unitId);
+    if (settled === undefined) continue;
+    if (settled > heldTierAt(other, arrivalTurn)) return true;
+  }
+  return false;
 }
 
 /** Does this field carry any live tier at all? A cheap whole-decision gate. */

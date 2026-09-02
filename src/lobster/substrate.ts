@@ -65,6 +65,7 @@ import type { Board as ApiBoard } from '../types/battlesnake';
 import { marshalBoard } from '../logic/turn-oracle';
 import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
+import { settleTurn } from '../engine-vendor/engine/settleTurn';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
 
 import {
@@ -544,6 +545,8 @@ export class EngineSubstrate implements Substrate {
   private targets: Board | null = null;
   /** The turn-start potion board, materialised on first ask. */
   private potions: Board | null = null;
+  /** `tiersAfterPickupBy`, memoised. One settlement per collector per decision. */
+  private readonly pickupTiers = new Map<UnitId, ReadonlyMap<UnitId, number>>();
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
   private resolveCount = 0;
   private released = false;
@@ -784,6 +787,59 @@ export class EngineSubstrate implements Substrate {
   potionAt(cell: CellIndex): boolean {
     if (this.potions === null) this.potions = boardWith(this.grid, this.marshalled.potions);
     return bbTest(this.potions, cell);
+  }
+
+  /** Are potions live at all? Off, and a potion cell is inert scenery. */
+  potionsEnabled(): boolean {
+    return this.marshalled.potionsEnabled;
+  }
+
+  /**
+   * THE TIERS A PICKUP BY `unitId` LEAVES BEHIND — asked of the rules, not
+   * asserted here.
+   *
+   * The pickup is inverted and it has TWO halves: the collector takes a level
+   * off and every one of its LIVING allies takes one on, both lapsing one
+   * window later. A reading that models only the first half prices a pickup as
+   * pure loss; a reading that hardcodes either polarity is a second encoding of
+   * a rule that has already moved once. So the question goes to `settleTurn`,
+   * which is where both halves are written, and what comes back is the tier
+   * vector the turn AFTER the pickup opens at — expiry included, so a window
+   * that lapses on the same turn is netted off for free.
+   *
+   * THE PROBE IS A HELD BOARD. Every unit stands where it stands with an empty
+   * path and a health no turn can spend, and the one potion offered is the
+   * collector's own head cell. Nothing moves, so nothing contests, so nothing
+   * dies and no death can drop a unit out of the answer; the only phase with
+   * anything to do is the one being asked about. Memoised per unit: a decision
+   * asks this once per unit of ours that can reach a potion, and never at all
+   * on the potion-free boards that are most of them.
+   */
+  tiersAfterPickupBy(unitId: UnitId): ReadonlyMap<UnitId, number> {
+    const hit = this.pickupTiers.get(unitId);
+    if (hit !== undefined) return hit;
+    const collector = this.byUnitId.get(unitId);
+    if (collector === undefined) throw new UnknownUnitError(unitId);
+
+    const m = this.marshalled;
+    const settled = settleTurn({
+      ...m.config,
+      units: m.units.map((u) => ({ ...u, path: [], health: Number.MAX_SAFE_INTEGER })),
+      turn: m.arrivalTurn,
+      teamOf: Object.fromEntries(m.teamOf),
+      effects: m.effects,
+      potions: [collector.cells[0] as number],
+      potionsEnabled: m.potionsEnabled,
+      potionWindowTurns: m.potionWindowTurns,
+    });
+
+    const out = new Map<UnitId, number>();
+    for (const [wireId, tier] of Object.entries(settled.tiers)) {
+      const unit = this.byWireId.get(wireId);
+      if (unit !== undefined) out.set(unit.unitId, tier);
+    }
+    this.pickupTiers.set(unitId, out);
+    return out;
   }
 
   /** Every distinct action this unit could take, from the engine's enumerator. */

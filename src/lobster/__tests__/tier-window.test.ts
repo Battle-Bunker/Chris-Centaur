@@ -23,7 +23,7 @@ import { marshalBoard } from '../../logic/turn-oracle';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
-import { exposureOf, gradePath, heldTierAt, selfDebuffOf } from '../tier-window';
+import { exposureOf, gradePath, heldTierAt, selfDebuffOf, selfDebuffRank } from '../tier-window';
 import { potionBoardEnabled, tierExpiryEnabled } from '../tier-truth';
 
 // --------------------------------------------------------------------- fixtures
@@ -373,7 +373,37 @@ describe('the collector pays, and it is the collector that has to know', () => {
     sub.release();
   });
 
-  it('charges a plain pickup nothing — the team ledger for one is not a loss', () => {
+  it('charges a plain pickup nothing — the team ledger for a TEAM is not a loss', () => {
+    const board = boardOf(
+      [
+        piece('A1', { x: 3, y: 3 }, 'rook', 3, { teamID: 'A' }),
+        piece('A2', { x: 6, y: 6 }, 'rook', 3, { teamID: 'A' }),
+        piece('B1', { x: 8, y: 8 }, 'rook', 3, { teamID: 'B' }),
+      ],
+      { invulnerabilityPotions: [{ x: 3, y: 4 }] }
+    );
+    const sub = subFor(board);
+    const rook = unitNamed(sub, 'A1');
+    const exposure = exposureOf(sub, rook);
+    expect(selfDebuffOf(sub, rook, exposure, [sub.marshalled.toIndex({ x: 3, y: 4 })])).toBe(
+      'spend'
+    );
+    // The half that makes `spend` free is real and settlement writes it: A2's
+    // tier is strictly above where it stood.
+    const after = sub.tiersAfterPickupBy(rook.unitId);
+    const ally = unitNamed(sub, 'A2');
+    expect(after.get(ally.unitId)).toBeGreaterThan(ally.tier);
+    expect(after.get(rook.unitId)).toBeLessThan(rook.tier);
+    sub.release();
+  });
+
+  // THE CORRECTED CASE. `spend` ranks zero because a pickup buys one window of
+  // loss and roughly three ally windows of gain. With no living ally there is
+  // no gain — the credit half of the argument is simply absent — and the old
+  // reading, which wrote the ally half off as unmodelled, could not tell the
+  // two boards apart. Settlement can: the same probe that pays A2 above pays
+  // nobody here.
+  it('charges a pickup with NO living ally — the credit half of `spend` is missing', () => {
     const board = boardOf(
       [
         piece('A1', { x: 3, y: 3 }, 'rook', 3, { teamID: 'A' }),
@@ -385,8 +415,15 @@ describe('the collector pays, and it is the collector that has to know', () => {
     const rook = unitNamed(sub, 'A1');
     const exposure = exposureOf(sub, rook);
     expect(selfDebuffOf(sub, rook, exposure, [sub.marshalled.toIndex({ x: 3, y: 4 })])).toBe(
-      'spend'
+      'solo'
     );
+    expect(selfDebuffRank('solo')).toBeGreaterThan(selfDebuffRank('spend'));
+
+    // Nobody but the collector moves, and the collector moves DOWN.
+    const after = sub.tiersAfterPickupBy(rook.unitId);
+    expect(after.get(rook.unitId)).toBeLessThan(rook.tier);
+    const enemy = unitNamed(sub, 'B1');
+    expect(after.get(enemy.unitId)).toBe(enemy.tier);
     sub.release();
   });
 });
