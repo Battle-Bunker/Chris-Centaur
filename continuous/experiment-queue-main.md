@@ -311,3 +311,12 @@
       the build increments; small gap = architecture must be pitched on
       hygiene, not strength. Complementary to Nash averaging (redundancy vs
       complementarity). One script.
+- [ ] S0.75 maxGap-vs-time curves (search lens doc 07): one emitted field
+      (maxGap + existing timestamp), plotted per board class from the
+      existing corpus — proved recognizable-quality anytime curves for free.
+      Second only to restrictedGap in value-per-cost.
+- [ ] Prefix-determinism property test: one decision at budget b and 2b,
+      same seed, assert emission sequence at b is a prefix (countingBudget
+      makes it cheap). Six sites pay for this invariant; today it is a
+      convention six comments believe in. Then elite-512-vs-first-come-512
+      at the pool becomes measurable rather than frightening.
