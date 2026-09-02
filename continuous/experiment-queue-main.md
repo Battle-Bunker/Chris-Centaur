@@ -254,3 +254,10 @@
       under win-only scoring; predict R² collapse + variance-seeking-when-
       behind residual. Zero games; tests "fold survives measure changes,
       breaks under terminal-functional changes" in one run.
+- [ ] proposedBy tag on accepted trials (search lens): eight proposal
+      operators, nothing records which proposed the accepted trial; one tag
+      makes the whole layer measured; prerequisite for adaptive schedules;
+      likely retires two operators. Cheapest instrument on the books.
+- [ ] Adjudication split contested-vs-quiet: floorDecided/estDecided/
+      ceilingDecided/tieKeyDecided by cell class — tests "saturated maximin
+      floor carries no ordering info on contested cells" for free.
