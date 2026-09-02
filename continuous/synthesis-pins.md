@@ -4143,3 +4143,19 @@ final synthesis prematurely.
   potionIntel,reflex} — positive where pooled was zero = the first
   empirically-identified conditional-selector feature (board family).
   Assigned to value lens.
+
+## RULING 51 (owner, 2026-09-02): operator-integration surface
+Plan elegant integration with human operators, BOTH directions:
+(OUT) a flexible API presenting what the bot knows about the strategy
+landscape — wide range of engine-generated signal types, intelligently
+AGGREGATED for humans. (IN) high-leverage realtime guidance: study the
+Snek Centaur Platform repo (Cyphid-Academy/snek-centaur-platform, local
+clone /home/user/cyphid-academy/snek-centaur-platform) — its plan:
+operators configure DRIVES (goals and fears WITH a target) and
+PREFERENCES (scores over board states WITHOUT targets) in realtime.
+The existing goto command = a GOAL. The near command shows a new
+factoring may be needed: it HAS a target but is a CONTINUOUS optimisation
+heuristic (scores better with fewer turns to target) with NO COMPLETION
+EVENT, unlike goto. Task: factor the landscape of operator-guidance
+affordances so strategic guidance integrates smoothly into the tree
+search. Owner also noted the pool ran thin (1 task) — keep 4-8 active.
