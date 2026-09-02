@@ -24,8 +24,9 @@ deserves a number rather than a reassurance.
 | `botDiff` | ~20 |
 | the checks (Law R both clauses, Law S, codecs, arity, identifiability, ambiguity) | ~120 |
 | transfer variance + earned precision + edge credits | ~70 |
-| **spine total** | **531** |
-| the demo that exercises all of it (toy manifest, 10 members, 3 roster bots) | 334 |
+| the reduction's set type, emission collapse, two currencies, the miner's three rules | ~77 |
+| **spine total** | **608** |
+| the demo that exercises all of it (toy manifest, 10 members, 3 roster bots) | 364 |
 
 **What this does not include, and where the real risk is.** The spine is small;
 the *generator* — emitting the config codec, the stamp, the manifest columns,

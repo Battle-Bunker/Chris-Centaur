@@ -27,6 +27,7 @@ no shipping code on this branch. Anchors verified against
 | `21-OWNER-ASKS-TEST.md` | the carve tested against the owner's own named asks: five fit, and interception-deterrence is blocked by ruling 13 rather than by the carve — a quantifier has no response |
 | `22-REDUCTION-RETYPE.md` | the reduction returns a SET of (option, dominance condition), collapse moves to the emission barrier, advice gets its input type free; operator attention as a second, non-fungible currency; and meta-Nash support as Law R's upgrade path |
 | `23-ADMISSION-REVISED.md` | measurement revises the admission story: three granularities, a fifth cause (15–43% of priced plans refused by the emission rate limiter), my identification withdrawn, and the saturation rule as a generated check |
+| `24-RANGE-AND-RULES-ARTIFACT.md` | the range as a measure coordinate with bounds as its sound face, the spawn LAW instead of a sampler, the bijection law instead of type-derivation, and the engine work reframed as building one rules artifact |
 | `sketch/` | the spine as compiling code — manifest, choices, bots, normalisation, addresses, diff and the checks, 531 lines, with the three findings that only came out of running it |
 | `07-SYNTHESIS.md` | the whole factorization, the build order across lenses, the risks, and a checker-clean owner summary |
 | `08-FIT-PROVENANCE.md` | ruling 49: a fitted number is a value with the premise it was fitted under; transfer penalty, the two fit laws, and six degrees of freedom the machine expresses that we never tried |

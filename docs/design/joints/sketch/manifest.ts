@@ -148,6 +148,55 @@ export interface ReductionSite {
   readonly constraint: 'kernel-pinned' | 'ruling-13' | 'free';
 }
 
+/**
+ * WHAT A REDUCTION RETURNS (the cycle-9 retype). Not a scalar: the surviving
+ * options, each with the condition under which it wins. Maximality and
+ * E-admissibility return sets natively; Gamma-maximin is the member that
+ * collapses, and the collapse belongs at the EMISSION barrier, not here.
+ *
+ * The condition is a Premise, not a new object — "A beats B whenever the reply
+ * lies in R" is a premise-indexed statement, which is why the retype is native
+ * to the fibration rather than an addition to it.
+ */
+export interface Surviving {
+  readonly option: string; // plan key
+  readonly condition: Premise;
+}
+
+export type ReductionResult = ReadonlyArray<Surviving>;
+
+/** ADVICE's input type, for free: the survivors ARE the surfaceable options,
+ * and the condition is what makes a surfaced option an explanation rather than
+ * a list. */
+export type AdviceInput = ReductionResult;
+
+/**
+ * The emission barrier: the wire takes one move, so a collapse must happen —
+ * here, once, and after every other consumer has read the set.
+ */
+export function collapseAtEmission(
+  survivors: ReductionResult,
+  tieBreak: (a: Surviving, b: Surviving) => number
+): Surviving | null {
+  if (survivors.length === 0) return null;
+  return [...survivors].sort(tieBreak)[0] ?? null;
+}
+
+/**
+ * ECONOMY's two currencies. NOT FUNGIBLE, and the absence of an exchange rate
+ * is the point: a rate would let the scheduler spend the human whenever compute
+ * was expensive, and the standing rules say the opposite.
+ */
+export interface Budgets {
+  readonly quanta: number; // compute
+  readonly attention: number; // operator asks + surfaced options — a HARD CAP
+}
+
+export function spendAttention(b: Budgets, cost: number): Budgets | 'refused' {
+  if (cost > b.attention) return 'refused';
+  return { quanta: b.quanta, attention: b.attention - cost };
+}
+
 export interface Joint {
   readonly id: JointId;
   readonly kind: JointKind;
@@ -528,4 +577,32 @@ export function advisoryPrecision(fit: FitProvenance | undefined, sigma2Transfer
   if (fit === undefined) return 0;
   const variance = fit.residualSigma * fit.residualSigma + sigma2Transfer;
   return variance <= 0 ? 0 : 1 / variance;
+}
+
+// ------------------------------------------------------------ the miner's laws
+
+/**
+ * A reported column, with its bound declared. Three rules, and three of the
+ * four instrument artifacts in this programme's history would have been caught
+ * by one of them:
+ *   · refuse an UNKNOWN column          (the depth-idle false crisis)
+ *   · never default an ABSENT one       (the same one, from the other side)
+ *   · flag a SATURATED one              (the flood-fill proxy at its own bound)
+ */
+export interface Column {
+  readonly name: string;
+  readonly bound?: number; // the statistic's own ceiling, when it has one
+}
+
+export type Reading =
+  | { readonly kind: 'value'; readonly value: number }
+  | { readonly kind: 'saturated'; readonly at: number }
+  | { readonly kind: 'refused'; readonly why: string };
+
+export function read(columns: ReadonlyMap<string, Column>, name: string, raw: number | undefined): Reading {
+  const column = columns.get(name);
+  if (column === undefined) return { kind: 'refused', why: `unknown column "${name}"` };
+  if (raw === undefined) return { kind: 'refused', why: `column "${name}" absent — never defaulted` };
+  if (column.bound !== undefined && raw >= column.bound) return { kind: 'saturated', at: column.bound };
+  return { kind: 'value', value: raw };
 }

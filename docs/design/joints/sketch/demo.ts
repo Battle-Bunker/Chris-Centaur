@@ -14,6 +14,9 @@
 
 import {
   advisoryPrecision,
+  collapseAtEmission,
+  read,
+  spendAttention,
   botDiff,
   botId,
   check,
@@ -25,6 +28,9 @@ import {
 } from './manifest.ts';
 import type {
   Bot,
+  Budgets,
+  Column,
+  ReductionResult,
   BotSpec,
   Choice,
   DataEntry,
@@ -330,5 +336,29 @@ console.log('  valid after a spawn    :', traceValid(trace, afterSpawn), '(name 
 // Edge-credited spend: one cluster evaluation serving three branches.
 console.log('\nedge credits for one shared evaluation:',
   JSON.stringify(creditSpend('cluster/3.7', [line, lineName([7], 'rook->a1'), lineName([3], 'pawn->e3')], 9)));
+
+// The reduction returns a SET; the collapse happens once, at emission.
+const survivors: ReductionResult = [
+  { option: 'plan/a', condition: { support: { replies: 'R1' }, observable: null, measure: null, config: null } },
+  { option: 'plan/b', condition: { support: { replies: 'R2' }, observable: null, measure: null, config: null } },
+];
+console.log('\nreduction survivors (advice reads these verbatim):', survivors.map((s) => s.option).join(', '));
+console.log('  collapsed at emission ->', collapseAtEmission(survivors, (a, b) => a.option.localeCompare(b.option))?.option);
+
+// Two currencies, no exchange rate: attention is a hard cap.
+const budgets: Budgets = { quanta: 1000, attention: 2 };
+console.log('\nattention spend 1 of 2:', JSON.stringify(spendAttention(budgets, 1)));
+console.log('attention spend 3 of 2:', JSON.stringify(spendAttention(budgets, 3)));
+
+// The miner's three rules.
+const COLUMNS = new Map<string, Column>([
+  ['sharePar', { name: 'sharePar' }],
+  ['voronoiShare', { name: 'voronoiShare', bound: 441 }],
+]);
+console.log('\nminer:');
+console.log('  known column          :', JSON.stringify(read(COLUMNS, 'sharePar', 1.02)));
+console.log('  unknown column        :', JSON.stringify(read(COLUMNS, 'depthEffect', 0.3)));
+console.log('  absent value          :', JSON.stringify(read(COLUMNS, 'sharePar', undefined)));
+console.log('  statistic at its bound:', JSON.stringify(read(COLUMNS, 'voronoiShare', 441)));
 
 console.log('\ndata entries pinned by version:', DATA.map((d) => d.id).join(', '));
