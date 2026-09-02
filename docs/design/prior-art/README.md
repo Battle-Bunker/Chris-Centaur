@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Eleven domains, surveyed against the four lens syntheses as they stood at
+Twelve domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -24,6 +24,7 @@ case.*
 | 9 | evaluation, population distortion, and how to grow a roster (**ruling 49**) | `09-evaluation-and-population-distortion.md` |
 | 10 | the Centaur surface: mixed-initiative control and explanation | `10-centaur-mixed-initiative-and-explanation.md` |
 | 11 | game-rules architecture: one description, many consumers | `11-game-rules-architecture.md` |
+| 12 | **decomposition under imperfect information** — the result that invalidates a hypothesis three lenses share | `12-decomposition-under-imperfect-information.md` |
 
 ---
 
@@ -84,6 +85,21 @@ conclusion.
 
 ---
 
+**R-5. Our architecture is a DECOMPOSITION architecture, and decomposition is
+sound in perfect-information games and *provably unsound* in imperfect-information
+ones.** Burch/Johanson/Bowling: "in imperfect information games, decomposition has
+proven to be problematic. To date, all proposed techniques… have abandoned
+theoretical guarantees" — and the failure is not inaccuracy but **increased
+exploitability**, with unbounded error. Everything holds today (full
+observability ⟹ the range is a point mass) and stops holding at fog step 5, in
+four places at once: `cluster-enum.ts`'s `φ_uv ≡ 0` cross-component identity,
+premise-keyed memoisation, re-base/ADVANCE, and depth threads. The constructive
+fix (DeepStack's continual re-solving) needs exactly one new object crossing each
+decomposition boundary: **a bound on the opponent's counterfactual value** —
+which is a type our bounds bank already produces. See domain 12.
+
+---
+
 ## Contradiction register
 
 Ordered by how much they should change lens work. **C** = contradicts our carve;
@@ -91,6 +107,9 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 
 | id | lens | one line |
 |---|---|---|
+| **C36** | SEARCH | **`cluster-enum.ts`'s "cross-cluster terms are PROVABLY ZERO" is a perfect-information theorem.** The proof is geometric and assumes each unit is at a *known cell*; a hidden unit is a *set* spanning components, so the same possible occupant appears in two clusters and `φ_uv ≡ 0` becomes false — silently, because no law-suite case has a subject whose position is a cloud. The exactness claim is load-bearing for everything above it. |
+| **C37** | COMPOSITION | **Memoising by ⟨board, premise⟩ is the move the literature forbids**: under imperfect information a value depends on the *range* (how play arrived), so identical premises with different histories have different values. Fix is one coordinate: the premise index needs a fifth, **reach/range** (or a counterfactual-value bound). Sound today, unsound after fog step 5, and the cache returns a *plausible* wrong number. |
+| **C38** | TIME | **Re-base IS continual re-solving**, and continual re-solving is sound *only* because bounded counterfactual values cross the boundary. Carrying nothing is the unsafe variant with unbounded error. ADVANCE's payload needs a bound — and DeepStack answers the worldline's open question: the minimal carried object is the opponent's counterfactual value bounds, far smaller than the carry store or hypothesis table. |
 | **C28** | OWNER / VALUE | **Every headline number is a non-invariant aggregate over a redundant population.** Balduzzi et al.'s P1 axiom — "adding redundant copies should make no difference" — *excludes Elo and uniform averaging by name*, and the bias "can only be detected post hoc". Their Atari re-evaluation flipped "superhuman" to "ties with humans". Fixable on the archive we already hold: build the arm-vs-arm matrix, take the **maxent Nash**. |
 | **C29** | OWNER / COMPOSITION | **Nobody has checked whether our arms cycle.** A simultaneous-move game with contested cells manufactures rock-paper-scissors structure; if the cyclic fraction is non-negligible then "which bot is better" is not well posed, a roster must be a **mixture** not a champion, and the missing production bot-binding site becomes a blocker. Two-hour check on existing data (mElo's Schur decomposition). |
 | **C30** | COMPOSITION | **The roster grows by taste; PSRO grows it by best response to the current meta-strategy** — which directs exploration exactly where the population is weakest. The procedural answer to ruling 49's "explored at low density", instead of "run more arms". |
