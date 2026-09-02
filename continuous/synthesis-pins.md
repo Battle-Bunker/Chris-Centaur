@@ -4355,3 +4355,17 @@ record; coordinator relays only what genuinely cannot wait.
   kinds may be THIS PROGRAMME'S joints, not the domain's — defensible
   property is that a wrong kind costs a ROW, not a rewrite. Staleness
   audit fixed four corrected-but-still-standing claims at their sites.
+- Composition stretch 2 (@ 1ac77e7): THE ELEGANT OPERAND IS THE DEAD ONE
+  — bishop appears 0 times across every batch spec (snake 392, king 121,
+  pawn 85, queen 71, knight 50, rook 32); X4's live reduced-product
+  entry is trail-unit STEP PARITY; build/test against that. colourBound
+  = second zero-firing mechanism (engine-side) — two independent
+  "declared, reachable, never engaged" discoveries = the deletion
+  mandate's empirical case. Candidate set = a VALUE that flows through
+  consumer-hosted stages; truncated.spread (differentiation at the cut)
+  becomes a standing column. ONE BUILD ORDER (34): six behaviour-
+  changing increments, four gated; CRITICAL PATH to the potion-
+  intelligent bot: E1→E2→B6→L3→B5 with E2 THE KEYSTONE (tier input-only
+  → a three-turn potion plan is unmodellable at ANY budget); smallest
+  useful subset: A1, X1-X3, E1-E2. Next: deliberate reachability-and-
+  engagement census across the tree.
