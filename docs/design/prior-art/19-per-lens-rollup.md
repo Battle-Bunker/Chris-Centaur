@@ -528,3 +528,17 @@ family lands on machinery we have: **`advisoryPrecision` gets a second producer
 alignment meter: extrapolation error predicts the fold retrodicts OUTCOMES well
 while ordering COUNTERFACTUALS less well, so a mediocre meter beside an excellent
 R² is this mechanism's signature, not a contradiction.
+
+**VALUE / COMPOSITION — accounting devices vs policy levers** (d32). "The fold is
+an accounting device, not a policy lever" is **Ng, Harada & Russell's theorem**,
+and its **converse** is the useful half: potential-based shaping is *necessary as
+well as sufficient* for policy invariance. So the contrapositive is a design test
+the VALUE joint lacks — **a term that CAN change the policy must not be expressible
+as a potential difference or a positive rescaling; a term that IS so expressible
+can only buy variance reduction.** Sorting the twelve slots and three flows by that
+test is an afternoon. And it composes with d24 into a sharper carve than either
+lens had: **the currency is accounting and near-definitional; the COMBINATION LAW
+over it is the policy lever**, and that law is a member collection with a
+reachability theorem per member. Which resolves why the fold's excellent R² and
+its policy-inertness are both true, and says the remaining design attention
+belongs in the combination law rather than in more flow channels.
