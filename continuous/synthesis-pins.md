@@ -4197,3 +4197,23 @@ record; coordinator relays only what genuinely cannot wait.
   before the statistical one (4 of 6 artifacts caught that way).
   Harness requirement: record scored-but-unplayed candidates (M72 and
   C60's estimator half both need it).
+- Search-lens batch (ab7ed5f): probe v1 cells were B2-shaped optimistic
+  (not bank-produced) — v2 prices through the same BoundBank; "a number
+  must carry which mechanism produced it" (Law D1 read backwards; author
+  made the error in the doc naming it). Pure-saddle retirement WEAKENED:
+  2 informative boards of 15 (rest column-less/structural-zero/all-
+  refuted) — enough to not build mixing next, not enough to close.
+  §2.3 floor saturation CONFIRMED measured (contested boards: nearly all
+  rows refuted; survivors 0.047 apart; adjudication falls to est/ceiling-
+  hole/tie key exactly where hardest; τ>0 ordering motivation
+  strengthened). LARGEST FINDING: the proved floor's ordering power is
+  AN ARTIFACT OF INCOMPLETE COLUMN GENERATION — wide-gate run: one
+  plan-independent best reply refutes 12-15 of 13-17 rows; B1/B3's job
+  (find punishing replies) removes exactly the rows the floor could
+  rank; the entanglement gate holds the floor's informativeness up by
+  not looking too hard. Passivity's deeper account: maximin frequently
+  CANNOT TELL OPTIONS APART — the choice falls to rungs nobody designed
+  to carry it. (−∞ = cannot-prove-better, not catastrophe-certain — a
+  REDUCTION finding, not a position finding.) Lifecycle: Law C
+  conservation invariant in with two constraints; disjointness via
+  footprintOf's existing meet; fifteenth term as anticipatory meet.
