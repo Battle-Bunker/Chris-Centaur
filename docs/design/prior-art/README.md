@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-four domains, surveyed against the four lens syntheses as they stood at
+Twenty-five domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -39,6 +39,7 @@ finding by whose design it changes. This index is organised by domain.
 | 22 | **the theory of carving at joints** — Parnas's criterion, and modularity's option-value formula | `22-the-theory-of-carving-at-joints.md` |
 | 23 | the dependency problem, and where our floor meets it twice | `23-the-dependency-problem-and-the-floor.md` |
 | 24 | scalarization — the plans no weighting can reach (R-4's fourth and sharpest argument) | `24-scalarization-and-the-unreachable-plans.md` |
+| 25 | response to the second round of measurements — **the game is NOT transitive**, and the VBS−SBS null may be a pooling artifact | `25-response-to-the-second-round-of-measurements.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
@@ -191,6 +192,13 @@ not of the architecture. So the honest pitch is not "hygiene": it is **the optio
 value of members that do not yet exist**, and the two levers we control are
 lowering experiment cost (every composition increment does this) and lowering
 visibility (R-2's DAG/tree question). See domain 22.
+
+**R-8. Never test for a residual in a bounded statistic; transform to the scale
+on which the null model is additive first.** Three investigations have now been
+cost by this in one session: raw win probability saturates against a dominant arm
+and manufactures a cycle where a transitive triple exists, which is why
+Balduzzi's whole decomposition is defined on **logit** matrices. `sharePar` is a
+bounded share, so the hazard is live beyond ratings. See domain 25.
 
 **R-6. Every soundness argument names a hypothesis, and that hypothesis must be
 an executable assertion — or the argument will outlive its truth.** Five recorded
