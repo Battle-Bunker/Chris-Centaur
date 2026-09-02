@@ -48,17 +48,36 @@ function entryOf(sub: EngineSubstrate, d: Divergence): LedgerEntry | null {
  * The contract-shaped ledger of one settlement. Deduplicated and canonically
  * ordered, because it becomes part of a bound's identity.
  */
+const EMPTY_LEDGER: ReadonlyArray<LedgerEntry> = [];
+
+/**
+ * ONE TRANSLATION PER SETTLEMENT.
+ *
+ * The translation reads the settlement's divergences and the family's wire-id
+ * index and nothing else — not the plan, not the team, not which units a view
+ * holds live (a modelled sibling shares `byWireId` with its parent). So it is
+ * a pure function of the settlement object, and the bank asks for it once per
+ * hold configuration it prices the same plan under. Cached in a `WeakMap` from
+ * the settlement, which is also what makes the `normalizeLedger` behind it a
+ * lookup rather than a dedup-and-sort on every branch.
+ */
+const translated = new WeakMap<PartialSettlement, ReadonlyArray<LedgerEntry>>();
+
 export function ledgerOf(
   sub: EngineSubstrate,
   settlement: PartialSettlement
 ): ReadonlyArray<LedgerEntry> {
-  if (settlement.ledger.length === 0) return [];
+  if (settlement.ledger.length === 0) return EMPTY_LEDGER;
+  const hit = translated.get(settlement);
+  if (hit !== undefined) return hit;
   const out: LedgerEntry[] = [];
   for (const d of settlement.ledger) {
     const entry = entryOf(sub, d);
     if (entry !== null) out.push(entry);
   }
-  return normalizeLedger(out);
+  const made = normalizeLedger(out);
+  translated.set(settlement, made);
+  return made;
 }
 
 /**

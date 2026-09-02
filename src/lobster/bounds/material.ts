@@ -30,6 +30,7 @@
  */
 
 import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
+import type { Claim } from '../../engine-vendor/engine/claims';
 import type { EngineSubstrate } from '../substrate';
 import type { Trit, UnitId } from '../contracts';
 
@@ -102,15 +103,52 @@ export function scopedTeamValue(
  * engine's own answers — the traversal it settled, and the cells the claim
  * says it could hold — never a rule restated here.
  */
+/**
+ * PER-SETTLEMENT CACHES. Both of the derivations below are pure functions of
+ * ONE settlement object — no substrate, no team, no plan — and both are asked
+ * for repeatedly about the same object: `unitValuesOf` and `standingOf` each
+ * want them once per evaluation, and the bank evaluates one plan under every
+ * hold configuration it enumerates. `WeakMap`s from the settlement, so they
+ * die with it and add no lifetime to anything.
+ */
+const reachedCache = new WeakMap<PartialSettlement, ReadonlySet<string>>();
+const claimIndexCache = new WeakMap<PartialSettlement, ReadonlyMap<string, Claim>>();
+
+/** The settlement's claims, indexed by wire id. Built once per settlement. */
+export function claimsById(settlement: PartialSettlement): ReadonlyMap<string, Claim> {
+  const hit = claimIndexCache.get(settlement);
+  if (hit !== undefined) return hit;
+  const made = new Map<string, Claim>();
+  for (const claim of settlement.claims) made.set(claim.id, claim);
+  claimIndexCache.set(settlement, made);
+  return made;
+}
+
 export function reachedByMovers(
   settlement: PartialSettlement
 ): ReadonlySet<string> {
+  const memo = reachedCache.get(settlement);
+  if (memo !== undefined) return memo;
+  const made = reachedByMoversUncached(settlement);
+  reachedCache.set(settlement, made);
+  return made;
+}
+
+function reachedByMoversUncached(
+  settlement: PartialSettlement
+): ReadonlySet<string> {
   const touched = new Set<number>();
-  for (const cells of Object.values(settlement.traversed)) {
+  for (const id in settlement.traversed) {
+    const cells = settlement.traversed[id] as ReadonlyArray<number>;
     for (const cell of cells) touched.add(cell);
   }
-  for (const [id, settled] of Object.entries(settlement.board)) {
-    if (settlement.claims.some((c) => c.id === id)) continue;
+  // The claim test is an INDEX lookup rather than a scan of the claim list per
+  // board entry — same predicate, same set, without the O(board x claims).
+  const claims = claimsById(settlement);
+  for (const id in settlement.board) {
+    if (claims.has(id)) continue;
+    const settled = settlement.board[id];
+    if (settled === undefined) continue;
     for (const cell of settled.occupancy) touched.add(cell);
   }
   const out = new Set<string>();
@@ -173,7 +211,7 @@ export function unitValuesOf(
   settlement: PartialSettlement
 ): UnitValue[] {
   const out: UnitValue[] = [];
-  const claimById = new Map(settlement.claims.map((c) => [c.id, c]));
+  const claimById = claimsById(settlement);
   const peril = sub.perilOf();
   const reached = reachedByMovers(settlement);
   for (const unit of sub.roster()) {
@@ -221,8 +259,11 @@ export function materialOf(
 } {
   const units = unitValuesOf(sub, settlement);
   const perTeam = new Map<number, { worst: number; best: number }>();
-  for (const team of new Set(units.map((u) => u.team))) {
-    perTeam.set(team, scopedTeamValue(units, team, subjectTeam));
+  // The distinct teams, in first-seen order — the same order `new Set(map(...))`
+  // produced, without the intermediate array and Set per settlement.
+  for (const u of units) {
+    if (perTeam.has(u.team)) continue;
+    perTeam.set(u.team, scopedTeamValue(units, u.team, subjectTeam));
   }
   const own = perTeam.get(subjectTeam) ?? { worst: 0, best: 0 };
   let othersWorst = 0;

@@ -138,6 +138,40 @@ export class BoundEvaluator implements Evaluator {
     return this.evaluatePlan(sub, plan, asTeam).bound;
   }
 
+  /**
+   * ONE EVALUATION PER RESOLVED WORLD — the memo BELOW the metered door.
+   *
+   * WHAT AN EVALUATION IS A FUNCTION OF. Everything `makeContext` and the
+   * fold read is (a) this evaluator — its profile, weights, features and
+   * horizon, all fixed at construction; (b) the RESOLUTION object; (c)
+   * `asTeam`; (d) the substrate FAMILY — grid, shape, roster, arrival turn,
+   * geometry caches, all shared by a substrate and every modelled sibling of
+   * it; and (e) exactly one view-dependent reading, `sub.perilOf()`. There is
+   * no `claimsOf`, no `entangled` and no `modeled` anywhere in the fold —
+   * audited, and the reason this cache can be keyed the way it is.
+   *
+   * WHY IT PAYS. `substrate.ts` now settles a plan once per FAMILY rather than
+   * once per view, so the same resolution OBJECT reaches the evaluator from
+   * every hold configuration the bank prices that plan under, and from the
+   * runner's trace pricing as well. The bank's own evaluation memo
+   * (`bounds/evalmemo.ts`) cannot collapse those: it namespaces on the view,
+   * because the view is what it can see. This one is keyed on what the
+   * evaluation actually depends on — the resolution, the peril set's identity
+   * and the frame — so a repeat is a lookup. Measured on `mixed 20 1 --nodes`:
+   * 72 068 evaluations over 45 942 distinct resolutions.
+   *
+   * IT DOES NOT MOVE THE CLOCK. The deterministic runner counts nodes at the
+   * METERED WRAPPER, which is above this call and still runs once per call, so
+   * the node budget spends exactly as it did — the work under it is what got
+   * cheaper. `WeakMap`s keyed on the resolution and on the peril set, so an
+   * entry dies with the settlement it describes and nothing outlives a
+   * decision.
+   */
+  private readonly evaluations = new WeakMap<
+    object,
+    { peril: object; byTeam: Map<number, PlanEvaluation> }
+  >();
+
   evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation {
     if (!(sub instanceof EngineSubstrate)) {
       throw new TypeError(
@@ -146,6 +180,14 @@ export class BoundEvaluator implements Evaluator {
       );
     }
     return sub.withResolution(plan, asTeam, ({ resolution, bounds }) => {
+      const peril = sub.perilOf() as object;
+      let slot = this.evaluations.get(resolution as object);
+      if (slot === undefined || slot.peril !== peril) {
+        slot = { peril, byTeam: new Map<number, PlanEvaluation>() };
+        this.evaluations.set(resolution as object, slot);
+      }
+      const hit = slot.byTeam.get(asTeam);
+      if (hit !== undefined) return hit;
       const ctx = makeContext(
         sub,
         resolution,
@@ -157,7 +199,9 @@ export class BoundEvaluator implements Evaluator {
         this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
-      return finish(ctx, evaluation);
+      const made = finish(ctx, evaluation);
+      slot.byTeam.set(asTeam, made);
+      return made;
     });
   }
 

@@ -44,6 +44,7 @@ import { bbForEach, bbSet, bbTest, newBoard } from '../bits';
 import type { Bitboard, Grid } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
+import { claimsById } from '../bounds/material';
 
 export { NEVER };
 
@@ -78,16 +79,37 @@ export interface ShellRequest {
   readonly fromTurn: number;
 }
 
+/** How many distinct kinds one decision's shell keys may pack. */
+const TYPE_KEY_SPAN = 64;
+
 /** A dilation state: where the head is, and which way it faces. */
 interface State {
   readonly cell: number;
   readonly ori: number;
 }
 
+/**
+ * The facing, as an index into `ORTHOGONALS` — by table rather than by scan.
+ *
+ * `ORTHOGONALS` entries already carry their components as -1/0/1, so the whole
+ * predicate is a function of `(sign dx, sign dy)`, which has nine values. The
+ * table is built once, first-match-wins so it answers exactly what
+ * `findIndex` did, and the lookup replaces a closure allocation plus up to
+ * four comparisons with two `Math.sign` calls and an index — on a function
+ * called once per unit per shell request, i.e. once per unit per evaluation.
+ */
+const ORI_BY_SIGN = ((): Int8Array => {
+  const table = new Int8Array(9).fill(-1);
+  ORTHOGONALS.forEach((o, i) => {
+    const slot = (Math.sign(o.dx) + 1) * 3 + (Math.sign(o.dy) + 1);
+    if (table[slot] === -1) table[slot] = i;
+  });
+  return table;
+})();
+
 const oriIndex = (orientation: Orientation): number => {
-  const i = ORTHOGONALS.findIndex(
-    (o) => o.dx === Math.sign(orientation.dx) && o.dy === Math.sign(orientation.dy)
-  );
+  const slot = (Math.sign(orientation.dx) + 1) * 3 + (Math.sign(orientation.dy) + 1);
+  const i = slot >= 0 && slot < 9 ? (ORI_BY_SIGN[slot] as number) : -1;
   return i === -1 ? 0 : i;
 };
 
@@ -209,9 +231,26 @@ class Shells implements UnitShells {
 export class ShellTable {
   private readonly sub: EngineSubstrate;
   private readonly grid: Grid;
-  private readonly map = new Map<string, Shells>();
+  private readonly map = new Map<number, Shells>();
   /** The engine's step relation, memoised per (type, cell, facing, phase). */
   private readonly steps = new Map<string, ReadonlyArray<State>>();
+  /**
+   * A FLAT INDEX IN FRONT OF THE TWO STRING-KEYED CACHES.
+   *
+   * `stepBoard` and `stepsFrom` are called once per set bit per horizon turn
+   * per unit per evaluation — the innermost loop the reach shells have — and
+   * both were paying, on EVERY call, for a template string, a `Map` hash of
+   * it, and (for `stepBoard`) a `stepCache()` hop across the resolution memo's
+   * proxy. Measured together at 4.0% of self time on `mixed 20 1 --nodes`.
+   *
+   * These are per-table arrays indexed by cell (and by facing), holding the
+   * SAME objects the shared caches hold; the shared caches are still filled
+   * exactly as before, so the geometry stays shared across decisions and its
+   * statistics are unchanged. A table lives one decision and the board shape
+   * cannot change inside one, so a local entry can never be stale.
+   */
+  private readonly localStepBoards = new Map<UnitType, Array<Bitboard | undefined>>();
+  private readonly localSteps = new Map<UnitType, Array<ReadonlyArray<State> | undefined>>();
   private readonly oriented = new Map<UnitType, boolean>();
   private permissive: BoardShape | null = null;
   private readonly capacity: number;
@@ -251,16 +290,30 @@ export class ShellTable {
     // the board's shape alone — so those entries are shared with every other
     // decision of the game. Only the FIRST unknown turn reads this board's
     // contents, and only those entries are decision-scoped.
+    // The local index is keyed on the same triple, laid flat: `start` picks
+    // one of two lanes per (cell, facing) slot, so no two phases collide.
+    let local = this.localSteps.get(type);
+    if (local === undefined) {
+      local = [];
+      this.localSteps.set(type, local);
+    }
+    const slot = (state.cell * 4 + state.ori) * 2 + (start ? 0 : 1);
+    const known = local[slot];
+    if (known !== undefined) return known;
     const cache = start ? this.steps : this.sub.orientedStepCache();
     const key = `${type}|${state.cell}|${state.ori}`;
     const hit = cache.get(key);
-    if (hit !== undefined) return hit as ReadonlyArray<State>;
+    if (hit !== undefined) {
+      local[slot] = hit as ReadonlyArray<State>;
+      return hit as ReadonlyArray<State>;
+    }
     const made = this.orientedStepsOf(
       type,
       state,
       start ? this.sub.shape() : this.permissiveShape()
     );
     cache.set(key, made);
+    local[slot] = made;
     return made;
   }
 
@@ -279,10 +332,20 @@ export class ShellTable {
    * of word ORs and costing a grammar query per cell per plan.
    */
   stepBoard(type: UnitType, cell: number): Bitboard {
+    let local = this.localStepBoards.get(type);
+    if (local === undefined) {
+      local = [];
+      this.localStepBoards.set(type, local);
+    }
+    const known = local[cell];
+    if (known !== undefined) return known;
     const key = `${type}|${cell}`;
     const shared = this.sub.stepCache();
     const hit = shared.get(key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      local[cell] = hit;
+      return hit;
+    }
     const unit: GrammarUnit = {
       type,
       occupancy: [cell],
@@ -291,6 +354,7 @@ export class ShellTable {
     const board = newBoard(this.grid);
     for (const to of legalTargets(unit, this.sub.shape())) bbSet(board, to);
     shared.set(key, board);
+    local[cell] = board;
     return board;
   }
 
@@ -351,11 +415,27 @@ export class ShellTable {
     return sensitive;
   }
 
+  /** Kind → a small dense index, so the intern key below can be a number. */
+  private readonly typeIndex = new Map<UnitType, number>();
+
   /** Shells for one record, interned by value and extended on demand. */
   forUnit(request: ShellRequest, horizonTurn: number): UnitShells {
-    const key = `${request.unitId}|${request.type}|${request.occupancy[0]}|${oriIndex(
-      request.orientation
-    )}|${request.fromTurn}`;
+    // A NUMBER, NOT A TEMPLATE STRING. The tuple is (unit, kind, head cell,
+    // facing, observation turn) either way — the kind is interned to a dense
+    // index so the five fields pack into one integer — and the map keeps its
+    // insertion order, so the oldest-first eviction is byte-for-byte the
+    // policy it was. This runs once per unit per evaluation and was building
+    // and hashing a five-part string every time.
+    let kind = this.typeIndex.get(request.type);
+    if (kind === undefined) {
+      kind = this.typeIndex.size;
+      this.typeIndex.set(request.type, kind);
+    }
+    const key =
+      ((request.fromTurn * TYPE_KEY_SPAN + kind) * this.grid.cells +
+        (request.occupancy[0] as number)) *
+        4 +
+      oriIndex(request.orientation);
     let entry = this.map.get(key);
     if (entry === undefined) {
       this.misses++;
@@ -397,7 +477,9 @@ export function buildShells(
   into.clear();
   if (horizonTurns <= 0) return into;
   const horizon = sub.arrivalTurn + horizonTurns;
-  const held = new Set(settlement.claims.map((c) => c.id));
+  // The claim index this settlement already carries, rather than a fresh Set
+  // of its ids per evaluation — same membership, one object less per call.
+  const held = claimsById(settlement);
   for (const unit of sub.roster()) {
     const record = sub.recordOf(unit.unitId);
     if (record === undefined) continue;

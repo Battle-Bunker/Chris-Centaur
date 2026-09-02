@@ -16,20 +16,92 @@
 import type { Candidate, CellIndex, JointPlan, SubStep, UnitId } from "../contracts";
 
 /**
+ * THE TWO KEY CACHES — pure memoisation, no key or ordering change.
+ *
+ * `planKey` is the hottest string in the system: a priced branch asks for it
+ * once itself, the resolution memo asks for it again on the bank's door and a
+ * third time on the evaluator's, and the substrate's settlement cache asks a
+ * fourth. Measured on `mixed 20 1 --nodes`: 376 484 calls, 2.1% of total self
+ * time, all of it rebuilding strings that are a function of nothing but the
+ * plan object handed in.
+ *
+ * Both caches are `WeakMap`s keyed on the object, so they add no lifetime to
+ * anything and hold nothing past a decision. Both are sound because a
+ * `Candidate` is an immutable value object and a `JointPlan` is a
+ * `ReadonlyMap` that every construction site here (and in the search, the
+ * bank and the telemetry) fills COMPLETELY before anyone keys it — `withMove`
+ * and `withMoves` copy rather than mutate, which is the invariant that makes
+ * a plan's key a property of the object.
+ */
+const keyScratch: string[] = [];
+const candidateTails = new WeakMap<Candidate, string>();
+const candidateKeys = new WeakMap<Candidate, string>();
+const planKeys = new WeakMap<object, string>();
+
+/** The sortedness watch `pushPart` keeps for the call it is inside. */
+let keyOrdered = true;
+let keyPrevious = "";
+
+/**
+ * One plan entry's part, appended to the scratch. A plan keys a candidate
+ * under its OWN unit id in every construction in this repo, and the part is
+ * then the candidate's own key — cached on the candidate, which a decision
+ * reuses across hundreds of plans. The general case is still built, so the
+ * string is what it always was either way.
+ */
+const pushPart = (candidate: Candidate, unitId: UnitId): void => {
+  const part =
+    unitId === candidate.unitId ? candidateKey(candidate) : `${unitId}>${tailOf(candidate)}`;
+  if (part < keyPrevious) keyOrdered = false;
+  keyPrevious = part;
+  keyScratch.push(part);
+};
+
+/** `to#path` — the half of a candidate key that does not name the unit. */
+function tailOf(c: Candidate): string {
+  const hit = candidateTails.get(c);
+  if (hit !== undefined) return hit;
+  const made = `${c.to}#${c.path.join(".")}`;
+  candidateTails.set(c, made);
+  return made;
+}
+
+/**
  * A canonical, order-free key for a plan. Path-sensitive (see PATH IDENTITY);
  * cheap enough to be a memo key on the hot path.
  */
 export function planKey(plan: JointPlan): string {
-  const parts: string[] = [];
-  for (const [unitId, candidate] of plan) {
-    parts.push(`${unitId}>${candidate.to}#${candidate.path.join(".")}`);
-  }
-  parts.sort();
-  return parts.join("|");
+  const hit = planKeys.get(plan as object);
+  if (hit !== undefined) return hit;
+  // ONE scratch array for the whole process: `planKey` neither recurses nor
+  // yields, and the array's contents are consumed before it returns.
+  const parts = keyScratch;
+  parts.length = 0;
+  // The sort is what makes the key order-free, and a plan derived from another
+  // by `withMove` almost always arrives already in it — a `Map` keeps a
+  // re-`set` key in place. Checking costs one comparison per part and skips a
+  // sort that would produce the same array; the ORDER is unchanged either way.
+  // `forEach` RATHER THAN `for…of`: destructuring a `Map` entry allocates the
+  // [key, value] pair on every step, and this loop runs seven times on each of
+  // the 153 000 plans a 20-turn `mixed` decision sweep sees — a million arrays
+  // of pure garbage on the hottest path in the system. The callback is a
+  // module constant (`planKey` neither recurses nor yields, so the scratch it
+  // writes cannot be re-entered), so it costs no allocation of its own.
+  keyOrdered = true;
+  keyPrevious = "";
+  plan.forEach(pushPart);
+  if (!keyOrdered) parts.sort();
+  const made = parts.join("|");
+  planKeys.set(plan as object, made);
+  return made;
 }
 
 export function candidateKey(c: Candidate): string {
-  return `${c.unitId}>${c.to}#${c.path.join(".")}`;
+  const hit = candidateKeys.get(c);
+  if (hit !== undefined) return hit;
+  const made = `${c.unitId}>${tailOf(c)}`;
+  candidateKeys.set(c, made);
+  return made;
 }
 
 export function sameCandidate(a: Candidate, b: Candidate): boolean {

@@ -244,6 +244,38 @@ export class TerritoryWorkspace {
   /** The shells map handed to one evaluation. Reused: one evaluation runs at a
    * time, and a fresh Map per plan is pure garbage at ten thousand a second. */
   readonly shellsOut = new Map<UnitId, UnitShells>();
+
+  // --- the partition's own scratch ----------------------------------------
+  /** Pooled entries, handed out in order and reset per partition. */
+  private readonly entryPool: Array<Entry<TerritorySubject>> = [];
+  private entriesTaken = 0;
+  /** The two buckets one partition sorts its admitted subjects into. */
+  readonly trailScratch: Array<Entry<TerritorySubject>> = [];
+  readonly pieceScratch: Array<Entry<TerritorySubject>> = [];
+  /** `earliest()` grids, one array per plane, for the piece sweep. */
+  readonly trailGrids: Int32Array[] = [];
+  readonly pieceGrids: Int32Array[] = [];
+
+  /** Start a partition: every entry handed out before now is free again. */
+  resetEntries(): void {
+    this.entriesTaken = 0;
+    this.trailScratch.length = 0;
+    this.pieceScratch.length = 0;
+  }
+
+  takeEntry<S extends TerritorySubject>(s: S, sh: UnitShells, mine: boolean): Entry<S> {
+    let e = this.entryPool[this.entriesTaken];
+    if (e === undefined) {
+      e = { s, sh, mine, scalars: [] };
+      this.entryPool.push(e);
+    } else {
+      e.s = s;
+      e.sh = sh;
+      e.mine = mine;
+    }
+    this.entriesTaken++;
+    return e as Entry<S>;
+  }
 }
 
 const workspaces = new WeakMap<EngineSubstrate, TerritoryWorkspace>();
@@ -255,15 +287,24 @@ const workspaces = new WeakMap<EngineSubstrate, TerritoryWorkspace>();
  * destinations), not to a constant somebody else picked.
  */
 export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
-  let ws = workspaces.get(sub);
+  // Per FAMILY, not per view. Every slab in here is a function of the board's
+  // geometry and the roster, and the shell table caches a dilation that reads
+  // the board's SHAPE — none of it depends on which units a view models. A
+  // per-view copy meant a fresh set of slabs and a cold shell cache for every
+  // hold configuration the bank enumerated and for every bank the runner's
+  // trace pricing opened; sharing them keeps one of each per decision. Safe
+  // for exactly the reason the reuse across evaluations is: one evaluation
+  // runs at a time, which is what the scratch fields already assume.
+  const family = sub.family;
+  let ws = workspaces.get(family);
   if (ws === undefined) {
-    const roster = sub.roster().length;
+    const roster = family.roster().length;
     ws = new TerritoryWorkspace(
-      sub.grid,
-      sub.terrain,
-      new ShellTable(sub, Math.max(256, roster * 64))
+      family.grid,
+      family.terrain,
+      new ShellTable(family, Math.max(256, roster * 64))
     );
-    workspaces.set(sub, ws);
+    workspaces.set(family, ws);
   }
   return ws;
 }
@@ -278,18 +319,30 @@ interface Strength {
   readonly weight: number;
 }
 
+/** A `Strength` a pooled entry may rewrite. Nothing outside this file sees it. */
+interface MutableStrength {
+  tier: number;
+  weight: number;
+}
+
 interface Entry<S> {
-  readonly s: S;
-  readonly sh: UnitShells;
-  readonly mine: boolean;
+  s: S;
+  sh: UnitShells;
+  mine: boolean;
   /**
    * This unit's contest strength at each absolute turn of the sweep, indexed
    * `turn - tMin`. Built once per partition, because the alternative is
    * constructing a strength pair per challenger PER CELL — 169 cells times thirteen
    * pieces of pure garbage per reading, which measured as most of the piece
    * plane's cost. The comparator stays the resolver's own.
+   *
+   * The pairs are POOLED on the workspace and rewritten in place: an entry and
+   * its strengths are read only inside the `partitionOf` call that filled them
+   * — the `Partition` this returns carries `TrailRoom`s and boards, never an
+   * entry — so the eight entries and their forty-odd pairs per reading were,
+   * at 190 750 evaluations, some twenty million objects of pure garbage.
    */
-  scalars: Strength[];
+  readonly scalars: MutableStrength[];
 }
 
 /**
@@ -310,8 +363,9 @@ export function partitionOf<S extends TerritorySubject>(
 ): Partition<S> {
   const grid = ws.grid;
   const w = grid.words;
-  const trails: Array<Entry<S>> = [];
-  const pieces: Array<Entry<S>> = [];
+  ws.resetEntries();
+  const trails = ws.trailScratch as unknown as Array<Entry<S>>;
+  const pieces = ws.pieceScratch as unknown as Array<Entry<S>>;
 
   let tMin = Number.POSITIVE_INFINITY;
   let tMax = Number.NEGATIVE_INFINITY;
@@ -322,7 +376,7 @@ export function partitionOf<S extends TerritorySubject>(
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
     if (sh.fromTurn < tMin) tMin = sh.fromTurn;
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
-    (leavesTrail(s.kind) ? trails : pieces).push({ s, sh, mine, scalars: [] });
+    (leavesTrail(s.kind) ? trails : pieces).push(ws.takeEntry(s, sh, mine));
   }
   if (trails.length === 0 && pieces.length === 0) {
     return emptyPartition<S>(ws.open, domain, ws.notWall);
@@ -485,11 +539,22 @@ export function partitionOf<S extends TerritorySubject>(
   };
 }
 
-/** One strength pair per absolute turn of the sweep, so the cell loop allocates none. */
+/** One strength pair per absolute turn of the sweep, so the cell loop allocates none.
+ *  The pairs are grown once and then REWRITTEN: only `[0, tMax - tMin]` is ever
+ *  read (`displace` indexes `D - tMin`), so a longer pooled array is simply
+ *  slack, never a stale answer. */
 function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax: number): void {
   const out = e.scalars;
-  out.length = 0;
-  for (let t = tMin; t <= tMax; t++) out.push({ tier: tierAtTurn(e.s, t), weight: e.s.weightMax });
+  const weight = e.s.weightMax;
+  for (let t = tMin, i = 0; t <= tMax; t++, i++) {
+    let pair = out[i];
+    if (pair === undefined) {
+      pair = { tier: 0, weight: 0 };
+      out.push(pair);
+    }
+    pair.tier = tierAtTurn(e.s, t);
+    pair.weight = weight;
+  }
 }
 
 /**
@@ -507,15 +572,34 @@ function displace<S extends TerritorySubject>(
   tMin: number
 ): { ours: number; theirs: number } {
   const grid = ws.grid;
-  const cells = grid.cells;
-  const trailGrids = trails.map((e) => e.sh.earliest());
-  const pieceGrids = pieces.map((e) => e.sh.earliest());
+  const trailGrids = ws.trailGrids;
+  const pieceGrids = ws.pieceGrids;
+  for (let k = 0; k < trails.length; k++) trailGrids[k] = (trails[k] as Entry<S>).sh.earliest();
+  for (let k = 0; k < pieces.length; k++) pieceGrids[k] = (pieces[k] as Entry<S>).sh.earliest();
   const decisive = ws.decisive;
   let ours = 0;
   let theirs = 0;
 
-  for (let c = 0; c < cells; c++) {
-    if (!bbTest(ws.notWall, c)) continue;
+  // THE CELLS THIS SWEEP CAN DECIDE, AS A BOARD RATHER THAN A SCAN.
+  //
+  // The two guards the per-cell loop opened with — "on open ground" and "some
+  // trail unit's front arrived here" — are exactly `notWall & coveredPrev`:
+  // `decisive` is filled with NEVER and written only for cells in `newT`, and
+  // the union of `newT` over the sweep IS `coveredPrev`. So walking the set
+  // bits of that intersection visits the same cells, in the same ascending
+  // order, and skips the rest without touching them. On a 23x23 board that is
+  // 529 cell probes per reading per evaluation replaced by a word walk over
+  // the ground actually contested.
+  const notWall = ws.notWall;
+  const coveredPrev = ws.coveredPrev;
+  const words = grid.words;
+  for (let i = 0; i < words; i++) {
+    let word = (((coveredPrev[i] as number) & (notWall[i] as number)) >>> 0);
+    const base = i << 5;
+    while (word !== 0) {
+    const lowest = word & -word;
+    const c = base + (31 - Math.clz32(lowest));
+    word = (word & (word - 1)) >>> 0;
     const D = decisive[c] as number;
     // Ground no trail unit walks belongs to nobody — see the header.
     if (D === NEVER) continue;
@@ -567,6 +651,7 @@ function displace<S extends TerritorySubject>(
     // WHO holds ground, never vacate ground a trail unit holds.
     if (bbTest(ws.oursBoard, c)) ours++;
     else if (bbTest(ws.theirsBoard, c)) theirs++;
+    }
   }
   return { ours, theirs };
 }

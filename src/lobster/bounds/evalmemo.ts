@@ -117,6 +117,20 @@ export function evalNamespace(
  */
 export class EvaluationMemo {
   private readonly entries = new Map<string, Bound>();
+  /**
+   * NAMESPACE → SHORT TOKEN, for this decision only.
+   *
+   * `evalNamespace` is a long string — the evaluator's structural identity
+   * carries the whole criterion profile — and it was prepended to EVERY
+   * per-branch key, so each of the 152 208 lookups a 20-turn `mixed` run makes
+   * built and hashed a few hundred characters of a constant. The token is a
+   * BIJECTION on the namespace, so the key set, the hit/miss sequence and the
+   * oldest-first eviction order are all exactly what they were — the clock the
+   * deterministic runner counts is a function of that sequence, so nothing
+   * less than a bijection would do. Per instance, cleared with the memo:
+   * a module-scope table on a per-decision quantity is the latch bug class.
+   */
+  private readonly namespaces = new Map<string, string>();
   private hits = 0;
   private misses = 0;
 
@@ -129,6 +143,15 @@ export class EvaluationMemo {
       entries: this.entries.size,
       capacity: this.capacity,
     };
+  }
+
+  /** This decision's short stand-in for one `evalNamespace` string. */
+  namespaceToken(namespace: string): string {
+    const hit = this.namespaces.get(namespace);
+    if (hit !== undefined) return hit;
+    const token = `n${this.namespaces.size}`;
+    this.namespaces.set(namespace, token);
+    return token;
   }
 
   /**
@@ -159,6 +182,7 @@ export class EvaluationMemo {
   /** Per-decision lifetime: the bank calls this when it closes. */
   clear(): void {
     this.entries.clear();
+    this.namespaces.clear();
     this.hits = 0;
     this.misses = 0;
   }

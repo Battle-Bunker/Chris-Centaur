@@ -359,11 +359,18 @@ export class BoundBank {
    * than of an engine field (the substrate's base state keeps every unit live
    * and holds per-resolve, so its field carries no slots to read).
    */
+  private uncontrolledCache: ReadonlyArray<UnitId> | null = null;
+
   private uncontrolled(): ReadonlyArray<UnitId> {
+    // Constant for the life of a bank — the roster, the frame and the
+    // reference actions are all fixed at construction — and `price` asks for
+    // it on every call. Computed once.
+    if (this.uncontrolledCache !== null) return this.uncontrolledCache;
     const ours = new Set(this.memo.commandable(this.input.asTeam));
-    return this.memo
+    this.uncontrolledCache = this.memo
       .unitIds()
       .filter((id) => !ours.has(id) && !this.referenceActions.has(id));
+    return this.uncontrolledCache;
   }
 
   // ------------------------------------------------------------------ views
@@ -514,7 +521,9 @@ export class BoundBank {
     // the same one: which evaluator (and therefore which criterion profile,
     // weights and reach horizon), which BASIS, and which frame the value is
     // denominated in. Recomputed rather than captured — see evalmemo.ts.
-    const evalNs = evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam);
+    const evalNs = this.evalMemo.namespaceToken(
+      evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam),
+    );
     const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }> = [];
     const ceilingBranches: Branch[] = [];
     const members: MemberReport[] = [];

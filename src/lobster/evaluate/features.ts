@@ -51,7 +51,7 @@ import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial
 import { boardOf } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
-import { claimSurvival, moverSurvival, reachedByMovers } from '../bounds/material';
+import { claimSurvival, claimsById, moverSurvival, reachedByMovers } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
@@ -175,7 +175,7 @@ export function standingOf(
   asTeam: number
 ): Standing[] {
   const out: Standing[] = [];
-  const claimById = new Map(settlement.claims.map((c) => [c.id, c]));
+  const claimById = claimsById(settlement);
   // ONE READING OF SURVIVAL, shared with the material fold: the peril this
   // plan cannot change, united with the peril it just made. See
   // `bounds/material.ts` — a fold that disagreed with the bank about who is
@@ -293,10 +293,16 @@ export function makeContext(
   profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
-  const teams = new Set(sub.roster().map((u) => u.team));
   const ws = workspaceFor(sub);
-  const roomScale = trailScaleOf(sub);
-  const pieceScale = pieceScaleOf(sub);
+  // THE ROSTER CONSTANTS, ONCE PER SUBSTRATE. All three are folds over
+  // `sub.roster()`, which is fixed for the life of a substrate — and this
+  // function runs once per EVALUATION, tens of thousands of times a decision.
+  // Cached on the substrate object, so a modelled sibling recomputes its own
+  // (there are a handful of them) and nothing is shared across decisions.
+  const constants = rosterConstantsOf(sub);
+  const teams = constants.teams;
+  const roomScale = constants.roomScale;
+  const pieceScale = constants.pieceScale;
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
   let foodCache: Bitboard | null = null;
@@ -317,7 +323,7 @@ export function makeContext(
     // on `undefined`; reading it off the optional bag with the same fallback is
     // the identical behaviour for a caller that passes no profile and for a
     // profile that does not set the field.
-    royalReachers: profile?.royalReachers ?? royalMargin(),
+    royalReachers: profile?.royalReachers ?? constants.royalReachers,
     pieceScale,
     command: profile?.command ?? null,
     energyReserveRatio: profile?.energyReserveRatio ?? null,
@@ -330,6 +336,29 @@ export function makeContext(
     partition(reading) {
       const hit = parts[reading];
       if (hit !== null) return hit;
+      // ONE SWEEP WHEN THE TWO READINGS ADMIT THE SAME SUBJECTS.
+      //
+      // `partitionOf` is a pure function of (workspace, standing, shells,
+      // asTeam, admission) — the domain board is an OUT parameter, not an
+      // input — so two readings whose admission predicates agree on every
+      // subject compute the same sweep twice. They agree exactly when nothing
+      // is contingent and nothing is held, which is what a FULLY MODELLED
+      // board is: 30.6% of the evaluations on `mixed 20 1 --nodes`, each
+      // paying twice for one answer.
+      //
+      // The other reading is then this partition with its OWN domain board —
+      // the two boards stay separate, as `Partition.domain` requires, and the
+      // contents are the same because the sweep is. Every other field is a
+      // number or a read-only array nothing here mutates, so it is shared.
+      const other = reading === 'lo' ? 'hi' : 'lo';
+      const twin = parts[other];
+      if (twin !== null && sameAdmission(standing, asTeam)) {
+        const board = ws.domainFor(reading);
+        board.set(twin.domain);
+        const shared: Partition<Standing> = { ...twin, domain: board };
+        parts[reading] = shared;
+        return shared;
+      }
       const made = partitionOf(
         ws,
         standing,
@@ -404,6 +433,39 @@ export function makeContext(
  * feature carries proportionally less of the ordering everywhere. It is gated
  * on its own measured arm, not folded into anything else.
  */
+interface RosterConstants {
+  readonly teams: Set<number>;
+  readonly roomScale: number;
+  readonly pieceScale: number;
+  /**
+   * `CENTAUR_ROYAL_MARGIN`, read ONCE PER SUBSTRATE — which is once per
+   * decision, the cadence `stagingSafety()` next to it already documents
+   * ("read once per decision, never in a hot loop"). It was being read from
+   * `process.env` on every evaluation, and a `process.env` lookup is a trip
+   * through the real environment: 1.4% of total self time on `mixed 40 1
+   * --nodes`. Still read LIVE rather than at import — a case that flips the
+   * variable builds its own substrate, which is what the test that pins this
+   * behaviour does.
+   */
+  readonly royalReachers: boolean;
+}
+
+const rosterConstants = new WeakMap<EngineSubstrate, RosterConstants>();
+
+/** `teams`, `trailScaleOf` and `pieceScaleOf` — one roster walk, memoised. */
+function rosterConstantsOf(sub: EngineSubstrate): RosterConstants {
+  const hit = rosterConstants.get(sub);
+  if (hit !== undefined) return hit;
+  const made: RosterConstants = {
+    teams: new Set(sub.roster().map((u) => u.team)),
+    roomScale: trailScaleOf(sub),
+    pieceScale: pieceScaleOf(sub),
+    royalReachers: royalMargin(),
+  };
+  rosterConstants.set(sub, made);
+  return made;
+}
+
 export function trailScaleOf(sub: EngineSubstrate): number {
   let total = 0;
   for (const u of sub.roster()) {
@@ -430,6 +492,22 @@ export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
   lo: { ours: (s) => s.worstAlive && !s.held, theirs: (s) => s.worstAlive },
   hi: { ours: (s) => s.bestAlive, theirs: (s) => s.bestAlive && !s.held },
 };
+
+/**
+ * Whether the two readings admit exactly the same subjects — the predicates
+ * above, evaluated side by side rather than restated. A subject on which they
+ * disagree is one the settlement left contingent (or a held stand-in), and one
+ * such subject is enough to make the two sweeps different questions.
+ */
+function sameAdmission(standing: ReadonlyArray<Standing>, asTeam: number): boolean {
+  const lo = ADMISSION.lo;
+  const hi = ADMISSION.hi;
+  for (const s of standing) {
+    const mine = s.team === asTeam;
+    if ((mine ? lo.ours(s) : lo.theirs(s)) !== (mine ? hi.ours(s) : hi.theirs(s))) return false;
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // F1 — material (the cliff lives inside it)

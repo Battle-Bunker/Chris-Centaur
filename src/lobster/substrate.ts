@@ -58,6 +58,7 @@ import type { PartialSettlement } from '../engine-vendor/engine/settlePartial';
 import { makeGrid, makeTerrain, bbTest } from './bits';
 import type { Grid, Terrain } from './bits';
 import { materialOf } from './bounds/material';
+import { planKey } from './bounds/plan';
 import { ledgerOf } from './bounds/ledger';
 import { assessPath } from './pathrisk';
 import { NO_ORDER_MOVE } from './contracts';
@@ -314,10 +315,50 @@ export class EngineSubstrate implements Substrate {
   private readonly modeledIds: ReadonlySet<UnitId>;
   private readonly geometry: Geometry;
 
+  /**
+   * THE FAMILY THIS SUBSTRATE BELONGS TO — itself, for a real substrate, and
+   * the parent for every modelled sibling (`withModelled` builds siblings with
+   * `Object.create`, so this own property resolves up the chain unchanged).
+   *
+   * It is the key for anything that is a function of the POSITION rather than
+   * of which units a view holds live: the territory workspace and its shell
+   * table are the first such things, and a per-sibling copy of them was both
+   * a fresh set of slabs per view and a cold shell cache per view.
+   */
+  readonly family: EngineSubstrate;
+
   private shapeCache: BoardShape | null = null;
   private readonly claimCache = new Map<string, ReadonlyArray<Claim>>();
+  /** Settlements this family has already run, by `planKey` — see settleFor. */
+  private readonly settleCache = new Map<string, SettleEntry>();
   private readonly heldCache = new Map<string, HeldUnit[]>();
+  /**
+   * THE STAGED RECORD FOR ONE (unit, destination), INTERNED.
+   *
+   * `entryFor` spread a fresh `ResolveUnit` per unit per settlement — eight
+   * objects on every one of the tens of thousands of plans a decision prices,
+   * and every one of them a copy of a record that never changes with a
+   * destination drawn from a set the grammar already bounds at a few dozen.
+   * `resolveTurn`'s own contract is that it mutates nothing it is given
+   * ("mutating nothing it was given", and `occupancy` is "Never mutated"), so
+   * the same object can be handed to every settlement that stages that unit
+   * there. Per family, dropped by `release()`.
+   */
+  private readonly stagedRecords = new Map<UnitId, Map<CellIndex, ResolveUnit>>();
   private templateCache: Omit<PartialSettleInput, 'units' | 'held'> | null = null;
+  /**
+   * ONE SETTLEMENT INPUT OBJECT, REWRITTEN PER CALL. The template is fifteen
+   * fields wide and was re-spread on every settlement; nothing downstream
+   * keeps the object — `settlePartial` copies it (`{ ...input, units: live }`)
+   * before handing it to `settleTurn` and reads the rest during the call — so
+   * one scratch record serves them all. It is used only by the settlement
+   * doors, never by the claims door, so no call can be inside another.
+   */
+  private settleScratch: PartialSettleInput | null = null;
+  /** The roster and the held-id list one settlement is staged into — see
+   *  `entryFor`. Reused per call; nothing downstream retains either. */
+  private readonly unitScratch: ResolveUnit[] = [];
+  private readonly heldScratch: UnitId[] = [];
   private perilCache: ReadonlySet<string> | null = null;
   private readonly pickupTiers = new Map<UnitId, ReadonlyMap<UnitId, number>>();
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
@@ -329,6 +370,7 @@ export class EngineSubstrate implements Substrate {
 
   constructor(options: SubstrateOptions) {
     const { turn } = options;
+    this.family = this;
     this.turn = turn;
     const marshalled =
       options.marshalled ??
@@ -748,8 +790,8 @@ export class EngineSubstrate implements Substrate {
 
   /** The held roster for a set, interned: a decision holds the same set of
    *  units for every plan it prices. */
-  private heldUnitsFor(held: ReadonlyArray<UnitId>): HeldUnit[] {
-    const key = keyOf(held);
+  private heldUnitsFor(held: ReadonlyArray<UnitId>, heldKey?: string): HeldUnit[] {
+    const key = heldKey ?? keyOf(held);
     const hit = this.heldCache.get(key);
     if (hit !== undefined) return hit;
     const out: HeldUnit[] = [];
@@ -770,9 +812,9 @@ export class EngineSubstrate implements Substrate {
     return out;
   }
 
-  private claimsFor(held: ReadonlyArray<UnitId>): ReadonlyArray<Claim> {
+  private claimsFor(held: ReadonlyArray<UnitId>, heldKey?: string): ReadonlyArray<Claim> {
     if (held.length === 0) return [];
-    const key = keyOf(held);
+    const key = heldKey ?? keyOf(held);
     const hit = this.claimCache.get(key);
     if (hit !== undefined) return hit;
     const input = this.settleInputFor(this.marshalled.units, this.heldUnitsFor(held));
@@ -812,6 +854,35 @@ export class EngineSubstrate implements Substrate {
     return { ...this.inputTemplate(), units: units as ResolveUnit[], held };
   }
 
+  /** The scratch settlement input, re-pointed at this call's roster and hold. */
+  private settleScratchFor(units: ReadonlyArray<ResolveUnit>, held: HeldUnit[]): PartialSettleInput {
+    let scratch = this.settleScratch;
+    if (scratch === null) {
+      scratch = this.settleInputFor(units, held);
+      this.settleScratch = scratch;
+      return scratch;
+    }
+    const writable = scratch as unknown as { units: ResolveUnit[]; held: ReadonlyArray<HeldUnit> };
+    writable.units = units as ResolveUnit[];
+    writable.held = held;
+    return scratch;
+  }
+
+  /** This unit's record with `to` staged — interned, see `stagedRecords`. */
+  private stagedRecordFor(unitId: UnitId, record: ResolveUnit, to: CellIndex): ResolveUnit {
+    let byTo = this.stagedRecords.get(unitId);
+    if (byTo === undefined) {
+      byTo = new Map<CellIndex, ResolveUnit>();
+      this.stagedRecords.set(unitId, byTo);
+    }
+    const hit = byTo.get(to);
+    if (hit !== undefined) return hit;
+    const made =
+      to === NO_ORDER_MOVE ? { ...record, stagedMove: undefined } : { ...record, stagedMove: to };
+    byTo.set(to, made);
+    return made;
+  }
+
   /**
    * Settle one turn with `plan` modelled and everything else held.
    *
@@ -822,29 +893,93 @@ export class EngineSubstrate implements Substrate {
    */
   settleFor(plan: JointPlan): PartialSettlement {
     if (this.released) throw new Error('substrate: settle after release()');
-    const staged = new Map<UnitId, CellIndex>();
-    for (const [unitId, candidate] of plan) {
-      if (!this.byUnitId.has(unitId)) throw new UnknownUnitError(unitId);
-      staged.set(unitId, candidate.to);
-    }
-    const held: UnitId[] = [];
-    const units = this.units.map((unit) => {
-      const record = this.records.get(unit.unitId) as ResolveUnit;
-      if (!staged.has(unit.unitId)) {
-        held.push(unit.unitId);
-        return record;
+    // RULE 5's SECOND HALF: a settlement is a function of the PLAN, and of
+    // nothing a VIEW does.
+    //
+    // `settleFor` derives its held set from the plan's complement and reads
+    // nothing else that a modelled sibling overrides — `units`, `records`,
+    // `narrowings`, `marshalled` and the held/claim caches all live on the
+    // family and a sibling only re-points `modeledIds`, `claimsOf`, `modeled`
+    // and `release`. So the same plan under two hold configurations is the
+    // same settlement, and the bank prices exactly that: it resolves a plan at
+    // B0 and again under each enemy it enumerates, and the resolution memo
+    // namespaces its entries PER VIEW, so it cannot see the repeat. Measured
+    // on `mixed 20 1 --nodes`: 73 649 settlements, of which 27 707 (37.6%)
+    // repeat a plan the family had already settled.
+    //
+    // The cache is on the family (siblings share it through the prototype),
+    // keyed by the same path-sensitive `planKey` every memo above uses, and
+    // bounded and evicted oldest-first exactly like the resolution memo — a
+    // settlement is not small and a decision prices tens of thousands of
+    // plans. It is per DECISION, dropped by `release()`, never module scope.
+    return this.entryFor(plan).settlement;
+  }
+
+  /** The cache slot for one plan: its settlement, and the folds off it. */
+  private entryFor(plan: JointPlan): SettleEntry {
+    // The refusal lives HERE and not only on `settleFor`, because every door
+    // that settles — `settleFor`, `resolveBoundedFor`, `withResolution` —
+    // comes through this one, and a released substrate must refuse at all of
+    // them (soak: "release drops the decision caches and closes the door").
+    if (this.released) throw new Error('substrate: settle after release()');
+    const key = planKey(plan);
+    const cached = this.settleCache.get(key);
+    // A hit is proof the plan named only known units: the key names every
+    // unit id in the plan, so an unknown one could never have filled an entry.
+    if (cached !== undefined) return cached;
+    const roster = this.units;
+    const records = this.records;
+    // TWO POOLED ARRAYS, for the same reason `settleScratch` is one: neither
+    // outlives the call. `settlePartial` copies the roster it is handed
+    // (`input.units.filter`, `new Map(input.units.map(...))`) and reads the
+    // held ids only while it runs, and `heldUnitsFor`/`claimsFor` key on the
+    // string and store their own arrays — so nothing downstream keeps either.
+    // Per family, dropped by `release()`.
+    const held = this.heldScratch;
+    held.length = 0;
+    let named = 0;
+    const units = this.unitScratch;
+    units.length = roster.length;
+    for (let i = 0; i < roster.length; i++) {
+      const unitId = (roster[i] as SubstrateUnit).unitId;
+      const record = records.get(unitId) as ResolveUnit;
+      const candidate = plan.get(unitId);
+      if (candidate === undefined) {
+        held.push(unitId);
+        units[i] = record;
+        continue;
       }
-      const to = staged.get(unit.unitId) as CellIndex;
-      return to === NO_ORDER_MOVE
-        ? { ...record, stagedMove: undefined }
-        : { ...record, stagedMove: to };
-    });
+      named++;
+      units[i] = this.stagedRecordFor(unitId, record, candidate.to);
+    }
+    // The unknown-unit refusal, unchanged in effect: every unit the plan names
+    // is on the roster exactly when the plan named as many units as the walk
+    // above matched. Only the losing case pays for the search.
+    if (named !== plan.size) {
+      for (const unitId of plan.keys()) {
+        if (!this.byUnitId.has(unitId)) throw new UnknownUnitError(unitId);
+      }
+    }
+    // One held-set key, not two: `heldUnitsFor` and `claimsFor` are both keyed
+    // on it and both used to compute it themselves.
+    const heldKey = keyOf(held);
     this.settleCount++;
-    return settlePartial(
-      this.settleInputFor(units, this.heldUnitsFor(held)),
+    // The claims come FIRST: `claimsFor` builds its own settlement input, and
+    // the scratch below may not be live while it does.
+    const claims = this.claimsFor(held, heldKey);
+    const settled = settlePartial(
+      this.settleScratchFor(units, this.heldUnitsFor(held, heldKey)),
       NO_SPAWN,
-      this.claimsFor(held)
+      claims
     );
+    const entry: SettleEntry = { settlement: settled, bounded: null };
+    this.settleCache.set(key, entry);
+    while (this.settleCache.size > SETTLE_CACHE_CAPACITY) {
+      const oldest = this.settleCache.keys().next();
+      if (oldest.done) break;
+      this.settleCache.delete(oldest.value);
+    }
+    return entry;
   }
 
   /**
@@ -853,9 +988,36 @@ export class EngineSubstrate implements Substrate {
    * — recomputing either above this file would be a second scoring pipeline.
    */
   resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolve {
-    const settlement = this.settleFor(plan);
+    const entry = this.entryFor(plan);
+    const settlement = entry.settlement;
+    // THE FOLD, ONCE PER (settlement, frame, peril).
+    //
+    // `materialOf` reads the settlement, the frame, the family's roster — and
+    // `perilOf()`, which is the ONE thing a modelled sibling can answer
+    // differently from its parent. `ledgerOf` reads the settlement and the
+    // family's wire-id index. So the whole bounded resolve is determined by
+    // those three, and the peril SET's own identity is the exact witness for
+    // the third: `perilOf` memoises, so two views that agree return the same
+    // object and two that might not return different ones — a conservative
+    // miss, never a wrong reuse. Keyed off the settlement, which is per
+    // family, so no two decisions can meet in here.
+    const peril = this.perilOf();
+    let byTeam = entry.bounded;
+    if (byTeam === null) {
+      byTeam = new Map();
+      entry.bounded = byTeam;
+    }
+    const hit = byTeam.get(asTeam);
+    if (hit !== undefined && hit.peril === peril) return hit.value;
     const { perTeam, bounds } = materialOf(this, settlement, asTeam);
-    return { resolution: settlement, perTeam, bounds, ledger: ledgerOf(this, settlement) };
+    const value: BoundedResolve = {
+      resolution: settlement,
+      perTeam,
+      bounds,
+      ledger: ledgerOf(this, settlement),
+    };
+    byTeam.set(asTeam, { peril, value });
+    return value;
   }
 
   /** Scoped settlement: resolve, hand it to `fn`, return what `fn` returns. */
@@ -1018,8 +1180,13 @@ export class EngineSubstrate implements Substrate {
   release(): void {
     if (this.released) return;
     this.released = true;
+    this.settleCache.clear();
     this.claimCache.clear();
     this.heldCache.clear();
+    this.stagedRecords.clear();
+    this.settleScratch = null;
+    this.unitScratch.length = 0;
+    this.heldScratch.length = 0;
     this.perilCache = null;
     this.influenceCache.clear();
     this.targetCache.clear();
@@ -1027,9 +1194,41 @@ export class EngineSubstrate implements Substrate {
   }
 }
 
-/** A held set's identity: sorted ids, which is what every cache here keys on. */
-const keyOf = (ids: ReadonlyArray<UnitId>): string =>
-  ids.length === 0 ? '' : [...ids].sort((a, b) => a - b).join(',');
+/**
+ * The settlement cache's ceiling — the resolution memo's own capacity, and
+ * for the same reason: a settlement is not small and a decision at 26 units
+ * prices tens of thousands of plans.
+ */
+const SETTLE_CACHE_CAPACITY = 4096;
+
+/**
+ * ONE CACHE SLOT PER PLAN: the settlement, and the material folds taken off it
+ * per frame. Both live on the family's `settleCache`, so a resolve is one
+ * string key and one `Map` probe rather than a probe per layer.
+ */
+interface SettleEntry {
+  readonly settlement: PartialSettlement;
+  bounded: Map<number, { peril: ReadonlySet<string>; value: BoundedResolve }> | null;
+}
+
+/**
+ * A held set's identity: sorted ids, which is what every cache here keys on.
+ *
+ * The copy and the sort are skipped when the ids ALREADY ascend, which is the
+ * only case `entryFor` produces — it walks the roster in order and the roster
+ * is built in ascending unit id — so the common path is a `join` over the
+ * array it was handed. The general path is unchanged for any other caller, and
+ * the STRING is identical either way.
+ */
+const keyOf = (ids: ReadonlyArray<UnitId>): string => {
+  if (ids.length === 0) return '';
+  for (let i = 1; i < ids.length; i++) {
+    if ((ids[i] as number) < (ids[i - 1] as number)) {
+      return [...ids].sort((a, b) => a - b).join(',');
+    }
+  }
+  return ids.join(',');
+};
 
 /** The one construction door. */
 export function makeSubstrate(options: SubstrateOptions): EngineSubstrate {

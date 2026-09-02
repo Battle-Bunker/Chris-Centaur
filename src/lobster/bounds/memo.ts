@@ -92,8 +92,30 @@ function wrap(
     }
   };
 
+  /**
+   * THIS VIEW'S COMPOSITE KEY, PER PLAN OBJECT.
+   *
+   * Every branch asks this door twice with the SAME plan object — once from
+   * `priceBranch` for the bounded resolve, and once from the evaluator's
+   * `withResolution` below it — and both calls rebuilt a ~120-character key by
+   * concatenating the view prefix, the frame and the plan key. The `WeakMap`
+   * is per view (it is a closure field, and the prefix is fixed for the life
+   * of the closure), so the string it holds is exactly the key that view would
+   * have built, and the frame is checked because the same plan is priced from
+   * more than one frame in the harness.
+   */
+  const composed = new WeakMap<object, { team: number; key: string }>();
+
+  const keyFor = (plan: JointPlan, asTeam: number): string => {
+    const hit = composed.get(plan as object);
+    if (hit !== undefined && hit.team === asTeam) return hit.key;
+    const made = `${prefix}${asTeam}#${planKey(plan)}`;
+    composed.set(plan as object, { team: asTeam, key: made });
+    return made;
+  };
+
   const resolveBoundedFor = (plan: JointPlan, asTeam: number): BoundedResolution => {
-    const key = `${prefix}${asTeam}#${planKey(plan)}`;
+    const key = keyFor(plan, asTeam);
     const hit = store.entries.get(key);
     if (hit !== undefined) {
       store.hits++;
@@ -146,6 +168,23 @@ function wrap(
           wrap(inner.withModelled(modelled), store, ++store.nextView, true)
       : undefined;
 
+  /**
+   * FORWARDED METHODS, BOUND ONCE.
+   *
+   * The `get` trap below runs on EVERY property access the evaluator, the
+   * bank and the search make through the wrapper — measured at 2.9% of total
+   * self time on `mixed 20 1 --nodes`, and the `.bind()` in the default arm
+   * allocated a fresh function object on every one of them, which is pure
+   * garbage on the hottest path in the system. A method is a prototype
+   * function and the bind target is the one `inner` this closure captured, so
+   * the bound wrapper is a constant: build it once, keep it here.
+   *
+   * ONLY functions are cached. Data properties (`released`, and anything a
+   * substrate exposes as a field) still go through `Reflect.get` on every
+   * read, because their VALUES move and a cached one would be a stale answer.
+   */
+  const forwarded = new Map<PropertyKey, (...a: never[]) => unknown>();
+
   return new Proxy(inner, {
     get(target, prop, receiver): unknown {
       switch (prop) {
@@ -168,10 +207,15 @@ function wrap(
         case "withModelled":
           return withModelled;
         default: {
+          const bound = forwarded.get(prop);
+          if (bound !== undefined) return bound;
           const value = Reflect.get(target, prop, receiver);
           // Bind so a forwarded method still sees the real substrate as
           // `this` — a proxy receiver would miss its private fields.
-          return typeof value === "function" ? (value as (...a: never[]) => unknown).bind(target) : value;
+          if (typeof value !== "function") return value;
+          const made = (value as (...a: never[]) => unknown).bind(target);
+          forwarded.set(prop, made);
+          return made;
         }
       }
     },
