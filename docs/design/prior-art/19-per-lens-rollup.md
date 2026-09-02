@@ -494,3 +494,20 @@ so **evolve instances along that direction** and test near the crossing point.
 Smith-Miles's ISA is an explicit extension of **Rice's framework**, so its
 **footprints are the fitted `Choice = conditional` selector** with statistical
 support attached.
+
+**MEASUREMENT — few-run statistics** (d27). The RL community's reckoning with our
+exact situation ended in an adoptable standard, and its headline finding is the
+uncomfortable one: *"a number of improvements reported in the existing literature
+are only 50–70% likely."* Adopt outright: **stratified bootstrap CIs** (stratify by
+cell × seat × seed — the structure paired seats already create; explicitly better
+justified than sample SDs at small n) and **probability of improvement** with its
+own interval on every standing verdict — that is the quantity ruling 49's doubt is
+actually about, in one number. Adopt for cross-cell reporting: **performance
+profiles**, because we have now *measured* a case where an aggregate is zero
+because two opposite things happen (d25's sign reversal). Adopt **IQM for the
+across-cell aggregate only** — a dead cell is an outlier task — and not within
+cells, where hundreds of games make the mean right; adopting it everywhere would
+import a fix for a problem we only half have. And a standing caution: **a pinned
+seed is reproducible, not representative** — our determinism work removes two of
+the three known failure sources, and reproducibility makes an unrepresentative
+sample harder to detect, not easier.
