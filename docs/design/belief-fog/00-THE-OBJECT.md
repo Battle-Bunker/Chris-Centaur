@@ -316,6 +316,15 @@ written against ObservationRecord runs UNCHANGED on the full-information game.
 - **L5 Reducibility law.** Every held component of S is tagged with its
   removal operation (compute / observation / none-this-turn); VOI reads the
   tag; nothing else may.
+- **THE EXCHANGEABILITY IMPORT ERROR** (librarian doc 20, with two measured
+  exhibits — 15-doc, 17-doc): a maximum-entropy measure over a feasible set
+  models an EXCHANGEABLE generator; the agents in this game are OPTIMIZERS.
+  Anywhere "uniform over what is possible" is taken as a neutral default
+  weight, the same import error lurks — uniform-over-support survived
+  measurement only because it is the C0 solution measure of the support
+  constructor, not because uniformity is neutral. Any new
+  uniform-by-default weight owes either a fitted tilt (β̂(V) with an
+  interior minimum) or an explicit exchangeability argument.
 
 ## 9. What this opens (the flexibility claim, concretely)
 
