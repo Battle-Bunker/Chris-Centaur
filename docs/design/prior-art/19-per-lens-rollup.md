@@ -1230,3 +1230,120 @@ a dialog turn at all. If so, the Lemmas point at *ask rarely, and act* — and t
 is a **finding, not a failure**: it would say the inbound channel belongs
 **between** turns, as standing guidance, rather than **within** one. Settle that
 first, because it is the question that decides what the inbound lens is for.
+
+---
+
+**ALL / TIME / VALUE / SEARCH — domain 40: "deeper is better" is a hypothesis, it
+has a checkable condition, and our own measurement is evidence the condition fails
+where the game is decided.**
+
+The flagship is depth. The economy exists to buy it, the CPP measures its returns,
+the tranche ladder allocates it. All of that rests on an assumption nobody has
+written down. There is a forty-five-year literature whose **founding result** is
+that the assumption can fail.
+
+**The result.** Beal's model — uniform branching, two-valued nodes, constant loss
+proportion per level, **node values independent within a level**, depth-independent
+evaluator error — gives root error that **increases with depth**. Beal's own
+verdict on his own result: *"This result is disappointing."* The phenomenon is
+**minimax pathology**: minimaxing *amplifies* the evaluator's error, so deeper
+search produces worse decisions.
+
+**The resolution, and it is the part that transfers.** Five groups reached it
+independently: *"the pathology is usually not observed in real games because their
+position values are **not independent of each other**"* — the load-bearing property
+is **dependence between sibling values, the similarity of positions close to each
+other**.
+
+**C77 — our game splits on that condition, and not comfortably.**
+  - **Within one unit's options**, dependence is strong: a slider's siblings differ
+    by which cell it stops on, and adjacent cells have similar consequences. Benign.
+  - **Across a cluster's joint plans**, dependence is weak — and the VALUE lens has
+    already **measured how weak**. King-present cells: mean |residual| **1.946**;
+    no-king: **0.201**. A **9.7× step**, `corr(king, residual) = +0.954` (d31 §31.5).
+    A 9.7× discontinuity in value between structurally adjacent plans **is** low
+    sibling dependence, in the precise sense this literature means.
+
+  **So the wipe-closure defect is not only a pricing error — it is a pathology
+  risk.** Two independent findings, one mechanism: d31's mechanism step and this
+  domain's independence condition are the same property seen from two sides. And
+  note *which* cells: **king-present cells are the decisive ones.** The prediction is
+  not "depth might not help on quiet boards", it is **"depth is most likely to hurt
+  exactly where the game is decided"**.
+
+**C79 — TIME: C48's second horn gets a theorem instead of an anecdote.** Pearl
+(1983): *to overcome the pathology, the error of the evaluation function must
+decrease **exponentially** with the depth of search* — and the field's own
+expectation is that *"the quality of the evaluation cannot vary enough"* for that,
+which is why node-value dependence does the real work in games where depth helps.
+So "evaluator too coarse for depth to bite on" is not a vague complaint; it is a
+**quantitative condition with a rate**, and a flattening profile is its observable
+signature. Combined with d37's C66, the discriminator set is now three-way:
+
+  | observation | diagnosis |
+  |---|---|
+  | incumbent stopped changing | search exhausted |
+  | incumbent keeps flipping at a stable score | evaluator coarse |
+  | residual not falling with depth | evaluator coarse, **rate measured** |
+
+**M103 — the test is cheaper than the work it informs and runs on the archive.**
+Two forms, both using data already held:
+  1. **Measure sibling dependence** — correlate structurally adjacent plans'
+     evaluations, **stratified by the mechanism indicators d31 already derived**
+     (king-present, wipe-reachable, contested). Low within-stratum correlation is
+     the pathology precondition, and it predicts *which cells* depth should hurt on.
+  2. **Measure the decision, not the evaluation** — re-run archived positions at
+     increasing rungs and record whether the chosen plan's **realised outcome**
+     improves, *per cell*. Pathology is a claim about decision quality; a root-value
+     comparison cannot see it.
+
+  Either answer is worth having. Depth helps everywhere ⟹ this domain is a note and
+  the flagship is justified. Depth helps on some strata and hurts on others ⟹ **the
+  spend rule should be conditioned on the stratum**, which is precisely what the
+  CPP's premise coordinate exists to do.
+
+**C78 — SEARCH/REDUCTION: MaxN has a pathology theorem named after it.** Mutchler
+(1991) extends Nau's theorem to **MaxN**, the multi-player backup — which is one of
+REDUCTION's three members (R-1). Not a disqualification: it is **the failure
+direction ruling 49 requires a member to carry**. Mechanism is intelligible — in a
+multi-player backup a node's value depends on which opponent is assumed to be
+maximising, so sibling values decouple faster than in the two-player case.
+Practical form: if a depth sweep shows depth helping under `paranoid` and not under
+`MaxN`, that is documented behaviour, not noise, and the member table should say so.
+
+**M104 — SEARCH: a point in our favour, measurable today, and a THIRD argument
+against the caps.** Michon (1983): *"game trees with uniform branching factor tend
+to be pathological, while game trees with, for example, geometrically distributed
+branching factor do not"* — with the caveat that nobody knows which family real
+games fall in. **Ours is extremely non-uniform** (~71 options for a queen, 3 for a
+trail unit) and the per-unit option-count distribution is a by-product of admission,
+so the cheapest thing in this domain is to plot it. **But `sliderCandidateCap: 4`
+and `enumCandidateCap: 8` make branching MORE uniform.** If non-uniformity is what
+protects against pathology, the caps are removing the protection — a third argument
+against enumerate-then-cap, beside C2's adaptivity requirement and M39's
+progressive widening.
+
+**M105 — VALUE: this supplies C24's mechanism and says where the evaluator work
+pays.** "A better evaluation always beats a deeper search in this family" (the Tron
+winner) is pathology stated as tournament experience: minimax does not merely
+*inherit* evaluator error, it **selects for it**, and the selection strengthens with
+depth wherever sibling dependence is weak. The actionable half is the localisation —
+evaluator improvement has its super-linear payoff **in the low-dependence strata**,
+which are the wipe-closure cells, which are the cells the mechanism indicator already
+flags. **Fixing the wipe closure is simultaneously a pricing fix, a coverage fix
+(M77) and a depth fix.**
+
+**M106 — switching search family does not dissolve it.** *"UCT is indeed
+susceptible to pathological behavior in a range of games"* (arXiv:2212.05208). The
+question is about the interaction between an inexact evaluator and a selection
+operator, and every candidate search family has one.
+
+**The mitigation we actually have, and it is worth knowing.** Pathology is a
+statement about a **heuristic value propagated through `min`/`max`**. A **sound
+bound narrowing is immune to it** — a bound is sound regardless of evaluator noise.
+So the threat is to the **advised** reading and not the **sound** one: a structural
+immunity plain minimax lacks, and one more reason the two readings must stay
+separate. The other real counter-argument, from the literature itself: Luštrek,
+Gams & Bratko show that **real-valued** position values (rather than win/loss) are
+enough to remove the pathology on their own — which is why C77 scopes the worry to
+the **discontinuous** cells, where exactly that real-valued smoothness fails.
