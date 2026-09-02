@@ -446,3 +446,18 @@ co-change**. Also: add **inversion** to the vocabulary — every "written N time
 defect is a missing one — and adopt a **visible-layer budget**, since everything
 hidden pays for the size of the design rules and this survey alone has proposed
 five additions to ours.
+
+**BOUNDS / BELIEF — the dependency problem, twice** (d23). `cluster-enum.ts` §5.5
+already identifies and correctly refuses the cheap decoupled enemy-min ("the enemy
+min does not distribute over a sum") — the best piece of bound engineering in the
+codebase, and it is an instance of interval arithmetic's oldest known failure
+mode. **Name it as such, because that is what makes the second instance
+findable:** under fog the hidden-unit configuration is a *second* shared
+uncertainty source, so `Σ_u min_h f_u(h) ≤ min_h Σ_u f_u(h)` and a design that
+clouds per unit then combines produces a floor degrading with the NUMBER OF UNITS
+AT RISK rather than with the amount of uncertainty — sound and ordering-free,
+which is the saturated-floor symptom domains 1 and 3 predicted from decision
+theory. Remedy fits the existing type: affine arithmetic's shared **noise
+symbols** are structurally our `assumptions`, and the missing capability is to let
+a shared basis **tighten** a combination rather than only refuse one. Cheap test
+on the existing archive: decoupled vs exact joint minimum, gap by unit count.

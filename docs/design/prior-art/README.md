@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-two domains, surveyed against the four lens syntheses as they stood at
+Twenty-three domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -37,6 +37,7 @@ finding by whose design it changes. This index is organised by domain.
 | 20 | response to the solutions-supplier refutation — my M38 over-claimed; the successor is one parameter away | `20-response-to-the-solutions-supplier-refutation.md` |
 | 21 | response to the population instruments — the cyclicity question is *unasked*, not answered | `21-response-to-the-population-instruments.md` |
 | 22 | **the theory of carving at joints** — Parnas's criterion, and modularity's option-value formula | `22-the-theory-of-carving-at-joints.md` |
+| 23 | the dependency problem, and where our floor meets it twice | `23-the-dependency-problem-and-the-floor.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
