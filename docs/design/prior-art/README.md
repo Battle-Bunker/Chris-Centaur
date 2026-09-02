@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Ten domains, surveyed against the four lens syntheses as they stood at
+Eleven domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -23,6 +23,7 @@ case.*
 | 8 | partial observability, POMDPs and one-sided POSGs vs the fog programme | `08-partial-observability-and-posgs.md` |
 | 9 | evaluation, population distortion, and how to grow a roster (**ruling 49**) | `09-evaluation-and-population-distortion.md` |
 | 10 | the Centaur surface: mixed-initiative control and explanation | `10-centaur-mixed-initiative-and-explanation.md` |
+| 11 | game-rules architecture: one description, many consumers | `11-game-rules-architecture.md` |
 
 ---
 
@@ -103,6 +104,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C9/C10** | BELIEF / JOINTS | Our ε class is Walley's linear-vacuous mixture, and **that class dilates**: conditioning can widen the credal set *for every possible observation*. So `meet = narrow` holds for S (deduction only) and **fails for w**. You can pay for an observation that provably makes you less certain. |
 | **C7** | COMPOSITION | "Law per joint kind" **is** Zilberstein's local compilation — a theorem whose optimality hypothesis is a **tree**. Our manifest is a DAG. Declare the allocation projection or drop the claim. |
 | **C8** | TIME / BELIEF | The hypothesis market lacks its second factor. Russell & Wefald: a computation's value comes entirely from its ability to **change the chosen action**. `P(refinement flips better())` is computable from interval overlap at the deciding rung, which `BankResult` already carries. Corollary: narrowing an uncontested rung is worth exactly zero. |
+| **C34** | COMPOSITION / BELIEF | **B4 should expose the spawn DISTRIBUTION, not inject a sampler.** OpenSpiel makes chance an explicit player whose outcome distribution the state exposes, so search can plan *through* a stochastic event. B4's own acceptance game (walk to a potion three turns early, the window opens in the model) is the case that separates planning from gambling on a draw. Side effect: it derives the time-indexed CloudPremise from the interface instead of restating it as a premise that can go stale. |
+| **C35** | COMPOSITION | Exporting `adjudicate` fixes one rule; the defect class is **having no single rules artifact**. Ludii/OpenSpiel: one place a rule can be written, every consumer a derived reader. Our three recorded instances (adjudication ×3, the UI deriving no legality, the bot re-deriving movement three wrong ways) are one class. Needs a rules module whose export surface IS the consumer interface, plus CI forbidding re-implementation. |
 | **C16** | COMPOSITION | `botId` is a **deep constructive trace** — the one rebuild strategy that provably cannot early-cut. Behaviour-preserving config edits cold every memo; two identical bots get different addresses. Fix: Nix's **resolved derivation** (address the resolved closure). |
 | **C21** | COMPOSITION / TIME | **Identity-for-reuse and equality-for-dedup are two keys with opposite laws**, and `botId`/premise ids are doing both. A name must be stable across the change you want to be incremental in; a content hash must not be. Every cross-turn mechanism (attention carry, warm promotion, ADVANCE) is a reuse problem, not a dedup problem. |
 | **C19** | TIME | `observe()` **kills eagerly**; Adapton/Salsa **dirty then verify on demand**. Eager invalidation spends the scarcest compute at the worst moment (operator commit, deadline approaching) on work this turn may never demand. |
@@ -128,6 +131,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **M13** | **Per-unit flows as standing telemetry.** KataGo's ownership head exists for credit assignment from few samples. Promoting our mining scripts to a per-game column turns 144 games into thousands of unit-observations at zero play cost — the cheapest answer to "the space is explored at low density". |
 | **V-3** | **The checkerboard parity bound** (a1k0n) — sound, free, strictly tighter than a cell count, and we lack it. |
 | **V-2** | **`room` should count edges, not cells.** a1k0n's mined fit: edges carry ~3.5× the weight of nodes. Reproducible on our archive this week with the value lens's existing tooling. |
+| **M30/M32** | `information_state` vs `observation` as *separate interface methods* (OpenSpiel) makes "asked for the wrong one" a type error rather than a silent cheat — the mechanism that makes fog step 5's byte-identity acceptance checkable. And Ludii's benchmark answers the "declarative is slow" objection: compile the description once, run the fast form. |
 | **M14/M19** | **Verifying traces** and **Salsa durability** — the built, named answers to early cutoff and to composition risk 1 respectively. |
 | **M1** | **The serialized-equilibrium pre-check**: if the two serialized games agree, the stage game has a pure equilibrium and the LP/joint machinery can be skipped. A free per-cluster reclassifier. |
 | **M18** | The hypothesis market's free baseline is "the enemy repeats" (GGPO's predictor carries an entire genre). |
