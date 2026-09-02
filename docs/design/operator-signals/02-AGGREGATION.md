@@ -87,7 +87,10 @@ near-substitutes), and it is provably monotone submodular, so greedy
 carries the (1−1/e) guarantee and — more importantly — is incremental: one
 more attention unit = one more greedy step, so the budget is genuinely a
 dial, not a re-plan. The question space is small and generated (anchors ×
-a fixed kind list), not authored per decision.
+a fixed kind list), not authored per decision. The budget is spent in
+**attention-weight units** (10 §A-1): each template declares a
+glance/read/study weight class and greedy selects on gain-per-weight — a
+threat map and a one-line ack are not the same withdrawal from the human.
 
 **The bottom element (humans always win).** The selection meet has the
 operator's own subscriptions as its bottom: a **pinned signal class is

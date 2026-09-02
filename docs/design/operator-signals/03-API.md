@@ -29,7 +29,10 @@ interface SignalFrame {                       // @v1
   readonly items: ReadonlyArray<AdviceItem>   // 01 §5 — selected, presentation-face forward
   readonly digest: DigestSlot | null          // 02 §4 — bot-composed against cursors
   readonly asksOpen: ReadonlyArray<AskStatus> // every unanswered ask, always present (never budget-dropped once issued)
-  readonly index: ReadonlyArray<SignalStub>   // ref + shape + anchor + one-line label for EVERYTHING currently held — the pull surface's table of contents, so the operator can see what was NOT selected
+  readonly index: ReadonlyArray<SignalStub>   // the pull surface's table of contents: one stub per
+      // (shape x anchor-class) WITH COUNTS, never raw records (10 §3) —
+      // bounded by the anchor vocabulary, so the operator sees what was
+      // NOT selected without the index becoming its own flood
 }
 ```
 
@@ -47,6 +50,11 @@ signals.query({ anchor?, shape?, kinds?, turnRange?, cursor? }): Page<SignalStub
 signals.trace(ref, axis, range): Trace                // curves are pull
 signals.contrast(setRef, a, b): Foil                  // the foil projection, server-computed
 signals.digest(cursor): DigestSlot                    // re-derivable on demand (read-time fold)
+signals.quote(hypothetical): QuoteTicket              // operator-initiated what-if (10 §7): compiles to
+      // an A0 speculation utterance, priced in quanta by the metareasoning
+      // meter, answered with ordinary signals on the HYPOTHETICAL fiber
+      // (quarantined — can never reach play); the platform's worst-case
+      // preview is the precomputed degenerate case
 ```
 
 The client never recomputes and never diff-merges: every query is answered
@@ -58,7 +66,9 @@ absent.
 ```ts
 interface AttentionPolicy {                   // operator-authored; versioned like any config
   readonly v: 1
-  readonly budget: number                     // items per frame; THE dial
+  readonly budget: number                     // attention-weight units per frame (10 §A-1:
+      // templates carry glance/read/study weights; greedy spends the
+      // budget in those units, not raw item counts); THE dial
   readonly pins: ReadonlyArray<SignalClassId>   // delivered always, off-budget (bottom element)
   readonly shelves: ReadonlyArray<{ class: SignalClassId; until: TurnStamp }>
       // temporary suppression WITH EXPIRY (ISA shelving, doc 06 §3) — a
@@ -110,7 +120,7 @@ binds), and the bottom element is operator-initiated:
 | class | meaning | delivery |
 |---|---|---|
 | `operator` (bottom) | answers/echoes of this operator's own actions: conformance acks, ask status changes, pinned classes | immediate frame replacement, always, off-budget |
-| `soundness` | oracle violations, premise breaks — "stop trusting the surface" | immediate, unmutable |
+| `soundness` | oracle violations, premise breaks — "stop trusting the surface" | immediate, unshelvable, **sticky**: persists in every frame until the operator acks (10 §A-2 — snapshot replacement may never eat an unseen soundness alarm); acks are per-operator, clear team-wide, and echo who cleared |
 | `turn-critical` | edges that bear on the *current* staged decision before commit: threat edges, saturation verdict, sacrifice-warrant asks | next frame within the current turn |
 | `turn-boundary` | digests, share-state updates, curve refreshes | at ADVANCE; ride the turn note |
 | `ambient` | everything else selected | whenever a frame is next assembled |

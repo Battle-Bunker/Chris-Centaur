@@ -158,7 +158,7 @@ other lens's first increment, and deliberately so.
 5. Whether `index` (the everything-stub list) needs its own cap on very
    wide decisions (a queen's 64-option SET stubs fine; 5000 flow stubs do
    not — probably index lists aggregates' entry points only, with counts).
-6. Multi-operator teams: per-operator frames are cheap reads, but per-
-   operator *asks* need an addressing rule (who answers?) — likely the
-   selection-lock holder of the unit the ask anchors to; coordinate with
-   the IN lens's exclusive-selection vocabulary.
+6. ~~Multi-operator ask addressing~~ — CLOSED (10 §A-4): unit-anchored
+   asks route to the selection-lock holder; team-anchored asks follow the
+   guidance lens's captain-gate convention (their Q8); one answer/ack
+   clears team-wide with attribution.

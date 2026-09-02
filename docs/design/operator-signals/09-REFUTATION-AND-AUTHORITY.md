@@ -64,7 +64,7 @@ human's judgment has maximum marginal value.** The deciding-rung telemetry
 | floor rung, wide margin | the machine has a proof-backed preference | ambient; margin-led SET |
 | floor rung, thin margin | proof-backed but close | normal selection; foil prominent |
 | est rung | no proof separates the survivors; the advised channel is choosing | SET leads with refutation context + est caveat carried in premise |
-| ceiling hole / tie key | **the machine's knowledge has run out; it is choosing arbitrarily among plans it cannot tell apart** | an `edge(SET, authority-collapse)` — and the natural ask: "these k plans are indistinguishable to me; your call is as good as mine and probably better" |
+| ceiling hole / tie key | **the machine's knowledge has run out; it is choosing arbitrarily among plans it cannot tell apart** | an `edge(SET, authority-collapse)` — and the natural ask: "these k plans are indistinguishable to me; your call is as good as mine and probably better". Default **unanchored** (10 §A-3): the ask names the indistinguishable set but not the bot's own tie-break pick, so the human answers before seeing the machine's coin flip |
 
 The authority-collapse ask is the cheapest honest Centaur behaviour in
 the whole design: it costs one comparison of telemetry the comparator

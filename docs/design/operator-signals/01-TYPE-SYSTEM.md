@@ -251,6 +251,12 @@ faces are separate objects.
 percentages: all live in the premise ref (drill), none in headlines.
 Miller finding 3 as a lint rule on presentation templates.
 
+**Headlines are bound projections, not prose** (10 §A-5): every noun
+phrase in a template binds to a payload field or ref; a template that
+cannot bind refuses at generation (the miner-refuse discipline applied to
+language), and a rendered headline whose bound refs died with a voidIf is
+re-rendered or dropped, never served stale.
+
 ## 6. What this type system refuses
 
 - **No fifth shape without a counter-example.** In particular: no "Insight"
