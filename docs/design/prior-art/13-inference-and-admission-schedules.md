@@ -80,8 +80,23 @@ place where it does not hold. Concretely: `ConditioningTrace` may be partitioned
 into coupled subsets freely; `cluster-enum.ts` may not be partitioned on geometry
 once positions are sets.
 
-**M38. Solution counting gives the weight supplier a principled default that is
-neither vacuous nor arbitrary.** The belief lens's supplier slate is
+**M38 — PARTIALLY REFUTED BY MEASUREMENT, 2026-09-02; see domain 20.** The
+belief lens pre-registered and tested this over 1,412 games / 1.15M decisions:
+the constraint system is **perfect** (0 violations) but uniform-over-solutions
+predicts play *worse* than uniform-over-support on the coupled stratum
+(+0.0188 ± 0.0075 log-loss). **My import was sound for the SUPPORT and unsound
+for the WEIGHT**: Minesweeper's hidden variable really is drawn uniformly
+subject to the constraints, so solution counting recovers the true generative
+measure there; ours is chosen by an *optimiser*, and uniform-over-solutions
+therefore depresses mass on contested-desirable cells — exactly where play
+concentrates. The successor is one parameter away (`logit(β)` over the solution
+set = Jaynes's max-entropy-with-a-value-constraint = McKelvey & Palfrey's
+quantal response, with the refuted supplier as its β = 0 point). Domain 20
+argues it. The paragraph below is left as written, with that correction
+attached.
+
+**M38 (as originally argued). Solution counting gives the weight supplier a
+principled default that is neither vacuous nor arbitrary.** The belief lens's supplier slate is
 {adversarial, uniform, cover}. `adversarial` is vacuous (domain 3's C9 shows it
 is the maximally dilation-prone member); `uniform` over what, exactly, is
 undefined once the support is a constraint system. **Uniform over the solutions
