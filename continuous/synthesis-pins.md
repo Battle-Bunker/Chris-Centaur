@@ -4159,3 +4159,18 @@ heuristic (scores better with fewer turns to target) with NO COMPLETION
 EVENT, unlike goto. Task: factor the landscape of operator-guidance
 affordances so strategic guidance integrates smoothly into the tree
 search. Owner also noted the pool ran thin (1 task) — keep 4-8 active.
+- R-9 (fourth standing extraction rule, unifying R-8/R-8b/R-8c): BEFORE
+  USING A NUMBER TO DECIDE, ASK ITS LIMIT AS DATA GROWS AND AS THE EFFECT
+  GOES TO ZERO — a statistic whose limit is independent of the quantity
+  you care about cannot inform the decision (ceiling saturation
+  manufactures structure; floor pinning destroys gradation; spend-
+  denominated floors converge to "act" regardless of effect).
+- EXPERIMENTAL-WASTE NUMBER (value lens dead-cell detector + librarian
+  domain 30): 7-12% of the entire 18,300-game corpus was spent on cells
+  that could not distinguish the arms they were run to distinguish
+  (deadness reported per (cell, BUDGET) always). MDE prospective gate +
+  SPRT sequential stop adopted: "how many games should this cell get"
+  stops being taste. All four dead cells are LIVELY to M5 and dead to
+  arms — the domain-26 distinction survived contact. BOTH halves of
+  ruling 49 now quantitative: bot population 25%-dense w/ +0.996
+  duplicate; instance spend ~10% on non-discriminating cells.
