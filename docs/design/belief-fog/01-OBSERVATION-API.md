@@ -218,6 +218,12 @@ small UNION of boxes, and the (S, w) laws admit it without amendment:
 - **Timeline purity holds**: a box is (record, premise, trace); a union is a
   small set of traces sharing one record. The cache key extends per box; the
   hot path holds the current fronts, O(boxes).
+- **Scenarios span units; contradictions unwind** (second pass, 03-doc §8):
+  a hypothesis branch is a JOINT scenario over the hidden-unit set (per-unit
+  clouds are its marginals; hulls keep old consumers zero-touch), and a
+  conditioning step that would empty S triggers the contradiction rule —
+  unwind the weakest evidence class first (C2, then C1, never C0), rebuild,
+  log, count. An empty support is a mis-attribution alarm, not a theorem.
 
 ## 6. The mirror: Belief is observer-indexed, and invisibility's payoff needs the enemy's S
 

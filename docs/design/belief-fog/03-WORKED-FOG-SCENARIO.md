@@ -172,3 +172,48 @@ and every refuel/tier bound inflates to the board-wide worst case. Price of
 that alternative: clouds saturate several turns faster, the C1 channel dies,
 and invisibility strictly dominates as a strategy. Game-design decision,
 priced, owner's call.)
+
+## 8. Second pass — the disjunctive case worked, and the two rules it forced
+
+The clean T12 above had ONE vanish and ONE hidden unit: point collapse. The
+disjunctive-support machinery (01-doc §5b) earns its keep when evidence has
+several explanations. Working the cases surfaced two rules the first pass
+did not state.
+
+**Case A — two vanishes, two hidden units (K1, K2 both hidden).** Food at A
+and at B both vanish at t, no visible eater ends on either. Explanations:
+(K1→A, K2→B) or (K1→B, K2→A), each only if the cell is inside that unit's
+front. Per-unit marginal clouds would record K1 ∈ {A,…}, K2 ∈ {A,…} — losing
+the EXCLUSIVITY correlation (both-at-A is not a world). So:
+
+**Rule 1 — scenarios span the hidden-unit set.** A hypothesis branch (box)
+is a JOINT object: one conditioned cloud per hidden unit plus the shared
+premise deltas, and per-unit clouds are its marginals. Zero-touch consumers
+read the per-unit HULLS (union over scenarios — today's shape); box-aware
+consumers iterate scenarios. Slot accounting per 09-doc §3: one unit, one
+slot; a scenario is a small set of alternate fronts inside the slots it
+already holds. This is the vendored engine's own extremization-trap warning
+(risk.ts: "two maybes can ANNIHILATE each other… a sound extremization
+quantifies jointly, never at one pinned turn") arriving at the belief layer:
+correlation is not an upgrade, it is what soundness already demanded of
+∀-claims, now made representable instead of hulled away.
+
+**Case B — one hidden unit, two sequential vanishes.** Food at A vanishes at
+t (only K explains it); food at B vanishes at t+1 (only K explains it).
+Joint feasibility requires B inside the knight fan of A. If it is: the trace
+gains two point entries and the timeline is a two-point path — better than
+either observation alone. If it is NOT: conditioning on both leaves S EMPTY,
+and an empty support is not a theorem that the game did something
+impossible — it is proof that some ATTRIBUTION was wrong (a visible eater
+mis-scored, a spawn mis-accounted, a second hidden actor the mask did not
+declare). So:
+
+**Rule 2 — the contradiction rule.** Conditioning must never leave S empty
+silently. An empty intersection triggers the same quarantine policy as the
+reappearance oracle (09-doc §6): unwind the WEAKEST evidence class first —
+C2 non-event exclusions, then C1 inferences (attribution-based, fallible),
+never C0 (direct facts) — rebuild from what survives, log the dropped
+entries with the full trace, count in the mechanism report. The unwind order
+is the evidence-strength order, which the trace already records per entry.
+This rule is what makes the C-ladder safe to run aggressively: the cost of
+an over-eager inference is a logged rebuild, not a poisoned support.
