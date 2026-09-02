@@ -166,3 +166,78 @@ distance from the fitting distribution.**
   mediocre while R² stays excellent, that is not a contradiction between the
   results — it is this mechanism's signature, and reading it as "the fold is
   wrong" would be a mistake.
+
+---
+
+## 31.5 MEASURED, and M77 is corrected: it is a mechanism step, not a distance
+slope
+
+The value lens ran the §31.2 test (`design/value-evaluation` @ `c548c56`). The
+result is a genuine refinement and my M77 was wrong in a specific, instructive way.
+
+**What they found.** The distance test *fires*: `corr(distance, residual) = +0.423`,
+far half 4.9× the near half. But the structure underneath is not a slope:
+
+- **king-present cells: mean |residual| 1.946; no-king cells: 0.201** — a **9.7×
+  step**, with `corr(king, residual) = +0.954` against distance's +0.423;
+- **within the no-king stratum, `corr(distance, residual) = −0.562`** — the six
+  *farthest* cells have the *lowest* residuals;
+- cause: the **wipe-closure defect** — the fold prices a death at the dying unit's
+  balance, but a last king's death removes the **whole team**. Named in an earlier
+  cycle, untestable then, now measured at 9.7×.
+
+**Their correction, which is right: coverage must be declared over MECHANISMS,
+not over a distance metric.** Distance averages a step into a slope, and here it
+would have *warned hardest about the six cells where the fold is most accurate*.
+
+### The literature agrees, and names the distinction
+
+This is the standard split in the distribution-shift literature between:
+
+- **covariate shift** — the input distribution moves while the input→output
+  relation holds. Distance in feature space is a meaningful proxy, and
+  distance-based OOD detection works;
+- **concept shift** (a.k.a. mechanism change) — the input→output *relation*
+  changes, discontinuously, at a boundary in the input space. **Distance-based
+  detection is blind to it**, because the shifted region may be *close* in feature
+  space and the un-shifted region may be far.
+
+Their measurement is a clean instance: `king-present` is a **concept shift** (the
+accounting identity itself changes when a death can wipe a team), and the
+distance metric detected the *covariate* variation instead — which is why it
+fired weakly and pointed the wrong way inside the stratum.
+
+**So the corrected M77 is:** `advisoryPrecision`'s coverage producer should be a
+**mechanism indicator**, not a distance. And the mechanism list is short and
+enumerable *from the rules* rather than fitted — which makes it cheaper and more
+auditable than a distance metric, not more expensive. The programme's own
+vocabulary already has the right home for it: a mechanism is a **premise
+coordinate** (domain 29), and "does a death here wipe a team" is a fact about the
+board that the rules answer.
+
+### And it is the third sign-inverting aggregate in this survey
+
+Pooled `+0.423` against within-stratum `−0.562` is a Simpson's-paradox-shaped
+result, and it is the **third** aggregate this survey has seen reverse under
+stratification:
+
+1. the cyclic component reversing between snake and piece boards and cancelling on
+   pooling (domain 25);
+2. the VBS−SBS null that may be a pooling artifact of exactly that reversal
+   (domain 25's M64);
+3. this one.
+
+**R-11.** *An aggregate can be zero, or the wrong sign, because two opposite
+things happen. Always report stratified by the obvious mechanism before reporting
+pooled.* This is why domain 27 recommended **performance profiles** as the default
+cross-cell presentation; three instances in one session is enough to make it a
+standing rule rather than a recommendation.
+
+### Recorded honestly about M76
+
+M76 predicted that the fold would retrodict outcomes well and order counterfactual
+plans less well. The lens records that they *cannot* register it — their meter had
+already run and published before M76 arrived. Their note is correct and the
+asymmetry should stand in the record: **a genuine prediction from my side, post-hoc
+from theirs, and it fits.** It is weaker evidence than a registered test and should
+not be cited as more.

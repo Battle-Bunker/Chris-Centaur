@@ -634,3 +634,26 @@ Correction to **C8**: the two probabilities are the *payoff distribution*, not t
 score. The score also needs the **tranche's price** — so an expensive
 high-flip-probability hypothesis can correctly rank below a cheap low-flip one,
 which the product formulation cannot express.
+
+**VALUE / BELIEF — C60 measured, and M77 corrected** (d31 §31.5). The distance test
+fires (`corr = +0.423`) but **the structure is a MECHANISM STEP, not a distance
+slope**: king-present cells mean |residual| 1.946 vs no-king 0.201 — a **9.7× step**
+with `corr(king, residual) = +0.954` — and **within the no-king stratum
+`corr(distance, residual) = −0.562`**, so the six *farthest* cells have the
+*lowest* residuals. Cause is the wipe-closure defect (the fold prices a death at
+the dying unit's balance; a last king's death removes the whole team).
+**Corrected M77: `advisoryPrecision`'s coverage producer must be a MECHANISM
+INDICATOR, not a distance** — the literature's own split is *covariate shift*
+(distance is meaningful) versus *concept shift* (the input→output relation changes
+discontinuously; distance-based detection is blind to it, and can point the wrong
+way). The mechanism list is short and **enumerable from the rules**, which makes it
+cheaper and more auditable than a distance metric — and a mechanism is a **premise
+coordinate** (d29), so it has a home already.
+
+**ALL — R-11** (d31 §31.5). *An aggregate can be zero, or the wrong sign, because
+two opposite things happen. Report stratified by the obvious mechanism before
+reporting pooled.* **Third instance this session**: the cyclic component reversing
+between board families and cancelling on pooling; the VBS−SBS null that may be a
+pooling artifact of exactly that reversal; and now pooled `+0.423` against
+within-stratum `−0.562`. That is enough to make d27's performance-profile
+recommendation a standing rule rather than a suggestion.
