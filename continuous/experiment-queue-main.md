@@ -364,3 +364,6 @@
       1{A ahead of B} per co-seated pair from the archive — the ordinal
       shadow Balduzzi's decomposition actually needs; C29 remains open
       until run.
+- [ ] FIX (build lane): the scout's no-restricted-imports lint ban is
+      shadowed by a later flat-config block and DOES NOT FIRE (recorded in
+      pins; Law V's founding instance). Restore + falsification test.
