@@ -2107,3 +2107,105 @@ existing rule at a layer where the instances had been found but not connected.
 **A standing test for the map**: if a fifteenth law does not fit the three families,
 that is evidence against it. Record it rather than extending the taxonomy to
 accommodate it.
+
+---
+
+**ALL — domain 48: response to the red team** (`design/red-team` @ `f1ff2a2`,
+`9c8e79d`). They attacked three of this survey's load-bearing claims and landed on
+all three. **Four concessions and one answer**, and the concessions are the point.
+
+**SEARCH/BELIEF — R-5 has an AIRTIGHT NARROW EXEMPTION, and I record it as such.**
+The search lens found it and the red team adjudicated: *"Burch et al.'s theorem is
+about re-solving a subgame **for its value**; under Law D1 cluster results are
+**proposals**, every priced plan is priced by the unconditional whole-board bank,
+and a proof about a priced plan cannot be falsified by the existence of unpriced
+ones. **The floors are safe.**"* Concede fully.
+
+  **The boundary, stated precisely, because a narrow exemption quoted without its
+  edge becomes a wide one.** It holds exactly while (a) cluster results are
+  *proposals*, never values; (b) every priced plan is priced by the unconditional
+  whole-board bank; and (c) **nothing inside the proposing layer may write a
+  bound**. Condition (c) is currently *"an import ban plus a structural test,
+  described by the search lens as load-bearing 'for a reason its authors did not
+  name'"* — **which is R-6's purest recorded instance.** Promote it to a law in the
+  manifest table: this is the one place where relaxing an import ban would silently
+  convert a proposal into a value and reactivate an unsoundness theorem.
+
+  **Correction to my own framing:** d12 stated R-5 as though the whole architecture
+  were exposed. It is not. **The exposure is exactly at the sites that decompose
+  *for a value*.** R-5 stands as written for the fog programme's memoisation and
+  re-base questions (C37, C38) and does **not** apply to the cluster decomposition
+  under D1. I should have drawn that line myself.
+
+**COMPOSITION — d29's one-index falsifier, run as asked: index YES, algebra
+NO-AS-STATED.** Three resistances; two conceded, one answered.
+
+  **Resistance 1 (horizon refuses `widen`) — conceded, and the survey already
+  contained the correction.** *"`est[(1,f,w)]` and `est[(3,f,w)]` are different
+  quantities … the only sound 'join' is the vacuous hull … erasing the horizon tag
+  is not a widening, it is the laundering the refusal law exists to prevent."* My
+  table was wrong. And **d43 §43.4 — written by me — already made the correcting
+  argument**, endorsing Law H′ on abstract interpretation's ground that *"an
+  intersection is sound only when both abstractions describe the same concrete
+  quantity"*. So there are **three independent derivations of one missing
+  cross-horizon law**, not the two the red team counted.
+
+  **Resistance 2 (the basis column's direction) — this is d38's C70 from the
+  semantics side, and it has a decision procedure.** Their fork is *"either a
+  direction error, or two lenses hold incompatible semantics for the same word"*.
+  **It is the second, and the two semantics have names**: as **validity conditions**
+  assumptions compose by **conjunction** (union ⟹ stronger premise ⟹ *narrower*,
+  and cross-basis refusal is motivated); as **provenance records** they compose by a
+  semiring's `+` for alternatives and `×` for joint use (union is a derivation
+  record, and refusal is unmotivated). **d38's C70 is exactly the collapse between
+  them** — `unionAssumptions` uses set union for **both** operations, so it cannot
+  distinguish "either premise suffices" from "both are needed", which is this same
+  distinction. They found it in the documents; d38 found it in the code. **One
+  defect, and the decision procedure is one question asked per OPERATION rather than
+  per column**: what is `∪` standing in for — alternatives at a `max` node, joint
+  requirements at a `min` node? The table's single basis cell is *under-specified*,
+  not backwards.
+
+  **Resistance 3 (a fourth operation) — conceded, and it already has a law: R-12.**
+  Moving a fitted number *sideways* — consuming it at a premise the fit never
+  covered — *"is neither join (unsound), meet (nothing narrows), nor advance (no
+  turn boundary): it is the **penalized crossing**"*, implemented as `σ²_transfer`.
+  That is a **transfer across populations**, and its cost is the generalisation gap
+  — exactly what **R-12** says must happen whenever a fitted number moves, and why
+  it is not a join: the two values solve *different problems*, not one problem under
+  different premises. Their Simpson's hazard (*re-pooling can land outside the hull
+  of the finer strata*) is **R-11**, now at its fourth instance.
+
+**M119 — COMPOSITION: the fourth operation is missing from BOTH tables, and X1 is
+the moment.** d29's eight appearances lack it and so does the joints lens's
+operations table (`join`/`meet`/`tighten`/`advance`). Since that table is about to
+be **encoded as data**, add a **`transfer` column** now: *is this coordinate
+crossable, and at what priced penalty?* Two properties that make it a genuinely
+distinct column — it needs **no widening** (d43's C86 does not apply to it), and it
+is the only operation priced in **precision** rather than compute, which the
+compute-priced column cannot express.
+
+**COMPOSITION — C59 is DEAD as stated, and the replacement is adopted.** *"Every
+proposed coordinate arrives with an argument that some comparison is unsound
+without it — that argument is why it was proposed — so the test as stated filters
+nothing; **every coordinate argues itself in** … C59 is taste wearing a test's
+clothes."* Concede without qualification; the document's own three adjudications
+were decided by judgment and the test contributed nothing.
+
+  **Adopted replacement — the witness test:** a coordinate earns its seat with a
+  **recorded exhibit** — a concrete pair of values at one address with different
+  truths, a theorem naming the pair, or a measured recomputation cost — kept on the
+  coordinate the way `FitProvenance` is kept on a constant. **And it is R-6 at the
+  coordinate layer**, so it inherits R-6's discipline rather than being a one-off:
+  R-6 says a soundness argument's hypothesis must be an *executable assertion*
+  rather than prose; this says a coordinate's justification must be a *recorded
+  witness* rather than an argument. The four-defect table is four such witnesses;
+  C37's range has a theorem; induced width has neither, which is why it was
+  correctly demoted.
+
+**A note on this survey's own failure mode, since it produced two of the above.** I
+wrote the correction to d29's horizon claim in d43 without connecting them, and
+found the basis ambiguity in d38's code reading without recognising it as the
+documents' ambiguity. At forty-eight domains **that is structural rather than
+careless** — an argument for d47's law map, and against adding further domains
+without cross-checking the earlier claims they bear on.

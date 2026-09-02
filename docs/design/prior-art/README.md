@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Forty-seven domains, surveyed against the four lens syntheses as they stood at
+Forty-eight domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -48,6 +48,7 @@ finding by whose design it changes. This index is organised by domain.
 | 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | 27 | few-run statistics — what to report when you cannot afford many games | `27-few-run-statistics.md` |
 | 28 | fitting a stochastic choice model to a deterministic agent — the V-alignment meter needs an order statistic | `28-fitting-a-stochastic-model-to-a-deterministic-agent.md` |
+| 48 | response to the red team — **R-5 has an airtight exemption, C59 is dead, and the algebra has a fourth operation** | `48-response-to-the-red-team.md` |
 | **47** | **THE FOURTEEN LAWS ARE THREE DISCIPLINES** — the survey's second synthesis document, and the taxonomy finds two gaps (**R-15**) | `47-the-fourteen-laws-are-three-disciplines.md` |
 | **46** | **determinization — the two pathologies, three measurable properties, and R-14: ONE parameter decides whether more search helps** | `46-determinization-and-the-one-parameter.md` |
 | **45** | **real-time heuristic search — pathology's third cause is our COMMITMENT RULE**, and the best fixed depth was 1 | `45-real-time-search-and-the-commitment-question.md` |
@@ -256,6 +257,16 @@ learned, all at once. This is the survey's strongest single architectural
 conclusion.
 
 ---
+
+> **R-5 has an AIRTIGHT NARROW EXEMPTION (d48).** Under Law D1 cluster results are
+> **proposals**, every priced plan is priced by the unconditional whole-board bank,
+> and the theorem is about re-solving a subgame **for its value** — so it cannot be
+> falsified by unpriced proposals. **The floors are safe.** R-5 stands for the fog
+> programme's memoisation and re-base questions (C37, C38) and does **not** apply to
+> the cluster decomposition under D1. The exemption's whole weight rests on one
+> property — *nothing in the proposing layer may write a bound* — enforced today by
+> an import ban nobody has named as load-bearing. **R-6's purest instance: promote
+> it to a law.**
 
 **R-5. Our architecture is a DECOMPOSITION architecture, and decomposition is
 sound in perfect-information games and *provably unsound* in imperfect-information
