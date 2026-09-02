@@ -723,3 +723,131 @@ undetermined resolution must over-remove somewhere. The obligation therefore
 becomes **state the conservative margin — this closure removes `X ∪ Δ` — and
 measure `Δ`**, which is exactly M84's counter, and is R-3 applied to the one
 restriction class the survey had not yet reached.
+
+---
+
+**ALL — domain 36: algorithm CONFIGURATION, the field whose entire subject is the
+knob bag.** Domain 14 surveyed algorithm *selection*; this is its sibling, and it
+is the one that bears on **ruling 49**. Thirty years of literature on *what values
+a parametrised algorithm's knobs should take, and what a fitted value's provenance
+must contain*. It was the survey's largest gap.
+
+**VALUE / OWNER / MEASUREMENT — C62 and R-12: your seed-population finding is not
+a reporting item, it is the missing half of the objective.** The field writes the
+problem as
+
+  `θ* ∈ argmin_θ ∫_I c(i,θ) dP(i)`
+
+over a population `P` on the instance space — and then says plainly that `P` is
+unknown in practice, *"and thus we must resort to solving a **proxy problem**"*
+over a training instance set, "similar to empirical risk minimization". So the
+provenance tuple is `(Θ, c, m, I_train, P, budget)`. Your `MEAS-4` §4 statement is
+exactly right — *"perfectly reproducible and not drawn from any declared
+population"* — and what this adds is **where the defect sits**: not in the report,
+in equation (1). A pinned contiguous seed range is a fine `I_train`; the missing
+object is the `P` it is a draw from, and without it the minimised quantity is
+undefined rather than imprecisely estimated. Your own **0.427→0.530 spawn-geometry
+swing** is the size of the term. **R-12** generalises it: this is the common root
+of the undeclared seed population, extrapolation error's in-/out-of-distribution
+split (d31), instance-space coverage (d26), Nash averaging's population redundancy
+(d9), and ruling 49's "explored at low density". And for a two-player game `P` is
+a *joint* distribution over boards, seats, seeds **and opponents** — so naming it
+requires an equilibrium over the roster, not a list of arms. **C62 and C29/C30
+compose.**
+
+**MEASUREMENT / TIME — C63: race and cap, but stop averaging the survivors.** Two
+halves that pull opposite ways.
+  - You can afford **far more comparisons** than an all-games-to-completion
+    protocol implies. F-Race discards inferior configurations as soon as a
+    non-parametric test says so; ParamILS accepts a configuration only if it was
+    evaluated on **more** instances **and** had lower cost on those; SMAC compares
+    only on the **same** sampled instances and seeds (your stratified bootstrap's
+    procedural twin); LeapsAndBounds sets phase budgets by **empirical Bernstein
+    stopping**, which adapts to the observed range and variance instead of a
+    pre-committed `n` (**M90** — the *procedure* d27 could only give statistics
+    for, and it composes with the bootstrap you built).
+  - The price is **right-censoring** — a capped run yields a lower bound on cost,
+    not a cost — and the loudest statement of the consequence is that
+    **Structured Procrastination deliberately returns the configuration with the
+    longest total execution time rather than the best empirical mean, "due to
+    theoretical reasons".** Under capping the mean over survivors is not an
+    estimator you may use.
+
+  **TIME, the live hazard is the CPP.** A profile compiled by running to successive
+  rungs is censored wherever a rung is not reached within budget. If deep rungs are
+  only reached on easy premises and the profile averages the premises that got
+  there, **the profile is optimistic and increasingly so with depth** — which is
+  exactly the shape that makes a saturating profile look like exhaustion. That is a
+  **second, purely statistical explanation for C48's ambiguity**, independent of
+  the evaluator-coarseness one. SP's rule is the fix and it is cheap: postpone a
+  hard instance to the back of the queue with a **doubled** timeout; never discard
+  it.
+
+**VALUE — C64: "which knobs matter" is region-dependent, and we live in the region
+where main effects are smallest.** Functional ANOVA on a random-forest surrogate
+decomposes performance variance over parameter subsets, `F_U = V_U/V`. Across ten
+solver/benchmark pairs: **main effects 20–88%** of total variance, **pairwise
+interactions up to 45%**, computed **in seconds on already-logged runs**. But the
+same scenario reads **88% on raw performance, 50% on improvement over the 25%
+quantile, and 26% on improvement over the default**. Our twelve slots are already
+hand-tuned — we operate in the third column. **A full-range sweep will over-state
+main effects and hide exactly the interactions that bind.** Decompose over
+improvement-over-default. This is a direct qualifier on d32's M79 plan to sort the
+twelve slots.
+
+**VALUE / OWNER — M87: ruling 49's provenance artifact already exists, and it is a
+PATH.** Ablation analysis walks one parameter at a time from the source (the
+expert default) to the target (the new setting), measuring each step; **>95% of
+the performance gain** between default and configured is accounted for by that
+path in the published scenarios. Three reasons it is the right artifact here: it
+is exactly ruling 49's shape (a member admitted with evidence for *its own*
+contribution, not the bundle's); it **falsifies bundles** — if six coefficients
+change together and five contribute nothing, five members should not be admitted;
+and it is `O(k²)` comparisons, **≤78 for twelve slots**, each racially cappable
+per C63, on the arm-vs-arm harness that already exists.
+
+**VALUE / SEARCH `[+]` M88 — coordinate-wise tuning is empirically near-optimal,
+with a checkable licence.** Across real solvers, individual parameter responses
+*and the full configuration landscapes* were **statistically indistinguishable
+from uni-modal at the 95% level**, and *"optimising each hyper-parameter
+independently a single time, in a random order, often yields final incumbents
+statistically tied with optimal"*. That corroborates the ICM/coordinate-ascent
+fallback and the one-slot-at-a-time habit — the field's answer to "isn't
+coordinate-wise naïve?" is *empirically, usually not*. But it is a regularity
+about solver parameters, not a theorem, and fANOVA's own 45% interaction figure is
+the counterweight, so **R-6 applies**: sweep one slot at fixed others and test
+uni-modality. That converts "we tune one at a time because it is easy" into "the
+response is uni-modal, and here is the test".
+
+**TIME — C65: name what the economy is. It is DYNAMIC algorithm configuration.**
+The economy does not pick one setting per game; it re-decides allocation *during*
+the search from the search's own progress. In this taxonomy that is not
+configuration — its output is a **policy** over `(instance features I, internal
+state features Q)`. And DAC's stated prerequisite (2) is that **runtime
+information must be provided describing the current internal state of the target
+algorithm**. Your scoped margin-column item ("needs an engine-side emitted field")
+is *one element of that vector*; the general requirement is stronger and worth
+stating as a prerequisite rather than an enhancement: **without `Q` there is no
+policy to learn, only a configuration to pick.** DAC's own examples of `Q` —
+current iteration, current restart number, current solution quality — are our
+quanta spent, re-base count and incumbent margin. **d29's one index, arriving from
+a sixth direction.**
+
+**TIME — M89: `ratio = 2` now has three convergent optimality results.** d2's M5
+recorded geometric tranches at ratio 2 with Zilberstein's penalty-≤4 theorem.
+Structured Procrastination reaches the same constant independently for the
+*configuration* problem — an overrun instance returns to its queue with a
+**doubled** timeout, and the procedure is runtime-optimal up to a log factor.
+Three literatures, same constant, same operation. That is the strongest provenance
+class the survey has found for any of our numbers, and it should be stated in
+ruling 49's own form: **not a swept value — a member whose provenance is three
+convergent optimality results.**
+
+**ALL — M91: R-4's fifth independent arrival, one layer up.** `set configuration`
+is a first-class value of the AC taxonomy's `candidate output` axis, and the
+multi-objective configurators return a **Pareto front over configurations** rather
+than a winner. The field's own open problem is precisely ours: it notes one should
+consider *"the Pareto front of the target algorithm in addition to (or instead of)
+a Pareto front over configurations"* — our plan set (d33) and our member
+collection (ruling 49) are different objects, and the literature says they get
+conflated. Keep them separate by name.
