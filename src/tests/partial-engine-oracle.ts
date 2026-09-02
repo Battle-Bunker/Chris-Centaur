@@ -41,6 +41,8 @@
 
 import type { ResolveTurnInput, ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { DEFAULT_POTION_WINDOW_TURNS, settleTurn } from '../engine-vendor/engine/settleTurn';
+import { NO_SPAWN } from '../engine-vendor/engine/spawn';
+import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/piece-moves';
 import type { Settlement } from '../engine-vendor/engine/settleTurn';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import type { ActiveEffect, ClashKind } from '@shared/types/Game';
@@ -227,11 +229,17 @@ export function oracleSettlement(tc: OracleCase): {
   settlement: SettlementView;
   settled: Settlement;
 } {
-  const result = settleTurn({
-    ...oracleInput(tc),
-    ...settlementInputsOf(tc),
-    teamOf: teamOfMap(tc),
-  });
+  const result = settleTurn(
+    {
+      ...oracleInput(tc),
+      ...settlementInputsOf(tc),
+      teamOf: teamOfMap(tc),
+      // The differential is about one turn's board, never the turn count.
+      maxTurns: null,
+      pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
+    },
+    NO_SPAWN
+  );
 
   const trail = new Map(tc.units.map((u) => [u.unitId, u.kind === 0]));
   const survivors = new Map<number, { cells: number[]; health: number; weight: number }>();
