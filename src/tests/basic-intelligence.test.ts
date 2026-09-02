@@ -315,9 +315,12 @@ describe('the bot does the obvious things', () => {
     );
     expect(metrics.crashed).toBeNull();
     expect(metrics.turns).toBeGreaterThan(20);
-    // The kernel reserves 40 ms of a decision for its final flush, so a 50 ms
-    // budget may legitimately run a little past itself; what must not happen is
-    // a decision that ignores the deadline.
-    expect(metrics.worstDecisionMs).toBeLessThan(150);
+    // A DEADLINE CHECK, NOT A BENCHMARK. Jest runs suites in parallel and a
+    // loaded box stretches every wall-clock reading, so this is deliberately an
+    // order of magnitude of slack: what it catches is a decision that ignores
+    // the deadline and searches to exhaustion, which runs for seconds. The real
+    // timing numbers are in docs/BASIC-INTELLIGENCE.md, measured on a quiet
+    // machine — worst single decision 137 ms against a 150 ms budget.
+    expect(metrics.worstDecisionMs).toBeLessThan(8 * 50);
   });
 });

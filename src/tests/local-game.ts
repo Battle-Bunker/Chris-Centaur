@@ -423,6 +423,14 @@ export interface GameMetrics {
   foodEaten: number;
   /** Moves that put a unit's head back on the cell it left last turn. */
   reversals: number;
+  /**
+   * Reversals WITH NO SCORING REASON: the unit went back where it came from and
+   * that move was not even the best one on the board by the bank's own proved
+   * floor. This is the number gate (b) is really about — a reversal the search
+   * can justify is a retreat, and a bot that cannot retreat is worse, not
+   * better. Only counted when the runner is scoring options (`scores: true`).
+   */
+  unjustifiedReversals: number;
   /** Unit-turns that ended where they began — a hold, or a pawn's rotation. */
   stationary: number;
   /**
@@ -471,6 +479,7 @@ export async function runGame(
     unitTurns: 0,
     foodEaten: 0,
     reversals: 0,
+    unjustifiedReversals: 0,
     stationary: 0,
     dithers: 0,
     movesWithChoice: 0,
@@ -517,7 +526,13 @@ export async function runGame(
             metrics.stationary++;
             if (lastStage !== undefined && lastStage !== key(tr.to)) metrics.dithers++;
           }
-          if (moved && prev !== undefined && prev === key(tr.to)) metrics.reversals++;
+          if (moved && prev !== undefined && prev === key(tr.to)) {
+            metrics.reversals++;
+            const best = tr.top[0];
+            if (best !== undefined && key(best.to) !== key(tr.to)) {
+              metrics.unjustifiedReversals++;
+            }
+          }
           previousStage.set(tr.wireId, key(tr.to));
           if (tr.seeded) metrics.seedKept++;
           metrics.unitTurns++;
@@ -674,6 +689,7 @@ async function summarise(
     unitTurns: 0,
     foodEaten: 0,
     reversals: 0,
+    unjustifiedReversals: 0,
     stationary: 0,
     dithers: 0,
     seedKept: 0,
@@ -736,6 +752,9 @@ async function main(): Promise<void> {
   console.log(`food per 100 unit-turns: ${perHundred.toFixed(2)}`);
   const pct = (n: number, d: number): string => (d === 0 ? '0.0' : ((100 * n) / d).toFixed(1));
   console.log(`reversal rate: ${pct(result.metrics.reversals, result.metrics.unitTurns)}%`);
+  console.log(
+    `  unjustified: ${pct(result.metrics.unjustifiedReversals, result.metrics.unitTurns)}%`
+  );
   console.log(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
   console.log(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
 }

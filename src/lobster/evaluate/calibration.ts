@@ -210,7 +210,7 @@ export interface CommandKnobs {
    * first of the three — and a king's death is TERMINAL, a lattice element and
    * not something a positional term may trade against.
    *
-   * The measurement, and it is a negative one. `TERRITORY_SLIDER_ROYAL_PROFILE`
+   * The measurement, and it is a negative one. `ROYAL_COMMAND_PROFILE`
    * lifts this flag; run as a third concurrent arm on `s3-mix23-base` at 150 ms
    * over 16 seed blocks a side, it moves the king's stay share by
    * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
@@ -310,17 +310,17 @@ export const TERRITORY_PROFILE: CriterionProfile = {
   weights: DEFAULT_WEIGHTS,
   reachHorizonTurns: REACH_HORIZON_TURNS,
   // THE SLIDER REPAIR, SEATED. It used to live in a profile of its own so the
-  // two could be measured against each other; the measurement is below, and
-  // watching one game (docs/BASIC-INTELLIGENCE.md) settled the rest — with
-  // `command` at zero a piece's options are indistinguishable and the bot
-  // dithers. Both knobs are gated on class properties the rules already carry,
-  // so a board with no piece on it is unaffected by either.
+  // two could be measured against each other; the measurement is above, and
+  // watching one game settled the rest — with `command` at zero every option a
+  // piece has scores identically, so the tie-break decides and a pawn spends
+  // the game turning on the spot (docs/BASIC-INTELLIGENCE.md). Both knobs are
+  // gated on class properties the rules already carry, so a board with no piece
+  // on it is unaffected by either.
   command: COMMAND_KNOBS,
   healthReserveRatio: HEALTH_RESERVE_RATIO,
 };
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
-
 
 /**
  * THE ABLATION ARM. Identical to the production profile except that a royal
