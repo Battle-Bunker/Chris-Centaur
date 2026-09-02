@@ -78,6 +78,7 @@ import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-s
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { centaurEngine } from '../config/centaur-engine';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
+import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
   ParsedTurn,
@@ -420,6 +421,12 @@ export class TacticToesFirebaseInterface {
     // arrives already shaped for the logger, so this is a forward and not a
     // translation — `turn` is already in the decision-log domain (board turn
     // + 1), which is what the submitted-move and server-move back-fills key on.
+    // THE PRODUCTION BOT BINDING SITE, bound here for the same reason the
+    // telemetry port is: the registry reads `config_store` over Postgres and
+    // the decision layer must stay one import away from no database at all.
+    // Before this line the live process played ONE bot for every game and
+    // every seat it held — see `TeamDecisionPorts.botBinding`.
+    botBinding: (gameId, centaurId) => botRegistry().bindingFor(gameId, centaurId),
     logDecision: (row) =>
       DecisionLogger.getInstance().logDecision({
         gameId: row.gameId,
@@ -1149,6 +1156,7 @@ export class TacticToesFirebaseInterface {
     this.watchedGames.delete(watched.gameID);
     this.deadlineGuards.delete(watched.gameID);
     this.teamEngine.release(watched.gameID);
+    botRegistry().release(watched.gameID);
     this.pinEvents.release(watched.gameID);
     this.unitIds.delete(watched.gameID);
     this.teamSubmitter.abandon(watched.gameID);
@@ -1393,6 +1401,7 @@ export class TacticToesFirebaseInterface {
     } else {
       this.gameManager.enableTeamStaging(watched.gameID, false);
       this.teamEngine.release(watched.gameID);
+    botRegistry().release(watched.gameID);
     }
 
     // Read-back + finalization for this turn: confirm what Firebase actually

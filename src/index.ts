@@ -22,6 +22,8 @@ import {
   TacticToesFirebaseInterface,
   firebaseInterfaceConfigFromEnv,
 } from './firebase/firebase-interface';
+import { botRegistry } from './config/bot-store';
+import { behaviourId } from './config/build-identity';
 
 const app = express();
 const port = parseInt(process.env.PORT || '5000');
@@ -216,7 +218,20 @@ httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Visit http://localhost:${port} for snake info`);
   console.log(`Visit http://localhost:${port}/config for configuration`);
   console.log(`Visit http://localhost:${port}/play for centaur play`);
-  serverEventLogger.recordBoot({ port, pid: process.pid });
+  serverEventLogger.recordBoot({ port, pid: process.pid, behaviourId: behaviourId() });
+  // WHICH BOT EACH GAME PLAYS, loaded before the first turn can arrive. The
+  // registry answers from its last load and refreshes on a TTL, so this is the
+  // difference between the first few games of a boot running under whatever
+  // the operator bound and running under the process default because nothing
+  // had read the table yet.
+  void botRegistry()
+    .refresh()
+    .then(() => {
+      const refusals = botRegistry().warnings();
+      if (refusals.length > 0) {
+        console.warn(`[bot-binding] ${refusals.length} stored binding(s) refused — see above`);
+      }
+    });
   // Idempotent: only creates games rows for logged games that don't have one.
   void gameRegistry.backfillFromDecisionLogs();
 });
