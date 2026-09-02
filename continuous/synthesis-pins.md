@@ -4217,3 +4217,24 @@ record; coordinator relays only what genuinely cannot wait.
   REDUCTION finding, not a position finding.) Lifecycle: Law C
   conservation invariant in with two constraints; disjointness via
   footprintOf's existing meet; fifteenth term as anticipatory meet.
+- Inbound-guidance lens batch 1 (design/operator-guidance @ e87b36b):
+  factoring = PORT × SCOPE × CONSTRUCTOR × LIFECYCLE × AUTHORITY.
+  Owner's seed confirmed + deepened: goto/near = SAME field generator,
+  different ramps (has-target dissolves into constructors;
+  has-completion-event dissolves into lifecycle); DRIVES ARE OPERATOR-
+  AUTHORED CARRIED PREMISES natively (Carried + standing lifetime +
+  activation predicate). Authority: guidance exceeds order-and-spend at
+  exactly three rungs — A2 widen-only, A3 admission edits (license|
+  restriction, owner-gated, two-signed), A4 determinations over sets
+  (pin=singleton; UCI searchmoves precedent) — with theorems: durable
+  authority caps at premise; optimism requires a named logged act.
+  G1 DEFECT: goto currently reaches the joint search as a PIN
+  ('waypoint' in PINNING_SOURCES) — kernel PAYS for guidance the design
+  meant survival to outvote; fix = compiled SearchContext terms.
+  Q12: platform interest-map gates scoring over human-curated support
+  (narrowed-from-nothing) — porting would destroy soundness; polarity
+  inverts (widen-from-adversarial); belief-weight port = ruling 13's
+  human-empathy channel (advised-only, one author class).
+  Value fields compile in POTENTIAL FORM (depth-fair, deferential).
+  Owner decisions queued on branch: Q11 (A3 license+restriction ship
+  together or neither), Q12.
