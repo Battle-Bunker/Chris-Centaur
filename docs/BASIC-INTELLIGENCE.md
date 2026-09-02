@@ -320,8 +320,19 @@ confirmed defect 4. If it is ever engaged, `DEFAULT_SWITCH_MARGIN` should be
 revisited at the same time: its original justification was specifically about
 h=1 readings that reverse at h=2, and that argument becomes live again.
 
-**`captureRank` is still weight-blind.** An ordering key only, and the
-evaluator prices the material either way; see the diagnosis.
+**`captureRank` is weight-aware now.** Captures order by EXPECTED captured
+weight — the victim's weight times its certainty, `yes` ahead of `maybe` at
+equal weight — with the old certainty rank kept as the tie-break, so an
+unpriced capture (a defeat against a cloud, which has no unit on the square to
+price) keeps exactly the order it had. `src/lobster/candidates.ts`,
+`captureOrder`. The diagnosis' claim that the evaluator prices the material
+either way is CONFIRMED: `materialBounds` folds each unit's own weight
+(`src/lobster/evaluate/features.ts:466-482`, over `Standing.weightMin/weightMax`
+set from `view.weight` at `:186-187`), so this closed the gap between what the
+anytime path LOOKS at first and what it was already able to score, and no
+evaluator term needed changing. Snake-only boards are byte-identical on every
+counter before and after — a snake rarely has two captures competing at once —
+and the mixed board is where it shows.
 
 **The certain-self-fatal PRUNE is still off on snake-only boards.** Only the
 ordering half was made unconditional. The recorded verdict against the prune
