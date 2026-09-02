@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Forty-six domains, surveyed against the four lens syntheses as they stood at
+Forty-seven domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -48,6 +48,7 @@ finding by whose design it changes. This index is organised by domain.
 | 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | 27 | few-run statistics — what to report when you cannot afford many games | `27-few-run-statistics.md` |
 | 28 | fitting a stochastic choice model to a deterministic agent — the V-alignment meter needs an order statistic | `28-fitting-a-stochastic-model-to-a-deterministic-agent.md` |
+| **47** | **THE FOURTEEN LAWS ARE THREE DISCIPLINES** — the survey's second synthesis document, and the taxonomy finds two gaps (**R-15**) | `47-the-fourteen-laws-are-three-disciplines.md` |
 | **46** | **determinization — the two pathologies, three measurable properties, and R-14: ONE parameter decides whether more search helps** | `46-determinization-and-the-one-parameter.md` |
 | **45** | **real-time heuristic search — pathology's third cause is our COMMITMENT RULE**, and the best fixed depth was 1 | `45-real-time-search-and-the-commitment-question.md` |
 | **44** | **automation bias — the surface's failure mode scales with its QUALITY**, and the ask threshold is a portfolio constraint, not a per-decision optimum | `44-automation-bias-and-the-cost-of-being-trusted.md` |
@@ -316,6 +317,18 @@ built on it cannot do the one thing a meter is for. When the quantity of interes
 is an **ordering**, use an **order statistic** — our comparator needs a `V` correct
 only *up to monotone transform*, and pairwise order agreement tests exactly that
 where log-loss does not. See domain 28.
+
+**R-15. Several of the architecture's most important quantities are properties of
+a SET of decisions and have no per-decision meaning.** The surfaced set's positive
+predictive value (d44), a closure's interference rate (d35), an ε-approximate
+Pareto set's ε (d33), the risk budget (d15), the minimum detectable effect (d30).
+**The failure mode is that there is no locally wrong step**: every individual
+decision is justifiable by its own reasoning while the set-level quantity drifts
+past the point where it matters — which is exactly why review, which looks at
+decisions, does not catch it. **A quantity like this must be held as a CONSTRAINT
+over a window, measured over that window, with the per-decision rule optimising
+inside it.** The remedy has one shape across all five: a window, a measured
+set-statistic, and a constrained per-decision rule. See domain 47.
 
 **R-14. Whether more search helps is governed, in three independent search
 paradigms, by ONE quantity: the correlation between the values of SIBLING

@@ -2039,3 +2039,71 @@ and `df` are defined over *terminal* payoffs and we cut off at a rung, so they n
 re-expressing over *evaluated* nodes — which makes `lc` a property of the game **as
 seen through our evaluator**, arguably the more useful quantity and exactly what
 d31's residual work already probes.
+
+---
+
+**ALL — domain 47: the fourteen laws are three disciplines, and the taxonomy finds
+two gaps.** The survey's second synthesis document (after d29's one-index claim).
+The laws accumulated one at a time and there are now fourteen, which is too many to
+hold — and the number misleads, because **most are the same discipline applied at a
+different layer**.
+
+| family | general form | instances | what discharging it costs |
+|---|---|---|---|
+| **A. Name the precondition** | **R-6** — every soundness argument names a hypothesis, and prose does not fail | R-5 (decomposition assumes perfect information) · R-12 (a fitted number assumes a population) · R-13 (an annotation may be reduced early iff the map is a homomorphism) · R-14 (search helps iff siblings correlate) · R-10 (a statistic has invariances) | **five assertions and one habit** |
+| **B. Do not collapse before you must** | *keep the richer object until forced, and carry the bound on what the reduction lost* | R-4 (the answer) · R-3 (the option set) · R-2 (the accounting) · R-1 (the trace) · R-13 (the annotation) | **one design-review question**: what is being collapsed here, and does the collapse carry a bound? |
+| **C. Measure honestly** | **R-9** — ask what the statistic's limit is as the effect goes to zero | R-8 (bounded above ⟹ saturates) · R-8b (pinned ⟹ cannot rank) · R-8c (spend-denominated ⟹ always "act") · R-10 · R-11 (stratify before pooling) | **one question asked of every new column** |
+| **(alone)** | **R-7** — the architecture's value is **option value**, and it is priced | — | it is the answer to *why do any of this* |
+
+  **R-13 sits in both A and B, and that is informative**: it is the only law that
+  says *exactly when* early collapse is safe. Family B is otherwise a set of cases
+  where it is not.
+
+  **Family C's provenance is worth keeping**: every member was produced by a
+  measurement that fired misleadingly — a bounded win probability manufacturing a
+  cycle, a boundary-pinned `β̂` unable to rank, a spend-denominated noise floor
+  scoring a thrice-dead cell alive, a rank meter blind to the hypothesis it was
+  registered for, a pooled correlation with the wrong sign. **Five instruments, five
+  different failures, one question that would have caught all of them.**
+
+**Gap one — TIME: the buy-time action, the 50% rule and the commitment window are
+ONE design question.** Family B has a member for the option set, the answer, the
+trace, the accounting and the annotation — and **none for time**. Three findings
+from three literatures supply it: **prefer a plan whose commitment point is later**
+(d39's C74, the transfer-of-control `D` action), **begin no rung you cannot finish**
+(d37's M93 — a rung is a *contract* algorithm, so its marginal value is its value ×
+`P(finish)`), and **longer commitment is not more search, it is the same compute
+rearranged** (d45's C93). Family B's rule applies unchanged: *do not commit before
+you must, and carry the bound on what the commitment cost.* Not a new law — an
+existing rule at a layer where the instances had been found but not connected.
+
+**Gap two — ALL: R-15, the quantities that belong to a SET of decisions.**
+
+  > **Several of the architecture's most important quantities are properties of a
+  > SET of decisions and have no per-decision meaning. A rule that optimises each
+  > decision in isolation will drift the set-level quantity without any single
+  > decision ever looking wrong — which is why the drift is not caught by review.
+  > Hold such a quantity as a CONSTRAINT over a window, measure it over that window,
+  > and let the per-decision rule optimise inside it.**
+
+| quantity | domain | why it is not per-decision |
+|---|---|---|
+| the surfaced set's **PPV** | d44's C90 | at PPV 0.3 operators ignored *about half the true alarms*; the cost of one extra surfacing lands on **future** interactions |
+| a closure's **interference rate** | d35's M84 | *"how often does it remove the plan the search would have chosen"* is a rate, not a property of any one removal |
+| the **ε** of an ε-approximate Pareto set | d33 | ε bounds the **set**; no member carries it |
+| the **risk budget** (ε-as-a-ledger) | d15's C45/C46 | *"risk at most what has been earned over the equilibrium"* is an accounting over a sequence |
+| the **minimum detectable effect** | d30's R-9 | a property of the experiment, not of the comparison |
+
+  **The failure mode is what makes it a law: there is no locally wrong step.** Every
+  individual surfacing is justifiable by its four utilities while the surface's PPV
+  slides past the point where the operator stops responding; every individual
+  closure removal is justifiable while the closure quietly becomes a policy; every
+  individual deviation is justifiable while the risk budget is exhausted. **Review
+  looks at decisions, and the defect is not in any decision.** The remedy has one
+  shape across all five — a window, a measured set-statistic, a constrained
+  per-decision rule — so **four findings that looked unrelated are one pattern with
+  one implementation.**
+
+**A standing test for the map**: if a fifteenth law does not fit the three families,
+that is evidence against it. Record it rather than extending the taxonomy to
+accommodate it.
