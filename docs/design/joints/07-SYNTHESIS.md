@@ -99,6 +99,7 @@ reading any file. So: every law this lens asserts, one line each.
 | **H** (cross-horizon) | horizons never compare as projections; they meet only inside a fold that declares its discount | the depth rung's licence, previously unwritten |
 | **M** (sub-provenance) | a member with internal structure declares its parts; engagement counts per part | where Frankenstein relocates |
 | **N** (no config language) | the bot value is data — literals, member ids, four `Choice` forms; no interpolation, expressions or cross-references | every Hydra/gin failure mode |
+| **T** (tightening) | index equality does not merely license comparison — values at an equal index **compose to a tighter bound**. Refusal is what the index costs; tightening is what it pays | the bank already does this, and it is why its basis discipline survived four months of churn |
 | **I** (identity separation) | content hashes and stable names are never interchanged — **names find, hashes validate**; a cache keyed by name is a bug, a carry keyed by hash is a bug | the search map, attention carry, warm promotion |
 | **A** (argument premises) | a soundness argument carries its hypotheses, checkable at the site that consumes the guarantee; dissolve → derive → assert → drop-and-record, and every hypothesis owes a falsification test | five of six recorded defects of this class are already dissolved structurally |
 | **V** (vocabulary walls) | a claim of the form "X may only speak through channel Y" is enforced by a closed import vocabulary **plus** a lint ban **plus** a falsification test, and is not made without all three | the advisory channel, ADVICE's one-way flow, the rules artifact |
@@ -144,7 +145,8 @@ observability and load-bearing the day masks arrive.
    support (a potion sits at a legal destination on 8.17% of unit-decisions),
    lost at joint level, or **priced and then refused by the emission rate
    limiter, which is 15–43% of every plan priced** and which no evaluator weight
-   at any setting can rescue. A sixth cause is **non-convexity** — the argmax
+   at any setting can rescue — and which is **published and priced** through an
+   emission window the economy reads, never a gate on admission (`31`). A sixth cause is **non-convexity** — the argmax
    jumps between two plans as a weight crosses a threshold and never rests on
    intermediates — and it is the only one whose remedy is a different
    scalarization rather than a different number.

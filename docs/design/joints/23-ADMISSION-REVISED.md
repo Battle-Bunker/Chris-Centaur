@@ -67,8 +67,17 @@ spent on plans the emission stage will refuse — because the emission constrain
 is **not visible upstream**. Under this manifest that is not a bug to patch, it
 is a missing declared read:
 
-> **The emission obligation is a premise coordinate, and admission and pricing
-> must read it.** The rate limit belongs in the observable group's
+> **SUPERSEDED by `31-EMISSION-WINDOW.md`** — this paragraph is wrong twice.
+> "Not admitted and not priced" destroys the accumulation of sub-threshold
+> improvements (three at 0.4ε stage as 1.2ε), and siting the constraint in the
+> ACTION closure would manufacture the one cross-kind coupling my own weighted
+> co-change matrix says does not exist (ACTION × ECONOMY = 0.3, the smallest
+> cell). The window is **published by the kernel and priced by the economy**;
+> `better()` never reads it. It is also not a premise coordinate: it fails C59
+> at decision scale, and experiment scale already carries it as `regime`.
+>
+> ~~**The emission obligation is a premise coordinate, and admission and pricing
+> must read it.**~~ The rate limit belongs in the observable group's
 > provenance-of-computation (`12 §D6`), so a plan that cannot be emitted this
 > slice is not admitted and not priced. That is exactly the shape of
 > `09 §BREAK 1`'s obligation law — ECONOMY's second law — and this measurement
