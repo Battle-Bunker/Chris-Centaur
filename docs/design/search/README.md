@@ -2,9 +2,10 @@
 
 The search algorithm itself: how joint moves are proposed, how the
 simultaneous-move structure is handled game-theoretically, how clusters
-decompose the board, how deep lines are explored and backed up. The four
-earlier lenses carved time/economy, belief/fog, value and composition; none of
-them owned this.
+decompose the board, how deep lines are explored and backed up — and which
+computation runs next, which is a search problem too and which no lens had
+claimed. The four earlier lenses carved time/economy, belief/fog, value and
+composition; none of them owned this.
 
 **Start at `05-SYNTHESIS.md`.** It is standalone. Its §7 is the owner-facing
 summary (piped through `tools/principal-glossary/check-briefing.js` on
@@ -18,6 +19,7 @@ summary (piped through `tools/principal-glossary/check-briefing.js` on
 | `03-PROPOSAL.md` | what does the literature say about basin coverage? | eight operators, nine constants, no socket, no record. Law P1: restrictions must be adaptive on value or bounded. The missing operator is an ejection chain |
 | `04-BACKUP.md` | how does our max-min backup compare to the standard rules? | implicit-minimax-backups shaped with a strictly better combiner. A floor folded into a mean slot, over an odometer prefix that collapses on slider boards |
 | `06-THE-COLUMN-SET.md` | what does the double-oracle half we DID build cost? | the restricted matrix is already computed cell by cell and thrown away; `price()` cost drifts upward within a decision because the witness set only grows; workers generate columns and discard them. Contains the full S0 specification |
+| `08-METAREASONING.md` | which computation runs next, and who says so? | `voc.ts` is meta-greedy in Russell & Wefald's sense, with its known failure live and patched by hand. `alternate()` is `pairRepair()` for the metalevel — the same myopia, twice, at two levels, patched twice, never named once. Fourteen unprovenanced constants decide what gets computed before anything is compared |
 | `07-ANYTIME-STRUCTURE.md` | what does the search promise about being interrupted, and what does prefix determinism cost? | we have a *proved* recognizable-quality measure (`maxGap`) and have never plotted it against time — which is the missing input to every allocation question. Prefix determinism is maintained across six sites for one analysis the critic discounted; Law I says an invariant is addressed like a member |
 
 `probes/accept-cycle.probe.ts` — drop into `src/lobster/__tests__/` on
@@ -25,11 +27,24 @@ summary (piped through `tools/principal-glossary/check-briefing.js` on
 `posteriorOfBranch` / `foldObservation` / `precisionOfSigma` / `refutedAt` and
 demonstrates the cycle in `05-SYNTHESIS.md` §2.1.
 
-## The six things to build first, none of which change behaviour
+## What to build first
 
-1. `restrictedGap` — the value of the matrix the bank already holds (S0)
-2. `proposedBy` — which of eight operators proposed the accepted trial (S1)
-3. `planDistance(staged, nearestProposal)` — does the enumeration reach what we play (S2)
-4. `adjudication.*Decided` split by contested-vs-quiet — does the floor go flat where it matters (S3)
-5. round-robin vs odometer on slider boards — is the deep max scanning one coordinate (S4)
-6. accept-events per plan key inside one `improve` — is the cycle realised (S5)
+One item is a pure win with nothing to decide, and it should go first because the
+member it fixes has not been seated yet:
+
+0. bound the seed's sample count by the size of the space it samples, and return
+   the unspent budget (S0½) — today a five-option group draws ~909 samples
+
+Then seven instruments, **none of which change behaviour**, each answering a
+question about our own boards from data we already hold:
+
+1. `restrictedGap` — the value of the matrix the bank already computes and throws away (S0)
+2. `maxGap` against elapsed time — the proved anytime quality axis nobody has plotted (S0¾)
+3. `(family, cost, Δ maxGap)` per applied lever — is the metalevel's model right (S0⅞)
+4. `proposedBy` — which of eight operators proposed the accepted trial (S1)
+5. `planDistance(staged, nearestProposal)` — does the enumeration reach what we play (S2)
+6. `adjudication.*Decided` split by contested-vs-quiet — does the floor go flat where it matters (S3)
+7. round-robin vs odometer on slider boards, and accept-events per plan key (S4, S5)
+
+Plus one fixture that costs nothing and prevents a future silent break:
+a law-suite subject with a **set-valued position** (S2½).

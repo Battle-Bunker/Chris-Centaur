@@ -1,9 +1,9 @@
 # SYNTHESIS — the search factorization
 
 Final document of the SEARCH-THEORY lens: what the bot's brain is in the
-literature's terms, the four joints it factors into, what today's code is as a
+literature's terms, the five joints it factors into, what today's code is as a
 member of each, where it contradicts the other lenses, and what to build in what
-order. Standalone; documents 00–04 hold the derivations.
+order. Standalone; documents 00–04 and 06–08 hold the derivations.
 
 ---
 
@@ -33,7 +33,7 @@ which *every quantum of compute the economy buys is invisible in the output*
 (§2.4, the strongest architectural argument for the Centaur direction found
 anywhere in this program).
 
-**The factorization.** Four joints, in dependency order. Each has a typed
+**The factorization.** Five joints, in dependency order. Each has a typed
 contract, one law, a member list with today's member marked, and at least one
 falsifier that changes no behaviour.
 
@@ -43,20 +43,27 @@ falsifier that changes no behaviour.
 | **DECOMPOSITION** | which units get solved jointly, and who decides? | **D1** a decomposition may GENERATE proposals and may never compute, bound, order or compare a value. **D2** the cut must be measurable on the coarsest *shared* information — geometry is the full-observability special case | coordination graph + slider cutset, computed once per decision, four sub-joints of which three are at their null member; the cut is public today and **not** public at ply ≥ 2 |
 | **PROPOSAL** | where does a trial come from? | **P1** every option-set restriction is adaptive on value OR carries a bound on what it removed. **P2** proposals are proposals | eight operators, nine constants, no socket, no record of which one won |
 | **BACKUP** | what is a deep line worth and how does it come home? | **B1** one reduction at every ply. **B2** a bound may not be consumed as a mean without a declared conversion | a floor folded into a mean slot, over an odometer prefix, with an excellent combiner |
+| **METALEVEL** | which computation runs next? | **M1** a computation's value must be measured against the quality it claims to move, not only asserted | meta-greedy over fourteen unprovenanced constants, with a hand-built diversification patch for meta-greedy's known failure — and one excellent refusal (no exchange rate between slack and horizon) |
 
-**Why this is a carving and not a taxonomy.** The four are one-to-one with the
-four irreducible facts about *searching* this game, and they are exactly the four
-the composition lens's ACTION and REDUCTION kinds gesture at without opening:
+**Why this is a carving and not a taxonomy.** The five are one-to-one with the
+five irreducible facts about *searching* this game, and the first four are exactly
+what the composition lens's ACTION and REDUCTION kinds gesture at without opening:
 moves are simultaneous, so a value is a function that must be reduced (REDUCTION);
 our move is a product space with contested-cell structure, so it must be factored
 to be searched (DECOMPOSITION); the factored space is still too big to enumerate,
-so trials must be proposed (PROPOSAL); and the one-turn frame is not the game, so
-something must come back from deeper (BACKUP). Nothing else in a search is a
-choice; everything else is bookkeeping.
+so trials must be proposed (PROPOSAL); the one-turn frame is not the game, so
+something must come back from deeper (BACKUP); and the budget is finite, so
+*which computation to run* is itself a decision (METALEVEL). Nothing else in a
+search is a choice; everything else is bookkeeping.
+
+The fifth is the one no lens had claimed. The TIME lens owns the *budget* and
+explicitly hands the lever menu on; the BELIEF lens owns what a lever *changes*;
+neither owns the *choice*. It is a search problem with its own literature and its
+own named failure mode, and that failure mode is live (§2.4⅞b).
 
 ---
 
-## 2. The five findings that matter most
+## 2. The findings that matter most
 
 ### 2.1 The acceptance relation admits a 3-cycle, and here it is
 
@@ -361,6 +368,58 @@ existence proof. What changes is the **order of work**: the clause has to exist
 before anyone builds on the decomposition, because retrofitting a public cut into
 a geometric one is a rewrite and adding the clause now is a paragraph.
 
+### 2.4⅞b The same myopia appears twice, at two levels, and the code has patched it twice without naming it once
+
+`voc.ts` chooses which computation the next slice runs. `argmaxPerCost` — argmax
+of `value / cost` over one lever at a time — is **meta-greedy** in Russell &
+Wefald's sense: it values each computation as if it were the last. That policy
+has one famous failure, named in the same literature that introduced it:
+*computations whose value only appears in sequence are systematically
+undervalued.*
+
+Set that beside the object level:
+
+| level | the greedy step | where it sticks | the hand-built escape |
+|---|---|---|---|
+| **object** | `sweep`: one unit's deviation, as if it were the last move | two units must move **together** | `pairRepair`, `jointPolish`, `perturb` |
+| **meta** | `argmaxPerCost`: one computation, as if it were the last | a **sequence** only pays off together — catch up a cloud, *then* narrow it, *then* deepen past it | `alternate()`: force a family switch when the same family won last, accepting anything within `bestRatio / 2` |
+
+> **`alternate()` is `pairRepair()` for the metalevel.** Two one-step-greedy
+> searches, the same failure mode for the same reason, the same shape of patch
+> bolted on, discovered independently — and neither named as an instance of the
+> other. In both cases the literature's principled remedy is **value the
+> bundle**, not *diversify by alternation*: k-opt / ejection chains below, and
+> Hay, Russell, Tolpin & Shimony's **blinkered** valuation (UAI 2012 — price a
+> sequence of computations directed at one object) above.
+
+And the blinkered member is nearly free, because the dependency structure it
+needs is already encoded as **lever preconditions**: *"stale units cannot be
+narrowed or advanced"*, and *"never deepen past a FREE gated unit's meeting time
+— narrow it first, or the new leaves arrive vacuous."* Emit `catchup → narrow`
+as one estimate at summed cost and let `argmaxPerCost` range over bundles too.
+If it works, `alternate()` is **deleted**.
+
+Two further things about that layer, because it is upstream of everything else
+the program measures — it decides what got computed before anything was
+compared. **`estimates()` contains fourteen unprovenanced constants** governing
+lever pricing; the file measures and defends the lever *order* and not one of the
+fourteen. And the object-level quantity they are trying to move — `maxGap`, the
+proved quality of §2.4⅞ — is right there and never consulted as an outcome. One
+subtraction per slice, `(family, cost, Δ maxGap)`, turns fourteen assumed
+value-per-cost ratios into fourteen measured ones. That is the only
+Ruling-49-compatible way I can see to hold the metalevel to account without a
+re-fitting programme that would itself be distortionary.
+
+One thing in that file is excellent and should be defended: it **refuses to
+invent an exchange rate** between slack at a fixed horizon and horizon itself.
+`Confidence` is a pair, `compareConfidence` is a partial order that answers
+"incomparable", and deepen is rationed by stability rather than chosen by a
+ratio. That is the same refusal the bounds layer makes about cross-basis
+comparison — **two refusals, one principle** — and the recurring pattern across
+docs 04, 07 and 08 is that *the parts of this architecture that refuse to invent
+a number are consistently its strongest, and the parts that invent fourteen are
+consistently where the literature's named failure modes are live.*
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
@@ -589,6 +648,7 @@ whose population is modest variations of one lineage.
 | **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
 | **S0½** | **bound the seed's sample count by the size of the space** (§2.4⅞) and return the unspent budget | yes, but strictly less work for the same output | nothing to decide — a pure win, and it must land before `multistartSeed` is ever seated or the redesign ships spending most of a 100 ms slice re-drawing five options |
 | **S0¾** | **the performance profile**: emit `basis.maxGap` with each emission's timestamp and plot it per board class from the replay corpus (doc 07 §3) | one field, then analysis on existing replays | diminishing returns, and it converts every allocation constant into a calculation. We already have a **proved, monotone, recognizable** quality measure — `maxGap` is simultaneously the ratchet's enforcement variable, the hand-built proxy for the option set Γ-maximin refuses to produce, and the anytime y-axis — and have never drawn the curve |
+| **S0⅞** | **`(family, cost, Δ maxGap)`** recorded after each applied lever, on top of S0¾ (doc 08, Finding M-4) | no | the *measured* value-per-cost of each lever family against the fourteen *assumed* ones. This layer decides what got computed before anything was compared, so it is upstream of every measurement the program takes — and it is one subtraction per slice |
 | **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
 | **S2** | **`planDistance(staged, nearestProposal)`** per decision | no | whether the enumeration reaches the plan we stage. No decomposition design survives a bad answer |
 | **S2½** | **a law-suite subject with a set-valued position** (§2.4⅚b) | one fixture | the cheapest prophylactic on the books. It makes `cluster-enum`'s cross-cluster-zero identity break *inside the suite and localised* on the day the observation model changes, instead of surfacing as an unlocalisable regression alongside six other changes |
