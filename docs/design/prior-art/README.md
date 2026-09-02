@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-five domains, surveyed against the four lens syntheses as they stood at
+Twenty-six domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -40,6 +40,7 @@ finding by whose design it changes. This index is organised by domain.
 | 23 | the dependency problem, and where our floor meets it twice | `23-the-dependency-problem-and-the-floor.md` |
 | 24 | scalarization — the plans no weighting can reach (R-4's fourth and sharpest argument) | `24-scalarization-and-the-unreachable-plans.md` |
 | 25 | response to the second round of measurements — **the game is NOT transitive**, and the VBS−SBS null may be a pooling artifact | `25-response-to-the-second-round-of-measurements.md` |
+| 26 | instance space — which cells discriminate, and how to build more (the automatic dead-cell detector) | `26-instance-space-and-the-dead-cell-problem.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---

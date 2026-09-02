@@ -476,3 +476,21 @@ the bank's ceiling as reference point. And migrating lexicographic → additive 
 an improvement in derivability and legibility, **not in expressiveness** — the two
 have different reachable sets, which is also *why* the value lens's withdrawn
 "one dial interpolates lexicographic↔additive" claim had to be withdrawn.
+
+**VALUE / MEASUREMENT — instance space** (d26). The knight cell has been
+diagnosed as a dead instrument **three times by three routes**, each costing an
+investigation. The automatic detector is one column over the arm × cell matrix
+POP-1 already builds: **deadness = the spread of ARM performance on a cell,
+relative to that cell's within-arm noise floor.** Distinct from M5 — M5 asks
+whether the *outcome* varies, deadness asks whether it varies *between arms*, and
+a cell high on the first and zero on the second is the worst case for spending a
+block. Then **feature the cells and plot the instance space** (every feature is
+cheap and most are computed: roster composition, (K,W,p), geometry, induced
+width, contested density, spawn rate, team count) — which converts "we have four
+cells" into a **coverage statement**, the half of ruling 49's concern that nothing
+currently addresses. And the first measurement-derived experiment design the
+programme has: the cyclic component reverses sign between snake and piece boards,
+so **evolve instances along that direction** and test near the crossing point.
+Smith-Miles's ISA is an explicit extension of **Rice's framework**, so its
+**footprints are the fitted `Choice = conditional` selector** with statistical
+support attached.
