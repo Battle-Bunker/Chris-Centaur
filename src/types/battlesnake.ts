@@ -70,6 +70,9 @@ export interface Board {
   // default — readers use `board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT`
   // (piece-moves.ts).
   pawnPromotionWeight?: number;
+  // The turn count the game is adjudicated at (GameSetup.maxTurns): absent
+  // means the engine's default limit, null means unlimited.
+  maxTurns?: number | null;
   // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
   // keyed by unit type regardless of whether that type is currently fielded —
   // a pawns-only setup can still configure the queen's max for the moment a

@@ -8,8 +8,10 @@
  */
 
 import { ActiveEffect, UnitType } from "@shared/types/Game"
+import { BoardView, Outcome, adjudicate } from "./adjudicate"
 import { Orientation, toXY } from "./moveGrammar"
 import { ResolveTurnInput, TurnResolution, resolveTurn } from "./resolveTurn"
+import { Spawner } from "./spawn"
 
 /**
  * Turn SETTLEMENT: everything `resolveTurn` does, and then the end-of-turn
@@ -35,9 +37,21 @@ import { ResolveTurnInput, TurnResolution, resolveTurn } from "./resolveTurn"
  * charging a pickup, lapsing a window — has written the second encoding again.
  * Read `tiers`.
  *
+ * Settlement also says whether the game is OVER: `outcome` is null while the
+ * game continues and an adjudication when it ends. A caller simulating a line
+ * therefore knows when the line stops, which is what makes a turn limit
+ * representable at all rather than an infinite horizon everybody plays into.
+ *
+ * The turn's new items come from the injected `Spawner`: the rules for where
+ * an item may land and how many arrive are in `spawn.ts` with the rest of the
+ * rules, and only the randomness is passed in. The server hands settlement a
+ * spawner over its real RNG; a caller that would rather under-model the item
+ * supply than invent cells hands it `NO_SPAWN`.
+ *
  * Still deliberately absent, because they need state this module does not
- * carry: SPAWNING food, hazards and potions (all random — collection is a
- * rule, spawning is a die roll); scoring, winners and MMR; anything Firestore.
+ * carry: the winner ROWS, MMR and placements a caller builds out of an
+ * outcome; placing hazards, the fertile map and the units themselves when the
+ * board is first built; anything Firestore.
  */
 
 export interface SettleInput extends ResolveTurnInput {
@@ -69,6 +83,19 @@ export interface SettleInput extends ResolveTurnInput {
    * collapses to the single square it stands on.
    */
   readonly pawnPromotionWeight: number
+
+  /**
+   * The turn count this game is adjudicated at, or null for a game that runs
+   * unlimited. Pass `resolveMaxTurns(setup.maxTurns)`: an absent setting is
+   * the default limit, and only a written-out null opts out.
+   */
+  readonly maxTurns: number | null
+  /**
+   * The previous committed turn's board. Read by exactly one branch — the one
+   * where every remaining team dies on this turn and the outcome has to come
+   * off the last board somebody was standing on.
+   */
+  readonly previous?: BoardView
 }
 
 /** The window a setup that names none plays with. */
@@ -85,8 +112,13 @@ export interface Settlement extends TurnResolution {
    * search can walk rather than three turns that all look the same.
    */
   tiers: { [unitID: string]: number }
-  /** Potion cells still on the board once every collector has taken one. */
+  /**
+   * Potion cells on the board as the turn closes: the ones no collector took,
+   * plus anything the spawner placed. `spawned.potions` names the new ones.
+   */
   potions: number[]
+  /** The cells the spawner added this turn, already folded into the board. */
+  spawned: { food: number[]; potions: number[] }
   /**
    * Facing as the turn closed, survivors only — the dead drop out of the map
    * rather than lingering in it. A caller that keeps its own copy of the
@@ -102,9 +134,15 @@ export interface Settlement extends TurnResolution {
   unitTypes: { [unitID: string]: UnitType }
   /** Units that promoted this turn, for anything that wants to announce it. */
   promoted: string[]
+  /**
+   * Whether the game ended on this turn, and how. Null while it continues.
+   * Adjudicated on the settled board — after promotion, so a pawn that traded
+   * its stack for a queen is weighed at the weight it actually ends on.
+   */
+  outcome: Outcome | null
 }
 
-export const settleTurn = (input: SettleInput): Settlement => {
+export const settleTurn = (input: SettleInput, spawn: Spawner): Settlement => {
   const resolution = resolveTurn(input)
 
   const dead = new Set(Object.keys(resolution.deaths))
@@ -260,5 +298,56 @@ export const settleTurn = (input: SettleInput): Settlement => {
     if (settled.health > queenMaxHealth) settled.health = queenMaxHealth
   })
 
-  return { ...resolution, effects, tiers, potions, orientation, unitTypes, promoted }
+  // 6. Spawning, last of the board phases and after promotion, exactly where
+  // the processor used to run it. A promoted pawn's collapse frees no cell —
+  // a piece's occupancy is N copies of one square — so the free set is the
+  // same either way, but the ORDER is kept anyway: the food spawner draws
+  // before the potion spawner, and the potion spawner sees the food that was
+  // just placed, so nothing lands on top of anything else.
+  const occupancy = aliveInOrder.map(
+    (unitID) => resolution.board[unitID]?.occupancy ?? [],
+  )
+  const spawnState = {
+    boardWidth: input.boardWidth,
+    boardHeight: input.boardHeight,
+    walls: input.walls,
+    hazards: input.hazards,
+    occupancy,
+    food: resolution.food,
+    potions,
+  }
+  const spawnedFood = [...spawn.food(spawnState)]
+  const food = [...resolution.food, ...spawnedFood]
+  const spawnedPotions = [...spawn.potions({ ...spawnState, food })]
+  potions.push(...spawnedPotions)
+
+  // 7. Adjudication, on the board as it now stands: promotion has already
+  // collapsed what it was going to collapse, so the weights the outcome is
+  // decided at are the weights the turn actually ends with. Spawning food or
+  // potions afterwards cannot change it — items are not weight.
+  const board: BoardView = {
+    alive: aliveInOrder,
+    pieces: Object.fromEntries(aliveInOrder.map((unitID, i) => [unitID, occupancy[i]])),
+  }
+  const adjudicated = adjudicate(
+    board,
+    input.previous,
+    input.teamOf,
+    input.turn,
+    input.maxTurns,
+  )
+  const outcome = adjudicated.kind === "continues" ? null : adjudicated
+
+  return {
+    ...resolution,
+    food,
+    effects,
+    tiers,
+    potions,
+    spawned: { food: spawnedFood, potions: spawnedPotions },
+    orientation,
+    unitTypes,
+    promoted,
+    outcome,
+  }
 }
