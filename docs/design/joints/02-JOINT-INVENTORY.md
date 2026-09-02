@@ -296,6 +296,13 @@ is declared. I accept the narrowing:
 > vector must become data, because an undeclared order is worse than a declared
 > one.
 
+**Unwound (cycle 12).** The narrowing below is sound only in the *one-currency*
+regime, and the shipped weights are declared rather than fitted, so we are not
+in it: a weighted sum is *a* law with a known blind spot (it cannot reach Pareto
+points off the convex hull at any weight vector), not *the* law. VALUE's law is
+a **declared scalarization** with a member family — see `28-SCALARIZATION.md`,
+which also explains why no continuous dial can connect two of them.
+
 **Update (VALUE lens cycle 2).** They then derived the twelve slots against the
 currency and found **9 of 11 are value flows the currency subsumes**, with a
 principled residual that the currency cannot express and precedence must:

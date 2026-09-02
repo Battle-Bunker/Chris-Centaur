@@ -70,7 +70,7 @@ unrelated — see `27-DSM-AND-BUDGET.md`.*
 | kind | member is | composition law | notes |
 |---|---|---|---|
 | **MODEL** | a premise-producing claim about the world | **lattice join** (weakening only) | credal sets join; `'adversarial'` is the zero point, not a weight. Non-linear in the measure |
-| **VALUE** | a contribution in the weight-flow currency, at a declared **participant scope** | **Möbius decomposition** — disjoint scopes add; overlapping scopes emit residuals; arity capped by identifiability | the additive law is the `k = 1` truncation; the shipped edge-EV surrogate is already `k = 2` |
+| **VALUE** | a contribution in the weight-flow currency, at a declared **participant scope** | **Möbius decomposition** under a **declared scalarization** (weighted-sum default; Chebyshev / ε-constraint / lexicographic are peer members, because a weighted sum provably cannot reach Pareto points off the convex hull at any weight) | the additive law is the `k = 1` truncation; the shipped edge-EV surrogate is already `k = 2` |
 | **REDUCTION** | a rule over gambles returning a **SET** of (option, dominance condition) | **exactly one member per site class**, from a manifest table with a constraint column | maximality and E-admissibility return sets natively; Γ-maximin is the member that collapses, and the collapse belongs at the **emission barrier**. Averaging two reductions is the lower prevision of no credal set |
 | **ACTION** | order over candidates (and, kernel-side, closure of the set) | additive over the currency with a derived cliff band; closure is intersection | admission dominates valuation *where the cap binds* — slider-specific |
 | **ECONOMY** | what work to buy, when it must reach the wire, and when to ask the human | **two laws**: allocation = partition of **edge credits** over purchasable and anticipatory meets; obligation = **meet on deadlines** (the tightest binds; the kernel pin is the bottom element) | **two currencies — compute quanta and operator attention — with no exchange rate**, because a rate would let the scheduler spend the human. Sharing makes node-partitioning false, so credits attach to edges and Zilberstein's tree-shaped optimality is deliberately dropped |
@@ -140,7 +140,10 @@ observability and load-bearing the day masks arrive.
    support (a potion sits at a legal destination on 8.17% of unit-decisions),
    lost at joint level, or **priced and then refused by the emission rate
    limiter, which is 15–43% of every plan priced** and which no evaluator weight
-   at any setting can rescue.
+   at any setting can rescue. A sixth cause is **non-convexity** — the argmax
+   jumps between two plans as a weight crosses a threshold and never rests on
+   intermediates — and it is the only one whose remedy is a different
+   scalarization rather than a different number.
 7. **`CandidateKnobs` is three kinds in one bag**, and `keepQuiet: 2` is a number
    in a knob bag that closes a set.
 8. **REDUCTION is five places at once**, so the bot's risk posture is `ε = 1.0`
