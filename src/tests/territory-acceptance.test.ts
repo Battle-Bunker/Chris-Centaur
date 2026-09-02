@@ -61,14 +61,14 @@ function ourPlans(sub: EngineSubstrate, asTeam: number, cap: number): JointPlan[
     if (u.team !== asTeam) continue;
     const next: Array<Map<UnitId, Candidate>> = [];
     for (const p of plans) {
-      for (const a of sub.enumerate(u.unitId)) {
+      for (const a of sub.actionsOf(u.unitId)) {
         if (next.length >= cap) break;
         const m = new Map(p);
         m.set(u.unitId, {
           unitId: u.unitId,
-          from: -1,
-          to: a.dest,
-          path: a.action.kind === 'move' ? [...a.action.path] : [],
+          from: a.from,
+          to: a.to,
+          path: a.path,
         });
         next.push(m);
       }
@@ -481,13 +481,13 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
       const plan = new Map<UnitId, Candidate>();
       for (const u of sub.roster()) {
         if (u.team !== asTeam) continue;
-        const a = sub.enumerate(u.unitId)[0];
+        const a = sub.actionsOf(u.unitId)[0];
         if (a === undefined) continue;
         plan.set(u.unitId, {
           unitId: u.unitId,
-          from: -1,
-          to: a.dest,
-          path: a.action.kind === 'move' ? [...a.action.path] : [],
+          from: a.from,
+          to: a.to,
+          path: a.path,
         });
       }
       const out = new Map<string, number>();

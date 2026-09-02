@@ -254,7 +254,7 @@ export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: numb
  * core is not a `Refiner`, so the view is never built) — so the "refutation
  * that reverses at h=2" the margin was protecting against cannot occur. And the
  * whole POSITIONAL vocabulary — reach, room, command, food, momentum,
- * healthEconomy — spans about four points at its widest, against material's ten
+ * energyEconomy — spans about four points at its widest, against material's ten
  * per unit of weight. A margin of five therefore did not damp positional churn:
  * it made positional value UNSTAGEABLE. Nothing the evaluator could say about
  * where a unit should go was ever worth five, so the staged plan was whatever

@@ -39,14 +39,14 @@ import { EngineUnit, ExhaustionEvent, REASON, runTurnEngine } from "./turnEngine
 
 export interface ResolveUnit {
   id: string
-  /** Current kind. Only the movement grammar and max-health lookup read it. */
+  /** Current kind. Only the movement grammar and max-energy lookup read it. */
   type: UnitType
   teamID: string
   /** Configured as a king at spawn. Kings never change kind, so this is stable. */
   isKing?: boolean
   /** Invulnerability tier. Frozen for the whole turn by the engine. */
   tier: number
-  health: number
+  energy: number
   /** Board occupancy, index 0 = head. Never mutated. */
   occupancy: number[]
   /** Facing — pawn legality and the trail-unit default both read it. */
@@ -63,13 +63,21 @@ export interface ResolveTurnInput {
   boardHeight: number
   walls: number[]
   hazards: number[]
-  /** Health lost per hazard cell entered. */
+  /** Energy lost per hazard cell entered. */
   hazardDamage: number
   food: number[]
-  /** Per-kind max health; kinds absent here use `defaultMaxHealth`. */
-  maxHealth?: { [K in UnitType]?: number }
-  /** Default max health for kinds `maxHealth` does not name. Defaults to 100. */
-  defaultMaxHealth?: number
+  /** Per-kind max energy; kinds absent here use `defaultMaxEnergy`. */
+  maxEnergy?: { [K in UnitType]?: number }
+  /** Default max energy for kinds `maxEnergy` does not name. Defaults to 100. */
+  defaultMaxEnergy?: number
+  /**
+   * Energy one food replenishes. Absent means `DEFAULT_FOOD_ENERGY`, which is
+   * the default max energy, so at the shipped defaults one food is a full tank
+   * and every meal grows the eater — the rule food has always played by. Set
+   * it below a kind's max and that kind needs several meals to fill, and grows
+   * on the one that fills it. See the food phase for what growth now costs.
+   */
+  foodEnergy?: number
   /**
    * Teams that play under regicide — those configured with at least one king,
    * whether or not a king is still standing. A team here loses every remaining
@@ -81,18 +89,18 @@ export interface ResolveTurnInput {
 /** A unit still on the board when the turn closed. */
 export interface ResolvedUnit {
   occupancy: number[]
-  health: number
+  energy: number
 }
 
 export interface TurnResolution {
-  /** Survivors only, by id: final occupancy (post-sever, post-growth) and health. */
+  /** Survivors only, by id: final occupancy (post-sever, post-growth) and energy. */
   board: { [unitID: string]: ResolvedUnit }
   /** Every unit removed this turn, by id. The authoritative registry. */
   deaths: { [unitID: string]: UnitDeath }
   /** Typed events, engine order followed by any regicide records. */
   clashes: Clash[]
   /**
-   * Units that ran out of health and halted. Already settled: an event whose
+   * Units that ran out of energy and halted. Already settled: an event whose
    * unit is absent from `deaths` recovered on food at its halt cell.
    */
   exhaustions: ExhaustionEvent[]
@@ -117,11 +125,19 @@ export interface TurnResolution {
   subStepCount: number
 }
 
+/**
+ * The energy one food replenishes when a setup names no amount — the same
+ * number as the default max energy, so an unconfigured game plays the rule
+ * food has always played: one meal, a full tank, one weight.
+ */
+export const DEFAULT_FOOD_ENERGY = 100
+
 export const resolveTurn = (input: ResolveTurnInput): TurnResolution => {
   const { units, boardWidth, boardHeight } = input
-  const defaultMaxHealth = input.defaultMaxHealth ?? 100
-  const maxHealthFor = (type: UnitType): number =>
-    input.maxHealth?.[type] ?? defaultMaxHealth
+  const defaultMaxEnergy = input.defaultMaxEnergy ?? 100
+  const maxEnergyFor = (type: UnitType): number =>
+    input.maxEnergy?.[type] ?? defaultMaxEnergy
+  const foodEnergy = input.foodEnergy ?? DEFAULT_FOOD_ENERGY
 
   // 1. Movement grammar: every staged cell becomes the path the unit walks,
   // one cell per sub-step. An illegal or missing destination falls back to the
@@ -155,14 +171,14 @@ export const resolveTurn = (input: ResolveTurnInput): TurnResolution => {
   })
 
   // 2. The collision phase: every sub-step, every collision, sever truncation
-  // and all in-turn health accounting.
+  // and all in-turn energy accounting.
   const engineUnits: EngineUnit[] = units.map((u) => ({
     id: u.id,
     leavesTrail: leavesTrail(u.type),
     traversesEdges: traversesEdges(u.type),
     occupancy: u.occupancy,
     tier: u.tier,
-    health: u.health,
+    energy: u.energy,
     path: paths[u.id] ?? [],
   }))
   const subStepCount = Math.max(1, ...engineUnits.map((u) => u.path.length))
@@ -191,21 +207,45 @@ export const resolveTurn = (input: ResolveTurnInput): TurnResolution => {
     if (dead.has(u.id)) return
     board[u.id] = {
       occupancy: engine.occupancy.get(u.id) as number[],
-      health: engine.health.get(u.id) as number,
+      energy: engine.energy.get(u.id) as number,
     }
   })
 
-  // 4. Food: every surviving unit standing on food eats it, restoring health
-  // to its kind's max and adding one weight/length — exhausted units included,
-  // and this is the only way one ever comes back. Movement cost is not settled
-  // here; the engine charged it as it was spent.
+  // 4. Food: every surviving unit standing on food eats it — exhausted units
+  // included, and this is the only way one ever comes back. Movement cost is
+  // not settled here; the engine charged it as it was spent.
+  //
+  // A meal is `foodEnergy`, added and CLAMPED to the kind's max, and it grows
+  // the eater by one weight/length only when it brings the unit TO that max.
+  // Growth is therefore what a full tank costs: a unit that eats while nearly
+  // empty gets fuel and nothing else, and only the meal that tops it off is
+  // worth a length. A unit already AT max grows on every meal, because the
+  // clamp leaves it at max and max is what the rule asks for — the shipped
+  // default of a food worth a whole tank is exactly the old rule, where every
+  // meal filled and every meal grew.
+  //
+  // Note what this does to an exhausted unit: at zero or below, a meal lifts
+  // it by `foodEnergy` and, unless that reaches max, it survives on partial
+  // energy and does NOT grow. Under the old rule its rescue was always a full
+  // tank and always a length.
+  //
+  // Eating is per FOOD, applied in board order: a cell can only be reached by
+  // one unit and the spawner never stacks two items on one cell, so exactly
+  // one meal per unit per turn is reachable today (food is eaten at the cell a
+  // unit ENDS on — a slider passing over food leaves it). A setup that presets
+  // the same cell twice is the one way to see the loop run twice, and then
+  // each food is a separate meal settled in turn: add, clamp, grow if full.
   const food = [...input.food]
   Object.entries(board).forEach(([id, unit]) => {
-    const index = food.indexOf(unit.occupancy[0])
-    if (index === -1) return
-    food.splice(index, 1)
-    unit.occupancy.push(unit.occupancy[unit.occupancy.length - 1])
-    unit.health = maxHealthFor(typeOf.get(id) as UnitType)
+    const max = maxEnergyFor(typeOf.get(id) as UnitType)
+    for (;;) {
+      const index = food.indexOf(unit.occupancy[0])
+      if (index === -1) return
+      food.splice(index, 1)
+      unit.energy = Math.min(max, unit.energy + foodEnergy)
+      if (unit.energy < max) continue
+      unit.occupancy.push(unit.occupancy[unit.occupancy.length - 1])
+    }
   })
 
   // 5. Exhaustion stops being provisional. A unit the food phase brought back
@@ -216,7 +256,7 @@ export const resolveTurn = (input: ResolveTurnInput): TurnResolution => {
   engine.exhaustions.forEach((event) => {
     if (dead.has(event.unitID)) return
     const unit = board[event.unitID]
-    if (!unit || unit.health > 0) return
+    if (!unit || unit.energy > 0) return
 
     dead.add(event.unitID)
     delete board[event.unitID]

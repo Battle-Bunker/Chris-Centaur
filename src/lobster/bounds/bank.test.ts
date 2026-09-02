@@ -31,19 +31,27 @@ const CONTACT: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 2, 2 * 7 + 2], health: 60 },
-    { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 4], health: 60 },
-    { id: 3, team: THEIRS, type: 'king', occupancy: [4 * 7 + 4], health: 60 },
+    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 2, 2 * 7 + 2], energy: 60 },
+    { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 4], energy: 60 },
+    { id: 3, team: THEIRS, type: 'king', occupancy: [4 * 7 + 4], energy: 60 },
   ],
 };
 
 /** Opposite corners of a big board: nothing can reach anything. */
+/**
+ * Two units that cannot touch each other, on either side's turn — and NOT
+ * kings. A board with a king on it plays under regicide, and regicide is a
+ * team verdict off one unit's death, so the engine reports every unit of such
+ * a team as possibly-gone whatever the geometry says. That is the right
+ * answer and it is not the question here: this board exists to exhibit a
+ * settlement in which nothing unknown can matter at all.
+ */
 const DISTANT: BoardSpec = {
   width: 11,
   height: 11,
   units: [
-    { id: 1, team: OURS, type: 'king', occupancy: [1 * 11 + 1], health: 60 },
-    { id: 2, team: THEIRS, type: 'king', occupancy: [9 * 11 + 9], health: 60 },
+    { id: 1, team: OURS, type: 'knight', occupancy: [1 * 11 + 1], energy: 60 },
+    { id: 2, team: THEIRS, type: 'knight', occupancy: [9 * 11 + 9], energy: 60 },
   ],
 };
 
@@ -343,11 +351,10 @@ describe('degrading when the substrate cannot model', () => {
     const board = makeTestBoard(CONTACT);
     const rich = makeSubstrate(board, OURS);
     const poor = {
-      state: rich.state,
       unitIds: () => rich.unitIds(),
+      unitIdOf: (wireId: string) => rich.unitIdOf(wireId),
       commandable: (team: number) => rich.commandable(team),
       resolveBoundedFor: (plan: JointPlan, team: number) => rich.resolveBoundedFor(plan, team),
-      releaseResolution: () => undefined,
       entangled: (
         cells: ReadonlyArray<{ cell: number; fromSubStep: number; toSubStep: number }>,
       ) => rich.entangled(cells),
@@ -402,7 +409,7 @@ describe('the ledger translation', () => {
       });
       expect(plan).toBeDefined();
       const { resolution } = sub.resolveBoundedFor(plan as JointPlan, OURS);
-      const translated = ledgerOf(resolution);
+      const translated = ledgerOf(sub, resolution);
       expect(translated.length).toBeGreaterThan(0);
       for (const raw of resolution.ledger) {
         const wanted = raw.assumedPresent ? 'if_absent' : 'if_present';
@@ -542,14 +549,13 @@ describe('the adversary-completeness guard has INDEPENDENT evidence (V4 S2)', ()
   });
 });
 
-// ------------------------------------------------ the slab budget (V3-R7)
+// --------------------------------------------- the resolution budget (V3-R7)
 
-describe('the memo holds ONE slab budget across every modelled sibling', () => {
+describe('the memo holds ONE retention budget across every modelled sibling', () => {
   test('siblings share the ceiling instead of each getting their own', () => {
-    // `memoCapacity` is a SLAB budget and slabs come from one arena, so a memo
-    // whose children each kept a capacity-sized cache had a real ceiling of
-    // capacity x views — measured at 9754 outstanding slabs against a nominal
-    // 4096, which is 27 MB of ArrayBuffer per engine.
+    // A memo whose children each kept a capacity-sized cache had a real
+    // ceiling of capacity x views — measured at 9754 retained resolutions
+    // against a nominal 4096.
     const board = makeTestBoard(CONTACT);
     const own = makeSubstrate(board, OURS);
     const gen = makeGenerator();
@@ -569,8 +575,8 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
         bank as unknown as {
           memo: {
             stats: {
-              slabs: number;
-              peakSlabs: number;
+              retained: number;
+              peak: number;
               capacity: number;
               resolutions: number;
             };
@@ -580,8 +586,8 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
       expect(stats.capacity).toBe(4);
       // Every view writes into the same store, so the high-water mark is the
       // budget — not the budget times the number of hold configurations.
-      expect(stats.peakSlabs).toBeLessThanOrEqual(4);
-      expect(stats.slabs).toBeLessThanOrEqual(4);
+      expect(stats.peak).toBeLessThanOrEqual(4);
+      expect(stats.retained).toBeLessThanOrEqual(4);
       // And the work really was spread over more than one view.
       expect(stats.resolutions).toBeGreaterThan(4);
     } finally {
@@ -590,7 +596,7 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
     }
   });
 
-  test('release still returns every slab the family borrowed', () => {
+  test('release drops every resolution the family cached', () => {
     const board = makeTestBoard(CONTACT);
     const own = makeSubstrate(board, OURS);
     const gen = makeGenerator();
@@ -604,9 +610,10 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
       config: { ...DEFAULT_BANK_CONFIG, gateOnEntanglement: false, memoCapacity: 4 },
     });
     for (const plan of allPlans(own, gen, OURS, 6)) bank.price(plan);
+    const memo = (bank as unknown as { memo: { stats: { retained: number } } }).memo;
+    expect(memo.stats.retained).toBeGreaterThan(0);
     bank.release();
-    expect(own.outstanding()).toBe(1);
+    expect(memo.stats.retained).toBe(0);
     own.release();
-    expect(own.outstanding()).toBe(0);
   });
 });

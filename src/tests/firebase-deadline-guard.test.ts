@@ -40,7 +40,7 @@ function makeSetup(): TTGameSetup {
 
 function makeTurn(startTimeMs: number | null): TTTurn {
   return {
-    playerHealth: { centA: 90, centB: 70 },
+    playerEnergy: { centA: 90, centB: 70 },
     startTime: (startTimeMs === null ? null : Timestamp.fromMillis(startTimeMs)) as never,
     endTime: Timestamp.fromMillis(T + BUDGET_MS) as never,
     moves: {},

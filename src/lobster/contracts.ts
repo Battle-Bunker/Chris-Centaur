@@ -3,21 +3,17 @@
  *
  * The build's parallel modules (substrate/candidates/evaluate, bounds/search,
  * voc/kernel/postures, pins) depend on each other ONLY through this file plus
- * ../partial-engine/index. Amendments go through the integrator, never by a
+ * the vendored engine. Amendments go through the integrator, never by a
  * module silently redefining a shape. Derived from the synthesis architecture
  * (scratchpad/synthesis-architect-report.md §B) and the deliberation delta;
  * amended once, coherently, at integration from the three builders' proposals
  * (B1 A1–A5, B2 A1–A7, B3's refiner + clock amendments).
  *
- * ── ONE INTERVAL, THREE DIALECTS ───────────────────────────────────────────
+ * ── ONE INTERVAL, TWO DIALECTS ─────────────────────────────────────────────
  *
- * Three interval types cross this file's seams, and they are three enrichment
+ * Two interval types cross this file's seams, and they are two enrichment
  * stages of the SAME quantity, with `worst ≡ lo` and `best ≡ hi` everywhere:
  *
- *   engine ScoreBounds   {worst, best, gapBy, assumptions: AssumptionId[]}
- *                        the raw subject-frame fold the resolver computes, its
- *                        basis a list of NUMERIC engine assumption ids. Never
- *                        renamed — the engine is vendored.
  *   Bound                {lo, est, hi} — the evaluator's triple. lo = worst,
  *                        hi = best, plus the advisory `est` ordering channel
  *                        that exists nowhere below this layer.
@@ -26,17 +22,18 @@
  *                        with a STRUCTURED ledger and named assumptions so
  *                        basis identity and the discharge theorem are typed.
  *
- * The mapping is total and direction-free: engine.worst → Bound.lo →
- * ScoreBounds.worst, engine.best → Bound.hi → ScoreBounds.best. `est` is
- * dropped, never translated, on the way down — it must never gate a decision
- * lo/hi make. No fourth vocabulary may be introduced.
+ * There used to be a third — the resolver's own subject-frame fold, which
+ * arrived as a vendored type nobody here could rename. The fold is bot-side
+ * now (`bounds/material.ts`), so `MaterialBounds` is the same two ends in the
+ * same vocabulary and the dialect is gone. `est` is dropped, never translated,
+ * on the way down — it must never gate a decision lo/hi make. No third
+ * vocabulary may be introduced.
  */
 
-import type {
-  Resolution,
-  ScoreBounds as EngineScoreBounds,
-  StateHandle,
-} from "../partial-engine/index"
+import type { Claim, Divergence, Fate, PartialSettlement } from "../engine-vendor/engine/settlePartial"
+import type { MaterialBounds } from "./bounds/material"
+
+export type { Claim, Divergence, Fate, PartialSettlement, MaterialBounds }
 
 // ---------------------------------------------------------------- primitives
 
@@ -131,6 +128,64 @@ export type Turn = number
  * becomes a held claim with its own observation turn.
  */
 export const NO_ORDER_MOVE: CellIndex = -1
+
+// -------------------------------------------------------------- path verdicts
+
+/**
+ * WHY a cell got the grade it got — one entry per contact the fold read off
+ * the settlement, so a human reading a refusal can see which unknown unit and
+ * which rule produced it.
+ */
+export interface RiskCause {
+  readonly role: "head" | "body" | "edge" | "pile" | "terrain" | "item"
+  /** Which axis this cause moved. */
+  readonly axis: "survival" | "defeat" | "halt"
+  /** The unit whose unknown disposition creates the difference, when there is one. */
+  readonly heldId: UnitId | null
+  /** True when the cause is a LEDGERED possibility rather than a settled fact. */
+  readonly contingent: boolean
+  readonly note: string
+}
+
+/** What one cell of a staged ray does to the mover. */
+export interface EncounterVerdict {
+  /** Does the mover survive this cell? (quantified over every world) */
+  readonly survival: Trit
+  /** Does the mover defeat something here? */
+  readonly defeat: Trit
+  /** Does the mover's movement END here (capture-stop, block, or death)? */
+  readonly halt: Trit
+  readonly causes: ReadonlyArray<RiskCause>
+  /** Where the mover could die from this encounter. */
+  readonly deathCells: ReadonlyArray<CellIndex>
+}
+
+/** What one staged ray does to the mover, whole. */
+export interface TraversalVerdict {
+  /** One verdict per cell the mover actually enters, in path order. */
+  readonly perCell: ReadonlyArray<EncounterVerdict>
+  /** Whole-path survival. */
+  readonly survival: Trit
+  /** Does the mover complete its staged path? */
+  readonly completesPath: Trit
+  /**
+   * Where the mover could come to rest. `certain` is set only when the landing
+   * is one cell in every world; otherwise `cells` is the landing SET, and a
+   * possible halt forbids truncating it.
+   */
+  readonly landing: { readonly certain: CellIndex | null; readonly cells: ReadonlyArray<CellIndex> }
+  /** Energy spent, as an interval over the worlds (movement cost + hazards). */
+  readonly energySpent: { readonly lo: number; readonly hi: number }
+  /**
+   * Upper bound on movement energy SAVED by a possible non-fatal truncation.
+   * A mover stopped early is fuller than its staged path priced, and an
+   * unaccounted saving is optimistic in the wrong direction for its opponents.
+   */
+  readonly savedByTruncation: number
+  /** Would exhaustion prove FATAL? */
+  readonly exhaustionFatal: Trit
+  readonly deathCells: ReadonlyArray<CellIndex>
+}
 
 // ------------------------------------------------------------------- pruning
 
@@ -391,45 +446,54 @@ export interface LeverView {
  * pipeline, which the single-pipeline rule forbids.
  */
 export interface BoundedResolution {
-  /** The engine's resolution. Its `state` is a BORROWED slab — see the slab
-   * contract on `Substrate`. */
-  readonly resolution: Resolution
+  /**
+   * The settlement itself — the whole turn, with the plan's movers known and
+   * everything else held. Its `ledger` names every point a concrete world
+   * could differ from it, and an EMPTY ledger is a proof that the held set did
+   * not matter.
+   */
+  readonly resolution: PartialSettlement
   /** Per-team [worst, best] in the subject's frame. */
   readonly perTeam: ReadonlyMap<number, { readonly worst: number; readonly best: number }>
-  /** Subject-frame material bounds, with the field's assumptions as basis. */
-  readonly bounds: EngineScoreBounds
+  /** Subject-frame material bounds, with the narrowed claims as basis. */
+  readonly bounds: MaterialBounds
+  /**
+   * The settlement's divergences in the contract's vocabulary — one entry per
+   * implicated unknown, with the polarity that says which endpoint rides on
+   * it. Translated at the seam, once, because the substrate is the only layer
+   * that knows which wire id is which unit.
+   */
+  readonly ledger: ReadonlyArray<LedgerEntry>
 }
 
-/** B1 owns: engine substrate. One place translates wire state to engine state
- * (weight stacks!), names every live unit on every resolve (silence is a typed
- * refusal upstream — NO_ORDER_MOVE is an explicit statement), and exposes
- * claims.
+/** B1 owns: the engine substrate. One place translates the wire board into
+ * engine terms (weight stacks!), names every live unit on every settlement
+ * (silence is a typed refusal upstream — NO_ORDER_MOVE is an explicit
+ * statement), and exposes the claims the held units carry.
  *
- * THE SLAB CONTRACT. `resolveBoundedFor`'s resolution OWNS an arena slab.
- * Hand it to `releaseResolution` (idempotent), or use `withResolution`, which
- * cannot forget. `release()` reclaims anything a caller forgot. The invariant
- * a test asserts: `outstanding() === 1` (the base state) between decisions,
- * `0` after `release()`. A SearchCore that ignores this exhausts the arena
- * inside one sweep, and it looks like the engine being slow.
+ * THERE IS NO SLAB CONTRACT ANY MORE. Settlement allocates per call and owns
+ * no arena, so a resolution is a plain value: hold it, drop it, keep it in a
+ * memo. `release()` survives as "drop this decision's caches", and it is not
+ * paired with anything.
  *
  * THE PLAN-DOMAIN RULE. The plan's domain IS the modelled set: everything not
- * named in a JointPlan is held with its own observation turn, so the engine's
- * partial-assignment refusal is unreachable by construction. `withModelled`
- * returns a sibling over the SAME position in which every unit in `modelled`
- * is expected LIVE — a plan must name it, and may name it with an explicit
- * action. The sibling's `release()` must not disturb the parent; a substrate
- * whose plan domain already is the modelled set may return a shared-state
- * sibling. */
+ * named in a JointPlan is held with its own observation turn, so a partial
+ * assignment is unreachable by construction. `withModelled` returns a sibling
+ * over the SAME position in which every unit in `modelled` is expected LIVE —
+ * a plan must name it, and may name it with an explicit action. Claims are
+ * derived per call from the sibling's own modelled set, so a NARROWER sibling
+ * is simply correct; the shared-claim-view refusal the arena version carried
+ * has no subject left. */
 export interface Substrate {
-  readonly state: StateHandle
   /** Every live unit, ascending. */
   unitIds(): ReadonlyArray<UnitId>
+  /** The unit a settlement's wire id names — the one direction of the map that
+   * anything reading a settlement needs, and the only place it is done. */
+  unitIdOf(wireId: string): UnitId | undefined
   /** Live units on `asTeam` this decision is entitled to move. */
   commandable(asTeam: number): ReadonlyArray<UnitId>
   resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolution
-  /** Return a resolution's slab. Idempotent. */
-  releaseResolution(resolution: Resolution): void
-  /** The scoped, leak-proof door most callers should use instead. */
+  /** Settle, hand the settlement to `fn`, return what `fn` returns. */
   withResolution<T>(plan: JointPlan, asTeam: number, fn: (r: BoundedResolution) => T): T
   /** Every distinct action this unit's own grammar admits. */
   actionsOf(unitId: UnitId): ReadonlyArray<Candidate>
@@ -449,8 +513,7 @@ export interface Substrate {
    * turn — powers tier-2 transfer between pin contexts. Over-approximate is
    * safe (work repeated); under-approximate keeps stale evaluations. */
   influenceOf(unitId: UnitId): ReadonlySet<CellIndex>
-  /** Slabs borrowed and not yet returned (the base state included). */
-  outstanding(): number
+  /** Drop this decision's caches. Not paired with anything. */
   release(): void
 }
 

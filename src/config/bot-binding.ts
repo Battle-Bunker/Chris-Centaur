@@ -164,7 +164,7 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
     reachHorizonTurns: number;
     royalReachers?: boolean;
     command?: { ground: number; food: number; royal: boolean };
-    healthReserveRatio?: number;
+    energyReserveRatio?: number;
   } = { name: raw.name, weights, reachHorizonTurns: horizon };
 
   if (raw.royalReachers !== undefined) {
@@ -187,11 +187,11 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
     }
     profile.command = { ground: c.ground, food: c.food, royal: c.royal };
   }
-  if (raw.healthReserveRatio !== undefined) {
-    if (typeof raw.healthReserveRatio !== 'number' || !Number.isFinite(raw.healthReserveRatio)) {
-      return { error: 'profile.healthReserveRatio must be a finite number' };
+  if (raw.energyReserveRatio !== undefined) {
+    if (typeof raw.energyReserveRatio !== 'number' || !Number.isFinite(raw.energyReserveRatio)) {
+      return { error: 'profile.energyReserveRatio must be a finite number' };
     }
-    profile.healthReserveRatio = raw.healthReserveRatio;
+    profile.energyReserveRatio = raw.energyReserveRatio;
   }
   return { profile };
 }

@@ -73,17 +73,14 @@
  * readings coincide — R3 collapse, by construction rather than by luck.
  */
 
-import {
-  NEVER,
-  beats,
-  bbPopcount,
-  bbTest,
-  profileOf,
-  scalarOf,
-} from '../../partial-engine/index';
-import type { Grid, Scalar, Terrain } from '../../partial-engine/index';
+import { NEVER } from '../../engine-vendor/engine/claims';
+import { leavesTrail } from '../../engine-vendor/engine/moveGrammar';
+import { outranks } from '../../engine-vendor/engine/turnEngine';
+import { bbPopcount, bbTest } from '../bits';
+import type { Grid, Terrain } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
+import type { UnitType } from '../../engine-vendor/shared/types/Game';
 import type { UnitShells } from './shells';
 import { ShellTable } from './shells';
 
@@ -91,7 +88,7 @@ import { ShellTable } from './shells';
 export interface TerritorySubject {
   readonly unitId: UnitId;
   readonly team: number;
-  readonly kind: number;
+  readonly kind: UnitType;
   readonly held: boolean;
   readonly weightMax: number;
   readonly tierMax: number;
@@ -204,9 +201,9 @@ export class TerritoryWorkspace {
     return this.domains[reading];
   }
 
-  constructor(grid: Grid, terrain: Terrain, capacity: number) {
+  constructor(grid: Grid, terrain: Terrain, table: ShellTable) {
     this.grid = grid;
-    this.table = new ShellTable(grid, capacity);
+    this.table = table;
     const w = grid.words;
     this.notWall = new Uint32Array(w);
     for (let i = 0; i < w; i++) {
@@ -261,7 +258,11 @@ export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
   let ws = workspaces.get(sub);
   if (ws === undefined) {
     const roster = sub.roster().length;
-    ws = new TerritoryWorkspace(sub.grid, sub.terrain, Math.max(256, roster * 64));
+    ws = new TerritoryWorkspace(
+      sub.grid,
+      sub.terrain,
+      new ShellTable(sub, Math.max(256, roster * 64))
+    );
     workspaces.set(sub, ws);
   }
   return ws;
@@ -271,6 +272,12 @@ export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
 // The partition
 // ---------------------------------------------------------------------------
 
+/** The only two coordinates a contest reads (`outranks`). */
+interface Strength {
+  readonly tier: number;
+  readonly weight: number;
+}
+
 interface Entry<S> {
   readonly s: S;
   readonly sh: UnitShells;
@@ -278,11 +285,11 @@ interface Entry<S> {
   /**
    * This unit's contest strength at each absolute turn of the sweep, indexed
    * `turn - tMin`. Built once per partition, because the alternative is
-   * constructing a `Scalar` per challenger PER CELL — 169 cells times thirteen
+   * constructing a strength pair per challenger PER CELL — 169 cells times thirteen
    * pieces of pure garbage per reading, which measured as most of the piece
    * plane's cost. The comparator stays the resolver's own.
    */
-  scalars: Scalar[];
+  scalars: Strength[];
 }
 
 /**
@@ -313,9 +320,9 @@ export function partitionOf<S extends TerritorySubject>(
     if (sh === undefined) continue;
     const mine = s.team === asTeam;
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
-    if (sh.heldAtTurn < tMin) tMin = sh.heldAtTurn;
+    if (sh.fromTurn < tMin) tMin = sh.fromTurn;
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
-    (profileOf(s.kind).leavesTrail ? trails : pieces).push({ s, sh, mine, scalars: [] });
+    (leavesTrail(s.kind) ? trails : pieces).push({ s, sh, mine, scalars: [] });
   }
   if (trails.length === 0 && pieces.length === 0) {
     return emptyPartition<S>(ws.open, domain, ws.notWall);
@@ -478,11 +485,11 @@ export function partitionOf<S extends TerritorySubject>(
   };
 }
 
-/** One `Scalar` per absolute turn of the sweep, so the cell loop allocates none. */
+/** One strength pair per absolute turn of the sweep, so the cell loop allocates none. */
 function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax: number): void {
   const out = e.scalars;
   out.length = 0;
-  for (let t = tMin; t <= tMax; t++) out.push(scalarOf(tierAtTurn(e.s, t), e.s.weightMax));
+  for (let t = tMin; t <= tMax; t++) out.push({ tier: tierAtTurn(e.s, t), weight: e.s.weightMax });
 }
 
 /**
@@ -515,37 +522,37 @@ function displace<S extends TerritorySubject>(
     const at = D - tMin;
 
     // The claim standing on the cell: the strongest pair among a tie.
-    let claim: Scalar | null = null;
+    let claim: Strength | null = null;
     for (let k = 0; k < trails.length; k++) {
       if ((trailGrids[k] as Int32Array)[c] !== D) continue;
-      const mine = (trails[k] as Entry<S>).scalars[at] as Scalar;
-      if (claim === null || beats(mine, claim)) claim = mine;
+      const mine = (trails[k] as Entry<S>).scalars[at] as Strength;
+      if (claim === null || outranks(mine, claim)) claim = mine;
     }
     if (claim === null) continue;
 
     // Challengers: pieces that get there in time AND beat what is standing.
     let bestArrival = NEVER;
     let winner: Entry<S> | null = null;
-    let winnerScalar: Scalar | null = null;
+    let winnerScalar: Strength | null = null;
     let tied = false;
     for (let k = 0; k < pieces.length; k++) {
       const a = (pieceGrids[k] as Int32Array)[c] as number;
       if (a > D) continue;
       const e = pieces[k] as Entry<S>;
-      const mine = e.scalars[at] as Scalar;
-      if (!beats(mine, claim)) continue;
+      const mine = e.scalars[at] as Strength;
+      if (!outranks(mine, claim)) continue;
       if (winner === null || a < bestArrival) {
         bestArrival = a;
         winner = e;
         winnerScalar = mine;
         tied = false;
       } else if (a === bestArrival) {
-        const held = winnerScalar as Scalar;
-        if (beats(mine, held)) {
+        const held = winnerScalar as Strength;
+        if (outranks(mine, held)) {
           winner = e;
           winnerScalar = mine;
           tied = false;
-        } else if (!beats(held, mine)) {
+        } else if (!outranks(held, mine)) {
           tied = true;
         }
       }

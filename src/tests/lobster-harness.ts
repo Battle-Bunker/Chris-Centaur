@@ -30,7 +30,6 @@ import type {
   UnitId,
   Witness,
 } from "../lobster/contracts"
-import type { Resolution, StateHandle } from "../partial-engine/index"
 import { planKey, type Lever, type LeverView, type Refiner } from "../lobster/voc"
 
 // ------------------------------------------------------------------- clock
@@ -117,7 +116,6 @@ export function witness(note: string, replies: ReadonlyArray<readonly [number, n
 // ----------------------------------------------------------------- substrate
 
 export class StubSubstrate implements Substrate {
-  readonly state = {} as StateHandle
   resolveCalls = 0
   entangledCalls = 0
   /** Units this stub claims to command. Empty by default — the kernel suites
@@ -150,10 +148,6 @@ export class StubSubstrate implements Substrate {
     throw new Error("StubSubstrate: the kernel must never resolve a board")
   }
 
-  releaseResolution(_resolution: Resolution): void {
-    /* nothing is ever resolved here */
-  }
-
   withResolution<T>(_plan: JointPlan, _asTeam: number, _fn: (r: never) => T): never {
     this.resolveCalls++
     throw new Error("StubSubstrate: the kernel must never resolve a board")
@@ -161,6 +155,10 @@ export class StubSubstrate implements Substrate {
 
   unitIds(): ReadonlyArray<UnitId> {
     return []
+  }
+
+  unitIdOf(_wireId: string): UnitId | undefined {
+    return undefined
   }
 
   commandable(_asTeam: number): ReadonlyArray<UnitId> {
@@ -192,12 +190,8 @@ export class StubSubstrate implements Substrate {
     return this.influence.get(unitId) ?? new Set<number>()
   }
 
-  outstanding(): number {
-    return 0
-  }
-
   release(): void {
-    /* no slab to return */
+    /* nothing is cached here */
   }
 }
 

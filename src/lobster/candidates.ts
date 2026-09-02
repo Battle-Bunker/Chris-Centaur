@@ -28,7 +28,7 @@
  * tail of staged distances collapses onto one representative.
  *
  *   suffix-collapse        a CERTAIN stop (contest or certain death) at index j
- *   health-horizon         the mover cannot afford cell j+1 in any world
+ *   energy-horizon         the mover cannot afford cell j+1 in any world
  *   certain-edge-horizon   a certain edge exchange at j, which is adjudicated
  *                          before walls, arrivals and bodies in its sub-step
  *
@@ -66,11 +66,9 @@
  * budget is the caller's job, done up front, worst-first inside.
  */
 
-import { profileOf, scalarOf } from '../partial-engine/index';
-import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { TIER_DEFENSE } from './tier-truth';
+import { TIER_DEFENSE } from './postures';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import {
@@ -86,7 +84,10 @@ import type {
   CandidateGenerator,
   CandidateSet,
   CellIndex,
+  EncounterVerdict,
   Substrate,
+  TraversalVerdict,
+  Trit,
   UnitId,
 } from './contracts';
 
@@ -97,7 +98,7 @@ import type {
 /** Stable prune ids. The ledger carries these; prose lives in PRUNE_NOTES. */
 export const PRUNE = {
   suffixCollapse: 'suffix-collapse',
-  healthHorizon: 'health-horizon',
+  energyHorizon: 'energy-horizon',
   certainEdgeHorizon: 'certain-edge-horizon',
   quietThinning: 'quiet-thinning',
   fatalNoGain: 'fatal-no-gain',
@@ -135,7 +136,7 @@ export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
  */
 export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.suffixCollapse]: false,
-  [PRUNE.healthHorizon]: true,
+  [PRUNE.energyHorizon]: true,
   [PRUNE.certainEdgeHorizon]: true,
   [PRUNE.quietThinning]: false,
   [PRUNE.fatalNoGain]: false,
@@ -158,7 +159,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
 export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
   [PRUNE.suffixCollapse]:
     'the move ends at a stop the claim layer calls certain before this staged distance — outcome-preserving except where a higher-tier mover severs a living body and continues, which the halt axis does not yet model',
-  [PRUNE.healthHorizon]:
+  [PRUNE.energyHorizon]:
     'the mover cannot afford the next cell in any world, so every longer staging resolves identically',
   [PRUNE.certainEdgeHorizon]:
     'a certain edge exchange settles the move at an earlier sub-step whichever way it goes',
@@ -233,7 +234,7 @@ export interface CandidateKnobs {
    *
    * 1. A MEAL IS FREE AND IS CHARGED FULL PRICE. `resolveTurn` sets an eater's
    *    health to its kind's max, so a nine-cell queen slide onto food costs
-   *    nothing in health. The order sorts on `healthSpent.hi` ascending and
+   *    nothing in health. The order sorts on `energySpent.hi` ascending and
    *    knows nothing about the refund, so a `stay` — zero health, always legal,
    *    always generated — outranks every eat a slider has. With `candidateCap`
    *    at 8 on a queen with two dozen distinct actions, the eat is not merely
@@ -339,7 +340,7 @@ export interface AssessedCandidate {
    */
   readonly captureValue: number;
   /** Health the move spends, at its interval endpoints. */
-  readonly healthSpent: { readonly lo: number; readonly hi: number };
+  readonly energySpent: { readonly lo: number; readonly hi: number };
   /**
    * Does the mover run out of health paying for this move? Read straight off
    * the risk fold (`TraversalVerdict.exhaustionFatal`), and for a HOLD off the
@@ -515,22 +516,14 @@ function generateAssessed(
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
 
-  // THE OPTION SET IS THE ENGINE'S. `enumerateActions` folds every cell of the
-  // board through the kind's ONE interpretation and dedupes by canonical
-  // effect, so `legalCount` counts distinct ACTIONS: two staged cells that mean
-  // the same action are the same option, and the engine proves it rather than
-  // this file asserting it.
-  const actions = sub.enumerate(unitId);
-  const legalCount = actions.length;
+  // THE OPTION SET IS THE ENGINE'S. `legalTargets` folds every cell of the
+  // board through the kind's ONE interpretation — the same `planUnitAction` the
+  // server stages with — so `legalCount` counts exactly the destinations the
+  // server would accept from this unit. A cell it offers that this layer would
+  // rather not take is pruned with a named reason, never quietly absent.
+  const raw: ReadonlyArray<Candidate> = sub.actionsOf(unitId);
+  const legalCount = raw.length;
   const pruned: PrunedEntry[] = [];
-
-  const from = unit.cells[0] as CellIndex;
-  const raw: Candidate[] = actions.map((a) => ({
-    unitId,
-    from,
-    to: a.dest,
-    path: a.action.kind === 'move' ? [...a.action.path] : [],
-  }));
 
   // ---- exact prunes: first-contact termination, per ray -------------------
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
@@ -709,14 +702,17 @@ function reachHorizonIndex(verdict: TraversalVerdict): number {
  */
 function stopReason(verdict: TraversalVerdict, index: number): PruneId {
   const at = verdict.perCell[index];
-  if (at === undefined) return PRUNE.healthHorizon;
+  if (at === undefined) return PRUNE.energyHorizon;
   if (at.halt === 'yes') {
+    if (at.causes.some((c) => c.role === 'terrain' && c.axis === 'halt')) {
+      return PRUNE.energyHorizon;
+    }
     return at.causes.some((c) => c.role === 'edge' && c.axis === 'halt')
       ? PRUNE.certainEdgeHorizon
       : PRUNE.suffixCollapse;
   }
   if (at.survival === 'no') return PRUNE.suffixCollapse;
-  return PRUNE.healthHorizon;
+  return PRUNE.energyHorizon;
 }
 
 // ---------------------------------------------------------------------------
@@ -728,84 +724,34 @@ function assessPathOf(
   unit: SubstrateUnit,
   path: ReadonlyArray<CellIndex>
 ): TraversalVerdict {
-  const assessor: RiskAssessor = sub.freshAssessor();
-  return assessor.assessPath({
-    unitId: unit.unitId,
-    kind: unit.kind,
-    strength: scalarOf(unit.tier, unit.weight),
-    health: unit.health,
-    path,
-    origin: unit.cells[0] as number,
-  });
+  return sub.assess(unit.unitId, path);
 }
-
-/** The part of a `TraversalVerdict` a resting unit has an answer for. */
-interface RestVerdict {
-  readonly perCell: ReadonlyArray<EncounterVerdict>;
-  readonly survival: Trit;
-  readonly landing: { readonly certain: number | null; readonly cells: ReadonlyArray<number> };
-  readonly healthSpent: { readonly lo: number; readonly hi: number };
-  readonly exhaustionFatal: Trit;
-}
-
-const EMPTY_VERDICT: RestVerdict = {
-  perCell: [],
-  survival: 'yes',
-  landing: { certain: null, cells: [] },
-  healthSpent: { lo: 0, hi: 0 },
-  exhaustionFatal: 'no',
-};
 
 /**
- * WHAT A HOLD COSTS. A stay or a rotation enters no cell, and for everything
- * another unit might do that is the end of it: whatever contests the square
- * contests it either way, so the risk of STANDING is the evaluator's business
- * and not this layer's.
+ * WHAT A HOLD COSTS, AND WHAT IT RISKS.
  *
- * TERRAIN IS NOT LIKE THAT, AND IT IS THE ONE ASYMMETRY THE RULES CONTAIN.
- * `PartialEngine.healthPhase` charges a unit that staged no path a full
- * stationary hazard dose at sub-step 1 — the vendored resolver's
- * `turnEngine.ts` does the same — while stepping onto ordinary ground costs
- * the kind's `costPerCell`, which is one. So on a hazard, holding is strictly
- * dominated by any safe step, by the whole dose minus one; and when the dose
- * is at least the health the mover has LEFT, holding is not a cost at all but
- * a death, indistinguishable from walking into the same cell.
+ * A stay or a rotation enters no cell, and this layer used to read that as
+ * "nothing to assess": whatever contests the square contests it either way, so
+ * the risk of STANDING was the evaluator's business. That was wrong in two
+ * directions at once and the second is the one that bites hardest.
  *
- * Reading a hold as free made both of those invisible at once. It priced the
- * dominated move at zero, which put the hold FIRST in `orderKey` (least health
- * spent) and therefore made it rung 0's seed for every unit standing on a
- * hazard; and it tiered a certainly-fatal hold `safe`, where no policy prune
- * can reach it. Neither is a judgement call — the charge is in the resolver.
+ * TERRAIN IS THE FIRST. The collision engine charges a unit that staged no
+ * path a full stationary hazard dose, while stepping onto ordinary ground
+ * costs one. So on a hazard, holding is strictly dominated by any safe step,
+ * by the whole dose minus one; and when the dose is at least the energy the
+ * mover has LEFT, holding is not a cost at all but a death.
  *
- * Only terrain is priced here, and only the mover's own square. The interval
- * is a point (`lo === hi`) because the charge depends on nothing anyone else
- * chooses. Off a hazard the answer is byte-for-byte the old `EMPTY_VERDICT`,
- * so a board without hazards cannot tell the difference.
+ * THE CONTEST IS THE SECOND. A unit standing still is standing on a square
+ * every other unit's turn can reach, for every sub-step of that turn. Reading
+ * the hold as certainly-safe while grading every STEP `atRisk` — which is what
+ * a board with anything unknown on it produces — puts the hold first in an
+ * ordering that sorts safety before everything else, and a piece that holds
+ * every turn is the whole of the defect `basic-intelligence.test.ts` gates on.
+ *
+ * So a hold is settled like anything else: `assessPath` with an empty path
+ * stands the unit on its square and reads the same divergences at it. Neither
+ * half is a judgement call — both are in the settlement.
  */
-function restVerdict(
-  sub: EngineSubstrate,
-  unit: SubstrateUnit,
-  charge: boolean
-): RestVerdict {
-  const at = unit.cells[0] as CellIndex;
-  if (!charge || !sub.hazardAt(at)) return EMPTY_VERDICT;
-  const dose = sub.engine.config.hazardDamage;
-  if (dose <= 0) return EMPTY_VERDICT;
-  // The food phase runs after the health phase and restores in full, so a unit
-  // standing on food that the dose would exhaust may yet recover — the same
-  // rescue `RiskAssessor.assessPath` grades for a mover. We cannot know here
-  // whether a frozen claim eats it first, so the rescue only ever softens the
-  // verdict to `maybe`; it never proves survival.
-  const fatal: Trit = unit.health - dose > 0 ? 'no' : sub.foodAt(at) ? 'maybe' : 'yes';
-  return {
-    perCell: EMPTY_VERDICT.perCell,
-    survival: 'yes',
-    landing: { certain: at, cells: [at] },
-    healthSpent: { lo: dose, hi: dose },
-    exhaustionFatal: fatal,
-  };
-}
-
 function assessOne(
   sub: EngineSubstrate,
   unit: SubstrateUnit,
@@ -820,10 +766,15 @@ function assessOne(
   /** Head cell → who is standing on it, for the capture ordering's price. */
   victims: VictimTable
 ): AssessedCandidate {
-  const verdict =
-    candidate.path.length === 0
-      ? restVerdict(sub, unit, knobs.chargeStandingTerrain)
-      : assessPathOf(sub, unit, candidate.path);
+  const settled = assessPathOf(sub, unit, candidate.path);
+  // The stationary terrain charge is behind its own knob, and turning it off
+  // reads a hold's spend as zero — the ORDERING it used to have. The risk
+  // reading is not a knob: a contested square is contested whichever way the
+  // unit came to be standing on it.
+  const verdict: TraversalVerdict =
+    candidate.path.length === 0 && !knobs.chargeStandingTerrain
+      ? { ...settled, energySpent: { lo: 0, hi: 0 }, savedByTruncation: 0 }
+      : settled;
 
   const tier: SafetyTier =
     verdict.survival === 'no' || verdict.exhaustionFatal === 'yes'
@@ -881,7 +832,7 @@ function assessOne(
   // cell of its ray, so a destination-only reading roughly doubles how much
   // room a slider looks to have. The self-debuff reading is over the LANDING
   // set instead, because collection is destination-only by rule.
-  const tierGrade = gradePath(sub, exposure, unit.cells[0] as CellIndex, candidate.path);
+  const tierGrade = gradePath(exposure, unit.cells[0] as CellIndex, candidate.path);
   const selfDebuff = knobs.selfDebuffOrdering
     ? selfDebuffOf(sub, unit, exposure, landing)
     : ('none' as SelfDebuff);
@@ -891,7 +842,7 @@ function assessOne(
     tier,
     capture,
     captureValue,
-    healthSpent: verdict.healthSpent,
+    energySpent: verdict.energySpent,
     exhaustionFatal: verdict.exhaustionFatal,
     landing,
     tierGrade,
@@ -1199,7 +1150,7 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const capture = captureOrder(a, b);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  if (a.healthSpent.hi !== b.healthSpent.hi) return a.healthSpent.hi - b.healthSpent.hi;
+  if (a.energySpent.hi !== b.energySpent.hi) return a.energySpent.hi - b.energySpent.hi;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
 }
@@ -1251,7 +1202,7 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  *   happens to be worth more — under `applyRegicide` it removes every unit that
  *   team has left, and there is exactly one square on the board where that is
  *   true per enemy team.
- * · `foodGain` above `healthSpent`, and health charged at ZERO when the move
+ * · `foodGain` above `energySpent`, and health charged at ZERO when the move
  *   could eat. That is not a fudge: `resolveTurn` sets an eater's health to its
  *   kind's max, so the health a slider spends reaching food is refunded on
  *   arrival, and charging it is simply wrong about the rules. Everything else
@@ -1286,8 +1237,8 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   if (capture !== 0) return capture;
   if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const ha = a.foodGain === 1 ? 0 : a.healthSpent.hi;
-  const hb = b.foodGain === 1 ? 0 : b.healthSpent.hi;
+  const ha = a.foodGain === 1 ? 0 : a.energySpent.hi;
+  const hb = b.foodGain === 1 ? 0 : b.energySpent.hi;
   if (ha !== hb) return ha - hb;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
@@ -1327,8 +1278,7 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
   const width = sub.grid.width;
   for (const enemy of sub.roster()) {
     if (kings.some((k) => k.team === enemy.team)) continue;
-    const profile = profileOf(enemy.kind);
-    if (profile.rays.length === 0) continue;
+    if (!sub.slides(enemy.unitId)) continue;
     const from = enemy.cells[0] as number;
     for (const king of kings) {
       const to = king.cells[0] as number;
@@ -1340,7 +1290,7 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
       const uy = Math.sign(dy);
       // Only a direction the slider actually has, and only a straight line.
       if (dx !== ux * steps || dy !== uy * steps) continue;
-      if (!profile.rays.some(([rx, ry]) => rx === ux && ry === uy)) continue;
+      if (!sub.slidesToward(enemy.unitId, ux, uy)) continue;
       for (let i = 1; i < steps; i++) {
         out.add(from + (uy * i) * width + ux * i);
       }
@@ -1437,7 +1387,10 @@ function isLastKingOfItsTeam(sub: EngineSubstrate, unit: SubstrateUnit): boolean
  * all is `profilesTo` — never a name comparison.
  */
 function promotes(sub: EngineSubstrate, unit: SubstrateUnit, a: AssessedCandidate): boolean {
-  if (profileOf(unit.kind).promotesTo === null) return false;
-  if (unit.weight + 1 < sub.engine.config.pawnPromotionWeight) return false;
+  // WHETHER THIS KIND CAN PROMOTE AT ALL IS THE ENGINE'S ANSWER, not a name
+  // comparison: `Claim.kinds` is the set of kinds a unit could be by the time
+  // the turn settles, and a second entry in it means promotion is reachable.
+  if (!sub.canPromote(unit.unitId)) return false;
+  if (unit.weight + 1 < sub.pawnPromotionWeight) return false;
   return a.landing.some((cell) => sub.foodAt(cell));
 }

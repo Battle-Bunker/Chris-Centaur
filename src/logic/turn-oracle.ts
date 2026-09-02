@@ -361,25 +361,25 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
         schedule === undefined
           ? tierAtArrival(snake, currentTurn)
           : tierFromSchedule(snake, currentTurn, governing, listed),
-      health: snake.health,
+      energy: snake.health,
       occupancy,
       orientation: { ...snake.orientation },
     };
   });
 
-  // Per-KIND max health, which is what the engine's food phase restores to.
+  // Per-KIND max ENERGY, which is what the engine's food phase refills toward.
   // The board's own map is the configured source; a unit's resolved
   // `snake.maxHealth` (translate.ts sets it from that same config) fills in
   // for boards that carry the per-unit figure but not the map — hand-built
   // fixtures, mostly, but the two must never disagree about what a meal is
   // worth.
-  const maxHealth: NonNullable<ResolveTurnInput['maxHealth']> = {
-    ...(board.maxHealthPerUnit as ResolveTurnInput['maxHealth']),
+  const maxEnergy: NonNullable<ResolveTurnInput['maxEnergy']> = {
+    ...(board.maxHealthPerUnit as ResolveTurnInput['maxEnergy']),
   };
   for (const snake of living) {
     if (snake.maxHealth === undefined) continue;
     const type = (snake.unitType ?? 'snake') as UnitType;
-    if (maxHealth[type] === undefined) maxHealth[type] = snake.maxHealth;
+    if (maxEnergy[type] === undefined) maxEnergy[type] = snake.maxHealth;
   }
 
   const config: Omit<ResolveTurnInput, 'units'> = {
@@ -390,7 +390,8 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     hazardDamage: board.hazardDamage ?? 100,
     food: (board.food ?? []).map(toIndex),
     regicideTeamIDs: Array.from(regicideTeamIDs),
-    maxHealth,
+    maxEnergy,
+    ...(board.foodEnergy === undefined ? {} : { foodEnergy: board.foodEnergy }),
   };
 
   const potions = (board.invulnerabilityPotions ?? []).map(toIndex);
@@ -621,7 +622,7 @@ export function resolvePartialTurn(
   for (const unit of frozen) {
     const settled = result.board[unit.id];
     if (!settled) continue; // died to a real interaction — that death stands
-    settled.health = marshalled.startHealth.get(unit.id) as number;
+    settled.energy = marshalled.startHealth.get(unit.id) as number;
 
     // A meal it should never have reached: the food phase grew it by one cell
     // and took the food off the board. Both are undone, so the meal is still
@@ -699,7 +700,7 @@ function readOutcome(
     traversed: (result.traversed[ourID] ?? []).map(marshalled.toCell),
     cost: death
       ? ourStartHealth
-      : Math.max(0, ourStartHealth - (survivor?.health ?? ourStartHealth)),
+      : Math.max(0, ourStartHealth - (survivor?.energy ?? ourStartHealth)),
     halted: intendedEnd !== null && finalIndex !== intendedEnd,
     exhausted: result.exhaustions.some((e) => e.unitID === ourID),
     ate: (survivor?.occupancy.length ?? ourStartWeight) > ourStartWeight,
@@ -803,7 +804,7 @@ export function healthAfterEntering(board: Board, currentTurn: number, unit: Sna
   const result = resolvePartialTurn(marshalled, new Map([[unit.id, { path }]]));
   // Dead means the engine took it to zero or below; report the shortfall the
   // registry implies rather than inventing a number.
-  return result.board[unit.id]?.health ?? 0;
+  return result.board[unit.id]?.energy ?? 0;
 }
 
 /** The projected health cost of a path — the name every scoring caller reads. */

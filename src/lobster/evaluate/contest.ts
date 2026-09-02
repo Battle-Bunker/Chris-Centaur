@@ -166,8 +166,8 @@ export function contestField(sub: EngineSubstrate, asTeam: number): ContestField
     if (unit.team === asTeam) continue;
     const t = frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn);
     const w = unit.weight;
-    for (const action of sub.enumerate(unit.unitId)) {
-      const cell = action.dest;
+    for (const action of sub.actionsOf(unit.unitId)) {
+      const cell = action.to;
       if (cell < 0 || cell >= cells) continue;
       if (reached[cell] === 0) {
         reached[cell] = 1;

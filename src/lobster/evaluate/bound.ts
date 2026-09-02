@@ -49,13 +49,13 @@
  * They enter by MEET and JOIN, never by addition — see `clampTo`.
  */
 
-import { DEAD as ENGINE_DEAD } from '../../partial-engine/index';
+
 import type { Bound } from '../contracts';
 
 export type { Bound };
 
-/** The lattice bottom: our team is gone. Shared with the engine's own. */
-export const DEAD: number = ENGINE_DEAD;
+/** The lattice bottom: our team is gone. */
+export const DEAD: number = Number.NEGATIVE_INFINITY;
 /** The lattice top: every other team is gone. */
 export const WIN: number = Number.POSITIVE_INFINITY;
 
@@ -131,7 +131,7 @@ export type UncertainInput =
   | 'held-weight'
   | 'held-tier'
   | 'held-arrival'
-  | 'held-health'
+  | 'held-energy'
   | 'contingent-survival';
 
 export interface BoundContract {

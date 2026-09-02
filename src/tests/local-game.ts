@@ -549,7 +549,7 @@ function traceFor(
     wireId: unit?.wireId ?? '?',
     letter: unit?.wireId.split('-')[1] ?? '?',
     kind: String(unit?.type ?? 'snake'),
-    health: unit?.health ?? 0,
+    health: unit?.energy ?? 0,
     from: toApiCoord(from, w, h),
     to: toApiCoord(chosen.to, w, h),
     top: scored.slice(0, 3),
@@ -644,7 +644,7 @@ export function stepGame(
       body: piece ? [cells[0] as Coord] : cells,
       head: { ...(cells[0] as Coord) },
       length: settled.occupancy.length,
-      health: settled.health,
+      health: settled.energy,
       customizations: { ...snake.customizations },
       // Facing and KIND are settlement outputs: the engine rewrites
       // orientation and promotes pawns itself, so the runner reads both back.

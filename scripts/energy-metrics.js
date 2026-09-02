@@ -7,9 +7,10 @@
  * measured on, so this script parses it rather than adding counters to a file
  * another agent is editing.
  *
- *   HEALTH SPENT is CELLS ENTERED, which is what the rules charge: one health
- *   per cell entered, at `costPerCell` = 1 for every kind
- *   (src/partial-engine/grammar.ts), and the scenarios carry no hazards. A
+ *   ENERGY SPENT is CELLS ENTERED, which is what the rules charge: one energy
+ *   per cell entered, at `COST_PER_CELL` = 1 for every kind
+ *   (src/engine-vendor/engine/moveGrammar.ts), and the scenarios carry no
+ *   hazards. A
  *   slider enters one cell per sub-step of its ray, so its spend is the
  *   Chebyshev distance it covered; a knight's jump is ONE cell whatever the
  *   L-offset says; a hold or a pawn rotation enters nothing and spends nothing.

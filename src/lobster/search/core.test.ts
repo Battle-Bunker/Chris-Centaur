@@ -47,9 +47,9 @@ const CROWD: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], health: 60 },
-    { id: 2, team: OURS, type: 'rook', occupancy: [2 * 7 + 5], health: 60 },
-    { id: 3, team: THEIRS, type: 'queen', occupancy: [4 * 7 + 3, 4 * 7 + 3, 4 * 7 + 3], health: 60 },
+    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], energy: 60 },
+    { id: 2, team: OURS, type: 'rook', occupancy: [2 * 7 + 5], energy: 60 },
+    { id: 3, team: THEIRS, type: 'queen', occupancy: [4 * 7 + 3, 4 * 7 + 3, 4 * 7 + 3], energy: 60 },
   ],
 };
 
@@ -165,9 +165,8 @@ describe('a complete legal JointPlan at every instant', () => {
     // Deliberately NOT a full Substrate: the roster accessor is withheld to
     // exercise the search's refusal arm, hence the cast.
     const rosterless = {
-      state: rich.state,
       resolveBoundedFor: rich.resolveBoundedFor.bind(rich),
-      releaseResolution: () => undefined,
+      unitIdOf: rich.unitIdOf.bind(rich),
       entangled: rich.entangled.bind(rich),
       influenceOf: rich.influenceOf.bind(rich),
       release: () => undefined,
@@ -366,8 +365,8 @@ describe('reference actions: a teammate not ours to command', () => {
       width: 7,
       height: 7,
       units: [
-        { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], health: 60 },
-        { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 5], health: 60 },
+        { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], energy: 60 },
+        { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 5], energy: 60 },
       ],
     };
     const h = harness(spec);

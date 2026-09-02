@@ -6,14 +6,13 @@
  * through the real trio with a pin event arriving MID-decision, asserting a
  * conforming staged set reaches the fake manager surface before the deadline.
  * Alongside it: the held-capacity ruling on a 3-team board that exceeds
- * MAX_FROZEN (declared modelling of the nearest units, never truncation), the
+ * the held roster (no capacity to overflow any more), the
  * wire-policy derivation of the kernel's write interval, and the pin-advice
  * seam.
  */
 
 import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
-import { MAX_FROZEN } from '../partial-engine/index';
 import type {
   Candidate,
   JointPlan,
@@ -22,8 +21,7 @@ import type {
   SearchCore,
   UnitId,
 } from '../lobster/contracts';
-import { NO_ORDER_MOVE } from '../lobster/contracts';
-import { EngineSubstrate, TooManyHeldError, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
+import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { GrammarCandidateGenerator } from '../lobster/candidates';
 import type { KernelReport } from '../lobster/kernel';
 import { adviseFromReport } from '../lobster/pins';
@@ -216,7 +214,19 @@ describe('SMOKE: a 7×7 team decision end-to-end with a mid-decision pin', () =>
 
 // -------------------------------------------------------------- held capacity
 
-describe('MAX_FROZEN on a 3-team board with nothing modelled', () => {
+/**
+ * THERE IS NO CAPACITY ANY MORE, and this is the test that says so.
+ *
+ * The old claim field carried at most 32 held units in a fixed slot mask, so a
+ * board with more uncontrolled units than that forced the decision to MODEL
+ * the nearest of them at their defaults and declare the narrowing — an
+ * arrival-ranked probe, a replacement path, and one declared reference-action
+ * per overflowing unit. Claims are keyed by unit id now: every uncontrolled
+ * unit carries its own, however many there are. So the board that used to
+ * refuse simply decides, and it decides with NO declared narrowing at all,
+ * which is strictly the stronger answer.
+ */
+describe('a board past the old 32-unit capacity just decides', () => {
   const SIZE = 12;
   const threeTeamBoard = (): Board => {
     const snakes: Snake[] = [
@@ -238,19 +248,20 @@ describe('MAX_FROZEN on a 3-team board with nothing modelled', () => {
     return boardOf(snakes, SIZE);
   };
 
-  test('unmitigated, the claim view refuses: TooManyHeldError, never truncation', () => {
+  test('the claim view carries all 34 of them, and the generator answers', () => {
     const board = threeTeamBoard();
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     try {
       const gen = new GrammarCandidateGenerator();
       const ours = sub.unitOfWireId('a')?.unitId as UnitId;
-      expect(() => gen.candidatesFor(sub, ours)).toThrow(TooManyHeldError);
+      expect(sub.claimsOf()).toHaveLength(34);
+      expect(gen.candidatesFor(sub, ours).candidates.length).toBeGreaterThan(0);
     } finally {
       sub.release();
     }
   });
 
-  test('the engine models the NEAREST units at their defaults, declared, and decides', async () => {
+  test('the engine decides, and declares no modelling narrowing to do it', async () => {
     const board = threeTeamBoard();
     const ports = fakePorts(['a', 'b']);
     const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 20, sliceMs: 10 } });
@@ -270,34 +281,10 @@ describe('MAX_FROZEN on a 3-team board with nothing modelled', () => {
     expect(report).not.toBeNull();
     expect(report.stagedNothing).toBe(false);
     expect(result.forwarded).toBeGreaterThanOrEqual(2);
-
-    // Exactly the overflow is modelled: 34 uncontrolled − 32 capacity = 2,
-    // each a DECLARED reference-action at the kind's own default.
-    expect(result.assumptions).toHaveLength(34 - MAX_FROZEN);
-    for (const a of result.assumptions) {
-      expect(a.kind).toBe('reference-action');
-      if (a.kind === 'reference-action') expect(a.to).toBe(NO_ORDER_MOVE);
-    }
-    // And they are the NEAREST by arrival — the two touching our line.
-    const probe = makeSubstrate({
-      board,
-      turn: TURN,
-      asTeam: 'red',
-      modeled: board.snakes.map((s) => s.id),
-    });
-    try {
-      const modelled = result.assumptions
-        .map((a) => (a.kind === 'reference-action' ? probe.unitOf(a.unitId)?.wireId : null))
-        .sort();
-      expect(modelled).toEqual(['n1', 'n2']);
-    } finally {
-      probe.release();
-    }
-
-    // The declared narrowings ride every emitted record.
+    // Nothing was modelled to make the held set fit, so nothing is declared.
+    expect(result.assumptions.filter((a) => a.kind === 'reference-action')).toHaveLength(0);
     for (const rec of report.journal) {
-      const refs = rec.assumptions.filter((a) => a.kind === 'reference-action');
-      expect(refs).toHaveLength(34 - MAX_FROZEN);
+      expect(rec.assumptions.filter((a) => a.kind === 'reference-action')).toHaveLength(0);
     }
   }, 30_000);
 });
@@ -886,6 +873,19 @@ describe('a staged move the wire cannot say is a named narrowing, not a skip', (
 
 // -------------------------------- a wire→substrate lookup miss (V4 R5)
 
+/**
+ * THE MISS HAS NO SUBJECT LEFT, and that is worth one test rather than none.
+ *
+ * The defect this block was written for was a MODELLING CHOICE the decision
+ * made and the substrate could not name: `unitId: sub.unitOfWireId(id)?.unitId
+ * as UnitId` carried `undefined` through a cast into a reference-action, into
+ * the plan, and out the far side as an UnknownUnitError — a whole turn lost to
+ * a lookup. The decision only ever made such a choice to fit a held set into a
+ * 32-slot field, and the field is gone: nothing is modelled to make room any
+ * more, so there is no id to look up and no cast to make. What is checked here
+ * is that the board which used to force one decides cleanly, with no reference
+ * action, no narrowing and no refusal, even when a lookup would miss.
+ */
 describe('a modelling choice the substrate cannot name degrades, never crashes', () => {
   const SIZE = 12;
   const bigBoard = (): Board => {
@@ -905,14 +905,8 @@ describe('a modelling choice the substrate cannot name degrades, never crashes',
     return boardOf(snakes, SIZE);
   };
 
-  test('the miss is a counted refusal and a declared narrowing — not an UnknownUnitError', async () => {
+  test('a board that used to force a modelling choice now makes none', async () => {
     const board = bigBoard();
-    // `unitId: sub.unitOfWireId(id)?.unitId as UnitId` used to carry `undefined`
-    // through the cast into a reference-action, into the plan, and out the
-    // other side as an UnknownUnitError deep inside resolveBounded — a whole
-    // turn lost to a lookup miss. The lookup is simulated here because the
-    // production probe and the real substrate are built from the same board,
-    // which is exactly why the cast looked safe.
     const real = EngineSubstrate.prototype.unitOfWireId;
     const spy = jest
       .spyOn(EngineSubstrate.prototype, 'unitOfWireId')
@@ -933,18 +927,9 @@ describe('a modelling choice the substrate cannot name degrades, never crashes',
         ],
         deadlineMs: Date.now() + 400,
       });
-      // The decision survived and still staged a set.
       expect(result.report?.stagedNothing).toBe(false);
-      expect(result.refusals['unit-lookup-miss']).toBe(1);
-      // One reference-action for the unit it could name, one NAMED narrowing
-      // for the one it could not — and no assumption carrying an undefined id.
-      // The choice it could not name was REPLACED from the ranked remainder,
-      // so the held set still fits — two reference actions, and one named
-      // narrowing recording the substitution.
-      const refs = result.assumptions.filter((a) => a.kind === 'reference-action');
-      const narrowings = result.assumptions.filter((a) => a.kind === 'narrowing');
-      expect(refs).toHaveLength(2);
-      expect(narrowings).toHaveLength(1);
+      expect(result.refusals['unit-lookup-miss']).toBe(0);
+      expect(result.assumptions.filter((a) => a.kind === 'reference-action')).toHaveLength(0);
       for (const a of result.assumptions) {
         if (a.kind !== 'posture') expect(a.unitId).toBeDefined();
       }

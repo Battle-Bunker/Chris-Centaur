@@ -52,7 +52,7 @@
  * a unit with a full tank that is true — every square it can reach it can
  * still reach next turn, so declining to act buys it nothing at all. For a
  * unit nearly out of health it is false: standing still buys the only thing it
- * has left, because health is a movement budget that a `stayLegal` kind may
+ * has left, because energy is a movement budget that a piece may
  * decline to spend (`./energy.ts`, and `budgetShare`'s own argument in
  * `./features.ts`). Charging a full anti-dither penalty there prices the same
  * fact twice and in opposite directions: `energy` charges the move for the
@@ -77,7 +77,7 @@
  * with it.
  */
 
-import { profileOf } from '../../partial-engine/index';
+import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { type Feature, bound, point } from './bound';
@@ -115,10 +115,9 @@ function costOf(ctx: EvalContext, s: Standing): number {
     // A trail unit has no stay in its grammar, so an unchanged cell for one of
     // those is not idleness — it is a reading of a unit that never moved
     // because it was never asked to. Only a kind that CAN decline is charged.
-    if (!profileOf(unit.kind).stayLegal) return 0;
-    const config = ctx.sub.engine.config;
-    const cap = Math.max(1, config.maxHealthPerKind?.[unit.kind] ?? config.maxHealth);
-    return IDLE_COST * Math.min(1, Math.max(0, unit.health / cap));
+    if (!isPieceType(unit.type)) return 0;
+    const cap = Math.max(1, ctx.sub.maxEnergyOf(unit.type));
+    return IDLE_COST * Math.min(1, Math.max(0, unit.energy / cap));
   }
   const came = cameFrom(ctx.sub).get(s.unitId);
   return came !== undefined && s.cell === came ? REVERSAL_COST : 0;

@@ -52,19 +52,22 @@ export interface TTGameSetup {
   // The turn limit the game is adjudicated at: absent = the engine's default,
   // null = unlimited (GameSetup.maxTurns upstream).
   maxTurns?: number | null;
-  // Per-unit-type max health (mirrors shared/types/Game.ts maxHealthPerUnit).
-  // A unit's health starts at its type's max and eating restores to it.
+  // Per-unit-type max ENERGY (mirrors shared/types/Game.ts maxEnergyPerUnit).
+  // A unit's energy starts at its type's max and eating refills toward it.
   // Absent map or absent key means the engine default of 100.
-  maxHealthPerUnit?: Partial<Record<TTUnitType, number>>;
+  maxEnergyPerUnit?: Partial<Record<TTUnitType, number>>;
+  // Energy one food replenishes (mirrors shared/types/Game.ts foodEnergy).
+  // Absent means the engine default of 100 — one meal, a full tank.
+  foodEnergy?: number;
   // Damage a unit takes when it ENTERS a hazard square (mirrors
   // shared/types/Game.ts hazardDamage). Hazards are no longer instant death —
-  // a unit dies only when its health reaches <= 0. Absent means the engine
+  // a unit dies only when its energy reaches <= 0. Absent means the engine
   // default of 100.
   hazardDamage?: number;
 }
 
 export interface TTTurn {
-  playerHealth: Record<string, number>;
+  playerEnergy: Record<string, number>;
   startTime: Timestamp;
   endTime: Timestamp;
   alivePlayers: string[];

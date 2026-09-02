@@ -336,7 +336,7 @@ describe('a refused action really is fatal — through the real resolver', () =>
           const dead = sub.withResolution(
             new Map<UnitId, Candidate>([[unit.unitId, entry.candidate]]),
             sub.teamNumber(unit.teamId),
-            ({ resolution }) => resolution.deaths.some((d) => d.unitId === unit.unitId)
+            ({ resolution }) => resolution.deaths[unit.wireId] !== undefined
           );
           expect([unit.wireId, why, dead]).toEqual([unit.wireId, why, true]);
           checked++;
@@ -431,13 +431,7 @@ describe('a refused action really is fatal — through the real resolver', () =>
       // Resolve it against EVERY legal move of the ally. The cell is occupied
       // in each of them, so the mover dies in each of them — which is the
       // quantifier the refusal rests on, checked rather than asserted.
-      for (const action of sub.enumerate(ally.unitId)) {
-        const allyMove: Candidate = {
-          unitId: ally.unitId,
-          from: ally.cells[0],
-          to: action.dest,
-          path: action.action.kind === 'move' ? [...action.action.path] : [],
-        };
+      for (const allyMove of sub.actionsOf(ally.unitId)) {
         const [moverDead, allyDead] = sub.withResolution(
           new Map<UnitId, Candidate>([
             [mover.unitId, entry.candidate],
@@ -445,8 +439,8 @@ describe('a refused action really is fatal — through the real resolver', () =>
           ]),
           sub.teamNumber('red'),
           ({ resolution }) => [
-            resolution.deaths.some((d) => d.unitId === mover.unitId),
-            resolution.deaths.some((d) => d.unitId === ally.unitId),
+            resolution.deaths[mover.wireId] !== undefined,
+            resolution.deaths[ally.wireId] !== undefined,
           ]
         );
         // The ONE world the refusal does not own, and it is the one the prune
@@ -458,9 +452,9 @@ describe('a refused action really is fatal — through the real resolver', () =>
           escapes++;
           continue;
         }
-        expect([entry.candidate.to, action.dest, moverDead]).toEqual([
+        expect([entry.candidate.to, allyMove.to, moverDead]).toEqual([
           entry.candidate.to,
-          action.dest,
+          allyMove.to,
           true,
         ]);
         checked++;
@@ -504,7 +498,7 @@ describe('a refused action really is fatal — through the real resolver', () =>
           ],
         ]),
         sub.teamNumber('red'),
-        ({ resolution }) => resolution.deaths.some((d) => d.unitId === king.unitId)
+        ({ resolution }) => resolution.deaths[king.wireId] !== undefined
       );
       expect(gone).toBe(true);
     }
@@ -738,9 +732,9 @@ const FRATRICIDE: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'rook', occupancy: [3 * 7 + 1, 3 * 7 + 1, 3 * 7 + 1], health: 60 },
-    { id: 2, team: OURS, type: 'rook', occupancy: [3 * 7 + 4], health: 60 },
-    { id: 3, team: THEIRS, type: 'knight', occupancy: [0], health: 60 },
+    { id: 1, team: OURS, type: 'rook', occupancy: [3 * 7 + 1, 3 * 7 + 1, 3 * 7 + 1], energy: 60 },
+    { id: 2, team: OURS, type: 'rook', occupancy: [3 * 7 + 4], energy: 60 },
+    { id: 3, team: THEIRS, type: 'knight', occupancy: [0], energy: 60 },
   ],
 };
 
@@ -792,7 +786,9 @@ function conformWith(
   const plan = core.conform(ctx, new Map());
   const ours = new Set(spec.units.filter((u) => u.team === OURS).map((u) => u.id as UnitId));
   const ourDead = sub.withResolution(plan, OURS, ({ resolution }) =>
-    resolution.deaths.filter((d) => ours.has(d.unitId as UnitId)).map((d) => d.unitId as UnitId)
+    Object.keys(resolution.deaths)
+      .map((wireId) => sub.unitIdOf(wireId))
+      .filter((id): id is UnitId => id !== undefined && ours.has(id))
   );
   return {
     plan,
@@ -863,9 +859,9 @@ describe('rung 0 reads the verdict it already paid for', () => {
       width: 9,
       height: 9,
       units: [
-        { id: 1, team: OURS, type: 'rook', occupancy: [1], health: 60 },
-        { id: 2, team: OURS, type: 'rook', occupancy: [9 * 8 + 7], health: 60 },
-        { id: 3, team: THEIRS, type: 'knight', occupancy: [9 * 4 + 4], health: 60 },
+        { id: 1, team: OURS, type: 'rook', occupancy: [1], energy: 60 },
+        { id: 2, team: OURS, type: 'rook', occupancy: [9 * 8 + 7], energy: 60 },
+        { id: 3, team: THEIRS, type: 'knight', occupancy: [9 * 4 + 4], energy: 60 },
       ],
     };
     const counts: number[] = [];

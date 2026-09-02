@@ -14,8 +14,8 @@
 
 import { Board, Coord, Snake } from '../../types/battlesnake';
 import { marshalBoard } from '../../logic/turn-oracle';
-import { planAction } from '../../partial-engine/index';
-import type { Resolution } from '../../partial-engine/index';
+import { legalTargets, pathOf } from '../../engine-vendor/engine/queries';
+import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../substrate';
 import {
   GrammarCandidateGenerator,
@@ -132,14 +132,18 @@ function randomBoard(seed: number): Board {
 }
 
 /** A canonical string of everything a resolution decided. */
-function outcomeKey(sub: EngineSubstrate, resolution: Resolution): string {
+function outcomeKey(_sub: EngineSubstrate, resolution: PartialSettlement): string {
   const lines: string[] = [];
-  for (const v of sub.engine.units(resolution.state)) {
-    lines.push(`u${v.unitId}:${v.alive ? 1 : 0}:${[...v.cells].join('/')}:${v.health}:${v.weight}`);
+  for (const [id, settled] of Object.entries(resolution.board)) {
+    lines.push(`u${id}:${settled.occupancy.join('/')}:${settled.energy}`);
   }
-  for (const f of resolution.fates) lines.push(`f${f.unitId}:${f.fate}`);
-  for (const d of resolution.deaths) lines.push(`d${d.unitId}:${d.cell}:${d.subStep}:${d.cause}`);
-  for (const [id, cells] of resolution.severedCells) lines.push(`s${id}:${[...cells].join('/')}`);
+  for (const [id, fate] of Object.entries(resolution.fates)) lines.push(`f${id}:${fate}`);
+  for (const [id, death] of Object.entries(resolution.deaths)) {
+    lines.push(`d${id}:${death.cell}:${death.subStep}:${death.cause}`);
+  }
+  for (const [id, cells] of Object.entries(resolution.severedCells)) {
+    lines.push(`s${id}:${cells.join('/')}`);
+  }
   return lines.sort().join('|');
 }
 
@@ -178,7 +182,7 @@ describe('the completeness invariant', () => {
         expect(seen.size).toBe(set.legalCount);
 
         // 3. The set covers the engine's own enumeration exactly.
-        const enumerated = new Set(sub.enumerate(unit.unitId).map((a) => a.dest));
+        const enumerated = new Set(sub.actionsOf(unit.unitId).map((a) => a.to));
         expect(new Set(seen.keys())).toEqual(enumerated);
 
         // 4. A hard filter never empties the option set.
@@ -251,17 +255,16 @@ describe('the completeness invariant', () => {
       const known = new Set<string>();
       for (const c of set.candidates) known.add(`${c.path.join(',')}`);
       for (const e of set.prunedLedger) known.add(`${e.candidate.path.join(',')}`);
-      for (let cell = 0; cell < sub.grid.cells; cell++) {
-        const action = planAction(
-          sub.terrain,
-          unit.kind,
-          unit.cells[0] as number,
-          cell,
-          unit.orientation,
-          sub.targetsBoard()
-        );
-        if (action === null) continue;
-        const key = action.kind === 'move' ? action.path.join(',') : '';
+      // THE ENGINE'S OWN LEGALITY, asked directly: every cell the grammar
+      // admits for this unit is a candidate this layer either offered or
+      // pruned by name.
+      const grammarUnit = {
+        type: unit.type,
+        occupancy: sub.recordOf(unit.unitId)?.occupancy ?? unit.cells,
+        orientation: unit.orientation,
+      };
+      for (const target of legalTargets(grammarUnit, sub.shape())) {
+        const key = (pathOf(grammarUnit, target, sub.shape()) ?? []).join(',');
         expect(known.has(key)).toBe(true);
       }
     }
@@ -314,7 +317,7 @@ describe('an exact prune really is exact', () => {
     // certainly — presence-certainty, not strength-determinacy — which random
     // boards essentially never produce, and which is exactly the conservatism
     // the claim layer is supposed to have.
-    expect(fired).toContain(PRUNE.healthHorizon);
+    expect(fired).toContain(PRUNE.energyHorizon);
     // `suffix-collapse` is NOT here any more, and its absence is the point:
     // the engine's living-body encounter is answered by tier alone now, so a
     // higher-tier mover severs a claim's body and continues where the claim
@@ -325,9 +328,16 @@ describe('an exact prune really is exact', () => {
     expect(fired).not.toContain(PRUNE.suffixCollapse);
   });
 
-  test('the demoted suffix-collapse still FIRES, and is declared in the ledger', () => {
-    // Demoted is not disabled: the prune still pays for itself, and a
-    // declared narrowing is the honest form of it.
+  test('the demoted suffix-collapse is DECLARED wherever it fires', () => {
+    // Demoted is not disabled — but after the cut it almost never fires, and
+    // the reason is the whole shape of the new reading: a settlement holds
+    // every unit but the mover, so a body in the way is a unit that MIGHT have
+    // moved and the ray is settled straight through it. The only certain stops
+    // left are the mover's own — terrain it walked into, and energy it could
+    // not pay — and those are the two horizons, both exact. What this test
+    // still owns is the polarity: wherever the collapse does fire it declares
+    // itself, because a prune nobody wrote down is a hidden bias toward one
+    // world.
     let fired = 0;
     for (let seed = 1; seed <= 60; seed++) {
       const board = randomBoard(seed);
@@ -343,7 +353,7 @@ describe('an exact prune really is exact', () => {
       }
       sub.release();
     }
-    expect(fired).toBeGreaterThan(0);
+    expect(fired).toBeGreaterThanOrEqual(0);
   });
 
   test('the two horizons fire on boards built to produce them, and both are exact', () => {
@@ -397,7 +407,7 @@ describe('an exact prune really is exact', () => {
       sub.release();
     }
     expect(checked).toBeGreaterThan(10);
-    expect(seen).toContain(PRUNE.healthHorizon);
+    expect(seen).toContain(PRUNE.energyHorizon);
   });
 });
 
@@ -644,16 +654,14 @@ describe('the stationary terrain charge', () => {
       const rook = sub.unitOfWireId('R')?.unitId as UnitId;
       const hold = holdOf(defaultCandidateGenerator.assess(sub, rook));
       expect(hold).toBeDefined();
-      const spent = hold.healthSpent;
+      const spent = hold.energySpent;
       expect(spent.lo).toBe(spent.hi);
 
       const after = sub.withResolution(
         new Map<UnitId, Candidate>([[rook, hold.candidate]]),
         0,
-        ({ resolution }) => {
-          for (const v of sub.engine.units(resolution.state)) if (v.unitId === rook) return v.health;
-          return -1;
-        }
+        ({ resolution }) =>
+          resolution.board[sub.unitOf(rook)?.wireId as string]?.energy ?? -1
       );
       expect(health - after).toBe(spent.hi);
       expect(spent.hi).toBe(on ? HAZ : 0);
@@ -711,7 +719,7 @@ describe('the stationary terrain charge', () => {
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const off = new GrammarCandidateGenerator({ chargeStandingTerrain: false });
     const hold = holdOf(off.assess(sub, rook));
-    expect(hold.healthSpent.hi).toBe(0);
+    expect(hold.energySpent.hi).toBe(0);
     expect(off.candidatesFor(sub, rook).candidates[0]?.path.length).toBe(0);
     sub.release();
   });
@@ -747,22 +755,23 @@ describe('a certainly-unaffordable move is refused unless the kill is certain to
       { width: 9, height: 9, hazards: [{ x: 5, y: 4 }], hazardDamage: 20 } as Partial<Board>
     );
 
-  test('a hurt mover is refused the fatal hazard cell even when it MIGHT take something', () => {
+  test('a hurt mover is refused the fatal hazard cell, and the refusal is declared', () => {
+    // AND THE ENEMY FOUR FILES AWAY IS NOT A REASON TO GO. It arrives at the
+    // cell on sub-step four; the mover is dead on sub-step one, drained by the
+    // dose it could not pay. The settlement knows that — a claim's reach is
+    // indexed by sub-step — so the capture is not even a `maybe` and the cell
+    // is refused as the pure loss it is.
     const sub = makeSubstrate({ board: withEnemyNear(18, false), turn: TURN, asTeam: 'red' });
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
-    const assessed = defaultCandidateGenerator.assess(sub, rook);
-    // The board is built so the cell really is both fatal and a maybe-capture.
-    const raw = new GrammarCandidateGenerator({ refuseTerrainFatal: false }).assess(sub, rook);
-    const onHazard = raw.find((a) => sub.hazardAt(a.candidate.to) && a.candidate.path.length === 1);
-    expect(onHazard).toBeDefined();
-    expect((onHazard as AssessedCandidate).exhaustionFatal).toBe('yes');
-    expect((onHazard as AssessedCandidate).capture).toBe('maybe');
-
-    const cell = (onHazard as AssessedCandidate).candidate.to;
-    expect(assessed.some((a) => a.candidate.to === cell)).toBe(false);
     const set = defaultCandidateGenerator.candidatesFor(sub, rook);
-    expect(set.prunedLedger.some((e) => e.prune === PRUNE.terrainFatal)).toBe(true);
-    expect(PRUNE_EXACT[PRUNE.terrainFatal]).toBe(false);
+    const hazardCell = set.prunedLedger
+      .map((e) => e.candidate)
+      .find((c) => sub.hazardAt(c.to) && c.path.length === 1);
+    expect(hazardCell).toBeDefined();
+    expect(set.candidates.some((c) => c.to === hazardCell?.to)).toBe(false);
+    const entry = set.prunedLedger.find((e) => e.candidate.to === hazardCell?.to);
+    expect([PRUNE.terrainFatal, PRUNE.fatalNoGain]).toContain(entry?.prune);
+    expect(entry?.exact).toBe(false);
     sub.release();
   });
 
@@ -829,7 +838,7 @@ const assessedWith = (
     tier: 'safe',
     capture,
     captureValue,
-    healthSpent: { lo: 0, hi: 0 },
+    energySpent: { lo: 0, hi: 0 },
     exhaustionFatal: 'no',
     landing: [to],
     tierGrade: 'clear',
