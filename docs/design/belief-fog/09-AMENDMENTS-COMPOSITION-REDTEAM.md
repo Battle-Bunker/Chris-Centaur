@@ -102,9 +102,28 @@ uncertainty the cover argument legitimately discriminates less. What must not
 happen is reading behavior change as ε-drift when it is w-entropy drift.
 Adopted as pre-registered instrument (05-doc §4): **entropy of the supplied
 weight vs mask size per decision**, published in the mechanism report next to
-the advisory rows; the (supplier × ε) grid stratifies by it. If ε needs an
-entropy-conditioned schedule, that is a D3 design decision made on this
-column's evidence, not a silent recalibration.
+the advisory rows; the (supplier × ε) grid stratifies by it.
+
+**Second pass — should ε be SCHEDULED on entropy? No, and here is the
+derivation (a refusal with a falsifier, per the derived-never-dials rule).**
+ε prices exactly one thing: the chance the WEIGHT'S MODEL is wrong (the
+contaminating mass an adversary could hide inside the supplier's blind
+spots). For a DERIVED weight like cover-counting, that model error is a
+property of the derivation's assumption (the enemy best-responds to our
+uniform) — it does not grow because the board got foggier. What entropy
+degrades is DISCRIMINATION, and discrimination degrading is already
+self-expressed in the arithmetic: as w flattens, E_w[V] converges across
+candidates, the est rung separates less and decides less, and ordering
+authority passes gracefully to whatever still separates (floors, depth).
+Scheduling ε up under entropy would double-express one cause — the exact
+two-fear-knobs shape the joint frame forbids — and scheduling it down would
+manufacture confidence from fog. So: ε constant per D3 policy; the entropy
+column is a STRATIFIER, not a controller. FALSIFIER, pre-registered with the
+bands: if estDecided-rate vs entropy shows the est rung still deciding at
+high entropy AND those decisions grade worse than floor-decided ones on the
+same boards, then flat-w decisions are actively harmful rather than merely
+rare, and an entropy-gated est rung (a D3 design change, not an ε schedule)
+goes on the table with that evidence attached.
 
 ## 6. The reappearance oracle throws in production — ACCEPTED, demoted to quarantine
 
