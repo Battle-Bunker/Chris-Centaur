@@ -617,6 +617,7 @@ export function stepGame(
     potions: marshalled.potions,
     potionsEnabled: marshalled.potionsEnabled,
     potionWindowTurns: marshalled.potionWindowTurns,
+    pawnPromotionWeight: marshalled.pawnPromotionWeight,
   });
 
   const w = marshalled.fullWidth;
@@ -643,11 +644,17 @@ export function stepGame(
       length: settled.occupancy.length,
       health: settled.health,
       customizations: { ...snake.customizations },
-      orientation: result.rotations[snake.id]
-        ? { ...result.rotations[snake.id] }
+      // Facing and KIND are settlement outputs: the engine rewrites
+      // orientation and promotes pawns itself, so the runner reads both back.
+      orientation: result.orientation[snake.id]
+        ? { ...result.orientation[snake.id] }
         : { ...snake.orientation },
+      unitType: result.unitTypes[snake.id] ?? snake.unitType,
       invulnerabilityLevel: tier,
     };
+    if (result.promoted.includes(snake.id)) {
+      next.maxHealth = board.maxHealthPerUnit?.queen ?? 100;
+    }
     // How long that level is safe to bank on: the earliest expiry among the
     // effects settlement left this unit holding. A board carrying no schedule
     // can say nothing new, so its stated expiry rides across untouched — which
@@ -655,7 +662,6 @@ export function stepGame(
     // it was before settlement was called at all.
     const expiry = aggregateExpiryTurn(result.effects, snake.id);
     if (hadSchedule && expiry !== null) next.invulnerabilityExpiryTurn = expiry;
-    promoteIfDue(next, board);
     snakes.push(next);
   }
 
@@ -716,18 +722,6 @@ export function stepGame(
     tierUps,
     tierDowns,
   };
-}
-
-function promoteIfDue(snake: Snake, board: Board): void {
-  if (snake.unitType !== 'pawn') return;
-  const threshold = board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT;
-  if (snake.length < threshold) return;
-  snake.unitType = 'queen';
-  snake.length = 1;
-  snake.body = [{ ...snake.head }];
-  const cap = board.maxHealthPerUnit?.queen ?? 100;
-  snake.health = Math.min(snake.health, cap);
-  snake.maxHealth = cap;
 }
 
 // ---------------------------------------------------------------------------
