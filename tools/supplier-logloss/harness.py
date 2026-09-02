@@ -51,6 +51,21 @@ WBAR_MIN = 0.01        # category admissibility threshold for eps_min
 JEFFREYS = 0.5         # smoothing pseudo-count on category counts
 COVER_RANGE_PAD = 2    # target gating: head L1 <= reach + pad
 
+# opp/solutions@1 (M36/C40): weight(a) ~ count of valid same-team joint
+# assignments with u playing a. Constraint system v0 (declared): per-unit
+# supports (C0) + same-team same-destination exclusivity (rules-certain: own
+# units contest and kill each other; head-swaps and unequal-weight survivor
+# nuances NOT modeled — the constraint-violation counter measures the
+# contamination of the constraint itself). Coupled subsets = same-team units
+# with overlapping supports. C40 declaration: exact enumeration when the
+# subset's joint product <= SOLUTIONS_EXACT_CAP; uniform sampling of
+# SOLUTIONS_SAMPLE_K joints above it (the declared approximation whose error
+# is this supplier's advisoryPrecision).
+SOLUTIONS_EXACT_CAP = 20000
+SOLUTIONS_SAMPLE_K = 500
+import random as _random
+_solrng = _random.Random(93101)
+
 KIND_SNAKE = "snake"
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -257,6 +272,83 @@ def cover_counts(u, snap, support, support_cache):
     return counts, any_cover
 
 
+def solutions_for_turn(snap, support_cache):
+    """opp/solutions@1 per-turn pass. Returns (weights, coupled, stats):
+    weights[uid] = dict dest->marginal count over valid same-team joint
+    assignments of the unit's coupled subset; coupled = set of uids in a
+    subset of size >= 2; stats = counters for the C40 declaration rows."""
+    stats = {"exact": 0, "sampled": 0, "unresolved": 0, "violations": 0}
+    weights = {}
+    coupled = set()
+    by_team = defaultdict(list)
+    for u in snap.units:
+        if u.uid not in support_cache:
+            support_cache[u.uid] = support_of(u, snap)
+        by_team[u.team].append(u)
+    for team, units in by_team.items():
+        sets = {u.uid: set(support_cache[u.uid]) for u in units}
+        # overlap graph -> components (union by shared destination cells)
+        comp = {u.uid: u.uid for u in units}
+
+        def find(x):
+            while comp[x] != x:
+                comp[x] = comp[comp[x]]
+                x = comp[x]
+            return x
+
+        for i in range(len(units)):
+            for j in range(i + 1, len(units)):
+                a, b = units[i], units[j]
+                if sets[a.uid] & sets[b.uid]:
+                    comp[find(a.uid)] = find(b.uid)
+        groups = defaultdict(list)
+        for u in units:
+            groups[find(u.uid)].append(u)
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            supports = [support_cache[m.uid] for m in members]
+            prod = 1
+            for s in supports:
+                prod *= max(1, len(s))
+            counts = [defaultdict(float) for _ in members]
+            if prod <= SOLUTIONS_EXACT_CAP:
+                stats["exact"] += 1
+                chosen = [None] * len(members)
+
+                def dfs(i, used):
+                    if i == len(members):
+                        for k in range(len(members)):
+                            counts[k][chosen[k]] += 1.0
+                        return
+                    for c in supports[i]:
+                        if c in used:
+                            continue
+                        chosen[i] = c
+                        used.add(c)
+                        dfs(i + 1, used)
+                        used.discard(c)
+
+                dfs(0, set())
+            else:
+                stats["sampled"] += 1
+                got = 0
+                for _ in range(SOLUTIONS_SAMPLE_K):
+                    pick = [s[_solrng.randrange(len(s))] for s in supports]
+                    if len(set(pick)) == len(pick):
+                        got += 1
+                        for k, c in enumerate(pick):
+                            counts[k][c] += 1.0
+                if got == 0:
+                    stats["unresolved"] += 1
+                    continue  # units stay detached -> uniform (declared)
+            if all(sum(c.values()) > 0 for c in counts):
+                for m, c in zip(members, counts):
+                    weights[m.uid] = c
+                    coupled.add(m.uid)
+    return weights, coupled, stats
+
+
 def nearest(cell, cells):
     best, bd = None, 10 ** 9
     for c in cells:
@@ -266,11 +358,21 @@ def nearest(cell, cells):
     return best, bd
 
 
-def suppliers_for(u, snap, support, support_cache):
+def suppliers_for(u, snap, support, support_cache, sol_weights, sol_coupled):
     """Return {name: [core weights aligned with support]} (pre-floor)."""
     n = len(support)
     uni = [1.0 / n] * n
     out = {"uniform": uni}
+
+    # opp/solutions@1 — marginal model counts of the same-team joint CSP.
+    # Detached units share uniform's OBJECT: the reduction of prediction (a)
+    # is mechanical equality, not an approximation.
+    if u.uid in sol_coupled:
+        c = sol_weights[u.uid]
+        tot = sum(c.values())
+        out["solutions"] = [c.get(cell, 0.0) / tot for cell in support]
+    else:
+        out["solutions"] = uni
 
     # default-action: snake straight; piece stays
     if u.kind == KIND_SNAKE:
@@ -421,6 +523,7 @@ def main(argv):
     fallback_cover = 0
     decisions = 0
     games = 0
+    sol_counters = defaultdict(int)
 
     for fi, path in enumerate(files):
         try:
@@ -438,6 +541,19 @@ def main(argv):
         for ti in range(len(snaps) - 1):
             a, b = snaps[ti], snaps[ti + 1]
             support_cache = {}
+            sol_weights, sol_coupled, sol_stats = solutions_for_turn(a, support_cache)
+            for k in ("exact", "sampled", "unresolved"):
+                sol_counters[k] += sol_stats[k]
+            # constraint-violation audit: did any team actually play a
+            # same-destination joint this turn?
+            dests = defaultdict(list)
+            for u in a.units:
+                v = b.by_id.get(u.uid)
+                if v is not None:
+                    dests[(u.team, v.head)].append(u.uid)
+            for (_, _), ids in dests.items():
+                if len(ids) > 1:
+                    sol_counters["violations"] += 1
             for u in a.units:
                 v = b.by_id.get(u.uid)
                 if v is None:
@@ -453,7 +569,7 @@ def main(argv):
                     support.append(played)
                     support_miss[u.kind] += 1
                 n = len(support)
-                sup, any_cover = suppliers_for(u, a, support, support_cache)
+                sup, any_cover = suppliers_for(u, a, support, support_cache, sol_weights, sol_coupled)
                 if not any_cover:
                     fallback_cover += 1
                 enemy_heads = [w.head for w in a.units if w.team != u.team]
@@ -469,6 +585,7 @@ def main(argv):
                 else:
                     bb = "b>=9"
                 kindk = "snake" if u.kind == KIND_SNAKE else u.kind
+                coup = "coupled" if u.uid in sol_coupled else "detached"
                 strata = [
                     ("ALL",),
                     ("kind", kindk),
@@ -477,6 +594,7 @@ def main(argv):
                     ("roster", rclass),
                     ("potion", potions),
                     ("kind+contact", kindk, contact),
+                    ("coupling", coup),
                 ]
                 decisions += 1
                 uni_leak = LAMBDA / n
@@ -492,7 +610,7 @@ def main(argv):
             sys.stderr.write(f"[harness] {fi+1}/{len(files)} files, {decisions} decisions\n")
 
     # ---- report ----
-    supplier_names = ["uniform", "default", "food", "cover", "advpoint"]
+    supplier_names = ["uniform", "solutions", "default", "food", "cover", "advpoint"]
     strata_keys = sorted({k[0] for k in aggs}, key=str)
     print(f"# Supplier log-loss harness v0 — {games} games, {decisions} decisions")
     print(f"LAMBDA={LAMBDA} JEFFREYS={JEFFREYS} WBAR_MIN={WBAR_MIN}")
@@ -501,6 +619,11 @@ def main(argv):
         f"{k}: {m}/{t} ({100.0*m/t:.2f}%)" for k, (m, t) in sorted(miss.items())))
     print(f"cover-fallback-to-uniform: {fallback_cover}/{decisions} "
           f"({100.0*fallback_cover/max(1,decisions):.1f}%)")
+    print("solutions (C40 declaration): "
+          f"components exact={sol_counters['exact']} sampled={sol_counters['sampled']} "
+          f"unresolved-to-uniform={sol_counters['unresolved']}; "
+          f"played same-team same-dest joints (constraint contamination): "
+          f"{sol_counters['violations']}")
     print()
     for st in strata_keys:
         a0 = aggs.get((st, "uniform"))
