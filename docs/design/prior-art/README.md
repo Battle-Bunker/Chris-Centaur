@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Twenty-one domains, surveyed against the four lens syntheses as they stood at
+Twenty-two domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -36,6 +36,7 @@ finding by whose design it changes. This index is organised by domain.
 | 18 | guarding a theorem's hypothesis — one law that unifies five recorded defects | `18-guarding-a-theorems-hypothesis.md` |
 | 20 | response to the solutions-supplier refutation — my M38 over-claimed; the successor is one parameter away | `20-response-to-the-solutions-supplier-refutation.md` |
 | 21 | response to the population instruments — the cyclicity question is *unasked*, not answered | `21-response-to-the-population-instruments.md` |
+| 22 | **the theory of carving at joints** — Parnas's criterion, and modularity's option-value formula | `22-the-theory-of-carving-at-joints.md` |
 | — | **PER-LENS ROLLUP — everything above, reorganised by whose design it changes** | `19-per-lens-rollup.md` |
 
 ---
@@ -170,6 +171,17 @@ premise-keyed memoisation, re-base/ADVANCE, and depth threads. The constructive
 fix (DeepStack's continual re-solving) needs exactly one new object crossing each
 decomposition boundary: **a bound on the opponent's counterfactual value** —
 which is a type our bounds bank already produces. See domain 12.
+
+**R-7. The architecture's value is OPTION VALUE, and it is priced.** Baldwin &
+Clark's net option value scales with `σ` — the *technical potential* of what might
+be plugged into a module, "labeled σ because it operates like volatility in
+financial option theory" — with the cost of an independent experiment and the
+module's visibility as the other two drivers. A VBS−SBS null measured over a pool
+containing a +0.996 duplicate pair is a measurement of **σ ≈ 0 for that pool**,
+not of the architecture. So the honest pitch is not "hygiene": it is **the option
+value of members that do not yet exist**, and the two levers we control are
+lowering experiment cost (every composition increment does this) and lowering
+visibility (R-2's DAG/tree question). See domain 22.
 
 **R-6. Every soundness argument names a hypothesis, and that hypothesis must be
 an executable assertion — or the argument will outlive its truth.** Five recorded
