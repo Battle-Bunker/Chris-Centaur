@@ -864,8 +864,10 @@ describe('tier value prices the window, and is free without one', () => {
     expect(lapsed).toEqual({ lo: 0, est: 0, hi: 0 });
   });
 
-  test('the feature is seated LAST, and every shipped profile names it', () => {
-    expect(FEATURES[FEATURES.length - 1]).toBe(tierFeature);
+  test('the feature is seated after contest, and every shipped profile names it', () => {
+    // Seated after `contest`, whose reach field it reads; later members
+    // (energy) sit behind it.
+    expect(FEATURES.indexOf(tierFeature)).toBeGreaterThan(FEATURES.findIndex((f) => f.key === 'contest'));
     expect(tierFeature.key).toBe('tier');
     expect(DEFAULT_WEIGHTS.tier).toBe(2);
     // The ordering the calibration argues for, checked rather than argued.
@@ -1125,6 +1127,8 @@ describe('calibration is data', () => {
       'command',
       // Contest avoidance: the dominant remaining death cause.
       'contest',
+      // The price of a move, in the health the rules charge for it.
+      'energy',
       // The distance gradient to the nearest meal, and the anti-dither term.
       'food',
       'healthEconomy',

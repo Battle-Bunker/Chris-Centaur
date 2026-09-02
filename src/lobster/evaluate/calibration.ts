@@ -123,6 +123,20 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * See `./tier.ts`.
    */
   tier: 2,
+  /**
+   * The energy price. EIGHT, and the number is set by the term it has to
+   * clear rather than by taste: a hold pays `momentum`'s idleness charge
+   * (`1 x 0.5`), both terms divide by the same `|ours|` so the division
+   * cancels, and a hold therefore beats a move exactly when
+   * `w x cost > 0.5` — at eight, when the move burns more than a sixteenth of
+   * the unit's runway at full price. The canonical case (a slider at 60
+   * health, no meal inside its runway, a seven-cell slide against a hold)
+   * prices at 0.074 and clears it; nothing much smaller does. The term's range
+   * is [-1, 0] by construction, so `8 x 1` still sits under the cliff ceiling
+   * of `10 x lightest unit weight` and can never buy a unit's life. See
+   * `./energy.ts`.
+   */
+  energy: 8,
 };
 
 /**
@@ -385,6 +399,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     momentum: 0,
     contest: 0,
     tier: 0,
+    energy: 0,
   },
   reachHorizonTurns: 0,
 };
