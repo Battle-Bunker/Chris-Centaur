@@ -85,10 +85,16 @@ function makeUnit(
   const body: Coord[] = isPiece(spec.kind)
     ? [head]
     : Array.from({ length: size }, (_, i) => ({ x: spec.x, y: spec.y - i }));
-  // Facing the board centre at spawn, in the wire's full-board convention
-  // (dy grows DOWNWARD, so api dy is negated).
-  const dx = Math.sign(centre.x - spec.x);
-  const dy = -Math.sign(centre.y - spec.y);
+  // Facing the board centre at spawn, in the wire's full-board convention (dy
+  // grows DOWNWARD, so api dy is negated), and projected onto ONE ORTHOGONAL.
+  // The projection is the rules': `spawnOrientationCandidates` picks from the
+  // kind's legal orientations, and a diagonal is not one of them for anything
+  // but a bishop — a pawn handed { dx: -1, dy: 1 } has a DIAGONAL forward step
+  // and two diagonal side squares, which is not a pawn at all.
+  const ax = centre.x - spec.x;
+  const ay = -(centre.y - spec.y);
+  const dx = Math.abs(ax) >= Math.abs(ay) ? Math.sign(ax) : 0;
+  const dy = Math.abs(ax) >= Math.abs(ay) ? 0 : Math.sign(ay);
   return {
     id,
     name: `${teamId} ${letter}`,
@@ -105,7 +111,7 @@ function makeUnit(
     teamName: teamId,
     unitType: spec.kind,
     maxHealth: 100,
-    orientation: { dx: dx === 0 && dy === 0 ? 0 : dx, dy: dx === 0 && dy === 0 ? 1 : dy },
+    orientation: dx === 0 && dy === 0 ? { dx: 0, dy: 1 } : { dx, dy },
   };
 }
 
@@ -196,10 +202,16 @@ export async function decideTeam(
       rungZeroRepair: safety === 'full',
       seedDeconflict: safety !== 'off',
     });
+    // The kernel options `TeamDecisionEngine.kernelOptions()` ships, so the
+    // deadline behaviour a game measures is production's. `minWriteIntervalMs`
+    // is the WIRE's rate policy and there is no wire here, so it is the one
+    // value that differs: throttling emissions would only hide the last record.
     const kernel = new LobsterKernel({
       ...DEFAULT_KERNEL_OPTIONS,
-      reserveMs: 5,
-      sliceMs: 5,
+      crossfade: 'teammate',
+      reserveMs: 40,
+      sliceMs: 25,
+      pinCacheCapacity: 32,
       minWriteIntervalMs: 0,
     });
     const kin: KernelInput = {
@@ -532,6 +544,10 @@ export async function runGame(
       break;
     }
 
+    const bodies = new Map<string, string>();
+    for (const s of board.snakes ?? []) {
+      bodies.set(s.id, s.body.map((c) => `(${c.x},${c.y})`).join(''));
+    }
     const outcome = stepGame(board, turn, staged, rng, foodTarget);
     metrics.foodEaten += outcome.ate.length;
     for (const d of outcome.deaths) {
@@ -544,7 +560,10 @@ export async function runGame(
     const food = board.food.map((f) => `(${f.x},${f.y})`).join(' ');
     emit(`turn ${turn}  food: ${food || '(none)'}`);
     for (const r of rows) emit(r);
-    for (const d of outcome.deaths) emit(`  DEATH ${d.id} (${d.cause})`);
+    for (const d of outcome.deaths) {
+      const before = bodies.get(d.id);
+      emit(`  DEATH ${d.id} (${d.cause})  body was ${before ?? '?'}`);
+    }
     if (outcome.ate.length > 0) emit(`  ATE ${outcome.ate.join(', ')}`);
     clearGeometryCache();
   }

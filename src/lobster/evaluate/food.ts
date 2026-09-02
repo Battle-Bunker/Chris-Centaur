@@ -76,8 +76,22 @@ const UNREACHABLE = -1;
  * How much a unit at FULL health still cares. Not zero: a full snake that eats
  * grows, and growth is how a snake wins a board. Not one either — a unit at
  * full health has no urgency and its other terms should decide.
+ *
+ * CALIBRATED BY WATCHING, over four seeds x 60 turns of the `snakes` and
+ * `mixed` scenarios (src/tests/local-game.ts). The number trades meals against
+ * the deaths that chasing them costs, and the curve is not flat:
+ *
+ *   floor  snakes food/100  snake deaths   mixed food/100  mixed deaths
+ *   0.35        20.3          15 (7 self)      23.6            21
+ *   0.25        18.3          15 (6 self)      20.4            19
+ *   0.15        15.6          13 (2 self)      19.8            13
+ *
+ * A full-health snake that hunts anyway coils itself into a spiral and dies in
+ * it — every one of those `self` deaths is a snake with no legal square left,
+ * several turns after the move that trapped it. Fifteen meals per hundred
+ * unit-turns with two self-kills is a better bot than twenty with seven.
  */
-export const HUNGER_FLOOR = 0.35;
+export const HUNGER_FLOOR = 0.15;
 
 const DISTANCE = new WeakMap<EngineSubstrate, Int32Array>();
 

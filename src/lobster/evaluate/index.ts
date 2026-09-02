@@ -100,6 +100,7 @@ export class BoundEvaluator implements Evaluator {
     profile: CriterionProfile = DEFAULT_PROFILE,
     features: ReadonlyArray<Feature<EvalContext>> = FEATURES
   ) {
+    checkWeights(profile, features);
     this.profile = profile;
     this.features = features;
     this.weights = profile.weights;
@@ -152,6 +153,50 @@ export class BoundEvaluator implements Evaluator {
       return finish(ctx, evaluation);
     });
   }
+}
+
+/**
+ * A PROFILE MUST NAME EVERY FEATURE IT FOLDS, AND NOTHING ELSE.
+ *
+ * `fold` reads `weights[f.key] ?? f.defaultWeight`, so a weight a profile
+ * forgets is not zero — it is whatever the feature author chose, silently, for
+ * a profile that has never heard of the feature. That is not hypothetical: the
+ * material-only profile and both closing arms are hand-written weight tables,
+ * and the moment two features were added to `FEATURES` all three of them
+ * quietly began folding terms they were built to exclude. The admission laws
+ * caught it, which is luck — a profile that stayed sound would simply have been
+ * measuring something other than what its name says.
+ *
+ * A key with no feature is the same defect read from the other end: a typo in a
+ * weight table is a number that does nothing, and nothing anywhere says so.
+ *
+ * So both directions are refused, at construction, where the cheapest possible
+ * check turns a silent misconfiguration into a startup failure that names the
+ * key. Every shipped profile passes; a caller assembling one for an experiment
+ * finds out immediately.
+ */
+export function checkWeights(
+  profile: CriterionProfile,
+  features: ReadonlyArray<Feature<EvalContext>>
+): void {
+  const folded = new Set(features.map((f) => f.key));
+  const named = new Set(Object.keys(profile.weights));
+  const missing: string[] = [];
+  for (const key of folded) if (!named.has(key)) missing.push(key);
+  const unknown: string[] = [];
+  for (const key of named) if (!folded.has(key)) unknown.push(key);
+  if (missing.length === 0 && unknown.length === 0) return;
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    parts.push(
+      `does not name ${missing.sort().join(', ')} — each would silently fold at its ` +
+        "feature's own defaultWeight"
+    );
+  }
+  if (unknown.length > 0) {
+    parts.push(`names ${unknown.sort().join(', ')}, which this fold has no feature for`);
+  }
+  throw new Error(`criterion profile "${profile.name}" ${parts.join('; and it ')}`);
 }
 
 /**

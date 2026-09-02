@@ -24,6 +24,14 @@
  * unit came from is `cell - orientation`, exactly. No history, no state carried
  * between decisions, nothing to get out of step with the board.
  *
+ * It is read off the MARSHALLED board and not off `SubstrateUnit.orientation`,
+ * and that is not incidental. The substrate's orientation is an
+ * `OrientationIndex` — one of four orthogonals, projected through
+ * `orientationOf` — which is all the movement grammar needs and is exactly
+ * wrong here: a knight's orientation is its L-offset, and projected onto the
+ * nearest orthogonal it names a cell the knight has never stood on. The wire
+ * carries the true vector; this reads the wire's.
+ *
  * Two terms, both small, both negative:
  *
  *   REVERSAL   the move lands on the cell the unit came from. Undoing last
@@ -50,9 +58,30 @@
  * with it.
  */
 
-import { profileOf, vectorOf } from '../../partial-engine/index';
+import { profileOf } from '../../partial-engine/index';
+import type { EngineSubstrate } from '../substrate';
+import type { UnitId } from '../contracts';
 import { type Feature, bound, point } from './bound';
 import type { EvalContext, Standing } from './features';
+
+/** Per substrate: the cell each unit occupied BEFORE its last move. */
+const CAME_FROM = new WeakMap<EngineSubstrate, ReadonlyMap<UnitId, number>>();
+
+function cameFrom(sub: EngineSubstrate): ReadonlyMap<UnitId, number> {
+  const hit = CAME_FROM.get(sub);
+  if (hit !== undefined) return hit;
+  const out = new Map<UnitId, number>();
+  const width = sub.grid.width;
+  for (const marshalled of sub.marshalled.units) {
+    const unit = sub.unitOfWireId(marshalled.id);
+    if (unit === undefined) continue;
+    const { dx, dy } = marshalled.orientation;
+    if (dx === 0 && dy === 0) continue;
+    out.set(unit.unitId, (unit.cells[0] as number) - (dy * width + dx));
+  }
+  CAME_FROM.set(sub, out);
+  return out;
+}
 
 /** Cost of landing back where you came from. */
 export const REVERSAL_COST = 1;
@@ -69,9 +98,8 @@ function costOf(ctx: EvalContext, s: Standing): number {
     // because it was never asked to. Only a kind that CAN decline is charged.
     return profileOf(unit.kind).stayLegal ? IDLE_COST : 0;
   }
-  const { dx, dy } = vectorOf(unit.orientation);
-  const came = from - (dy * ctx.sub.grid.width + dx);
-  return s.cell === came ? REVERSAL_COST : 0;
+  const came = cameFrom(ctx.sub).get(s.unitId);
+  return came !== undefined && s.cell === came ? REVERSAL_COST : 0;
 }
 
 /**
