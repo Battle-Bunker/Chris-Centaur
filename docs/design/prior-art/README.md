@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Seven domains, surveyed against the four lens syntheses as they stood at
+Eight domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -20,6 +20,7 @@ case.*
 | 5 | configuration, addressing and composition systems | `05-config-and-composition-systems.md` |
 | 6 | rollback netcode and incremental computation | `06-rollback-and-incremental-computation.md` |
 | 7 | community practice as a member mine | `07-community-practice-member-mine.md` |
+| 8 | partial observability, POMDPs and one-sided POSGs vs the fog programme | `08-partial-observability-and-posgs.md` |
 
 ---
 
@@ -67,6 +68,8 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C1** | BELIEF | ε=1 is the *pure security level*, not "the adversarial zero point". In a simultaneous-move game the field's zero point is the stage matrix's **NE**, solved by LP — a distribution, not a scalar worst case. No ε reaches the correct answer. Needs a third reading beside sound/advised: **equilibrium**. |
 | **C5** | TIME | An economy with prices and no goods: **no performance profile exists anywhere**. Zilberstein's conditional performance profile `Pr(quality \| time, input quality)` is the missing object; our premise coordinates are already an input-quality index, and the owner's escalated denominator question dissolves once it exists. |
 | **C12** | BELIEF / VALUE | Γ-maximin's optimal set **does not shrink as beliefs sharpen** (Troffaes) — it returns one option even under complete ignorance. That is the one property a Centaur option-surfacer must have. **Maximality** returns it natively. Strongest architectural argument for the Centaur direction in the survey. |
+| **C25** | BELIEF | **Nothing in the architecture makes information valuable.** No action is ever valued for what it reveals — VOI sits half in ECONOMY and half nowhere — which is QMDP's named failure mode. Prediction: under invisibility potions the bot will never spend a move to scout. C12 is the dual (the reduction cannot express "I now know more"); two mechanisms, one symptom, in the programme whose flagship feature is fog. |
+| **C26** | BELIEF | **Marginal clouds cannot store what the conditioning ladder computes.** C1 (item-vanish) is a *disjunction across units* and C2 a *joint exclusion*; per-unit marginals hold neither, so both rungs evaporate at the moment of storage and will measure as worthless when they are merely unstorable. The trace needs a constraint store; marginals are the query surface, not the state. |
 | **C9/C10** | BELIEF / JOINTS | Our ε class is Walley's linear-vacuous mixture, and **that class dilates**: conditioning can widen the credal set *for every possible observation*. So `meet = narrow` holds for S (deduction only) and **fails for w**. You can pay for an observation that provably makes you less certain. |
 | **C7** | COMPOSITION | "Law per joint kind" **is** Zilberstein's local compilation — a theorem whose optimality hypothesis is a **tree**. Our manifest is a DAG. Declare the allocation projection or drop the claim. |
 | **C8** | TIME / BELIEF | The hypothesis market lacks its second factor. Russell & Wefald: a computation's value comes entirely from its ability to **change the chosen action**. `P(refinement flips better())` is computable from interval overlap at the deciding rung, which `BankResult` already carries. Corollary: narrowing an uncontested rung is worth exactly zero. |
@@ -82,6 +85,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **C15** | MEASUREMENT | Texel paid ~39 Elo for a principled-looking filter he never measured on what it removed. We have four such filters and have measured none of them that way. |
 | **C17** | TIME | Declared access buys **safety, not order** (ECS). Fine-grained keys are unstable under refactoring — coarsen deliberately; deliberate ambiguity needs a first-class annotation or the checker becomes noise people disable. |
 | **C11** | BELIEF | Terminology collision: we use "dilation" for dynamics-driven spread; the field reserves it for the conditioning pathology. Anyone reading both will believe we have addressed it. Rename ours to **spread**. |
+| **C27** | BELIEF / TIME | The observation-side restriction has no bound. DESPOT restricts to **K sampled scenarios with all action branches retained** and carries a **regret bound**. R-3 in the one dimension where we have not committed; committing now is far cheaper than retrofitting a cap. |
 | **C18/C20/C22** | COMPOSITION / TIME | Reachability should be stated over the *resolved* closure; the re-base window needs a hard cap with defined over-cap behaviour (GGPO stalls by design); interval dominance is sound at the leaf and unsound propagated up the deep channel. |
 
 ### Cases we missed, ranked by cheapness
@@ -98,6 +102,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 | **M5** | Geometric tranches, ratio 2, penalty ≤4 — **proved optimal**, a fitted value whose provenance is a theorem rather than a sweep (a provenance class ruling 49 does not yet name). |
 | **M20** | From-scratch consistency, sampled in production — generalises the replay-rebase differential test from the engine to the incremental value layer. |
 | **R-1 (V-4)** | The **articulation-point chamber tree**: 12–1 in the ancestor game, and largely re-use of our existing component decomposition. |
+| **M21** | **PWLC**: the value over belief space is a max over α-vectors — natively a **set of plans with dominance regions**, which is maximality's object (domain 3) reached from a third direction, and it is exactly the Centaur output. Also: α-vectors stay valid over belief *regions*, a far stronger cross-turn carry than a scalar bridge. |
 | **M17** | The weight-supplier socket wants **effect-handler semantics** — handler installed by the decision context, unhandled = type error. The structural fix for "ε = 1.0 chosen by nobody". |
 | **R-1 (REDUCTION)** | REDUCTION gets its second and third members — {paranoid, MaxN, share-weighted asymmetric fold} — satisfying "no joint with one member" and turning the three-team balance bug into a member selection. |
 
