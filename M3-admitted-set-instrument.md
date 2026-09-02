@@ -149,3 +149,64 @@ hit its own bound?** — would. I would add that to the same standing rule.
 > the gates instead** — `worth` (57–85%) and, unexpectedly, a `rate` throttle nobody had in the
 > taxonomy (15–43%). **The potion weights null is neither: it is a term with no support**, zero on
 > 92% of options, and no weight can scale a zero.
+
+---
+
+## 6. WHAT THE SLIDER FILTER ACTUALLY REMOVES — a hypothesis of mine, refuted
+
+The librarian flags [?]: *for every admission filter, measure the error on what it REMOVES* —
+Texel paid ~39 Elo for a principled-looking filter never measured that way, and we have four such
+filters and have measured none.
+
+`sliderCandidateCap: 4` keeps 4 of ~64 options. **Hypothesis:** since `healthSpent` sits at slot 9
+of `gainOrderKey` and scales with a slider's move distance, quiet slider moves should be ordered
+by distance, so the cap would keep the *short* options and discard the *long* ones — throwing away
+the reach that makes a slider a slider.
+
+**The realised-distance evidence looked like strong support.** Measured over 12,290 slider moves:
+
+| cell / bot | n | mean distance chosen | mean available | percentile of chosen |
+|---|---|---|---|---|
+| queen / material | 3434 | 3.93 | 7.34 | **21.6%** |
+| queen / territory | 3876 | 4.29 | 7.47 | **23.4%** |
+| rook / material | 2473 | 4.75 | 8.09 | 24.6% |
+| rook / territory | 2507 | 4.91 | 7.93 | 24.9% |
+
+**Over half of all queen moves are a single square** (2004 of 3876 for territory) from a piece with
+a mean of 7.5 squares of reach.
+
+**Then I ran the discriminator, and it refuted the hypothesis.** `foodGain` sits at slot 5 — *above*
+`healthSpent` — so if the ordering is working, a food destination should be promoted into the
+admitted four regardless of distance. Splitting by whether food was reachable on a ray:
+
+| situation | n | mean distance | percentile |
+|---|---|---|---|
+| queen — food reachable, **took it** | 2070 | **7.71** | **47.7%** |
+| queen — food reachable, declined | 683 | 2.70 | 12.5% |
+| queen — no food on any ray | 4557 | 2.70 | 12.6% |
+| rook — food reachable, **took it** | 1387 | **8.26** | **46.1%** |
+| rook — no food on any ray | 3330 | 3.44 | 16.3% |
+
+**When there is food on a ray the slider takes it 75% of the time, at mid-distribution distance
+(47.7th percentile) and a mean of 7.7 squares.** Long moves are *not* being filtered out. The
+comparator promotes them exactly as designed, and the shortness in the quiet case is slot 9 doing
+what it says.
+
+**So my hypothesis is wrong, and the corrected finding is sharper than it was.**
+
+> The slider admission filter preserves value the comparator can **name** — food, capture, tier —
+> and discards value it **cannot**. There is no positional slot above `healthSpent`, so a long move
+> that is good for *territory* rather than for a nameable prize has nothing to promote it and is
+> discarded by distance.
+
+That is consistent with §1's measurement rather than in tension with it: slider room-spread across
+surviving options is **21.6–23.7 cells, the widest in the system**, precisely because destinations
+far apart differ most in room — and room is the one thing the ordering cannot see. **The 94%
+discarded are not the bad options and not the long options; they are the options whose only
+argument is positional.**
+
+Remedy, and it is now specific: either a positional term in the slider ordering, or a larger
+`sliderCandidateCap` — and §1's spread figure is the quantity that would be recovered. Note this
+is the second time this session a sharp-looking finding of mine dissolved under a discriminating
+test (the first was the flood-fill saturation in §4); **the discriminator is cheap and I would run
+one before publishing any filter claim.**

@@ -108,6 +108,37 @@ selector, which must infer the board class and will sometimes be wrong, gets les
 
 ---
 
+## 3b. ROBUSTNESS — and the verdict has to be softened
+
+The librarian's rollup flags [C]: **Balduzzi's invariance axiom excludes uniform averaging by
+name**, and my per-cell gap is a uniform average over a cell population the program chose. Testing
+my own headline against re-weighting, on the main block (25 cells, 4,649 games):
+
+| weighting | gap |
+|---|---|
+| uniform (as published) | **+0.0706** |
+| **by game count** | **+0.0329** |
+| by √(game count) | +0.0545 |
+| leave-one-cell-out range | +0.0553 … +0.0735 |
+| **bootstrap over cells, 95% CI** | **[+0.0247, +0.1247]** |
+
+**The point estimate is below the +0.078 floor under every weighting**, and *further* below it
+under game-count weighting — the more defensible one, since it weights by evidence rather than by
+the arbitrary decision of which cells got run. **But the cell-bootstrap CI reaches +0.125, above
+the floor.**
+
+**So I soften the verdict.** The correct statement is **"no evidence the gap clears its noise
+floor"**, not "the gap is below its floor". With 25 cells the cell-level sampling error is wide
+enough that a real gap of ~0.12 cannot be excluded. What *is* robust is the direction and the
+order of magnitude: under every weighting the headroom is between 0.03 and 0.07 sharePar, i.e. 3–7%
+of par, and it never approaches the size of the effects the program routinely chases.
+
+(One asymmetry to note: the floor was computed under uniform cell weights and not itself
+bootstrapped, so the comparison is not perfectly like-for-like. Bootstrapping both is the clean
+version and I did not do it.)
+
+---
+
 ## 4. WHAT THIS INSTRUMENT CANNOT SEE
 
 - **VBS is an oracle bound.** It assumes free, perfect knowledge of the right member per scenario.
