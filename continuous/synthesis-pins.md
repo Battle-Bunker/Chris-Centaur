@@ -4289,3 +4289,15 @@ record; coordinator relays only what genuinely cannot wait.
   (structural edit) pinned; A3 never pre-filled. No seam gaps with
   operator-signals (three cross-reads, worked scenarios compose).
   Owner decisions carried: Q11; Q12 (+ calibration scoreboard).
+- Outbound batch 2 (@ 15 commits): O0 retention spec buildable against
+  primary code sites (foil out-param core.ts:410; B2 cell append
+  bank.ts:614 — "free" verified; prunedLedger widened; TermVector as
+  degenerate Contribution so the value upgrade is a column not a
+  migration); five falsifiers incl. reproducing the search v2 probe
+  table from retention (their instrument = our regression test).
+  Override ledger designed under the three extraction rules (collapse-
+  ask = the only unconfounded human-vs-bot paired sample; three-horizon
+  credit, conservation inside extraction; ratified/mooted strata;
+  calibration tunes INVITATIONS never authority; expected first result
+  n=0 — telemetry must predate first Centaur games). Seam with inbound
+  fully closed; the ruling-13 feedback circuit recorded on both branches.
