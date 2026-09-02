@@ -232,7 +232,48 @@ The same holds for the enemy side at `cap: 4`, where the min over a 3-member
 enemy set explores `(0,0,0) (0,0,1) (0,0,2) (0,1,0)` — one enemy's options and a
 single step of a second's.
 
-Two things make this worse than a generic truncation:
+### 5a. How often it fires is derivable from the partition's construction — no replays needed
+
+I initially wrote this finding as needing a replay study. It does not. The
+scout's cluster is `new Set(cluster.variables)` (`scout.ts:406, 488`), and
+`cluster-partition.ts` defines
+
+> `variables` is what the enumerator solves over: `members` ∪ **the sliders**,
+> sorted
+
+with the sliders being **every live slider we command, in every cluster, by
+fiat**. `scoreOptions` then splits `members` by team, so `ours` is exactly our
+share of that set. Therefore:
+
+> **Whenever we command at least one slider and the cluster's component is
+> non-empty, `|ours| ≥ 2` and the odometer pins at least one coordinate.**
+
+And the sizes are already measured elsewhere in the program. The slider-board
+median is **3 sliders**, so on `snake5-queen` / `headline-mix-king` /
+`hazard-mix-king` a typical cluster has `1 + 3 = 4` variables of ours; with
+`cap: 6` and three options each, the odometer enumerates
+`(0,0,0,0) … (0,0,1,2)` — **three of four coordinates constant at the
+generator's first heuristic option**, and the `max` ranges over one unit's three
+options plus three joints of a second's.
+
+That gives the sharpest possible statement of the finding's scope:
+
+> **Finding B-3′.** The deep `max` degenerates to a near-single-coordinate scan
+> **exactly on slider boards**, and is inert **exactly on trail-unit boards**
+> (88.7% singleton components, no sliders → `|ours| = 1` → all three options
+> enumerated). Slider boards are the boards this program has repeatedly
+> identified as the hard ones: they are where `sliderCandidateCap: 4` cuts ~71
+> options to four, where the weight-blind comparator's blindness "converges
+> three ways on the queen", where the enumeration's per-joint cost is 4.23 ms
+> against 0.42 ms, and where the pinning failure was measured. **The depth
+> layer's exploration collapses on precisely the board class where every other
+> lens has located the problem.**
+
+It also gets *worse with depth*, because `expandCluster` adds units to
+`entry.cluster` monotonically as a thread runs. Every admitted expansion moves
+one more coordinate into the pinned prefix.
+
+Two further things make this worse than a generic truncation:
 
 1. **`ourCoverage` reports it as a fraction and the fraction is misleading.**
    `ourCoverage = ourJoints.length / ourSpace` = `6/27 ≈ 0.22`, which reads as
@@ -268,13 +309,14 @@ the deep node use the same proposal machinery as ply 1 (doc 02 §5's
 cluster-conditioned re-enumeration, applied at a continuation root) — one
 operator, two depths.
 
-> **Falsifier for B-3**, and it needs no games: on the replay corpus, count the
-> fraction of deep plies where `|members| ≥ 2`. On those plies, compare
-> `argmaxMoved` and `estSpread` under the odometer against the round-robin
-> member. If the argmax never moves, the sampled slice already contained the
-> best row and the defect is inert (as `maxClusterCells` turned out to be); if
-> it moves often, every deep value published from a multi-member cluster has
-> been the value of a line the max never considered.
+> **Falsifier for B-3**, and it needs no games: run the round-robin member
+> against the odometer on a fixed slider-board scenario set and compare
+> `argmaxMoved` and `estSpread` per ply. If the argmax never moves, the sampled
+> slice already contained the best row and the defect is inert (as
+> `maxClusterCells` turned out to be); if it moves often, every deep value
+> published from a slider board has been the value of a line the max never
+> considered. §5a means the *scope* needs no measurement at all — only the
+> *magnitude* does.
 
 ## 6. Finding B-4: MCTS-Solver machinery exists and is used at one ply only
 
