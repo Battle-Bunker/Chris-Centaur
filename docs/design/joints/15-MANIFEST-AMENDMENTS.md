@@ -169,6 +169,13 @@ Three conditions, without which it does not deliver what it promises:
    overlapping pair double-counts its singletons. This is the one technical
    condition that makes the whole scheme sound, and it is invisible until
    someone writes the second pair term.
+1b. **Compound participants (added cycle 11).** A **coalition** — a named,
+   carried object with a lifetime and an invalidation predicate — is itself a
+   participant, so a body wall of three to five units is a **singleton scope
+   over one coalition** rather than a 5-ary interaction. The arity cap stays at
+   2; the structure inside the coalition is bounded by Law M's declared parts.
+   See `26 §2`.
+
 2. **Bounded arity, declared in the manifest.** Scope subsets are `2^n`. The
    manifest declares a maximum arity (2 is the precedented level; 3 for a
    declared exception) and the generator refuses a member that emits above it.
