@@ -51,13 +51,44 @@ in the regime that matters:
 | clearly first, growing further | a real gain | **worth nothing** |
 | level tie at the top | — | a draw; one weight unit breaks it |
 
-**This is an owner question, not a design choice I can make**, and it is the single highest-value
-question I have found: *which of the two is the objective — the harness's proportional `sharePar`,
-or the engine's argmax-at-cap?* The pinned ruling states the share metric, so I have built to it
-throughout and I am not proposing to change it. But the engine implements the other one, and if
-the owner's real games are judged by `calculateWinners`, then **every measurement this program has
-taken is of a surrogate**, and the KataGo experience says the surrogate is the one that produces
-slack play near the boundary.
+**This is an owner question, not a design choice I can make**: *which of the two is the objective
+— the harness's proportional `sharePar`, or the engine's argmax-at-cap?* The pinned ruling states
+the share metric, so I have built to it throughout and am not proposing to change it.
+
+### 1.1 MEASURED — and it moderates my own alarm
+
+I first wrote that if real games are judged by `calculateWinners` then "every measurement this
+program has taken is of a surrogate". **I measured it, and that claim is too strong.** Over all
+four completed cells (192 games):
+
+| cell | median top-2 weight margin | as % of W | games decided by ≤2 weight | top team's share |
+|---|---|---|---|---|
+| snake6 | 19.5 | 42.2% | **6%** | 70% |
+| snake5-queen | 23.0 | 41.2% | **6%** | 74% |
+| snake5-rook | 16.5 | 37.5% | **10%** | 68% |
+| snake5-knight | 5.0 | 25.7% | **17%** | 56% |
+
+And the two rules **agree on the ranking in every cell**:
+
+| cell | argmax winner (share of games) | mean sharePar |
+|---|---|---|
+| snake6 | territory 98% / reflex 2% / material 0% | 2.104 / 0.413 / 0.484 |
+| snake5-queen | territory 62% / material 38% / reflex 0% | 1.739 / 1.203 / 0.057 |
+| snake5-rook | territory 65% / material 33% / reflex 2% | 1.550 / 1.126 / 0.325 |
+| snake5-knight | territory 38% / reflex 33% / material 29% | 0.995 / 1.070 / 0.935 |
+
+**Margins are wide, not knife-edge, and the surrogate ranks the bots the same way the real rule
+does.** So `sharePar` is a sound *measurement* instrument and the program's comparative verdicts
+are not invalidated. I withdraw the stronger claim.
+
+**Where the divergence is real is in DECISIONS near the cap, not in measurement.** 6–17% of games
+end within two weight units, and in exactly those the objectives give opposite advice: under
+argmax a risky trade that crosses into first is worth the whole game and a gain that leaves you
+second is worth nothing; under share both are small and smooth. That is composition's turn-limit
+razor scenario, and it is currently unrepresentable at any weighting because nothing in the
+evaluator knows the game ends. So the finding survives as a **`value/horizon-*` design constraint**
+rather than as an indictment of the measurement programme — which is a smaller claim than I
+started with, and the one the data supports.
 
 Either way the adjudication member is required, because under *both* readings the terminal step is
 a rule the evaluator must model and currently does not.
