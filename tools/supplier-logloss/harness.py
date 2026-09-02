@@ -66,6 +66,18 @@ SOLUTIONS_SAMPLE_K = 500
 import random as _random
 _solrng = _random.Random(93101)
 
+# opp/logit@1 (librarian doc 20): the Gibbs measure P ~ exp(beta*V) on the
+# SOLUTION SET — max-entropy subject to a moment constraint; beta=0 is the
+# (refuted) solutions supplier, beta->inf is argmax; game-theoretically
+# McKelvey-Palfrey logit quantal response. V here is DECLARED and fixed
+# (one-parameter discipline): the food potential V_u(a) = -L1(a, nearest
+# food), 0 when no food. A failure at every beta refutes logit-with-food-V,
+# not logit-with-the-search-surrogate (the build item). Sampled components
+# use self-normalized importance sampling from the uniform product draw
+# (declared; degenerates at large beta). Detached units get the per-unit
+# softmax(beta*V) — the solution set IS their own support.
+BETA_GRID = [0.0, 0.25, 0.5, 1.0, 2.0]
+
 KIND_SNAKE = "snake"
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -272,12 +284,32 @@ def cover_counts(u, snap, support, support_cache):
     return counts, any_cover
 
 
+def food_potential(snap):
+    """V_u(a) = -L1(a, nearest food); 0 when no food. Memoized per turn."""
+    memo = {}
+    food = snap.food
+
+    def v(cell):
+        if not food:
+            return 0.0
+        got = memo.get(cell)
+        if got is None:
+            got = -min(abs(c[0] - cell[0]) + abs(c[1] - cell[1]) for c in food)
+            memo[cell] = got
+        return got
+
+    return v
+
+
 def solutions_for_turn(snap, support_cache):
-    """opp/solutions@1 per-turn pass. Returns (weights, coupled, stats):
-    weights[uid] = dict dest->marginal count over valid same-team joint
-    assignments of the unit's coupled subset; coupled = set of uids in a
-    subset of size >= 2; stats = counters for the C40 declaration rows."""
+    """opp/solutions@1 + opp/logit@1 per-turn pass. Returns
+    (weights, coupled, stats): weights[uid][bi] = dict dest -> Gibbs-weighted
+    marginal (beta = BETA_GRID[bi]; bi 0 is beta=0 = plain solution counts)
+    over valid same-team joint assignments of the unit's coupled subset;
+    coupled = set of uids in a subset of size >= 2."""
     stats = {"exact": 0, "sampled": 0, "unresolved": 0, "violations": 0}
+    vf = food_potential(snap)
+    nb = len(BETA_GRID)
     weights = {}
     coupled = set()
     by_team = defaultdict(list)
@@ -308,41 +340,54 @@ def solutions_for_turn(snap, support_cache):
             if len(members) < 2:
                 continue
             supports = [support_cache[m.uid] for m in members]
+            vcache = [[vf(c) for c in s] for s in supports]
             prod = 1
             for s in supports:
                 prod *= max(1, len(s))
-            counts = [defaultdict(float) for _ in members]
+            # counts[k][bi][cell] = sum over valid joints (u_k = cell) of
+            # exp(beta_i * total V of the joint)
+            counts = [[defaultdict(float) for _ in range(nb)] for _ in members]
             if prod <= SOLUTIONS_EXACT_CAP:
                 stats["exact"] += 1
                 chosen = [None] * len(members)
+                exp = math.exp
 
-                def dfs(i, used):
+                def dfs(i, used, tot):
                     if i == len(members):
-                        for k in range(len(members)):
-                            counts[k][chosen[k]] += 1.0
+                        for bi, beta in enumerate(BETA_GRID):
+                            w = 1.0 if beta == 0.0 else exp(beta * tot)
+                            for k in range(len(members)):
+                                counts[k][bi][chosen[k]] += w
                         return
-                    for c in supports[i]:
+                    sup = supports[i]
+                    vs = vcache[i]
+                    for j in range(len(sup)):
+                        c = sup[j]
                         if c in used:
                             continue
                         chosen[i] = c
                         used.add(c)
-                        dfs(i + 1, used)
+                        dfs(i + 1, used, tot + vs[j])
                         used.discard(c)
 
-                dfs(0, set())
+                dfs(0, set(), 0.0)
             else:
                 stats["sampled"] += 1
                 got = 0
                 for _ in range(SOLUTIONS_SAMPLE_K):
-                    pick = [s[_solrng.randrange(len(s))] for s in supports]
+                    idx = [_solrng.randrange(len(s)) for s in supports]
+                    pick = [s[j] for s, j in zip(supports, idx)]
                     if len(set(pick)) == len(pick):
                         got += 1
-                        for k, c in enumerate(pick):
-                            counts[k][c] += 1.0
+                        tot = sum(v[j] for v, j in zip(vcache, idx))
+                        for bi, beta in enumerate(BETA_GRID):
+                            w = 1.0 if beta == 0.0 else math.exp(beta * tot)
+                            for k, c in enumerate(pick):
+                                counts[k][bi][c] += w
                 if got == 0:
                     stats["unresolved"] += 1
                     continue  # units stay detached -> uniform (declared)
-            if all(sum(c.values()) > 0 for c in counts):
+            if all(sum(c[0].values()) > 0 for c in counts):
                 for m, c in zip(members, counts):
                     weights[m.uid] = c
                     coupled.add(m.uid)
@@ -358,21 +403,37 @@ def nearest(cell, cells):
     return best, bd
 
 
-def suppliers_for(u, snap, support, support_cache, sol_weights, sol_coupled):
+def suppliers_for(u, snap, support, support_cache, sol_weights, sol_coupled, shared_vf):
     """Return {name: [core weights aligned with support]} (pre-floor)."""
     n = len(support)
     uni = [1.0 / n] * n
     out = {"uniform": uni}
 
-    # opp/solutions@1 — marginal model counts of the same-team joint CSP.
-    # Detached units share uniform's OBJECT: the reduction of prediction (a)
-    # is mechanical equality, not an approximation.
+    # opp/solutions@1 — marginal model counts of the same-team joint CSP
+    # (beta = 0 of the logit family). Detached units share uniform's OBJECT:
+    # the reduction of prediction (a) is mechanical equality.
+    # opp/logit@1 — Gibbs marginals at each beta; detached units get the
+    # per-unit softmax(beta*V) over their own support (their solution set IS
+    # the support).
     if u.uid in sol_coupled:
-        c = sol_weights[u.uid]
-        tot = sum(c.values())
-        out["solutions"] = [c.get(cell, 0.0) / tot for cell in support]
+        rows = sol_weights[u.uid]
+        for bi, beta in enumerate(BETA_GRID):
+            c = rows[bi]
+            tot = sum(c.values())
+            name = "solutions" if beta == 0.0 else f"logit{beta:g}"
+            out[name] = ([c.get(cell, 0.0) / tot for cell in support]
+                         if tot > 0 else uni)
     else:
         out["solutions"] = uni
+        vf = shared_vf
+        vs = [vf(cell) for cell in support]
+        for beta in BETA_GRID:
+            if beta == 0.0:
+                continue
+            m = max(vs)
+            es = [math.exp(beta * (x - m)) for x in vs]
+            z = sum(es)
+            out[f"logit{beta:g}"] = [e / z for e in es]
 
     # default-action: snake straight; piece stays
     if u.kind == KIND_SNAKE:
@@ -541,6 +602,7 @@ def main(argv):
         for ti in range(len(snaps) - 1):
             a, b = snaps[ti], snaps[ti + 1]
             support_cache = {}
+            turn_vf = food_potential(a)
             sol_weights, sol_coupled, sol_stats = solutions_for_turn(a, support_cache)
             for k in ("exact", "sampled", "unresolved"):
                 sol_counters[k] += sol_stats[k]
@@ -569,7 +631,7 @@ def main(argv):
                     support.append(played)
                     support_miss[u.kind] += 1
                 n = len(support)
-                sup, any_cover = suppliers_for(u, a, support, support_cache, sol_weights, sol_coupled)
+                sup, any_cover = suppliers_for(u, a, support, support_cache, sol_weights, sol_coupled, turn_vf)
                 if not any_cover:
                     fallback_cover += 1
                 enemy_heads = [w.head for w in a.units if w.team != u.team]
@@ -610,7 +672,9 @@ def main(argv):
             sys.stderr.write(f"[harness] {fi+1}/{len(files)} files, {decisions} decisions\n")
 
     # ---- report ----
-    supplier_names = ["uniform", "solutions", "default", "food", "cover", "advpoint"]
+    supplier_names = (["uniform", "solutions"]
+                      + [f"logit{b:g}" for b in BETA_GRID if b != 0.0]
+                      + ["default", "food", "cover", "advpoint"])
     strata_keys = sorted({k[0] for k in aggs}, key=str)
     print(f"# Supplier log-loss harness v0 — {games} games, {decisions} decisions")
     print(f"LAMBDA={LAMBDA} JEFFREYS={JEFFREYS} WBAR_MIN={WBAR_MIN}")
