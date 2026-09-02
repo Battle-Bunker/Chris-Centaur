@@ -851,3 +851,123 @@ consider *"the Pareto front of the target algorithm in addition to (or instead o
 a Pareto front over configurations"* — our plan set (d33) and our member
 collection (ruling 49) are different objects, and the literature says they get
 conflated. Keep them separate by name.
+
+---
+
+**TIME (mostly) — domain 37: C8's second factor, twice implemented, in shipped
+engines.** The survey's oldest open item was Russell & Wefald's `P(refinement
+flips the chosen action)` — known quantity, no algorithm. Two engines compute it,
+differently, and both implementations are **free**: counters over work already
+done. Read at source (`timeman.cpp`, `search.cpp`) rather than from commentary.
+
+**C66 — four integers we do not keep.** Stockfish multiplies its soft budget by
+four factors, each reading a different face of "is the answer still moving":
+
+| factor | reads | range |
+|---|---|---|
+| `fallingEval` | `2.30·(previous turn's average score − current best) + 1.1·(the score 4 iterations ago − current best)` | **[0.576, 1.728]** |
+| `reduction` | interpolates on **`rootDepth − lastBestMoveDepth`** (iterations the incumbent has been stable), and carries `previousTimeReduction` across moves | [0.629, 1.544] |
+| `bestMoveInstability` | `1.077 + 2.229 · bestMoveChanges / threads` | unbounded above |
+| `highBestMoveEffort` | share of all nodes spent **under the current best root move** (75.8%→100% ⇒ 0.969→0.714) | [0.693, 0.838] |
+
+We record **none** of them. Our greedy incumbent is the interruptibility witness
+(C6), but nothing counts how long it has held, how often it flipped, whether its
+value is falling, or how concentrated the spend on it is. Each is one integer in
+the search loop, and **this is the only estimator of C8's factor that works before
+the bounds bank is complete** — no intervals, no model, no CPP.
+
+**And three of the four are C48's missing discriminator.** d16 asked for "the
+margin at the deciding rung" to separate *search exhausted* from *evaluator too
+coarse*. Incumbent stability is that discriminator's cheapest form: **a search
+that has stopped changing its mind is exhausted; one that keeps flipping at the
+same score is coarse.**
+
+**Caveat that matters for us specifically:** count them **per hypothesis, not
+globally**. In a simultaneous-move game a plan can be stable because the search is
+confident *or* because the enemy hypothesis has not been revised — so a global
+stability counter reads "stable" exactly when the market has stopped funding
+revision, which is the failure mode it is meant to detect. And our incumbent is a
+joint over units, so the natural generalisation of `bestMoveChanges` is the
+**fraction of units whose component changed**, which is strictly more informative
+at the same cost.
+
+**C67 — a soft target and a hard ceiling, with a 3.14×–6.87× gap.** `optimumTime`
+is what the engine *plans* to spend; `maximumTime` is what it *may*; `maxScale`
+runs 3.1441–6.873 and `fallingEval` alone spans 3×. The design point is not "have
+a cap" — it is that **the planned spend and the permitted spend are different
+numbers with a large gap**. An allowance that is also the ceiling cannot spend
+three times the plan on the turn that deserves it; a ceiling used as a plan
+overspends on every quiet turn. Our tranche ladder currently reads as the first.
+Note what sets the gap: **game state** (ply, remaining clock), not the current
+search's uncertainty.
+
+**C68 — TIME + MEASUREMENT, and this one is load-bearing for your v0 CPPs.** "snake6
+saturates at 500 ms" is a statement about **the machine**. Recompiled, re-hosted or
+run under different load, the same profile describes a different search, and every
+"saturates at X ms" conclusion becomes unfalsifiable across hardware — fatal for a
+number whose job is to price tranches. Stockfish ships the fix as an option,
+`nodestime` ("nodes as time"): **denominate the budget in a deterministic work
+unit**, and calibrate to the clock as one measured machine-local constant. Then the
+CPP is reproducible, hence **versionable and diffable** — which is what keying it
+on `evalVersion` (M48) was already reaching for — and a profile regression becomes
+attributable to the search rather than the host. Ships with the necessary warning:
+set the assumed rate well below real throughput or you miss the deadline.
+
+**M92 / M93 / M94 — three shipped economy rules, each one line of code.**
+  - **Pondering is funded by making the CURRENT move 25% more expensive**
+    (`if (Ponder) optimumTime += optimumTime / 4`) — the engine does not *reserve*
+    time for the ponder, it spends more now because the ponder will refund it.
+    That is the opposite of how "fund ponder" reads naturally, and it is the
+    shipped direction.
+  - **A stop while pondering is not a stop**: the trigger sets `stopOnPonderhit`
+    rather than halting. Free compute is spent to exhaustion because it costs
+    nothing and might hit.
+  - **No new rung is begun past 50% of the budget**
+    (`increaseDepth = ponder || elapsed <= totalTime * 0.50`). This is C6's
+    contract/interruptible distinction at the granularity of one rung: an
+    abandoned rung returns nothing, so the marginal value of *starting* one is its
+    value × `P(finish)`. The rule is **suspended while pondering**, because an
+    unfinished ponder rung costs nothing.
+  - **Bad news is worth more computation than good news, at a measured 3×.**
+    `fallingEval`'s two terms are both positive when the score is *dropping* — the
+    name states the intent. In our vocabulary: **the value of computation is
+    asymmetric about the incumbent**, because the downside is what you can still
+    avoid. The sound floor already encodes that asymmetry at the *value* layer; the
+    allocation layer is symmetric. If they disagree, the economy is systematically
+    under-funding the positions the evaluator is most worried about.
+
+**SEARCH — M95: the bounds bank already computes the OTHER engine's rule, exactly.**
+Lc0's "smart pruning" stops spending on moves that cannot overtake the leader given
+the remaining budget — **C8's factor computed rather than estimated**, and
+`backupMax`/`backupMin` make it an interval-overlap query for us. What Lc0 adds is
+the two guards that make a sound rule usable, and both would be needed here:
+  - **a deliberate over-prune factor**, `SmartPruningFactor` default **1.33** —
+    values >1 stop *earlier than the provable condition allows*. The sound rule
+    alone fires too rarely to save time; the aggressiveness is a member with its
+    failure direction stated (it can stop on a move it should not have).
+  - **a minimum-work floor** (`SmartPruningMinimumBatches`), added to prevent
+    *"instamoves on slow backends"*. Our analogue is exact: at tranche zero the
+    bounds are vacuous and the overlap test is trivially satisfiable in the wrong
+    direction.
+
+  **The composition of the two engines is the recommendation:** the exact rule
+  where bounds exist, the four free counters everywhere else — including now,
+  before the bank is complete.
+
+**COMPOSITION — C69: a fitted constant is not a knob.** Fifteen SPRT-tuned
+constants appear in those two files (`0.0029869`, `3.22713`, `0.46866`, `0.19404`,
+`6.873`, `12.352`, `0.8097`, `2.229`, `1.077`, `0.639`, `1.712`, `75800`,
+`104510`, `0.3272`, `0.4141`) and **not one is a user option**. The options are the
+structural choices plus what only the deployment knows: `Ponder`, `Move Overhead`,
+`nodestime`, `Threads`, `Hash`.
+
+  > **A fitted constant is not a knob. Its value is a claim that won a test; a knob
+  > is a claim nobody has made.**
+
+  Exposing a tuned constant invites a setting that never passed the test that
+  justified the number, which silently voids its provenance — ruling 49's concern
+  stated as an access-control decision rather than a documentation one. The
+  corollary is the useful half: **`keepQuiet: 2` and the four caps are each either
+  fitted (and belong in source with their provenance) or unfitted (which is an
+  admission, not a configuration).** There is no third category, and the knob bag
+  currently pretends there is.
