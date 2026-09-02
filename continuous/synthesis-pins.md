@@ -4065,3 +4065,15 @@ final synthesis prematurely.
   NO_SPAWN is a deliberate under-model (conservative for gain, OPTIMISTIC
   for denial); distributional spawner = later MODEL member; same gap the
   belief lens flagged (spawning-gated-while-frozen covenant) — track as one.
+- M3 admitted-set instrument VERDICTS (bffb6fd): admission failure is
+  slider-only (capBinds 100% slider / 0% others; discarded options most
+  differentiated). NEW inert-weight cause (e): emission rate limiter
+  refuses 15-43% of priced plans — no weight moves those. switch-dominance/
+  switch-floor/ratchet refusals EXACTLY ZERO in all 192 games (dead or
+  never-firing mechanisms — investigate). Potion 4x-weights null = ~92%
+  sparsity (8.17% reachable-potion rate; term identically zero).
+  CORRECTED: on snake boards admission never failed — potionOrdering win
+  = joint-enum/incumbency support; k5 STANDS as the only potion-value
+  measurement. SECOND standing extraction rule: SATURATION RULE — any
+  bounded statistic checked against its own bound before reporting
+  (fourth instrument artifact caught, pre-publication this time).
