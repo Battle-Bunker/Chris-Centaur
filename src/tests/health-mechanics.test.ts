@@ -4,10 +4,18 @@
  *  - NO universal -1/turn decay. Health loss is MOVEMENT-based: a snake that
  *    moves pays 1 (snakes always move when given a move); units absent from
  *    the moveSet — frozen snakes and stationary chess pieces — lose nothing.
- *    Eating restores health to the unit's type max (snake.maxHealth).
  *  - Hazards deal configurable damage (GameSetup.hazardDamage, default 100)
  *    on ENTERING a hazard square; death only at health <= 0 — no longer
  *    instant death.
+ *  - CHARGE FIRST, EAT AFTER — but EXHAUSTION IS PROVISIONAL DEATH. The engine
+ *    charges movement and hazard cost in the sub-step the cell is entered;
+ *    health reaching <= 0 stops MOVEMENT and nothing else. Whether it kills is
+ *    settled at end of turn, after the food phase, which runs at the unit's
+ *    FINAL cell and ASSIGNS the type max (snake.maxHealth). So a unit that
+ *    halted on food eats, recovers and lives; one at zero anywhere else dies.
+ *    A snake's move is one cell, so its halt cell IS its destination: food at
+ *    the destination rescues a step that would otherwise kill, hazard dose and
+ *    all — and the dose is wiped along with the movement cost.
  *
  * Plus the owner's explicit conservatism guarantee, pinned here: the engine
  * spawns food AFTER movement, so this-turn survival is fully decidable from
@@ -15,7 +23,8 @@
  * will definitely die this turn without eating, and must NEVER invent food.
  */
 
-import { Simulator, MoveSet, healthAfterEntering, projectedHealthCost } from '../logic/simulator';
+import { Simulator, MoveSet } from '../logic/simulator';
+import { evaluatePathOnBoard, healthAfterEntering as engineHealthAfterEntering } from '../logic/turn-oracle';
 import { MoveAnalyzer } from '../logic/move-analyzer';
 import { BoardGraph } from '../logic/board-graph';
 import { DecisionEngine } from '../logic/decision-engine';
@@ -60,6 +69,23 @@ function makeGameState(snakes: Snake[], you: Snake, turn = 10): GameState {
 }
 
 const moves = (entries: [string, Direction][]): MoveSet => new Map(entries);
+
+/**
+ * Both helpers below ask the REAL engine (turn-oracle.ts over the vendored
+ * TacticToes module) rather than a bot-side mirror of the health rule:
+ *  - `healthAfterEntering` resolves a turn with nothing else on the board, so
+ *    only movement cost, hazard dose, exhaustion and the end-of-turn meal can
+ *    touch the answer;
+ *  - `projectedHealthCost` resolves the whole board and reports the health the
+ *    engine left us short.
+ */
+function healthAfterEntering(snake: Snake, board: GameState['board'], dest: Coord): number {
+  return engineHealthAfterEntering(board, 10, snake, dest);
+}
+
+function projectedHealthCost(state: GameState, path: Coord[]): number {
+  return evaluatePathOnBoard(state.board, state.turn, state.you.id, path).cost;
+}
 
 describe('hazard damage (no longer instant death)', () => {
   const simulator = new Simulator();
@@ -107,15 +133,37 @@ describe('hazard damage (no longer instant death)', () => {
     expect(alive.board.snakes.find(s => s.id === 'us')!.health).toBe(1);
   });
 
-  test('food on a hazard square: eat restores to max FIRST, then the damage lands', () => {
-    const gs = hazardScenario(5, 30);
+  // Food on a hazard square RESCUES, and restores to the FULL type max — the
+  // dose is charged first and then wiped, because the food phase assigns the
+  // max rather than subtracting from it. (This lands between two older
+  // readings: it is not "eat to 100 then take 30" — the answer is 100, not 70
+  // — and it is not "the dose kills first and the meal is never taken", which
+  // was the starved-is-dead reading exhaustion-is-provisional replaced.)
+  test('food on a hazard square rescues an exhausted unit, at the FULL type max', () => {
+    const gs = hazardScenario(5, 30); // 5 - 1 - 30 = -26: exhausted on arrival
     gs.board.food = [{ x: 6, y: 5 }];
     const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
 
     expect(result.deadSnakeIds.size).toBe(0);
-    const us = result.board.snakes.find(s => s.id === 'us')!;
-    expect(us.health).toBe(70); // restored to 100, minus 30 hazard damage
+    expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
     expect(result.board.food).toEqual([]);
+  });
+
+  test('food on a hazard square the unit survives outright restores it the same way', () => {
+    // 50 - 1 - 30 = 19 > 0, never exhausted — and still assigned the max.
+    const gs = hazardScenario(50, 30);
+    gs.board.food = [{ x: 6, y: 5 }];
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
+
+    expect(result.deadSnakeIds.size).toBe(0);
+    expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
+    expect(result.board.food).toEqual([]);
+  });
+
+  test('the SAME hazard square without food is death — the meal is the whole difference', () => {
+    const gs = hazardScenario(5, 30);
+    const result = simulator.simulateNextBoardState(gs, moves([['us', 'right']]));
+    expect(result.deadSnakeIds).toEqual(new Set(['us']));
   });
 
   test('hazardDamage survives deepCopyBoard (chained simulations keep the config)', () => {
@@ -129,8 +177,23 @@ describe('hazard damage (no longer instant death)', () => {
     gs.board.food = [{ x: 5, y: 6 }];
     const us = gs.you;
     expect(healthAfterEntering(us, gs.board, { x: 4, y: 5 })).toBe(49); // plain step
-    expect(healthAfterEntering(us, gs.board, { x: 5, y: 6 })).toBe(100); // eat -> max
+    expect(healthAfterEntering(us, gs.board, { x: 5, y: 6 })).toBe(100); // survive, then eat -> max
     expect(healthAfterEntering(us, gs.board, { x: 6, y: 5 })).toBe(19); // hazard entry
+  });
+
+  // INVERTED (was: "healthAfterEntering charges BEFORE the meal, so a step
+  // that kills stays killed"). The charge does come first, but exhaustion only
+  // HALTS — and for a one-cell step the halt cell is the destination, so the
+  // end-of-turn meal there still lands.
+  test('healthAfterEntering: the charge comes first, and the meal at the halt cell still saves', () => {
+    // Health 1 onto food: 1 - 1 = 0, exhausted — and the food phase runs at
+    // that very cell, so it recovers to the type max.
+    const dying = hazardScenario(1, 30);
+    dying.board.food = [{ x: 4, y: 5 }];
+    expect(healthAfterEntering(dying.you, dying.board, { x: 4, y: 5 })).toBe(100);
+
+    // The charge is still real: the same step onto a bare cell is at zero.
+    expect(healthAfterEntering(dying.you, dying.board, { x: 3, y: 5 })).toBe(0);
   });
 
   describe('projectedHealthCost — the one shared cost projection for snakes and pieces', () => {
@@ -154,10 +217,18 @@ describe('hazard damage (no longer instant death)', () => {
       expect(gs.you.health - cost).toBe(healthAfterEntering(gs.you, gs.board, { x: 6, y: 5 }));
     });
 
-    test('eating on a hazard square still charges the hazard damage (only movement is cancelled)', () => {
+    // INVERTED (was: "eating on a hazard square still charges the hazard
+    // damage"). The engine deals hazard doses inside the movement/sub-step
+    // phase and settles food afterwards, and the food phase ASSIGNS the type
+    // max (TeamSnekProcessor.processFood: `newPlayerHealth[id] =
+    // maxHealthFor(type)`) rather than adding to the running health. So a meal
+    // wipes every hazard dose the traversal accrued, at the destination and
+    // mid-flight alike — the cost of a survived hazard crossing that ends on
+    // food is zero, not the doses.
+    test('eating wipes the hazard damage too — the food phase SETS health to the type max', () => {
       const gs = hazardScenario(50, 30);
       gs.board.food = [{ x: 6, y: 5 }]; // food sits ON the hazard cell
-      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(30); // 0 movement + 30 hazard
+      expect(projectedHealthCost(gs, [{ x: 6, y: 5 }])).toBe(0);
     });
 
     test('a stay/rotate action (empty path) costs nothing', () => {
@@ -217,12 +288,21 @@ describe('hazard damage (no longer instant death)', () => {
       expect(analysis.risky).not.toContain('right');
     });
 
-    test('food on a survivable hazard square counts the eat before the damage', () => {
-      const gs = hazardScenario(5, 30); // 5 - 1 - 30 would die, but eat -> 100 - 30 survives
+    test('food on the hazard square makes an otherwise-lethal step survivable', () => {
+      // 5 - 1 - 30 exhausts on arrival, but the halt cell feeds it: risky, not
+      // excluded. The damage still lands first — the meal is what undoes it.
+      const gs = hazardScenario(5, 30);
       gs.board.food = [{ x: 6, y: 5 }];
       const analysis = analyzer.analyzeMoves(gs.you, gs, new BoardGraph(gs));
 
       expect(analysis.risky).toContain('right');
+      expect(analysis.safe).not.toContain('right');
+    });
+
+    test('a hazard step the health DOES survive is risky, food or no food', () => {
+      const gs = hazardScenario(50, 30); // 50 - 1 - 30 = 19, then the meal
+      gs.board.food = [{ x: 6, y: 5 }];
+      expect(analyzer.analyzeMoves(gs.you, gs, new BoardGraph(gs)).risky).toContain('right');
     });
   });
 
@@ -250,7 +330,7 @@ describe('hazard damage (no longer instant death)', () => {
 describe('conservative starvation prediction (owner guarantee)', () => {
   const simulator = new Simulator();
 
-  /** Us at (5,5) with health 1; food at (6,5) only. */
+  /** Us at (5,5); food at (6,5) only. Health 1 unless overridden. */
   function starvingScenario(extra: Partial<Snake> = {}) {
     const us = makeSnake('us', [
       { x: 5, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 3 }
@@ -273,7 +353,7 @@ describe('conservative starvation prediction (owner guarantee)', () => {
     expect(result.board.food).toEqual([{ x: 6, y: 5 }]);
   });
 
-  test('at health 1, every non-food move is certain death in the simulated board', () => {
+  test('at health 1, every NON-food move is certain death in the simulated board', () => {
     for (const move of ['up', 'left'] as Direction[]) {
       const result = simulator.simulateNextBoardState(starvingScenario(), moves([['us', move]]));
       expect(result.deadSnakeIds).toEqual(new Set(['us']));
@@ -281,10 +361,15 @@ describe('conservative starvation prediction (owner guarantee)', () => {
     }
   });
 
+  // The last point of health is still enough to reach food, because exhaustion
+  // only HALTS: the snake ends the turn on the meal and the food phase runs
+  // there. (This is the half of "at health 1 every move is death" that the
+  // provisional-death ruling took back; the non-food half above stands.)
   test('at health 1, the food-adjacent move survives at the type max', () => {
     const result = simulator.simulateNextBoardState(starvingScenario(), moves([['us', 'right']]));
     expect(result.deadSnakeIds.size).toBe(0);
     expect(result.board.snakes.find(s => s.id === 'us')!.health).toBe(100);
+    expect(result.board.food).toEqual([]);
 
     const custom = simulator.simulateNextBoardState(
       starvingScenario({ maxHealth: 40 }), moves([['us', 'right']])

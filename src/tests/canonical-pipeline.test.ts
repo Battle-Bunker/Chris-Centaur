@@ -76,6 +76,8 @@ function makeTurn(): TTTurn {
     startTime: null as any,
     endTime: null as any,
     moves: {},
+    // The death registry is written on every turn; empty means nobody died.
+    deaths: {},
     alivePlayers: ['centA', 'centA#2', 'centB'],
     food: [24],
     hazards: [],

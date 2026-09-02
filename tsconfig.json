@@ -9,6 +9,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    // The vendored engine imports its wire types as "@shared/types/Game", the
+    // specifier they carry in TacticToes. Re-pointing the alias is how
+    // VENDOR.md says to vendor them — it keeps the copies byte-identical.
+    "baseUrl": ".",
+    "paths": { "@shared/*": ["src/engine-vendor/shared/*"] },
     "declaration": false,
     "sourceMap": false,
     "incremental": true,
@@ -19,6 +24,7 @@
   "ts-node": {
     "transpileOnly": true,
     "files": true,
+    "experimentalResolver": true,
     "compilerOptions": {
       "sourceMap": false
     }

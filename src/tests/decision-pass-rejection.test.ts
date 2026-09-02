@@ -9,6 +9,7 @@
 
 import { TacticToesFirebaseInterface, FirebaseInterfaceConfig } from '../firebase/firebase-interface';
 import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
+import { CENTAUR_ENGINE_ENV } from '../config/centaur-engine';
 
 // Full board 7x6 (perimeter walls included), same layout as translate tests.
 const W = 7;
@@ -38,6 +39,8 @@ function makeTurn(): TTTurn {
     startTime: null as any,
     endTime: null as any,
     moves: {},
+    // The death registry is written on every turn; empty means nobody died.
+    deaths: {},
     alivePlayers: ['centA', 'centB'],
     food: [],
     hazards: [],
@@ -62,6 +65,18 @@ const config: FirebaseInterfaceConfig = {
   centaurApiKey: 'test',
 };
 
+// THIS SUITE ASSERTS ON THE LEGACY PATH, so it pins the flag EXPLICITLY rather
+// than riding the ambient default. The default is a measured decision that can
+// move; what this file is about does not. Without the pin, a flag flip would
+// reroute the full pass out from under these assertions and read as a
+// regression in something unrelated.
+beforeEach(() => {
+  process.env[CENTAUR_ENGINE_ENV] = 'legacy';
+});
+afterEach(() => {
+  delete process.env[CENTAUR_ENGINE_ENV];
+});
+
 describe('fire-and-forget decision pass', () => {
   test('a throwing setBotRecommendation in the error path never rejects the voided pass', async () => {
     // Strategy whose full pass always fails — drives every snake into the
@@ -85,6 +100,7 @@ describe('fire-and-forget decision pass', () => {
       applyResolvedMoves: jest.fn(),
       getActiveWaypointTarget: jest.fn().mockReturnValue(null),
       setBotRecommendation,
+      enableTeamStaging: jest.fn(),
     };
     (fi as any).gameLogger = { startGame: jest.fn(), endGame: jest.fn() };
 

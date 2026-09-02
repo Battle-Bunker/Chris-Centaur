@@ -1,0 +1,224 @@
+/**
+ * The posture governor: condition-keyed, never budget-keyed; est never
+ * adjudicates; every flip is a named assumption.
+ */
+
+import type { Posture } from "../lobster/contracts"
+import {
+  DEFAULT_DEAD_BELOW,
+  PostureGovernor,
+  channelPolicyFor,
+  classifyPosture,
+  detectVacuity,
+  postureAssumption,
+  vetoed,
+  type PostureConditions,
+} from "../lobster/postures"
+import { DEAD } from "../lobster/bounds"
+import { bounds, ledgerEntry } from "./lobster-harness"
+
+/** These suites script a FINITE cliff — the orchestration workspace's value —
+ * so the cases stay readable; the default is pinned to the system DEAD below. */
+const CLIFF = -1000
+
+const conditions = (over: Partial<PostureConditions> = {}): PostureConditions => ({
+  holdsPresent: true,
+  floorSeparates: true,
+  claimsSaturated: false,
+  residueDischargeable: true,
+  allCandidatesCloudContingentDead: false,
+  ...over,
+})
+
+describe("cause-tagged vacuity detection", () => {
+  it("reads a floor above the cliff as alive", () => {
+    const v = detectVacuity(bounds(10, 40, { ledger: [ledgerEntry(3)] }), CLIFF)
+    expect(v.cause).toBe("alive")
+    expect(v.demand).toBe(false)
+  })
+
+  it("reads DEAD-with-a-living-ceiling and an if_present citation as a DEMAND", () => {
+    const v = detectVacuity(bounds(-1000, 40, { ledger: [ledgerEntry(3), ledgerEntry(7)] }), CLIFF)
+    expect(v.cause).toBe("cloud-contingent-dead")
+    expect(v.demand).toBe(true)
+    expect([...v.citedUnits].sort()).toEqual([3, 7])
+  })
+
+  it("reads DEAD-in-the-optimistic-world-too as material — a verdict, not a demand", () => {
+    const v = detectVacuity(bounds(-1000, -1000, { ledger: [ledgerEntry(3)] }), CLIFF)
+    expect(v.cause).toBe("material-dead")
+    expect(v.demand).toBe(false)
+  })
+
+  it("reads DEAD with nothing in the if_present ledger as material: no cloud is to blame", () => {
+    const v = detectVacuity(bounds(-1000, 5, { ledger: [ledgerEntry(3, "if_absent")] }), CLIFF)
+    expect(v.cause).toBe("material-dead")
+  })
+
+  it("takes the cliff from the caller, not from a constant of its own", () => {
+    expect(detectVacuity(bounds(-40, 10), -30).cause).toBe("material-dead")
+    expect(detectVacuity(bounds(-40, 10), -50).cause).toBe("alive")
+    // THE AGREEMENT PIN (integrator wire-up): the governor's default cliff IS
+    // the system's own DEAD sentinel — the lattice bottom the engine, the
+    // evaluate module and the bounds layer share — so default vacuity tagging
+    // can never disagree with the evaluator that produced the bounds.
+    expect(DEFAULT_DEAD_BELOW).toBe(DEAD)
+    expect(DEFAULT_DEAD_BELOW).toBe(Number.NEGATIVE_INFINITY)
+  })
+})
+
+describe("posture classification", () => {
+  it("SIGHTED when no hold is present", () => {
+    expect(classifyPosture(conditions({ holdsPresent: false }))).toBe("SIGHTED")
+    // …and even when everything else looks like fog: discharge dominates.
+    expect(
+      classifyPosture(
+        conditions({
+          holdsPresent: false,
+          claimsSaturated: true,
+          residueDischargeable: false,
+          allCandidatesCloudContingentDead: true,
+        }),
+      ),
+    ).toBe("SIGHTED")
+  })
+
+  it("FOGGED-DISCRIMINATING when holds are present and the floor still separates", () => {
+    expect(classifyPosture(conditions())).toBe("FOGGED-DISCRIMINATING")
+  })
+
+  it("FOGGED-VACUOUS when every candidate's floor is cloud-contingent DEAD", () => {
+    expect(classifyPosture(conditions({ allCandidatesCloudContingentDead: true }))).toBe(
+      "FOGGED-VACUOUS",
+    )
+  })
+
+  it("FOGGED-VACUOUS when the claims are saturated and the residue is undischargeable", () => {
+    expect(
+      classifyPosture(conditions({ claimsSaturated: true, residueDischargeable: false })),
+    ).toBe("FOGGED-VACUOUS")
+    // Saturated but still refinable is not vacuous: refinement can buy something.
+    expect(
+      classifyPosture(conditions({ claimsSaturated: true, residueDischargeable: true })),
+    ).toBe("FOGGED-DISCRIMINATING")
+  })
+
+  it("keeps a flat-but-refinable floor in DISCRIMINATING and a flat-and-spent one in VACUOUS", () => {
+    expect(
+      classifyPosture(conditions({ floorSeparates: false, residueDischargeable: true })),
+    ).toBe("FOGGED-DISCRIMINATING")
+    expect(
+      classifyPosture(conditions({ floorSeparates: false, residueDischargeable: false })),
+    ).toBe("FOGGED-VACUOUS")
+  })
+})
+
+describe("the governor is condition-keyed and never budget-keyed", () => {
+  it("admits exactly five measured conditions, none of them a clock", () => {
+    // Structural: the ONLY way a millisecond could reach the classifier is
+    // through this type. Adding a budget field here is the design error the
+    // test exists to catch.
+    expect(Object.keys(conditions()).sort()).toEqual([
+      "allCandidatesCloudContingentDead",
+      "claimsSaturated",
+      "floorSeparates",
+      "holdsPresent",
+      "residueDischargeable",
+    ])
+  })
+
+  it("classifies identically for every condition combination whatever the stamp", () => {
+    const flags = ["holdsPresent", "floorSeparates", "claimsSaturated", "residueDischargeable", "allCandidatesCloudContingentDead"] as const
+    for (let mask = 0; mask < 32; mask++) {
+      const c = conditions(
+        Object.fromEntries(flags.map((f, i) => [f, (mask & (1 << i)) !== 0])) as Partial<PostureConditions>,
+      )
+      const a = new PostureGovernor("SIGHTED")
+      const b = new PostureGovernor("SIGHTED")
+      // Twice: a classification has to HOLD before the governor acts on it,
+      // and the point of this test is that the STAMP never enters into it.
+      a.observe(c, 0)
+      a.observe(c, 1)
+      b.observe(c, 9_999_999)
+      b.observe(c, 9_999_998)
+      expect(a.current).toBe(b.current)
+      expect(a.current).toBe(classifyPosture(c))
+    }
+  })
+
+  it("logs every flip as a posture Assumption and stays quiet when nothing moved", () => {
+    const g = new PostureGovernor("SIGHTED")
+    expect(g.observe(conditions({ holdsPresent: false }), 1)).toBeNull()
+    // First sighting of a new classification: noted, not acted on.
+    expect(g.observe(conditions(), 2)).toBeNull()
+    const flip = g.observe(conditions(), 3)
+    expect(flip).not.toBeNull()
+    expect(flip?.from).toBe("SIGHTED")
+    expect(flip?.to).toBe("FOGGED-DISCRIMINATING")
+    expect(flip?.assumption).toEqual({ kind: "posture", posture: "FOGGED-DISCRIMINATING" })
+    expect(g.observe(conditions(), 4)).toBeNull()
+    const vacuous = conditions({ allCandidatesCloudContingentDead: true })
+    expect(g.observe(vacuous, 5)).toBeNull()
+    const back = g.observe(vacuous, 6)
+    expect(back?.to).toBe("FOGGED-VACUOUS")
+    expect(g.flips.map((f) => f.to)).toEqual(["FOGGED-DISCRIMINATING", "FOGGED-VACUOUS"])
+    expect(postureAssumption("SIGHTED")).toEqual({ kind: "posture", posture: "SIGHTED" })
+  })
+
+  it("DWELL: a classification that does not hold does not flip the basis (V4 R1)", () => {
+    // A flip replaces the ratchet's basis and resets its floor to −∞, so
+    // chatter across consecutive slices is the ratchet being reset — several
+    // times inside one wire write interval. A dissenting measurement has to be
+    // seconded before it counts.
+    const g = new PostureGovernor("SIGHTED")
+    const fogged = conditions()
+    const sighted = conditions({ holdsPresent: false })
+    for (let i = 0; i < 10; i++) {
+      // Alternating: never the same classification twice in a row.
+      expect(g.observe(fogged, i * 2)).toBeNull()
+      expect(g.observe(sighted, i * 2 + 1)).toBeNull()
+    }
+    expect(g.current).toBe("SIGHTED")
+    expect(g.flips).toHaveLength(0)
+
+    // Held twice, it flips — detection is delayed by exactly one measurement.
+    expect(g.observe(fogged, 100)).toBeNull()
+    expect(g.pendingHeld).toBe(1)
+    expect(g.observe(fogged, 101)?.to).toBe("FOGGED-DISCRIMINATING")
+    expect(g.flips).toHaveLength(1)
+  })
+
+  it("dwell 1 is the old flip-on-first-sight behaviour", () => {
+    const g = new PostureGovernor("SIGHTED", 1)
+    expect(g.observe(conditions(), 0)?.to).toBe("FOGGED-DISCRIMINATING")
+  })
+})
+
+describe("channel policy", () => {
+  it("lets the floor lead everywhere except FOGGED-VACUOUS", () => {
+    for (const p of ["SIGHTED", "FOGGED-DISCRIMINATING"] as Posture[]) {
+      const pol = channelPolicyFor(p)
+      expect(pol.orderBy).toBe("lo")
+      expect(pol.loRole).toBe("adjudicate")
+      expect(pol.tieBreak).toBe("est")
+      expect(pol.vacuousMayWin).toBe(false)
+      expect(pol.spend).toBe("slack")
+    }
+  })
+
+  it("turns lo into a veto and hands ordering to est under FOGGED-VACUOUS", () => {
+    const pol = channelPolicyFor("FOGGED-VACUOUS")
+    expect(pol.orderBy).toBe("est")
+    expect(pol.loRole).toBe("veto")
+    expect(pol.vacuousMayWin).toBe(true)
+    // Slack-buying is worthless by construction here; the budget goes to depth
+    // on our own plan and to the gradient channel.
+    expect(pol.spend).toBe("depth-and-gradient")
+  })
+
+  it("keeps lo's veto in force in every posture — est orders, it never adjudicates", () => {
+    expect(vetoed("material-dead")).toBe(true)
+    expect(vetoed("cloud-contingent-dead")).toBe(false)
+    expect(vetoed("alive")).toBe(false)
+  })
+})

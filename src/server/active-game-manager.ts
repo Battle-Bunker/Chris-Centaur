@@ -1,6 +1,17 @@
 import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
+// Type-only: the wire layer's staged-unit shape, so the team path speaks one
+// vocabulary end to end. Erased at compile time, so there is no module cycle
+// with src/wire/team-submitter.ts (which imports IntendedMoveSource from here,
+// also type-only).
+import type { TeamStagedUnit } from '../wire/team-submitter';
 import { BoardGraph } from '../logic/board-graph';
-import { CasualtyContext, emptyCasualtyContext, healthAfterEntering, projectPath } from '../logic/simulator';
+import {
+  CasualtyContext,
+  emptyCasualtyContext,
+  evaluateCandidatePath,
+  healthAfterEntering,
+  marshalBoard,
+} from '../logic/turn-oracle';
 import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
@@ -52,8 +63,8 @@ interface PieceCandidateScore {
   stat: number;
   // Moves still to run from this candidate to the target (null = unreachable).
   dist: number | null;
-  // Projected health cost of this candidate's path (simulator.ts's
-  // projectPath — the SAME cost projection the snake health-loss
+  // Health this candidate's path costs, read off a turn the real engine
+  // resolved (turn-oracle.ts — the SAME oracle the snake health-loss
   // heuristic uses), folded additively into `score` at DEFAULT_CONFIG.healthLoss.
   healthCost: number;
   // The projection resolved this candidate as DEATH (projected health 0): the
@@ -61,7 +72,9 @@ interface PieceCandidateScore {
   // above its tier (ally bodies included; the engine never teams), a piece
   // contest it loses or ties, a wall, or hazard doses that exhaust it.
   // Charged as DEFAULT_CONFIG.deaths in `score`, exactly like a snake's
-  // `deaths` stat, AND vetoed outright in bestPieceCandidate.
+  // `deaths` stat, AND vetoed outright in bestPieceCandidate — except when the
+  // same traversal ends an enemy team (see `casualties.enemyRegicide`), which
+  // is a winning trade rather than a suicide.
   fatal: boolean;
   // What this candidate DOES to the units it passes through, from the same
   // projection (contests have no friendly exemption, so our own ray kills our
@@ -76,7 +89,11 @@ export interface TurnData {
   moveEvaluations: MoveEvaluation[];
   territoryCells: { [snakeId: string]: { x: number; y: number }[] };
   safeMoves: Direction[];
-  botRecommendation: Direction | null;
+  // A Direction for a snake; a FULL-BOARD destination index for a chess piece
+  // (own square = stay), the same CentaurMove split staging uses. Pieces had
+  // no bot route at all until the piece recommendation channel existed — see
+  // `updatePieceTurn` and `setBotRecommendation`.
+  botRecommendation: CentaurMove | null;
   timestamp: number;
   // Per-cell Voronoi owner/distance for the current board (cell inspector).
   // Absent on the quick pass and interim recommendations.
@@ -115,6 +132,42 @@ export type MoveSubmitter = (
   move: CentaurMove,
   source: IntendedMoveSource
 ) => Promise<void>;
+
+// The TEAM-scoped write-through publisher, an OPT-IN alternative to the
+// per-unit MoveSubmitter above. Where MoveSubmitter is one call per unit —
+// one loose document each, a mixed set on the server if the process dies
+// between two of them — this is handed the team's whole staged set for one
+// turn and puts it on the wire as atomic writeBatch chunks (see
+// src/wire/team-submitter.ts, which owns the chunking, exclusion, throttling
+// and confirm/retry).
+//
+// It is never the default. A game uses this path only after an explicit
+// `enableTeamStaging(gameId, true)`, which the team decision engine calls for
+// the games it drives; every other game keeps the per-unit path unchanged,
+// down to the retry timer.
+export type TeamMoveSubmitter = (
+  gameId: string,
+  turn: number,
+  moves: ReadonlyArray<TeamStagedUnit>
+) => Promise<void>;
+
+// What a pin observer is told. `staged` is the manager binding a move (the
+// move's `source` is the rung of the precedence ladder it came from, which is
+// what makes it a pin or not); `considering` and `cleared` are the UI's
+// hover / selection-consideration, which has no wire representation at all.
+//
+// Observation only: nothing an observer does can change what is staged, and
+// the manager does not care whether anyone is listening.
+export type PinIntentKind = 'staged' | 'considering' | 'cleared';
+export interface PinIntentEvent {
+  readonly gameId: string;
+  readonly snakeId: string;
+  readonly turn: number;
+  readonly move: CentaurMove | null;
+  readonly source: IntendedMoveSource | null;
+  readonly kind: PinIntentKind;
+}
+export type PinIntentObserver = (event: PinIntentEvent) => void;
 
 // The optional HUMAN-triggered "done" signal (Submit All): marks one snake as
 // finished for the turn in Firebase (moveStatuses.movedPlayerIDs), letting the
@@ -272,10 +325,16 @@ export interface ControlledSnake {
   // The unit's current kind: 'snake' or a chess-piece type. Kept fresh on every
   // board intake (pawn promotion changes pawn → queen mid-game). Pieces skip
   // every direction-only path: fatal gate, reversal tripwire, suicide moves,
-  // bot recommendations, waypoint re-bias, goto routes.
+  // waypoint re-bias, goto routes.
   unitType: string;
   latestTurnData: TurnData | null;
-  botRecommendation: Direction | null;
+  // The bot's own choice for this unit — the THIRD rung of the precedence
+  // ladder, below manual and waypoint and above the hard fallback. A Direction
+  // for a snake, a full-board destination index for a piece. `null` means the
+  // bot has nothing to say: a snake then falls back to 'up', and a piece stages
+  // nothing at all (the server defaults it to stay), which is exactly what
+  // every piece did before there was a piece bot route.
+  botRecommendation: CentaurMove | null;
   selectedBy: string | null;
   // Persistent ownership: the last player to select this snake. Unlike
   // `selectedBy` (the single active selection, cleared on deselect/switch),
@@ -456,6 +515,17 @@ export class ActiveGameManager {
   // Publisher for the human-triggered Submit All "done" signal. Optional and
   // never invoked automatically.
   private moveCommitter: MoveCommitter | null = null;
+  // OPT-IN team-scoped publisher (see TeamMoveSubmitter). Null, and the set
+  // below empty, means every game takes the per-unit path exactly as before.
+  private teamMoveSubmitter: TeamMoveSubmitter | null = null;
+  private teamStagedGames: Set<string> = new Set();
+  // Games whose team set changed this tick, and the turn it changed for.
+  // Coalesced like notifyStagedChange: a joint set is bound one unit at a
+  // time, and publishing after each unit would defeat the batching.
+  private teamStageDirty: Map<string, number> = new Map();
+  private teamStageFlushScheduled: boolean = false;
+  // Observers of pin-shaped intent (see PinIntentObserver). Purely a report.
+  private pinIntentObservers: PinIntentObserver[] = [];
 
   private constructor() {
     // The manager is the controller's game-progress source: a game counts
@@ -491,6 +561,154 @@ export class ActiveGameManager {
 
   setMoveCommitter(committer: MoveCommitter | null): void {
     this.moveCommitter = committer;
+  }
+
+  // ── Team staging (opt-in) ────────────────────────────────────────────────
+
+  setTeamMoveSubmitter(submitter: TeamMoveSubmitter | null): void {
+    this.teamMoveSubmitter = submitter;
+  }
+
+  /**
+   * Route a game's staged writes through the team submitter instead of the
+   * per-unit one. Off for every game until something explicitly turns it on;
+   * turning it off returns the game to the per-unit path immediately.
+   *
+   * This is the ONLY switch between the two transports. Everything upstream of
+   * it — intent precedence, the fatal-move consent gate, the atomic StagedMove
+   * record, the commit freeze — is identical on both paths, because both are
+   * fed by the same `stageMove`.
+   */
+  enableTeamStaging(gameId: string, enabled: boolean = true): void {
+    if (enabled) this.teamStagedGames.add(gameId);
+    else {
+      this.teamStagedGames.delete(gameId);
+      this.teamStageDirty.delete(gameId);
+    }
+  }
+
+  isTeamStagingEnabled(gameId: string): boolean {
+    return this.teamStagedGames.has(gameId);
+  }
+
+  /**
+   * The team's staged set for one turn: every controlled unit holding a bound
+   * staged record for `turn`, minus the units already committed (their
+   * privateMoves writes are refused server-side, so including one would fail
+   * the batch carrying it).
+   *
+   * A read-only projection of records `stageMove` already bound. It resolves
+   * nothing and decides nothing.
+   */
+  stagedTeamSet(gameId: string, turn: number): TeamStagedUnit[] {
+    const game = this.games.get(gameId);
+    if (!game) return [];
+    const set: TeamStagedUnit[] = [];
+    for (const [snakeId, controlled] of game.controlledSnakes) {
+      const staged = controlled.staged;
+      if (!staged || staged.turn !== turn) continue;
+      if (controlled.lastCommittedTurn === turn) continue;
+      set.push({ snakeId, move: staged.move, source: staged.source });
+    }
+    return set;
+  }
+
+  /** The move Firebase's read-back confirms for this unit on `turn`, or null. */
+  confirmedStagedMove(gameId: string, snakeId: string, turn: number): CentaurMove | null {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    const confirmed = controlled?.confirmedStaged;
+    return confirmed && confirmed.turn === turn ? confirmed.move : null;
+  }
+
+  /** Whether this unit's commit for `turn` has been made — its staged writes
+   * are refused from that instant, so the team path must exclude it. */
+  hasCommittedTurn(gameId: string, snakeId: string, turn: number): boolean {
+    return this.games.get(gameId)?.controlledSnakes.get(snakeId)?.lastCommittedTurn === turn;
+  }
+
+  // ── Pin observation ─────────────────────────────────────────────────────
+
+  /**
+   * Observe pin-shaped intent: every staged bind (with the precedence rung it
+   * came from) plus the UI's tentative consideration. Report-only — an
+   * observer cannot stage, unstage or veto anything, and a throwing observer
+   * is contained here.
+   */
+  onPinIntent(observer: PinIntentObserver): void {
+    this.pinIntentObservers.push(observer);
+  }
+
+  /**
+   * The UI is CONSIDERING this move for this unit — a hover, a candidate under
+   * the cursor, a drag not yet released. Emits a tentative-pin observation and
+   * touches nothing else: no intent, no staged record, no write. A tentative
+   * pin is a hint the search may speculate on, never a constraint.
+   */
+  notePinConsideration(gameId: string, snakeId: string, move: CentaurMove): void {
+    const game = this.games.get(gameId);
+    if (!game || !game.controlledSnakes.has(snakeId)) return;
+    this.notifyPinIntent({
+      gameId,
+      snakeId,
+      turn: game.boardStateTurn,
+      move,
+      source: null,
+      kind: 'considering',
+    });
+  }
+
+  /** The UI stopped considering a move for this unit. */
+  clearPinConsideration(gameId: string, snakeId: string): void {
+    const game = this.games.get(gameId);
+    if (!game || !game.controlledSnakes.has(snakeId)) return;
+    this.notifyPinIntent({
+      gameId,
+      snakeId,
+      turn: game.boardStateTurn,
+      move: null,
+      source: null,
+      kind: 'cleared',
+    });
+  }
+
+  private notifyPinIntent(event: PinIntentEvent): void {
+    for (const observer of this.pinIntentObservers) {
+      try {
+        observer(event);
+      } catch (e) {
+        console.error('Error in pin intent observer:', e);
+      }
+    }
+  }
+
+  // Mark a game's team set as changed for `turn`, coalesced to one publish per
+  // event-loop tick. A joint set is bound one unit at a time (each unit's
+  // stageMove is its own call), so publishing per unit would produce exactly
+  // the per-unit write pattern the team path exists to replace.
+  private requestTeamPublish(gameId: string, turn: number): void {
+    const pending = this.teamStageDirty.get(gameId);
+    // Only ever move forward: a late stage for an older turn must not drag the
+    // publish back to a turn the board has left.
+    if (pending === undefined || turn > pending) this.teamStageDirty.set(gameId, turn);
+    if (this.teamStageFlushScheduled) return;
+    this.teamStageFlushScheduled = true;
+    setImmediate(() => {
+      this.teamStageFlushScheduled = false;
+      const dirty = Array.from(this.teamStageDirty.entries());
+      this.teamStageDirty.clear();
+      for (const [id, dirtyTurn] of dirty) {
+        if (!this.teamStagedGames.has(id)) continue;
+        const moves = this.stagedTeamSet(id, dirtyTurn);
+        if (moves.length === 0) continue;
+        if (!this.teamMoveSubmitter) {
+          console.error(`[ActiveGameManager] Team staging enabled for ${id} with no team submitter wired — turn ${dirtyTurn} NOT published`);
+          continue;
+        }
+        this.teamMoveSubmitter(id, dirtyTurn, moves).catch((err) => {
+          console.error(`[ActiveGameManager] Failed to publish team staged set for ${id} turn ${dirtyTurn}:`, err);
+        });
+      }
+    }).unref();
   }
 
   static getInstance(): ActiveGameManager {
@@ -732,6 +950,7 @@ export class ActiveGameManager {
       // events that would bounce the UI; just drop the empty shell.
       console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
       this.games.delete(gameId);
+      this.enableTeamStaging(gameId, false);
       this.logIfFullyIdle();
       ActivityController.getInstance().poke();
       return;
@@ -771,6 +990,7 @@ export class ActiveGameManager {
 
     console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
     this.games.delete(gameId);
+    this.enableTeamStaging(gameId, false);
     this.logIfFullyIdle();
     // Game gone — the awake rule may flip (no game branch left to hold it).
     ActivityController.getInstance().poke();
@@ -1145,7 +1365,7 @@ export class ActiveGameManager {
       id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
-      botRecommendation: Direction | null;
+      botRecommendation: CentaurMove | null;
     }>;
     connectedUsers: Array<ConnectedUser>;
     selections: { [snakeId: string]: { userId: string; color: string } | null };
@@ -1162,7 +1382,7 @@ export class ActiveGameManager {
       id: string; name: string; letter: string;
       selectedBy: string | null;
       turnData: TurnData | null;
-      botRecommendation: Direction | null;
+      botRecommendation: CentaurMove | null;
     }> = [];
     const selections: { [snakeId: string]: { userId: string; color: string } | null } = {};
 
@@ -1329,9 +1549,10 @@ export class ActiveGameManager {
   //
   // Deliberately says nothing about what the unit does next. setIntent
   // re-stages through the ordinary path, and that path already knows what no
-  // input means for each kind of unit (today: the bot's recommendation for a
-  // snake, holding for a piece). Naming those outcomes here would fork the
-  // fallback into a second definition.
+  // input means for each kind of unit — the bot's recommendation where there
+  // is one (a Direction for a snake, a destination for a piece), and holding
+  // for a piece the bot has nothing to say about. Naming those outcomes here
+  // would fork the fallback into a second definition.
   clearHumanInput(gameId: string, snakeId: string, userId: string): boolean {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
@@ -1679,11 +1900,13 @@ export class ActiveGameManager {
       // Hazards are damage-based (board.hazardDamage on entry, default 100;
       // death only at health <= 0), so a hazard step is only CERTAIN death
       // when the simulator's exact entry rule says the health won't survive
-      // it — same health-aware classification MoveAnalyzer applies. A
-      // survivable hazard step still checks hazard-blind wall/body fatality.
+      // it — same health-aware classification MoveAnalyzer applies, and the
+      // same charge-then-eat order, so food on the cell is not a way out of a
+      // step whose own cost kills. A survivable hazard step still checks
+      // hazard-blind wall/body fatality.
       const boardHazards = game.boardState.board.hazards ?? [];
       if (snake && boardHazards.some(h => h.x === dest.x && h.y === dest.y)) {
-        if (healthAfterEntering(snake, game.boardState.board, dest) <= 0) return true;
+        if (healthAfterEntering(game.boardState.board, game.boardState.turn, snake, dest) <= 0) return true;
         return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic', ignoreHazards: true })
           .passableIdx(graph.cellIndexOf(dest), 1);
       }
@@ -1745,14 +1968,21 @@ export class ActiveGameManager {
       }
     }
 
-    if (controlled?.botRecommendation) {
-      // Anything that reaches here is the bot's recommendation — manual and the
-      // waypoint re-bias were both unavailable this turn. Report it truthfully
-      // as 'bot' even when a waypoint is nominally set, so the staged arrow
-      // renders grey and the user can never mistake a bot decision for their
-      // own staged move. The fallback is logged at the stageMove choke point
-      // where the active intent mode is known.
-      return { direction: controlled.botRecommendation, source: 'bot' };
+    // Anything that reaches here is the bot's recommendation — manual and the
+    // waypoint re-bias were both unavailable this turn. Report it truthfully
+    // as 'bot' even when a waypoint is nominally set, so the staged arrow
+    // renders grey and the user can never mistake a bot decision for their
+    // own staged move. The fallback is logged at the stageMove choke point
+    // where the active intent mode is known.
+    //
+    // This is the DIRECTION ladder: it is reached only from `stageMove` after
+    // pieces have branched to `stagePieceMove`, whose own ladder ends in the
+    // numeric bot rung (`computePieceStagedMove`). So a numeric recommendation
+    // here belongs to a unit that took the wrong path and is refused rather
+    // than staged as a direction.
+    const recommended = controlled?.botRecommendation;
+    if (typeof recommended === 'string' && recommended) {
+      return { direction: recommended, source: 'bot' };
     }
 
     return { direction: 'up', source: 'fallback' };
@@ -1873,7 +2103,14 @@ export class ActiveGameManager {
       typeof direction === 'string' &&
       this.isMoveFatal(gameId, snakeId, direction)
     ) {
-      const fallback = controlled.botRecommendation;
+      // This is the SNAKE path (pieces branched out above), so the bot's
+      // recommendation for this unit is a Direction. The narrowing is explicit
+      // rather than assumed: botRecommendation is a CentaurMove now that
+      // pieces have a bot route, and a numeric destination is not a legal
+      // substitute for a snake's direction — it would be a wire-shape error,
+      // so it is refused in favour of the hard fallback.
+      const recommended = controlled.botRecommendation;
+      const fallback = typeof recommended === 'string' ? recommended : null;
       console.warn(`[ActiveGameManager] FATAL-MOVE GATE for ${gameId}:${snakeId} turn ${turn}: unconsented ${source} move ${direction} is certain death — staging ${fallback ? `bot move ${fallback}` : `fallback 'up'`} instead, awaiting confirmation`);
       if (controlled.fatalPromptTurn !== turn || controlled.fatalPromptMove !== direction) {
         controlled.fatalPromptTurn = turn;
@@ -1907,6 +2144,11 @@ export class ActiveGameManager {
     };
     this.logReversalTripwire(gameId, controlled, direction, source);
     this.logStagedMoveAnomalies(gameId, controlled, previous, intended);
+    // Report the bind to pin observers. AFTER the record is final, so what an
+    // observer sees is the move that will actually be written — the fatal gate
+    // above can replace a human's direction with the bot's, and a pin derived
+    // from the pre-gate value would name a move the game never plays.
+    this.notifyPinIntent({ gameId, snakeId, turn, move: direction, source, kind: 'staged' });
 
     // Refresh the derived green path AFTER `controlled.staged` is final: the
     // fatal-move gate above can replace the staged direction, and the drawn
@@ -2006,10 +2248,43 @@ export class ActiveGameManager {
         action: best?.action ?? { kind: 'stay' },
       };
     }
-    if (intent.kind !== 'manual' || typeof intent.move !== 'number') return null;
-
     const pawnTargets =
       controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+
+    if (intent.kind !== 'manual' || typeof intent.move !== 'number') {
+      // THE BOT RUNG, third and last — reached only when no operator command
+      // applies, exactly as it is for snakes. It is the whole of the piece bot
+      // route: before it existed, `botRecommendation` was hard-coded null for
+      // every piece and an uncommanded piece stages nothing at all, which is
+      // still what happens when the bot has nothing to say.
+      //
+      // The recommendation is validated through the SAME planPieceAction the
+      // manual rung uses, so a destination the server would reject stages the
+      // piece's own square (= stay) instead of a write the engine discards.
+      const recommended = controlled.botRecommendation;
+      if (typeof recommended !== 'number') return null;
+      const botAction = planPieceAction(
+        controlled.unitType,
+        originIdx,
+        recommended,
+        fullW,
+        fullH,
+        you.orientation,
+        pawnTargets
+      );
+      if (!botAction) {
+        console.warn(
+          `[ActiveGameManager] Bot recommended illegal destination ${recommended} for ` +
+            `${controlled.unitType} ${gameId}:${snakeId} — staging stay (${originIdx}) instead`
+        );
+      }
+      return {
+        move: botAction ? recommended : originIdx,
+        source: 'bot',
+        action: botAction ?? { kind: 'stay' },
+      };
+    }
+
     const action = planPieceAction(
       controlled.unitType,
       originIdx,
@@ -2048,10 +2323,20 @@ export class ActiveGameManager {
     // FIRST and only ignored if literally every candidate commits it. (Staying
     // put is always enumerated and never kills anyone, so in practice there is
     // always something left.)
+    //
+    // The ONE exemption from the fatal veto is a candidate that ENDS AN ENEMY
+    // TEAM: a traversal that takes their last king wins us the engine's
+    // regicide (every unit that team owns is removed that turn) even when the
+    // contest is a TIE that kills our unit too. Trading one piece for a whole
+    // enemy side is a winning move, not a suicide, so it stays in the pool and
+    // is ranked by `score` — where enemyRegicide (+2000) beats the deaths
+    // (-500) and health-loss (-500 at full health) charges it carries. Our own
+    // regicide filter runs FIRST and is not exempted, so this can never trade
+    // our last king for theirs.
     const all = this.computePieceCandidates(gameId, snakeId);
     const survivingTeam = all.filter(c => c.casualties.regicide === 0);
     const alive = survivingTeam.length > 0 ? survivingTeam : all;
-    const survivable = alive.filter(c => !c.fatal);
+    const survivable = alive.filter(c => !c.fatal || c.casualties.enemyRegicide === 1);
     const pool = survivable.length > 0 ? survivable : alive;
     let best: PieceCandidateScore | null = null;
     for (const candidate of pool) {
@@ -2087,8 +2372,8 @@ export class ActiveGameManager {
    * signal ordering them: the hop that ends nearest the target along a
    * shortest path scores the full weight, and nothing else competes for the
    * lead. Health cost only ever pulls a candidate DOWN — the same shared
-   * projection the snake health-loss heuristic uses (simulator.ts's
-   * projectedHealthCost, over the candidate's own traversed path), so a
+   * oracle the snake health-loss heuristic uses (turn-oracle.ts, resolving
+   * the candidate's own path through the vendored engine), so a
    * cheaper hop wins a tie and a hazard-crossing ray is decisively outweighed
    * by a same-progress detour around it, with no piece-specific hazard rule.
    * A ray the projection resolves as DEATH — it crosses a snake body segment
@@ -2096,7 +2381,11 @@ export class ActiveGameManager {
    * loses a piece contest, or exhausts its health — reports a cost that zeroes
    * the piece's health AND sets `fatal`, which charges DEFAULT_CONFIG.deaths
    * on top, the same way a snake's death enters its score. bestPieceCandidate
-   * then vetoes it outright.
+   * then vetoes it outright — unless the same traversal ends an enemy team,
+   * because a TIED contest kills the unit we tied with too: a mutual
+   * destruction still records its victim (kills / allyCasualty / regicide),
+   * so a fatal-but-winning king trade carries the enemyRegicide reward and is
+   * scored rather than discarded.
    *
    * The stat comes from the shared waypoint pathfinder walking the graph's
    * per-unit adjacency, so a knight is ordered by knight moves and a rook by
@@ -2155,20 +2444,30 @@ export class ActiveGameManager {
       }
     }
 
+    // One marshalling of the board into engine terms, reused by every
+    // candidate below. `action.path` is already full-board indices, which is
+    // what the engine wants, so a move's ray goes straight in.
+    const marshalled = marshalBoard(board, gs.turn);
+
     return legal.map(({ dest, action }, i) => {
       const stat = progress?.[i].stat ?? 0;
-      // Projected outcome of THIS candidate's own traversed path: a move's
-      // full ray/jump (converted from full-board indices to the api coords the
-      // projection reads food/hazards/bodies in), stay/rotate always free. The
-      // projection truncates the path at a death or a capture-stop, so a ray
-      // that never reaches the staged destination is neither credited with the
-      // meal there nor charged for the squares beyond.
-      const projected = action.kind === 'move'
-        ? projectPath(gs, action.path.map(idx => toApiCoord(idx, fullW, fullH)))
+      // THE REAL TURN, RESOLVED. This candidate's path goes into the vendored
+      // engine and the outcome is read off the result: `fatal` is our unit
+      // appearing in the death registry, `healthCost` is the health the engine
+      // left us short, and `casualties` is whoever it killed in a clash we
+      // took part in plus whatever it reports in `eliminatedTeamIDs`. Nothing
+      // here re-derives a rule — a truncated ray, an exhaustion halt that food
+      // rescues, a capture-stop, an edge exchange with an enemy that stepped
+      // into us: all of it is whatever the engine actually did.
+      //
+      // A stay/rotate enters nothing and so cannot hurt anybody; the engine
+      // agrees, but skipping the call keeps the common case free.
+      const outcome = action.kind === 'move'
+        ? evaluateCandidatePath(marshalled, snakeId, action.path)
         : null;
-      const healthCost = projected?.cost ?? 0;
-      const fatal = projected?.fatal ?? false;
-      const casualties = projected?.casualties ?? emptyCasualtyContext();
+      const healthCost = outcome?.cost ?? 0;
+      const fatal = outcome?.fatal ?? false;
+      const casualties = outcome?.casualties ?? emptyCasualtyContext();
       return {
         move: dest,
         action,
@@ -2220,6 +2519,7 @@ export class ActiveGameManager {
     }
 
     controlled.staged = { snakeId, turn, move, source, fatalConsented: false, action };
+    this.notifyPinIntent({ gameId, snakeId, turn, move, source, kind: 'staged' });
     // Same ordering as stageMove: the drawn route follows the move that will
     // actually commit, so it is refreshed only once `staged` is final.
     this.refreshGotoRoute(gameId, snakeId);
@@ -2312,15 +2612,26 @@ export class ActiveGameManager {
   }
 
   // Turn intake for a controlled chess piece — the piece counterpart of
-  // setBotRecommendation's turn bookkeeping, without any engine decision:
-  // own pieces get no bot recommendation (the minimax engine drives snakes
-  // only; see the v1 note in Simulator). Refreshes the unit type (pawn
+  // setBotRecommendation's turn bookkeeping. Refreshes the unit type (pawn
   // promotion) and re-stages the piece's goto command for the new turn.
   // In the canonical pipeline the transport calls updateBoard FIRST (which
   // advances the shared board and runs the goto-arrival shift), then this per
   // piece; the board-advance branch below is defensive only, kept so the game
   // stays live if a transport ever feeds pieces without feeding the board.
-  updatePieceTurn(gameId: string, snakeId: string, gameState: GameState): void {
+  //
+  // `botRecommendation` is the piece's own bot route: a FULL-BOARD destination
+  // index the decision engine wants this piece on, or null for "the bot has
+  // nothing to say". It used to be hard-coded null here, which is why pieces
+  // were operator-command-only — an uncommanded piece staged nothing and the
+  // server defaulted it to stay. Omitting the argument reproduces exactly that,
+  // so the snake-only transport is unchanged; passing one adds the third rung
+  // of the precedence ladder BELOW manual and waypoint, never above them.
+  updatePieceTurn(
+    gameId: string,
+    snakeId: string,
+    gameState: GameState,
+    botRecommendation: number | null = null
+  ): void {
     const game = this.games.get(gameId);
     if (!game) return;
     const controlled = game.controlledSnakes.get(snakeId);
@@ -2361,6 +2672,11 @@ export class ActiveGameManager {
 
     // Promotion changes the unit type mid-game (pawn → queen).
     controlled.unitType = gameState.you.unitType ?? controlled.unitType;
+    // The bot's destination for this piece, if the caller has one. Set BEFORE
+    // the re-stage below so the piece ladder's bot rung can see it, and cleared
+    // by an explicit null so a stale recommendation from the previous turn can
+    // never survive into this one.
+    controlled.botRecommendation = botRecommendation;
     // Candidate turn data: every legal destination scored by the waypoint
     // bias, through the same TurnData/broadcast contract snakes use.
     controlled.latestTurnData = {
@@ -2368,7 +2684,7 @@ export class ActiveGameManager {
       moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
       safeMoves: [],
-      botRecommendation: null,
+      botRecommendation,
       timestamp: Date.now(),
     };
 
@@ -2443,6 +2759,19 @@ export class ActiveGameManager {
       controlled.confirmedStaged.move === requested.move
     ) {
       clearRetry();
+      return;
+    }
+
+    // TEAM STAGING, opt-in per game. The team submitter owns publishing,
+    // throttling, confirm and retry for the whole set at once, so this unit's
+    // own submit and its own backstop timer would be redundant writes against
+    // the same documents. Every guard above still applies unchanged — a
+    // committed, finalized, confirmed or superseded request stops here on both
+    // paths. Nothing below this line runs for a team-staged game, and nothing
+    // above it behaves differently.
+    if (this.teamStagedGames.has(gameId)) {
+      clearRetry();
+      this.requestTeamPublish(gameId, requested.turn);
       return;
     }
 
@@ -2755,12 +3084,35 @@ export class ActiveGameManager {
     return this.games.get(gameId)?.boardTerritory ?? null;
   }
 
-  setBotRecommendation(gameId: string, snakeId: string, move: Direction, turnData: TurnData): void {
+  /**
+   * The bot's move for one unit, with the turn data behind it.
+   *
+   * `move` is a CentaurMove: a Direction for a snake, a FULL-BOARD destination
+   * index for a chess piece. The union is the whole of the pieces bot route on
+   * this entry point — every Direction-only caller is unchanged, and the shape
+   * check below refuses a mismatched pairing the way `setUserSelection` does,
+   * as defence in depth rather than as a silent coercion.
+   *
+   * What this method does NOT change is precedence: it writes
+   * `botRecommendation` and re-stages, and staging resolves manual > waypoint >
+   * bot exactly as before. A bot recommendation can never displace a human's.
+   */
+  setBotRecommendation(gameId: string, snakeId: string, move: CentaurMove, turnData: TurnData): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return;
+
+    if (this.isPieceUnit(controlled)) {
+      if (typeof move !== 'number') {
+        console.log(`[ActiveGameManager] Ignoring bot direction ${move} for piece ${gameId}:${snakeId} — pieces are recommended by destination`);
+        return;
+      }
+    } else if (typeof move !== 'string') {
+      console.log(`[ActiveGameManager] Ignoring numeric bot move ${move} for snake ${gameId}:${snakeId} — snakes are recommended by direction`);
+      return;
+    }
 
     const incomingTurn = turnData.gameState.turn;
     // Early-resolution race guard: a turn can resolve before its deadline
@@ -2811,7 +3163,18 @@ export class ActiveGameManager {
       }
     }
 
-    controlled.latestTurnData = turnData;
+    // A piece's turn data is its scored candidate list, not a snake decision's
+    // move matrix — the UI reads the same TurnData shape for both, so a
+    // recommendation arriving for a piece rebuilds the candidate rows here the
+    // way updatePieceTurn does rather than publishing whatever the caller had.
+    controlled.latestTurnData = this.isPieceUnit(controlled)
+      ? {
+          ...turnData,
+          moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
+          safeMoves: [],
+          botRecommendation: move,
+        }
+      : turnData;
     controlled.botRecommendation = move;
     // Lift the board-wide Voronoi grids off this snake's decision onto the
     // GAME, where every unit's views can read them.
@@ -3149,6 +3512,7 @@ export class ActiveGameManager {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);
+          this.enableTeamStaging(gameId, false);
           this.logIfFullyIdle();
           removedAny = true;
         }

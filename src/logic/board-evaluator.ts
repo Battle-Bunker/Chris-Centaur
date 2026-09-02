@@ -8,7 +8,7 @@ import { GameState, Snake, Coord } from '../types/battlesnake';
 import { BoardGraph, BoardGraphConfig, ClearanceMode } from './board-graph';
 import { MultiSourceBFS, BFSSource, BFSResult } from './multi-source-bfs';
 import { unitContestData } from './piece-threats';
-import { CasualtyContext } from './simulator';
+import { CasualtyContext } from './turn-oracle';
 import { WaypointProgress } from './waypoint-pathing';
 import {
   HEURISTIC_KEYS,
@@ -72,7 +72,7 @@ export interface EvaluationContext {
   waypointProgress?: WaypointProgress | null;
   // Projected health cost of the candidate MOVE (movement + hazard damage, or
   // the mover's whole health when the projection resolves the move as DEATH —
-  // simulator.ts's projectedHealthCost), computed once per decision from the
+  // turn-oracle.ts), computed once per decision from the
   // PRE-move board and injected here — same per-move-constant pattern as
   // h2hRisk/pieceThreat/waypointProgress, and for the same reason: the cost
   // describes the move, not the simulated board. Undefined/0 for states that
@@ -80,7 +80,7 @@ export interface EvaluationContext {
   healthCost?: number;
   // What the candidate MOVE does to the units on the board — the ally weight it
   // destroys, the enemies it kills, and whether it ends a team by taking its
-  // last king (simulator.ts's projectPath, folded). Same per-move-constant
+  // last king, read off a resolved turn (turn-oracle.ts). Same per-move-constant
   // injection as healthCost, and for the same reason: these describe the move,
   // not the board it produces. The contest that resolves the move's cost is
   // the contest that decides who dies in it, so both come off ONE projection.

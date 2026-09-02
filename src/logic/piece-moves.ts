@@ -1,5 +1,5 @@
 // Chess-piece movement legality, MIRRORED from the TacticToes engine:
-//   TacticToes functions/src/gameprocessors/chess/pieceMoves.ts
+//   TacticToes functions/src/gameprocessors/engine/moveGrammar.ts
 // Keep this file in lockstep with the server — the centaur uses it to decide
 // whether a clicked destination is a legal single move for a piece THIS turn,
 // so any divergence makes the client stage moves the server rejects (→ stay).

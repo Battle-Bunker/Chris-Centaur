@@ -169,16 +169,30 @@ describe('scoreboard: unit rows', () => {
 
 // ── Clash inspection ───────────────────────────────────────────────────────
 
+// One record per cell per event. (4,4) carries TWO events — a contest on
+// sub-step 3 and a wall death on sub-step 1 — and (4,5) carries a third. The
+// dead unit's other body cells are NOT marked: a kill is one record, on the
+// cell it happened on.
 const clashBoard = {
   width: 11,
   height: 11,
   snakes: [ourA, theirA],
   clashes: [
-    // One contest, recorded on two of the dead unit's body cells.
-    { cell: { x: 4, y: 4 }, playerIDs: ['b', 'x'], reason: 'Head-on collision (lighter unit(s) died)', subStep: 3 },
-    { cell: { x: 4, y: 5 }, playerIDs: ['b', 'x'], reason: 'Head-on collision (lighter unit(s) died)', subStep: 3 },
-    // A second death in the same contest, on the same square.
-    { cell: { x: 4, y: 4 }, playerIDs: ['b', 'c'], reason: 'Collided with wall', subStep: 1 },
+    {
+      cell: { x: 4, y: 4 }, subStep: 3, kind: 'contest',
+      playerIDs: ['b', 'x'], victimIDs: ['b'], survivorID: 'x',
+      reason: 'Outweighed',
+    },
+    {
+      cell: { x: 4, y: 5 }, subStep: 3, kind: 'sever',
+      playerIDs: ['b', 'x'], victimIDs: [], survivorID: 'x',
+      reason: 'Body severed by a higher tier',
+    },
+    {
+      cell: { x: 4, y: 4 }, subStep: 1, kind: 'wall',
+      playerIDs: ['c'], victimIDs: ['c'],
+      reason: 'Hit the wall',
+    },
   ],
 };
 
@@ -189,9 +203,24 @@ describe('clash inspection', () => {
     expect(BoardRenderer.clashesAtCell({ snakes: [] }, { x: 4, y: 4 })).toEqual([]);
   });
 
-  test('records differing only in which body cell they mark are ONE collision', () => {
+  // INVERTED (was: "records differing only in which body cell they mark are
+  // ONE collision"). The wire no longer writes a record per body cell of the
+  // dead, so there is nothing to fold: every record IS an event, and two
+  // records on one cell are two things that happened there.
+  test('one record per cell per event — the fold is now the identity', () => {
     const all = BoardRenderer.boardClashes(clashBoard);
-    expect(BoardRenderer.distinctClashes(all)).toHaveLength(2);
+    expect(BoardRenderer.distinctClashes(all)).toHaveLength(3);
+  });
+
+  test('an exact duplicate is still swallowed, and REASON never identifies an event', () => {
+    // Two genuinely different events that happen to share display text stay
+    // two events; a byte-identical repeat collapses.
+    const sameWords = [
+      { cell: { x: 1, y: 1 }, subStep: 1, kind: 'contest', playerIDs: ['a', 'b'], victimIDs: ['a'], reason: 'Outweighed' },
+      { cell: { x: 1, y: 1 }, subStep: 4, kind: 'contest', playerIDs: ['c', 'd'], victimIDs: ['c'], reason: 'Outweighed' },
+      { cell: { x: 1, y: 1 }, subStep: 4, kind: 'contest', playerIDs: ['c', 'd'], victimIDs: ['c'], reason: 'Outweighed' },
+    ];
+    expect(BoardRenderer.distinctClashes(sameWords)).toHaveLength(2);
   });
 
   test('every clash cell is marked, so a survivor’s square is inspectable too', () => {
@@ -203,22 +232,96 @@ describe('clash inspection', () => {
       knownSnakes: [ourB, ourC],
     });
     expect(html).toContain('Clash at (4, 4)');
-    expect(html).toContain('Head-on collision (lighter unit(s) died)');
+    expect(html).toContain('Outweighed');
     expect(html).toContain('sub-step 3');
-    expect(html).toContain('Collided with wall');
+    expect(html).toContain('Hit the wall');
     expect(html).toContain('sub-step 1');
     // Participants read as "<team> <letter>".
     expect(html).toContain('Chris B');
     expect(html).toContain('Alice A');
   });
 
-  test('who died is READ OFF THE BOARD, not off the record', () => {
+  // INVERTED (was: "who died is READ OFF THE BOARD, not off the record"). The
+  // board can no longer answer it: under frozen state a dead unit stays put as
+  // a collision object for the rest of the turn, and a unit killed in an
+  // earlier event can appear as a participant in a later one. `victimIDs` is
+  // the server's own answer, per event.
+  test('who died is READ OFF THE RECORD, not off the board', () => {
     const html = BoardRenderer.renderClashDetails(clashBoard, { x: 4, y: 4 }, {
       knownSnakes: [ourB, ourC],
     });
-    // x is still on the board; b is not.
     expect(html).toMatch(/Chris B<\/span><span class="clash-outcome died"/);
     expect(html).toMatch(/Alice A<\/span><span class="clash-outcome survived"/);
+  });
+
+  test('a SEVER names no victim: the owner is cut, not killed, and reads as surviving', () => {
+    const html = BoardRenderer.renderClashDetails(clashBoard, { x: 4, y: 5 }, {
+      knownSnakes: [ourB, ourC],
+    });
+    expect(html).not.toContain('clash-outcome died');
+    expect(html).toContain('Body severed by a higher tier');
+  });
+
+  test('a RECOVERED exhaustion reads as recovered, and draws no death', () => {
+    // Empty victimIDs on an exhaustion/hazard record is the provisional death
+    // that did NOT land: the unit halted where its health ran out and the
+    // end-of-turn food phase brought it back. "survived" would undersell it —
+    // it did stop somewhere it did not mean to.
+    const recovered = {
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 4, kind: 'exhaustion',
+        playerIDs: ['a'], victimIDs: [],
+        reason: 'Ran out of health',
+      }],
+    };
+    const html = BoardRenderer.renderClashDetails(recovered, { x: 3, y: 3 }, {});
+    expect(html).toContain('clash-outcome recovered');
+    expect(html).not.toContain('clash-outcome died');
+    expect(html).not.toContain('line-through');
+    expect(html).toContain('Ran out of health');
+  });
+
+  test('a hazard exhaustion reads the same way, and the FATAL flavour still reads dead', () => {
+    const at = (kind: string, victimIDs: string[]) => ({
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 4, kind,
+        playerIDs: ['a'], victimIDs, reason: 'Drained by a hazard',
+      }],
+    });
+    expect(BoardRenderer.renderClashDetails(at('hazard', []), { x: 3, y: 3 }, {}))
+      .toContain('clash-outcome recovered');
+    // Same kind, victim named: the provisional death landed.
+    const fatal = BoardRenderer.renderClashDetails(at('hazard', ['a']), { x: 3, y: 3 }, {});
+    expect(fatal).toContain('clash-outcome died');
+    expect(fatal).not.toContain('clash-outcome recovered');
+    // And a SEVER — non-fatal for a different reason — is not "recovered".
+    const sever = BoardRenderer.renderClashDetails({
+      snakes: [ourA],
+      clashes: [{
+        cell: { x: 3, y: 3 }, subStep: 1, kind: 'sever',
+        playerIDs: ['a'], victimIDs: [], reason: 'Body severed by a higher tier',
+      }],
+    }, { x: 3, y: 3 }, {});
+    expect(sever).toContain('clash-outcome survived');
+    expect(sever).not.toContain('clash-outcome recovered');
+  });
+
+  test('a victim still standing on the board is reported dead anyway', () => {
+    // `x` is alive on `clashBoard`, but this record says it died HERE — the
+    // record wins, which is the whole point of reading victimIDs.
+    const frozen = {
+      snakes: [ourA, theirA],
+      clashes: [{
+        cell: { x: 2, y: 2 }, subStep: 2, kind: 'contest',
+        playerIDs: ['a', 'x'], victimIDs: ['x'], survivorID: 'a',
+        reason: 'Outweighed',
+      }],
+    };
+    const html = BoardRenderer.renderClashDetails(frozen, { x: 2, y: 2 }, {});
+    expect(html).toMatch(/Alice A<\/span><span class="clash-outcome died"/);
+    expect(html).toMatch(/Chris A<\/span><span class="clash-outcome survived"/);
   });
 
   test('a cell with no clash renders nothing at all, which is how the panel stays shut', () => {
@@ -229,7 +332,10 @@ describe('clash inspection', () => {
   test('a reason the server wrote cannot inject markup', () => {
     const hostile = {
       snakes: [],
-      clashes: [{ cell: { x: 1, y: 1 }, playerIDs: ['q'], reason: '<img src=x onerror=1>' }],
+      clashes: [{
+        cell: { x: 1, y: 1 }, subStep: 1, kind: 'self',
+        playerIDs: ['q'], victimIDs: ['q'], reason: '<img src=x onerror=1>',
+      }],
     };
     const html = BoardRenderer.renderClashDetails(hostile, { x: 1, y: 1 }, {});
     expect(html).toContain('&lt;img src=x onerror=1&gt;');
@@ -265,6 +371,7 @@ describe('clashes and team names on the wire', () => {
       hazards: [],
       playerPieces: { p1: [8, 8, 8], p2: [16, 16] },
       moves: {},
+      deaths: {},
       winners: [],
       unitTypes: { p1: 'rook', p2: 'rook' },
       orientation: { p1: { dx: 0, dy: -1 }, p2: { dx: 0, dy: 1 } },
@@ -277,18 +384,86 @@ describe('clashes and team names on the wire', () => {
     expect(board.snakes.map((s) => s.teamName)).toEqual(['Chris', 'Alice']);
   });
 
-  test('clashes arrive in the renderer’s coordinates, sub-step and all', () => {
+  test('clashes arrive in the renderer’s coordinates — kind, victims, survivor and all', () => {
     const board = buildBoardState('g', setup, turnWith([
-      { index: 16, playerIDs: ['p1', 'p2'], reason: 'Collided with wall', subStep: 2 },
+      {
+        index: 16, subStep: 2, kind: 'contest',
+        playerIDs: ['p1', 'p2'], victimIDs: ['p2'], survivorID: 'p1',
+        reason: 'Outweighed',
+      },
     ]), 4, null).board;
     expect(board.clashes).toEqual([
       {
         cell: toApiCoord(16, 7, 7),
-        playerIDs: ['p1', 'p2'],
-        reason: 'Collided with wall',
         subStep: 2,
+        kind: 'contest',
+        playerIDs: ['p1', 'p2'],
+        victimIDs: ['p2'],
+        survivorID: 'p1',
+        reason: 'Outweighed',
       },
     ]);
+  });
+
+  test('every ClashKind rides through verbatim, regicide included', () => {
+    const kinds = [
+      'contest', 'edge', 'bodyBlock', 'sever', 'hazard',
+      'exhaustion', 'wall', 'self', 'regicide',
+    ] as const;
+    const board = buildBoardState('g', setup, turnWith(
+      kinds.map((kind, i) => ({
+        index: 16 + i, subStep: 1, kind,
+        playerIDs: ['p1'], victimIDs: kind === 'sever' ? [] : ['p1'],
+        reason: `display text for ${kind}`,
+      }))
+    ), 4, null).board;
+    expect(board.clashes!.map((c) => c.kind)).toEqual([...kinds]);
+    // Regicide is a whole-team removal the engine dates at the turn's last
+    // sub-step; it maps like any other event, with its victim named.
+    const regicide = board.clashes!.find((c) => c.kind === 'regicide')!;
+    expect(regicide.victimIDs).toEqual(['p1']);
+    expect(regicide.cell).toEqual(toApiCoord(16 + 8, 7, 7));
+  });
+
+  test('a RECOVERED exhaustion rides through with its empty victimIDs intact', () => {
+    // Exhaustion is provisional death: the unit halted, ate at the halt cell
+    // and lived, so the server leaves victimIDs empty. An empty list is DATA,
+    // not a gap — mapping must not drop the field or fill it in.
+    const board = buildBoardState('g', setup, turnWith([
+      {
+        index: 16, subStep: 3, kind: 'exhaustion',
+        playerIDs: ['p1'], victimIDs: [],
+        reason: 'Ran out of health',
+      },
+      {
+        index: 17, subStep: 2, kind: 'hazard',
+        playerIDs: ['p2'], victimIDs: [],
+        reason: 'Drained by a hazard',
+      },
+    ]), 4, null).board;
+
+    expect(board.clashes!.map((c) => c.victimIDs)).toEqual([[], []]);
+    expect(board.clashes!.map((c) => c.kind)).toEqual(['exhaustion', 'hazard']);
+    // The same kinds with a victim named are the FATAL flavour, and map alike.
+    const fatal = buildBoardState('g', setup, turnWith([
+      { index: 16, subStep: 3, kind: 'exhaustion', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Ran out of health' },
+    ]), 4, null).board;
+    expect(fatal.clashes![0].victimIDs).toEqual(['p1']);
+  });
+
+  test('a survivorless record simply carries no survivorID', () => {
+    // Two units annihilating each other: nobody is left standing, so the
+    // server withdraws the field rather than naming a unit that did not
+    // outlive the record.
+    const board = buildBoardState('g', setup, turnWith([
+      {
+        index: 16, subStep: 1, kind: 'contest',
+        playerIDs: ['p1', 'p2'], victimIDs: ['p1', 'p2'],
+        reason: 'Deadlock: no unique survivor',
+      },
+    ]), 4, null).board;
+    expect(board.clashes![0]).not.toHaveProperty('survivorID');
+    expect(board.clashes![0].victimIDs).toEqual(['p1', 'p2']);
   });
 
   test('a turn with no collisions carries no clash field at all', () => {
@@ -298,10 +473,31 @@ describe('clashes and team names on the wire', () => {
     expect(buildBoardState('g', setup, noField, 4, null).board.clashes).toBeUndefined();
   });
 
-  test('a snake-game clash keeps its missing sub-step missing', () => {
+  // INVERTED (was: "a snake-game clash keeps its missing sub-step missing").
+  // Snake-only games run the same unified engine now, so every record is
+  // dated — a whole-move unit records sub-step 1. A record from an older
+  // document with no sub-step at all is normalised to 1 rather than reaching
+  // the renderer undated.
+  test('every clash is dated: a whole-move unit records sub-step 1', () => {
     const board = buildBoardState('g', setup, turnWith([
-      { index: 16, playerIDs: ['p1'], reason: 'Died due to zero health' },
+      { index: 16, subStep: 1, kind: 'exhaustion', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Ran out of health' },
     ]), 4, null).board;
-    expect(board.clashes![0]).not.toHaveProperty('subStep');
+    expect(board.clashes![0].subStep).toBe(1);
+
+    const legacy = turnWith([
+      { index: 16, kind: 'wall', playerIDs: ['p1'], victimIDs: ['p1'], reason: 'Hit the wall' } as never,
+    ]);
+    expect(buildBoardState('g', setup, legacy, 4, null).board.clashes![0].subStep).toBe(1);
+  });
+
+  test('severed cells ride onto the board in api coords, keyed by unit', () => {
+    const turn = turnWith([]);
+    turn.severedCells = { p1: [16, 17] };
+    const board = buildBoardState('g', setup, turn, 4, null).board;
+    expect(board.severedCells).toEqual({
+      p1: [toApiCoord(16, 7, 7), toApiCoord(17, 7, 7)],
+    });
+    // No sever, no field.
+    expect(buildBoardState('g', setup, turnWith([]), 4, null).board.severedCells).toBeUndefined();
   });
 });

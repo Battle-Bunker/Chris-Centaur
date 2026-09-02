@@ -52,6 +52,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   connectFunctionsEmulator,
@@ -71,6 +72,13 @@ import { GameLogger } from '../utils/logger';
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
+import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadline';
+import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
+import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
+import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
+import { centaurEngine } from '../config/centaur-engine';
+import { TeamDecisionEngine } from '../lobster/team-decision-engine';
+import type { PinEvent } from '../lobster/contracts';
 import {
   ParsedTurn,
   buildBoardState,
@@ -182,6 +190,11 @@ interface TurnWatch {
   // finalizes once committed here AND its outcome is knowable: a confirmed
   // staged move, or provably-nothing-staged with the engine default.
   committedSnakes: Set<string>;
+  // TEAM STAGING only: the deadline flush timer. The re-staging rate limit can
+  // hold back a late revision, so the last word before endTime is guaranteed
+  // by this timer rather than by whichever emission happened to land last.
+  // Null on the per-unit path, which has no rate limit to be held by.
+  finalFlushTimer: NodeJS.Timeout | null;
 }
 
 interface WatchedGame {
@@ -344,6 +357,63 @@ export class TacticToesFirebaseInterface {
   private static appInstanceCounter = 0;
   private invitesUnsubscribe: Unsubscribe | null = null;
   private watchedGames = new Map<string, WatchedGame>();
+  // Clock-skew / delivery-latency estimator per game (see deadlineGuardFor).
+  private deadlineGuards = new Map<string, TurnDeadlineGuard>();
+  // Engine-side unit numbering, one registry per game (see pinEvents).
+  private unitIds = new Map<string, UnitIdRegistry>();
+  /**
+   * The team-scoped staging transport (opt-in per game; see
+   * ActiveGameManager.enableTeamStaging). Owns chunking, exclusion, the
+   * re-staging rate limit and the confirm/retry loop; this file supplies only
+   * the four things that need Firestore or the manager's state.
+   */
+  private readonly teamSubmitter = new TeamBatchSubmitter({
+    encode: (gameId, turn, unit) => this.encodeStagedMove(gameId, unit.snakeId, turn, unit.move),
+    commitChunk: (gameId, turn, docs) => this.commitStagedBatch(gameId, turn, docs),
+    isCommitted: (gameId, snakeId, turn) =>
+      this.gameManager.hasCommittedTurn(gameId, snakeId, turn),
+    confirmed: (gameId, snakeId, turn) =>
+      this.gameManager.confirmedStagedMove(gameId, snakeId, turn),
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => transientTimeout(fn, ms),
+    clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  }, { minWriteIntervalMs: minWriteIntervalFromEnv(process.env) });
+  /**
+   * Typed pin events derived from the listeners this file ALREADY runs: the
+   * per-snake privateMoves read-back, the moveStatuses commit listener, and
+   * the manager's staged-intent observation. Nothing here changes what is
+   * staged — it is a second, typed reading of the same observations that
+   * already drive the confirmed and final arrows.
+   */
+  readonly pinEvents = new PinEventHub((gameID) => ({
+    unitIdOf: (snakeId) => this.unitIdsFor(gameID).idOf(snakeId),
+    cellOf: (snakeId, move) => {
+      // A piece's staged move is ALREADY a full-board destination index. A
+      // snake's is a direction, which only its head on the live turn can place.
+      if (typeof move === 'number') return move;
+      const data = this.watchedGames.get(gameID)?.latestDoc;
+      const pt = data ? parseLatestTurn(data) : null;
+      const headIndex = pt?.headIndex(snakeId);
+      if (!pt || headIndex === undefined) return null;
+      return directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
+    },
+  }));
+  /**
+   * The TEAM decision engine (CENTAUR_ENGINE=lobster only). Inert under the
+   * default flag: nothing constructs a substrate, subscribes an event, or
+   * enables team staging until the lobster full pass actually runs. Its ports
+   * are exactly the wire layer's documented integration surface — per-unit
+   * setBotRecommendation (precedence + consent gate untouched),
+   * enableTeamStaging, the typed pin-event stream, and the per-game unit-id
+   * registry's reverse lookup.
+   */
+  private readonly teamEngine = new TeamDecisionEngine({
+    setBotRecommendation: (gameId, snakeId, move, turnData) =>
+      this.gameManager.setBotRecommendation(gameId, snakeId, move, turnData),
+    enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
+    onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
+    pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
+  });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
   // listener or turn pipeline is involved until the invite flips to started.
@@ -623,6 +693,36 @@ export class TacticToesFirebaseInterface {
     this.gameManager.setMoveCommitter(
       (gameId, snakeId, turn) => this.publishCommit(gameId, snakeId, turn)
     );
+    // Wire the TEAM-scoped publisher. Inert until a game opts in with
+    // enableTeamStaging: every game keeps the per-unit path above until
+    // something explicitly moves it.
+    this.gameManager.setTeamMoveSubmitter(async (gameId, turn, moves) => {
+      await this.teamSubmitter.submitTeamSet(gameId, turn, moves);
+    });
+    // Derive pin events from the manager's staged binds and from the UI's
+    // hover/consideration. This is a pure observation: the manager reports what
+    // it staged and why, and the hub turns the manual/waypoint rungs into pins.
+    // Games this interface does not watch are ignored (their pins belong to
+    // whoever does watch them).
+    this.gameManager.onPinIntent((event) => {
+      if (!this.watchedGames.has(event.gameId)) return;
+      if (event.kind === 'cleared') {
+        this.pinEvents.clearTentative(event.gameId, event.snakeId);
+        return;
+      }
+      if (event.move === null) return;
+      if (event.kind === 'considering') {
+        this.pinEvents.tentativePin(event.gameId, event.snakeId, event.move);
+        return;
+      }
+      this.pinEvents.observeStaged(
+        event.gameId,
+        event.snakeId,
+        event.turn,
+        event.move,
+        event.source ?? 'bot'
+      );
+    });
 
     // Recent-first invite feed. Finished games are filtered out on first
     // snapshot of their game doc, so replaying a few stale invites is cheap.
@@ -982,10 +1082,55 @@ export class TacticToesFirebaseInterface {
     this.unwatchGame(watched);
   }
 
+  /**
+   * The clock-skew guard for one game, minted on first sight.
+   *
+   * Per GAME, not per process: delivery latency and arrival jitter are
+   * properties of one game's listener, and a game that has just started must
+   * not inherit another's history. Kept off `WatchedGame` deliberately — a
+   * turn can be processed against a hand-built watch record (the watchdog's
+   * replay path, tests), and the guard must exist for those too.
+   */
+  /** Engine-side unit numbering for one game (see PinEventHub). */
+  private unitIdsFor(gameID: string): UnitIdRegistry {
+    let registry = this.unitIds.get(gameID);
+    if (!registry) {
+      registry = new UnitIdRegistry();
+      this.unitIds.set(gameID, registry);
+    }
+    return registry;
+  }
+
+  /**
+   * Subscribe to a game's pin events. The team decision engine's kernel takes
+   * these as constraint-epoch changes; anything else may watch them too, since
+   * a subscriber cannot influence staging.
+   */
+  onPinEvent(
+    gameID: string,
+    sink: (event: PinEvent, turn: number | undefined) => void
+  ): () => void {
+    return this.pinEvents.subscribe(gameID, sink);
+  }
+
+  private deadlineGuardFor(gameID: string): TurnDeadlineGuard {
+    let guard = this.deadlineGuards.get(gameID);
+    if (!guard) {
+      guard = new TurnDeadlineGuard();
+      this.deadlineGuards.set(gameID, guard);
+    }
+    return guard;
+  }
+
   private unwatchGame(watched: WatchedGame): void {
     watched.unsubscribe();
     this.teardownTurnWatch(watched);
     this.watchedGames.delete(watched.gameID);
+    this.deadlineGuards.delete(watched.gameID);
+    this.teamEngine.release(watched.gameID);
+    this.pinEvents.release(watched.gameID);
+    this.unitIds.delete(watched.gameID);
+    this.teamSubmitter.abandon(watched.gameID);
     this.strategy.onGameEnd(watched.gameID);
     console.log(`[tt-firebase] Stopped watching game ${watched.gameID}`);
   }
@@ -1025,6 +1170,10 @@ export class TacticToesFirebaseInterface {
     if (!tw) return;
     tw.moveUnsubs.forEach((unsub) => unsub());
     tw.statusUnsub?.();
+    if (tw.finalFlushTimer) {
+      clearTimeout(tw.finalFlushTimer);
+      tw.finalFlushTimer = null;
+    }
     watched.turnWatch = null;
   }
 
@@ -1064,7 +1213,27 @@ export class TacticToesFirebaseInterface {
 
     ServerEventLogger.getInstance().recordGameActivity(watched.gameID);
 
-    const endTimeMs = pt.endTimeMs(Date.now() + 10_000);
+    const arrivalMs = Date.now();
+    const endTimeMs = pt.endTimeMs(arrivalMs + 10_000);
+
+    // Fold this turn's arrival into the clock-skew guard BEFORE anything
+    // downstream asks it for a deadline. Both timestamps on the left are
+    // server-issued and `arrivalMs` is local, so their difference is the only
+    // observation this host can make of the gap between the two clocks (plus
+    // the delivery latency that shortens every turn's usable budget and that
+    // nothing else measures). See src/wire/deadline.ts for why only one
+    // direction of that difference is acted on.
+    const timing = this.deadlineGuardFor(watched.gameID).observeTurn({
+      startTimeMs:
+        pt.turn.startTime instanceof Timestamp ? pt.turn.startTime.toMillis() : null,
+      endTimeMs,
+      arrivalMs,
+    });
+    if (timing.outlier || timing.skewCorrectionMs < 0 || timing.reserveMs > MIN_RESERVE_MS) {
+      console.warn(
+        `[tt-firebase] Turn ${turnNumber} of ${watched.gameID} timing: ${describeTiming(timing)}`
+      );
+    }
 
     // ONE canonical (you-less) board state per turn — the single truth the
     // manager, the logs, and every broadcast operate on. Per-snake views are
@@ -1094,17 +1263,19 @@ export class TacticToesFirebaseInterface {
     // Read the moves the server actually applied on the PREVIOUS turn from
     // the new turn's authoritative `moves` map. Bookkeeping must run BEFORE
     // the new board is fed in so it measures against the old head. The map
-    // also rides on the canonical state (GameState.lastMoves) — the
-    // renderer's death markers consume it, on the live board and in the replay.
+    // also rides on the canonical state (GameState.lastMoves), where it drives
+    // our own resolved-move bookkeeping and the decision log. It is NOT the
+    // death channel any more — `deathCells` below is (see deriveDeathCells).
     if (turnNumber > 0) {
       const prevPt = parseTurn(data, turnNumber - 1)!;
       const lastMoves = this.deriveLastMoves(data.setup, prevPt, pt);
       canonical.lastMoves = lastMoves;
-      // Pieces that died this turn: their authoritative death cell (from the
-      // wire's `moves` map) rides on the canonical state so the renderer can
-      // mark the actual square — mid-path deaths included — live and in the
-      // logged replay.
-      const deathCells = deriveDeathCells(data.setup, prevPt, pt);
+      // Everything that died this turn: its authoritative death cell, straight
+      // from the turn's `deaths` registry, rides on the canonical state so the
+      // renderer can mark the actual square — mid-ray deaths, exhaustion halts
+      // and edge-contest losers that never left their own square included —
+      // live and in the logged replay.
+      const deathCells = deriveDeathCells(pt);
       if (Object.keys(deathCells).length > 0) canonical.deathCells = deathCells;
       if (prevProcessed === turnNumber - 1) {
         const ours: { [snakeId: string]: Direction } = {};
@@ -1186,6 +1357,23 @@ export class TacticToesFirebaseInterface {
       endTimeMs
     );
 
+    // Team staging must be on BEFORE the turn watch begins, because the watch
+    // arms the per-turn final-flush timer only for team-staged games — enabled
+    // after it, turn 0's last write would ride on luck instead of a timer. The
+    // team engine's own enableTeamStaging call is idempotent on top of this.
+    //
+    // AND THE FLAG IS READ AT CALL TIME, so it can flip back mid-game. Turning
+    // the team engine off without turning its TRANSPORT off leaves the batched
+    // submitter routing a per-snake game's staged writes (V4 H3): the switch
+    // has to be driven in both directions from the same branch, and the team
+    // engine's per-game state (its pin subscription included) goes with it.
+    if (centaurEngine() === 'lobster') {
+      this.gameManager.enableTeamStaging(watched.gameID);
+    } else {
+      this.gameManager.enableTeamStaging(watched.gameID, false);
+      this.teamEngine.release(watched.gameID);
+    }
+
     // Read-back + finalization for this turn: confirm what Firebase actually
     // holds as each snake's staged move, and detect the turn's final
     // selection (deadline or all-committed) before the next board arrives.
@@ -1264,7 +1452,52 @@ export class TacticToesFirebaseInterface {
     // handles its own errors.
     // Decisions are computed for our SNAKE units only — own pieces get no
     // engine recommendation (their moves are operator commands or stay).
-    const deadlineMs = Math.max(Date.now() + 200, endTimeMs - 150);
+    //
+    // THE DEADLINE. This was `Math.max(Date.now() + 200, endTimeMs - 150)`,
+    // which is exact only when this host's clock agrees with the server's to
+    // within the reserve. The guard computes the same expression whenever it
+    // has nothing measured, and tightens it — never loosens it — once it has:
+    // the reserve widens to max(150, 3-sigma) of the observed arrival jitter,
+    // and a provably-slow local clock is subtracted on top. Overrunning the
+    // real endTime is silent (the write is accepted and discarded), so the
+    // error this guards against has no other symptom.
+    const deadlineMs = this.deadlineGuardFor(watched.gameID).effectiveDeadlineMs(
+      endTimeMs,
+      Date.now()
+    );
+
+    // CENTAUR_ENGINE=lobster: the full pass routes the TEAM decision through
+    // the LOBSTER kernel — one joint decision for every alive unit we control,
+    // pieces included, staged through the same per-unit manager surface the
+    // legacy pass uses (precedence and the consent gate run untouched) and
+    // batched by the team submitter. The fast pass above already ran
+    // identically; under the default flag this branch is completely inert.
+    if (centaurEngine() === 'lobster') {
+      const teamUnits: Array<{ snakeId: string; view: GameState }> = [];
+      for (const snakeId of aliveOurs) {
+        const view = views.get(snakeId) ?? withYou(canonical, snakeId);
+        if (view) teamUnits.push({ snakeId, view });
+      }
+      if (teamUnits.length > 0) {
+        void this.teamEngine
+          .decideTurn({
+            gameId: watched.gameID,
+            turn: turnNumber,
+            board: canonical.board,
+            ourTeamId: this.config.centaurId,
+            units: teamUnits,
+            deadlineMs,
+          })
+          .catch((err) => {
+            console.error(
+              `[tt-firebase] Team decision failed for ${watched.gameID} turn ${turnNumber}:`,
+              err
+            );
+          });
+      }
+      return;
+    }
+
     void Promise.all(
       // views holds SNAKE units only (pieces took the intake branch above),
       // so this fan-out is snake-only by construction.
@@ -1370,6 +1603,11 @@ export class TacticToesFirebaseInterface {
     this.teardownTurnWatch(watched);
 
     const turnNumber = pt.turnNumber;
+    // A turn is a constraint EPOCH: last turn's pins are void, and the roster
+    // is numbered in the turn's own order so a decision's assumption basis is
+    // keyed the same way on every host.
+    this.unitIdsFor(watched.gameID).register(aliveOurs);
+    this.pinEvents.beginTurn(watched.gameID, turnNumber);
     const tw: TurnWatch = {
       turn: turnNumber,
       endTimeMs,
@@ -1378,8 +1616,31 @@ export class TacticToesFirebaseInterface {
       confirmed: new Map(),
       readBackReady: new Set(),
       committedSnakes: new Set(),
+      finalFlushTimer: null,
     };
     watched.turnWatch = tw;
+
+    // The team path's deadline flush: publish whatever the team wants staged
+    // at the moment the decision must stop, exempt from the re-staging rate
+    // limit. A throttle that could swallow the last write before endTime would
+    // turn a rate limit into a lost turn. Nothing is armed for a game on the
+    // per-unit path — it has no throttle to be held by.
+    if (this.gameManager.isTeamStagingEnabled(watched.gameID)) {
+      const flushAt = this.deadlineGuardFor(watched.gameID).effectiveDeadlineMs(
+        endTimeMs,
+        Date.now()
+      );
+      tw.finalFlushTimer = transientTimeout(() => {
+        tw.finalFlushTimer = null;
+        if (watched.turnWatch !== tw) return;
+        this.teamSubmitter.finalFlush(watched.gameID, turnNumber).catch((err) => {
+          console.error(
+            `[tt-firebase] Final team flush failed for ${watched.gameID} turn ${turnNumber}:`,
+            err
+          );
+        });
+      }, Math.max(0, flushAt - Date.now()));
+    }
 
     // Chess pieces confirm by RAW destination index — their staged move is any
     // legal square, so the adjacency decode (and its warning) never applies.
@@ -1482,6 +1743,10 @@ export class TacticToesFirebaseInterface {
               turnNumber,
               chosen.move
             );
+            // Same observation, read a second way: what the wire actually
+            // holds for a PINNED unit moves its pin. A unit with no pin gains
+            // none from being acked — a bot move is not a constraint.
+            this.pinEvents.observeConfirmed(watched.gameID, snakeId, turnNumber, chosen.move);
           }
           // A commit observed before this delivery may now be resolvable —
           // via the confirmation above, or via the nothing-staged default.
@@ -1510,6 +1775,10 @@ export class TacticToesFirebaseInterface {
           if (!ours.has(snakeId) || tw.committedSnakes.has(snakeId)) continue;
           tw.committedSnakes.add(snakeId);
           console.log(`[tt-firebase] Commit observed for ${snakeId} turn ${tw.turn}`);
+          // A commit is a PERMANENT pin for the turn: the rules reject every
+          // further staged write for this unit, so no later search result can
+          // move it.
+          this.pinEvents.observeCommit(watched.gameID, snakeId, tw.turn);
           maybeFinalize(snakeId);
         }
       },
@@ -1530,8 +1799,8 @@ export class TacticToesFirebaseInterface {
       // (any square, own square = stay), so there is no direction bookkeeping —
       // and an adjacent piece step (king/pawn) must not masquerade as one.
       // This keeps applyResolvedMoves and decision-log server_moves snake-only
-      // by construction; a dead piece's cell reaches the renderer through
-      // deriveDeathCells instead.
+      // by construction; every dead unit's cell — snakes included — reaches
+      // the renderer through deriveDeathCells instead.
       if (unitTypeFor(setup, prev.turn, snakeId) !== 'snake') continue;
       const prevHead = prev.headIndex(snakeId);
       if (prevHead === undefined) continue;
@@ -1542,6 +1811,68 @@ export class TacticToesFirebaseInterface {
       if (dir) result[snakeId] = dir;
     }
     return result;
+  }
+
+  /**
+   * A staged move in the wire's own terms: the FULL-BOARD index of the square
+   * the unit is asking for. A numeric move is a chess piece's destination,
+   * ALREADY a full-board index, and goes on verbatim; a Direction only means
+   * anything relative to the snake's head on that turn.
+   *
+   * Returns null when the turn doc cannot place the move — the caller decides
+   * whether that is an error (the single-unit path throws) or an exclusion
+   * (the team path drops the unit and keeps the rest of the batch).
+   */
+  private encodeStagedMove(
+    gameId: string,
+    snakeId: string,
+    turn: number,
+    move: CentaurMove
+  ): number | null {
+    if (typeof move === 'number') return move;
+    const data = this.watchedGames.get(gameId)?.latestDoc;
+    if (!data) return null;
+    const pt = parseTurn(data, turn);
+    const headIndex = pt?.headIndex(snakeId);
+    if (pt === null || headIndex === undefined) return null;
+    return directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
+  }
+
+  /**
+   * Commit one chunk of a team's staged set as a SINGLE Firestore writeBatch.
+   *
+   * Atomic across its documents, and every serverTimestamp() sentinel in one
+   * batch resolves to the same commit timestamp — which is why the caller keeps
+   * one document per player per batch: identical timestamps for one player
+   * would leave the server's latest-write reduce breaking the tie by random
+   * document id. The chunk size cap lives with the caller too (each create
+   * costs two rules get() calls against a batch budget of twenty).
+   */
+  private async commitStagedBatch(
+    gameId: string,
+    turn: number,
+    docs: ReadonlyArray<TeamBatchDoc>
+  ): Promise<void> {
+    if (!this.db || this.connState !== 'connected') {
+      throw new Error('Firebase interface not connected');
+    }
+    const watched = this.watchedGames.get(gameId);
+    if (!watched) throw new Error(`Unknown game ${gameId}`);
+    if (docs.length === 0) return;
+
+    const movesCol = collection(
+      this.db,
+      `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`
+    );
+    const batch = writeBatch(this.db);
+    for (const entry of docs) {
+      batch.set(doc(movesCol), privateMoveDoc(watched.gameID, turn, entry, serverTimestamp()));
+    }
+    await batch.commit();
+    console.log(
+      `[tt-firebase] Batched ${docs.length} staged move(s) for turn ${turn}: ` +
+        docs.map((d) => `${d.playerID}->${d.move} (${d.source})`).join(', ')
+    );
   }
 
   /**
@@ -1563,30 +1894,19 @@ export class TacticToesFirebaseInterface {
     const data = watched?.latestDoc;
     if (!watched || !data) throw new Error(`Unknown game ${gameId}`);
 
-    // A numeric move is a chess piece's destination, ALREADY a full-board
-    // index — it goes on the wire verbatim (no direction decode).
-    let moveIndex: number;
-    if (typeof move === 'number') {
-      moveIndex = move;
-    } else {
-      const pt = parseTurn(data, turn);
-      const headIndex = pt?.headIndex(snakeId);
-      if (pt === null || headIndex === undefined) {
-        throw new Error(`No head for ${snakeId} on turn ${turn} of ${gameId}`);
-      }
-      moveIndex = directionToMoveIndex(move, headIndex, pt.boardWidth, pt.boardHeight);
+    const moveIndex = this.encodeStagedMove(gameId, snakeId, turn, move);
+    if (moveIndex === null) {
+      throw new Error(`No head for ${snakeId} on turn ${turn} of ${gameId}`);
     }
-
 
     await addDoc(
       collection(this.db, `sessions/${watched.sessionID}/games/${watched.gameID}/privateMoves`),
-      {
-        gameID: watched.gameID,
-        moveNumber: turn,
-        playerID: snakeId,
-        move: moveIndex,
-        timestamp: serverTimestamp(),
-      }
+      privateMoveDoc(
+        watched.gameID,
+        turn,
+        { playerID: snakeId, move: moveIndex },
+        serverTimestamp()
+      )
     );
     console.log(
       `[tt-firebase] Staged ${move} (index ${moveIndex}, source ${source}) for ${snakeId} turn ${turn}`
