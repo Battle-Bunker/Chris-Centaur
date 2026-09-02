@@ -281,7 +281,7 @@ but their *transport* stays the pin stream, because a determination has a
 turn-scoped lifetime and a conformance protocol that a weight does not.
 
 `hold` is the case that looks like a counterexample and is not. It is a
-STANDING order (`active-game-manager.ts:2314-2317`: it re-resolves to the
+STANDING order (`active-game-manager.ts:2306-2316`: it re-resolves to the
 piece's own index on every new board and stays in force across turns) staged as
 `source: 'manual'`, i.e. as a pin. Under the framework the two halves separate
 cleanly and the separation is the point: **the durable object is the drive row,
@@ -292,10 +292,10 @@ each board ingestion.** §7's "no standing determination" is a rule about the
 **And a finding that belongs here rather than in §3.1, because it is the
 mis-seating this branch exists to correct:** `PINNING_SOURCES` today is
 `{'manual', 'waypoint'}` (`pin-events.ts:70-74`). A goto/near step is therefore
-**already a determination** — `observeStaged` (`pin-events.ts:127-135`) turns it
+**already a determination** — `observeStaged` (`pin-events.ts:136-144`) turns it
 into a binding pin the next decision's kernel is constrained by. So the shipped
 goto is not the weight its own design comment says it is
-(`active-game-manager.ts:2015-2017`: *"a click-target never dictates the move …
+(`active-game-manager.ts:2014-2016`: *"a click-target never dictates the move …
 a weighted vote in the same matrix"*); it is a hard constraint whose direction
 is chosen *outside* the search by a manager-side re-score, and then handed to
 the search as fact. That is joint (c) doing joint (a)'s work, one turn late.
@@ -561,7 +561,7 @@ many words that today's goto weight is a thing a veto has to protect against.**
 And a per-site veto is a thing that can be true at one site and false at the
 other. It already is. The PIECE veto computes `fatal` and the regicide flag
 from the vendored engine on every candidate (`computePieceCandidates`,
-`:2540-2560`), so it holds. The SNAKE veto reads `breakdown.trapped ?? 0` and
+`:2536-2562`), so it holds. The SNAKE veto reads `breakdown.trapped ?? 0` and
 `breakdown.regicide ?? 0` off telemetry rows whose breakdown is keyed by
 lobster feature names (`telemetry.ts:672-683`), so under lobster both defaults
 fire and `pickBestMove` filters nothing (`decision-engine.ts:95-98`). Under
