@@ -69,64 +69,117 @@ finding by whose design it changes. This index is organised by domain.
 
 ---
 
-## If you only do seven things
+## If you only do ten things
 
-Ordered by (value × cheapness). Every one of the first three runs on data
-already on disk and needs no new games.
+*Refreshed at domain 45. Ordered by (value × cheapness). **Seven of the ten run on
+the replay archive as it stands and need no new games.** Items marked `[in flight]`
+have been taken up by a lens since the first version of this list; they are kept
+because the list is the owner-facing summary, not a work queue.*
 
-1. **Measure the two numbers nobody has measured** (domains 9 and 14, one script
-   each, existing replays). *Nash averaging* over the arm-vs-arm matrix gives the
-   **redundancy** of our evaluation population — Balduzzi et al.'s invariance
-   axiom explicitly excludes Elo and uniform averaging, and their Atari
-   re-evaluation *reversed* a headline conclusion. The **VBS−SBS gap** (per-seed
-   oracle minus best single arm) gives the **complementarity** — the entire
-   headroom of per-instance member selection, i.e. the falsifier for the joints
-   architecture. Redundancy and complementarity are different quantities; we
-   measure neither; together they are the only quantitative answer to ruling 49
-   this survey found. Add the matrix's **cyclic fraction** while you are there:
-   if our arms cycle, "which bot is better" is not a well-posed question.
+### A. Runs on the archive today
 
-2. **Record `(runner-up plan, deciding rung, margin)` for the top-k on every
-   decision** (domain 10). `better()` computes it and throws it away. One
-   telemetry column, three consumers: the contrastive explanation the Centaur
-   surface requires (an explanation *is* a fact/foil pair), the input to
-   `P(refinement flips better())` that the hypothesis market is missing, and the
-   point-of-comparison spread the inert-weight taxonomy needs. Nothing else in
-   this survey has a better ratio.
+1. **Sweep every archived decision at every rung and compute the depth VBS−SBS
+   gap** (d45's C94; d14's C42 instrument on a new axis). In the closest studied
+   analogue the best *fixed* lookahead depth was **the shallowest available**, and
+   **per-instance depth selection was worth 38%** (175.4 → 107.9) — with the
+   adaptive policy also **cheaper** (nodes/move 59.3 → 34.0). If that shape holds
+   even directionally, *"buy depth"* is the wrong verb and the economy's job is to
+   **allocate depth differentially**. One replay sweep answers it, and **either
+   answer redirects real work**: large gap ⟹ premise conditioning is where the value
+   is; small gap ⟹ a fixed rung is fine and the allocation machinery is overhead.
 
-3. **Build the conditional performance profile** `Pr(quality | quanta, premise)`
-   (domain 2). The time economy currently has prices and no goods: five policies
-   over allocations, no model of what an allocation buys. It compiles offline
-   from the replay archive, it fibers over the premise index for free, and the
-   one question the time lens escalated to the owner dissolves once it exists.
+2. **Keep four integers in the search loop** (d37's C66 — the cheapest open item in
+   the survey). Iterations since the incumbent last changed; times it changed this
+   iteration; the incumbent's value trend over a short ring buffer; the share of
+   work spent under the incumbent. Two shipped engines compute
+   `P(refinement flips the choice)` from exactly these, with **no model, no
+   intervals and no CPP** — so it works before the bounds bank is complete. Three of
+   the four are also **C48's missing discriminator**: *a search that has stopped
+   changing its mind is exhausted; one that keeps flipping at a stable score is
+   coarse.* Count them **per hypothesis**, not globally.
 
-4. **Add the fifth premise coordinate before fog step 5** (domain 12). Our
-   decomposition arguments — `cluster-enum.ts`'s `φ_uv ≡ 0`, premise-keyed
-   memoisation, re-base/ADVANCE — are perfect-information theorems, and
-   imperfect-information decomposition is *provably unsound* with unbounded error.
-   The fix is one coordinate (reach/range, or a counterfactual-value bound) and
-   one new object crossing each boundary — a type the bounds bank already
-   produces. Cheap now, unlocalisable later.
+3. **Measure the two population numbers nobody has measured** (d9, d14). *Nash
+   averaging* over the arm-vs-arm matrix gives the **redundancy** of our evaluation
+   population — the invariance axiom explicitly excludes Elo and uniform averaging,
+   and the same re-analysis *reversed* a published headline. The **VBS−SBS gap**
+   gives the **complementarity**, i.e. the falsifier for the joints architecture.
+   Different quantities; we measure neither; together they are the only quantitative
+   answer to ruling 49 the survey found. Add the **cyclic fraction** while you are
+   there. `[in flight — partial]`
 
-5. **Make the reduction return a set** (domains 3, 8, 10 — R-4). Maximality's
-   optimal set, α-vectors' dominance regions and explanation's (fact, foil) are
-   the same object seen from decision theory, value theory and cognitive science.
-   A scalar reduction discards the Centaur surface, the value of information, and
-   the record of what the search learned, all at once.
+4. **Record `(runner-up plan, deciding rung, margin)` for the top-k on every
+   decision** (d10). `better()` computes it and throws it away. One telemetry
+   column, three consumers: the contrastive **foil** the Centaur surface needs, the
+   input to `P(refinement flips better())`, and the point-of-comparison spread the
+   inert-weight taxonomy wants. `[in flight — scoped, needs an engine-side field]`
 
-6. **Measure the induced width of our conflict graphs** (domain 17, one pass
-   over the archive). `cluster-enum.ts` already builds a coordination graph and
-   then discards its structure; **variable elimination** gets the same *exact*
-   argmax at a cost exponential in induced width rather than in joint-space size,
-   which would make the `512` cap essentially never bind and would emit R-4's
-   conditional object for free. That one integer decides how much of this is
-   available.
+5. **Stratify the sibling-dependence test by mechanism** (d40's M103). Depth
+   helping is a hypothesis whose condition is **dependence between sibling values**,
+   and the value lens has already measured a **9.7× discontinuity** at the
+   king-present boundary — which *is* low sibling dependence, in the cells where the
+   game is decided. Correlate structurally adjacent plans' evaluations within each
+   mechanism stratum, then re-run archived positions at increasing rungs and record
+   whether the chosen plan's **realised outcome** improves *per cell*. Pathology is
+   about decision quality; a root-value comparison cannot see it.
 
-7. **Replace `sliderCandidateCap` with progressive widening** (domain 13).
-   `⌊c·N^α⌋`: the cheapest of four principled replacements, needs no value model
-   so it ships before (3), monotone so it composes with the incumbent, natively
-   anytime. Requires the generator to expose an ordered list instead of
-   discarding.
+6. **Count interference, one counter per closure** (d35's M84). *How often, and by
+   how much, does each closure remove the plan the unfiltered search would have
+   chosen?* It measures the property the shielding literature requires, separates a
+   closure that never binds (delete it) from one that binds constantly (a **policy
+   in the wrong layer**), and reuses the admitted-set harness that exists.
+
+7. **Count nodes per rung under `paranoid` and under `MaxN`** (d41). Deep pruning is
+   **provably impossible** in MaxN and the average-case asymptotic branching factor
+   is `b` against a two-player search's near-`√b` — roughly **squaring the node
+   count for a given depth**. One afternoon resolves whether that asymptotic gap
+   bites at our depths with three players, and it decides a REDUCTION member on
+   which three independent results (pruning, pathology, the kingmaker) already
+   converge.
+
+### B. Must be decided before the thing they guard ships
+
+8. **Denominate the budget in a deterministic work unit** (d37's C68 **and** d45's
+   C93 — two independent arguments for one change). A CPP keyed on milliseconds is
+   a property of the machine; and a depth-`d` search run every `d` moves is *the
+   same compute rearranged*, so per-decision depth is commitment-dependent as well.
+   Calibrate to the clock as one measured machine-local constant, and the profile
+   becomes reproducible, versionable and attributable. `[in flight]`
+
+9. **Add the fifth premise coordinate before fog step 5** (d12; and d42's M110 makes
+   it cheaper than first stated). Our decomposition arguments — `φ_uv ≡ 0`,
+   premise-keyed memoisation, re-base/ADVANCE — are **perfect-information
+   theorems**, and imperfect-information decomposition is *provably unsound with
+   unbounded error*. Static analysis's **trace partitioning** adds two refinements:
+   the coordinate must be a **bounded abstraction** of the history, and partitioning
+   is **per-site**, so carry it where the memo is hot and the histories differ
+   rather than on every key. Cheap now, unlocalisable later. `[in flight]`
+
+10. **Design the randomised holdout into the operator surface, not after it**
+    (d43's C88 + d44's C89–C91). Once the surface ships, **almost every row becomes
+    a caused row**, and a fit on caused rows re-fits the threshold to itself. The
+    holdout is the only supply of uncaused rows — and it is **one instrument with
+    three purposes**: propensity correction, threshold identification, and detecting
+    the **omission errors** that are otherwise invisible because nothing logs a
+    non-surfacing. Alongside it: **hold the surfaced set's PPV above a floor** (at
+    PPV 0.3 operators ignored about **half of the true alarms**), which is the
+    outbound lens's first hard, measurable acceptance criterion.
+
+### The two that are architecture rather than measurement
+
+- **Make the reduction return a SET with dominance conditions** (**R-4**, now argued
+  from **six** independent directions — maximality, α-vectors, contrastive
+  explanation, the Pareto front, the algorithm-configuration taxonomy's
+  `set configuration` output type, and absorption-dominant strategies in a game's
+  own value backup). d33 answers the cost objection: expected size `O((ln n)^{d−1})`
+  — about **nine of a queen's seventy-one options at three objectives** — with an
+  ε-approximate Pareto set where anti-correlation blows that up, and the dominance
+  conditions free as the pruning LP's own witness.
+
+- **Replace enumerate-then-cap with progressive widening** (d13's M39). `⌊c·N^α⌋`:
+  needs no value model, monotone so it composes with the incumbent, natively
+  anytime. **Three arguments now converge on it** — C2's adaptivity requirement,
+  R-3's bound-what-you-removed, and d40's M104 (**the caps make the branching factor
+  more uniform, and uniform branching is the *pathological* family**).
 
 ---
 
