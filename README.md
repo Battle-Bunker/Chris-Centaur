@@ -48,6 +48,20 @@ of truth for staged moves.
   lets humans select snakes, stage exact moves, draw premove paths and
   waypoints, or leave snakes on engine auto-pilot. Whatever the human does is
   the same write-through staging path the engine uses.
+- **Hold (`h`).** A standing "stand your ground" order for units that *can*
+  hold. Movement costs health under the rules and standing still does not, so
+  a piece with no food and no worthwhile target within reach should not be
+  spending health shuffling: `h` on the selected unit stages its **stay** —
+  same square, same orientation — through the ordinary requested → confirmed
+  path, outranking the engine's recommendation exactly as any manual
+  intervention does, and **re-stages it on every new board** until it is
+  lifted. Pressing `h` again toggles it off; `Del` (cancel intervention)
+  clears it like any other command; a goto/near/manual command **replaces**
+  it, because a unit's commands are one intent and the newest one wins. It
+  ends by itself when the unit dies. Only chess pieces can hold — a snake's
+  head must vacate its square every turn, so there is no stay to stage for
+  one, and `h` on a snake says so instead of doing anything. A held unit
+  wears a **shield above its head** on the board, live and in replay.
 
 ## Chess pieces
 
@@ -70,7 +84,9 @@ pragmatic v1:
   diagonal-only-onto-target), the destination's full-board index is staged
   and published through the normal requested → confirmed → final pipeline;
   anything illegal stages the piece's own square (= stay). Staging a pawn's
-  side square spends the turn rotating to face that way.
+  side square spends the turn rotating to face that way. `h` toggles a
+  standing **hold** on the piece (see *Hold* above) — the one command that
+  needs no target, since its answer is the same square every turn.
 - **Not automated.** The minimax engine drives **snakes only**: own pieces
   get no engine recommendation — an uncommanded piece stages nothing and the
   server defaults it to stay (Submit All still works: it publishes an

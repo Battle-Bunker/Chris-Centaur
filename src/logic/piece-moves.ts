@@ -23,6 +23,23 @@ export const DEFAULT_PAWN_PROMOTION_WEIGHT = 10;
 
 export const isPieceType = (t?: string): boolean => t !== undefined && t !== 'snake';
 
+/**
+ * Can this unit kind HOLD — spend a whole turn on its own square, keeping its
+ * orientation?
+ *
+ * A chess piece can: `planPieceAction` resolves its own square to
+ * `{ kind: 'stay' }`, which is a real staged move on the wire (the engine
+ * reads the origin index as "stay put"), and standing still costs no movement
+ * health. A SNAKE cannot: a snake's head must vacate its square every turn —
+ * the wire has no stay for it, only the four directions — so there is nothing
+ * for a hold command to stage.
+ *
+ * The snake/piece split is `isPieceType`'s, deliberately: hold must be
+ * offered to exactly the units the piece staging path can express it for, and
+ * that path is entered on the same test.
+ */
+export const canHold = (unitType?: string): boolean => isPieceType(unitType);
+
 export const toXY = (index: number, boardWidth: number): { x: number; y: number } => ({
   x: index % boardWidth,
   y: Math.floor(index / boardWidth),

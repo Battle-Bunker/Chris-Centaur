@@ -12,7 +12,7 @@ import {
   healthAfterEntering,
   marshalBoard,
 } from '../logic/turn-oracle';
-import { planPieceAction, legalPieceDestinations, PieceAction, Orientation } from '../logic/piece-moves';
+import { planPieceAction, legalPieceDestinations, canHold, PieceAction, Orientation } from '../logic/piece-moves';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
@@ -248,6 +248,13 @@ export interface StagedMove {
 //               instead of walked blindly.)
 //  - near:      a single click-target (blue) biasing the matrix toward staying
 //               close WITHOUT ever arriving. Never auto-clears.
+//  - hold:      stand still (units that CAN hold — chess pieces — only). A
+//               STANDING order carrying no target and no move of its own: it
+//               resolves to the unit's own square every turn, so it re-stages
+//               across turn boundaries until it is toggled off, replaced by
+//               another command, or the unit dies. Movement costs health and
+//               standing still does not, so this is how a piece with nothing
+//               worth reaching stops paying for pointless steps.
 //
 // The TARGETS are the only durable state. Routes and stats are always
 // recomputed from the live board — see ControlledSnake.gotoRoute.
@@ -257,7 +264,8 @@ export type SnakeIntent =
   // destination index for chess pieces (setUserSelection enforces the split).
   | { kind: 'manual'; move: CentaurMove; fatalConsent?: FatalMoveConsent }
   | { kind: 'goto'; targets: Coord[] }
-  | { kind: 'near'; target: Coord };
+  | { kind: 'near'; target: Coord }
+  | { kind: 'hold' };
 
 // The active next-move source, exposed to clients as `activeIntentModes`. Mirrors
 // the union's discriminant so the client contract is unchanged.
@@ -1566,6 +1574,54 @@ export class ActiveGameManager {
     return true;
   }
 
+  // ── Hold ────────────────────────────────────────────────────────────────
+  // Toggle the STANDING "stand still" order on a unit that can hold.
+  //
+  // Hold is an ordinary operator command and lives where every other one does:
+  // in the unit's `intent`. That single choice buys the whole feature its
+  // semantics for free. Precedence — hold sits on the SAME rung as manual, the
+  // top of the README's `manual > goto > … > engine` ladder, because it is a
+  // human naming the unit's move outright rather than biasing a matrix; and
+  // because the intent is one union, a later goto/near/manual REPLACES it
+  // structurally (and hold replaces them), with no ordering rule to get wrong.
+  // `clearHumanInput` (Del) drops it like any other command, `clearCommandOnDeath`
+  // drops it when the unit dies, and the per-turn re-stage in `updatePieceTurn`
+  // keeps it in force across turn boundaries — hold is deliberately NOT
+  // single-turn the way manual is, since "stop wasting health" is a standing
+  // judgement about the position, not a move for one turn.
+  //
+  // Returns why it refused so the UI can say something specific: only the
+  // selecting operator may command the unit, only a unit whose kind CAN hold
+  // (a snake's head must vacate its square every turn — see canHold), and only
+  // a living one.
+  toggleHold(
+    gameId: string,
+    snakeId: string,
+    userId: string,
+  ): { ok: boolean; held?: boolean; reason?: 'unknown-unit' | 'not-selected' | 'cannot-hold' | 'dead' } {
+    const game = this.games.get(gameId);
+    const controlled = game?.controlledSnakes.get(snakeId);
+    if (!game || !controlled) return { ok: false, reason: 'unknown-unit' };
+    if (controlled.selectedBy !== userId) return { ok: false, reason: 'not-selected' };
+    if (!canHold(controlled.unitType)) return { ok: false, reason: 'cannot-hold' };
+    // A unit gone from the board (or at zero health) holds nothing: staging for
+    // it would publish a move for a unit the game no longer has.
+    const onBoard = game.boardState?.board?.snakes?.find(s => s.id === snakeId);
+    if (!onBoard || (onBoard.health ?? 1) <= 0) return { ok: false, reason: 'dead' };
+
+    const held = controlled.intent.kind !== 'hold';
+    const operator = this.operatorFor(game, userId);
+    this.logCommandEvent(gameId, snakeId, held ? 'hold' : 'unhold', operator, {
+      unitType: controlled.unitType,
+      // What the hold displaced / what it reverts to, so the audit log reads
+      // as a sequence of command transitions rather than isolated flags.
+      previous: controlled.intent.kind,
+    });
+    this.setIntent(gameId, snakeId, held ? { kind: 'hold' } : { kind: 'heuristic' }, held ? operator : null);
+    console.log(`[ActiveGameManager] ${held ? 'Hold' : 'Unhold'} for ${gameId}:${snakeId} (${controlled.unitType})`);
+    return { ok: true, held };
+  }
+
   private viewFor(snapshot: BoardSnapshot, snakeId: string): GameState | null {
     const you = snapshot.board.snakes.find(s => s.id === snakeId);
     if (!you) return null;
@@ -2239,6 +2295,18 @@ export class ActiveGameManager {
     const fullH = board.height + 2;
     const originIdx = apiCoordToIndex(head, fullW, fullH);
     const intent = controlled.intent;
+
+    // HOLD, the top rung alongside manual: an explicit human order to spend
+    // the turn on this square. It resolves to the piece's own index — the
+    // wire's stay — with no board lookup at all, which is exactly why it can
+    // be re-resolved on every new board and stay in force across turns. It is
+    // sourced 'manual' rather than 'fallback' because it IS a human decision:
+    // the staged arrow renders in the operator's colour and the move takes
+    // precedence over the engine's recommendation the way any manual
+    // intervention does, instead of reading as "nobody said anything".
+    if (intent.kind === 'hold') {
+      return { move: originIdx, source: 'manual', action: { kind: 'stay' } };
+    }
 
     if (intent.kind === 'goto' && intent.targets.length > 0) {
       const best = this.bestPieceCandidate(gameId, snakeId);

@@ -555,6 +555,27 @@ export class GameWebSocketServer {
         break;
       }
 
+      case 'toggle-hold': {
+        // 'h' on the client: toggle the standing hold order on one unit. The
+        // manager owns every rule — who may command the unit, whether its kind
+        // CAN hold, whether it is still alive — and answers with the reason it
+        // refused, so this handler only relays. On success the toggle re-stages
+        // through setIntent, firing the coalesced onStagedChange →
+        // broadcastSelectionsUpdate; nothing is broadcast explicitly here.
+        if (!client.gameId || !client.userId) break;
+        const snakeId = msg.snakeId;
+        if (typeof snakeId !== 'string' || !snakeId) break;
+        const result = this.gameManager.toggleHold(client.gameId, snakeId, client.userId);
+        this.send(client.ws, {
+          type: 'toggle-hold-result',
+          snakeId,
+          ok: result.ok,
+          held: result.held ?? false,
+          reason: result.reason ?? null,
+        });
+        break;
+      }
+
       case 'clear-human-input': {
         // Delete on the client: revert this unit to NULL human input. One
         // message for every command kind, because on the manager side they are
