@@ -352,3 +352,15 @@
 - [ ] CPP margin cut-points: register per-stratum "wide"/"near-zero"
       thresholds in the v1 spec BEFORE compiling, or the conditional
       arbitration is a band-shaped procedure (red team round 3, item 4).
+- [ ] Tournament-grid fill: only 23 of 91 bot pairs have ever played (25%
+      density — ruling 49's complaint as a number; fixable by SCHEDULING).
+      Design a round-robin fill batch over existing bundles for the next
+      compute window.
+- [ ] M26 automatic dead-cell detector (latent-skill decomposition):
+      reflex-wins-the-cell = third independent detection of the knight
+      dead instrument; build the detector so the fourth dead cell doesn't
+      need three investigations.
+- [ ] Pairwise finishing-order matrix (curl-capable cyclicity re-test):
+      1{A ahead of B} per co-seated pair from the archive — the ordinal
+      shadow Balduzzi's decomposition actually needs; C29 remains open
+      until run.
