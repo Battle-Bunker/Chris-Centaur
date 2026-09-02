@@ -259,9 +259,29 @@ lever menu should have been generated from all along.
 Law T's `max`/`min` is the **direct product** of abstract domains. Cousot's
 **reduced product** is strictly tighter whenever the operands come from
 different bound *families*, and this game supplies the canonical pair: a
-checkerboard-parity **congruence** (a bishop never changes cell colour; a path
-length has a parity) reduced against a cell-count **interval** gives `[4,4]`
-where the direct product gives `[3,5]`.
+checkerboard-parity **congruence** reduced against a cell-count **interval**
+gives `[4,4]` where the direct product gives `[3,5]`.
+
+**And both operands already ship — this is not a hypothetical.** Verified at
+`3090b77`:
+
+- `partial-engine/grammar.ts:102` declares `colourBound` per kind —
+  *"A bishop never leaves its own colour — free, permanent, exact narrowing"* —
+  true for exactly one kind, backed by `bitgrid.ts:44`'s `(x + y) even/odd`.
+  A **spatial congruence**, already computed.
+- `bounds/bank.ts:938` argues that a trail unit's `headPossible` is
+  **"parity-exact"**, so the one-move and two-move head sets are *disjoint*. A
+  **temporal congruence**, and note where it lives: **inside the bank**, being
+  reasoned about informally to justify a soundness argument.
+
+That second one carries two consequences. Under Law A (`25`) it is a soundness
+argument whose hypothesis — step parity — is currently prose in a comment and
+should be an asserted hypothesis. And under this section it is a **bound family
+the bank already has and cannot combine**: today parity justifies a disjointness
+claim in an argument; under the reduced product it would tighten a count
+interval directly. The reduction table's single entry therefore has live
+operands on day one, which is the difference between a cheap option and a cheap
+win.
 
 **Decided at X4, because it fixes the signature:**
 
