@@ -66,6 +66,7 @@ import { marshalBoard } from '../logic/turn-oracle';
 import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { settleTurn } from '../engine-vendor/engine/settleTurn';
+import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
 
 import {
@@ -832,7 +833,8 @@ export class EngineSubstrate implements Substrate {
       potionsEnabled: m.potionsEnabled,
       potionWindowTurns: m.potionWindowTurns,
       pawnPromotionWeight: m.pawnPromotionWeight,
-    });
+      maxTurns: m.maxTurns,
+    }, NO_SPAWN);
 
     const out = new Map<UnitId, number>();
     for (const [wireId, tier] of Object.entries(settled.tiers)) {

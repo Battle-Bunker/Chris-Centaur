@@ -47,6 +47,8 @@
  */
 
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
+import { NO_SPAWN } from '../engine-vendor/engine/spawn';
+import { resolveMaxTurns } from '../engine-vendor/engine/adjudicate';
 import { Board, Coord, Snake } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { TeamDetector } from './team-detector';
@@ -193,6 +195,8 @@ export interface MarshalledBoard {
   potionWindowTurns: number;
   /** Meals a pawn needs to promote; settlement promotes at this weight. */
   pawnPromotionWeight: number;
+  /** The turn the game is adjudicated at, or null for unlimited. */
+  maxTurns: number | null;
   /**
    * Per unit, PARALLEL TO `units`: the first absolute turn at which the unit's
    * tier no longer governs a contest, or null when the wire carries no effect
@@ -401,6 +405,7 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     potionsEnabled: board.invulnerabilityPotionsEnabled ?? potions.length > 0,
     potionWindowTurns: board.invulnerabilityPotionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS,
     pawnPromotionWeight: board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT,
+    maxTurns: resolveMaxTurns(board.maxTurns),
     tierExpiry,
     startWeight,
     startHealth,
@@ -596,7 +601,8 @@ export function resolvePartialTurn(
     potionsEnabled: marshalled.potionsEnabled,
     potionWindowTurns: marshalled.potionWindowTurns,
     pawnPromotionWeight: marshalled.pawnPromotionWeight,
-  });
+    maxTurns: marshalled.maxTurns,
+  }, NO_SPAWN);
   result.potions.push(...withheld);
 
   // Give back what the turn should never have taken. `result` is freshly

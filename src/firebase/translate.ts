@@ -420,6 +420,11 @@ export function buildBoardState(
   if (setup.invulnerabilityPotionWindowTurns !== undefined) {
     board.invulnerabilityPotionWindowTurns = setup.invulnerabilityPotionWindowTurns;
   }
+  // The turn limit rides through untouched: absent stays absent (the engine's
+  // default), null stays null (unlimited). resolveMaxTurns reads it at settle.
+  if (setup.maxTurns !== undefined) {
+    board.maxTurns = setup.maxTurns;
+  }
 
   return {
     game,

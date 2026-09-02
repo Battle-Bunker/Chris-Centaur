@@ -19,6 +19,7 @@ import type { Board, Coord, Snake } from '../types/battlesnake';
 import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
 import { marshalBoard } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
+import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
 import { EngineSubstrate, makeSubstrate, clearGeometryCache } from '../lobster/substrate';
@@ -618,7 +619,8 @@ export function stepGame(
     potionsEnabled: marshalled.potionsEnabled,
     potionWindowTurns: marshalled.potionWindowTurns,
     pawnPromotionWeight: marshalled.pawnPromotionWeight,
-  });
+    maxTurns: marshalled.maxTurns,
+  }, NO_SPAWN);
 
   const w = marshalled.fullWidth;
   const h = marshalled.fullHeight;

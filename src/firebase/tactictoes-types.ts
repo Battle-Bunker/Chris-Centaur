@@ -49,6 +49,9 @@ export interface TTGameSetup {
   // (mirrors shared/types/Game.ts invulnerabilityPotionWindowTurns). Absent
   // means the engine's DEFAULT_POTION_WINDOW_TURNS.
   invulnerabilityPotionWindowTurns?: number;
+  // The turn limit the game is adjudicated at: absent = the engine's default,
+  // null = unlimited (GameSetup.maxTurns upstream).
+  maxTurns?: number | null;
   // Per-unit-type max health (mirrors shared/types/Game.ts maxHealthPerUnit).
   // A unit's health starts at its type's max and eating restores to it.
   // Absent map or absent key means the engine default of 100.
