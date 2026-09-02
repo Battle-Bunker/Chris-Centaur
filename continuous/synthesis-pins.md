@@ -4039,3 +4039,17 @@ iterating — restart/resume them when they stop. First-pass syntheses are
 not final; deeply respect the difficulty of digesting the accumulated
 strategy complexity into a joint-carving architecture. Do not declare a
 final synthesis prematurely.
+- STANDING MEASUREMENT RULE (value lens, third instrument-artifact instance;
+  candidates: adopt program-wide): ASSERT THE CONSERVATION LAW INSIDE THE
+  EXTRACTION, not afterwards — weight conserved up to named events; horizon
+  bounded by a search that must have run; potion availability bounded by
+  spawn rate × turns. History: horizon==1 fallback (125,956/125,956),
+  corpus potion-rarity (measured our own blindness), clock-mixing
+  (board vs standings one turn apart). All three produced plausible
+  quotable numbers reasoned from before being caught.
+- Value-lens corrections (031700c): clock-mixed numbers WITHDRAWN
+  (basis B true: k=1.230, R² 0.9431 fitted / 0.9101 zero-fit); sever
+  omission finding SURVIVES cleaner (residual-sever corr −0.409→+0.063);
+  largest remaining residual structure = game length (−0.546, unexplained;
+  leading candidate accumulated linearization error). fold-k member now
+  carries FOUR provenance defects; refit must re-derive extraction.
