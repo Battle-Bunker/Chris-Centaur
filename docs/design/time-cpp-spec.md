@@ -69,7 +69,15 @@ increment 2's ledger schema.
   improves. The column is shared with three other consumers (contrastive
   foils, P(flip) pricing, the spread instrument). v0.1: capture
   `telemetry.chosen` and the mechanism advisory rows per rung — recorded
-  by the harness, discarded by the v0 script.
+  by the harness, discarded by the v0 script. SCOPING FACT (checked
+  against b5's foldMechanism): the true margin needs the RUNNER-UP's
+  value at the deciding rung, which no current telemetry carries — it is
+  an engine-side emitted field (one number at staging time, the same
+  surface the contrastive-foil consumer needs), so it lands with
+  increment 2's emitted fields, not a miner-only v0.1. Interim proxy
+  available today: the adjudication-rung MIX per rung
+  (floorDecided/estDecided/tieKeyDecided counts) — coarse, direction
+  only, stated as such.
 - **Every CPP is keyed on evalVersion** (M48): saturation is a property
   of the evaluator; profile reuse across evaluators is a silent premise
   crossing, and the coordinate already exists in the declaration record.
