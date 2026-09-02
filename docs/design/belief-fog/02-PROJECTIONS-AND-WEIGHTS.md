@@ -150,6 +150,28 @@ The four consumers that today improvise, rewired to ONE call:
    Reduces to the current fraction exactly when the supplier is uniform —
    the current behavior is the special case, recovered.
 
+### 4b. The supplier harness — comparison at zero match cost (second pass)
+
+Ruling 13 bars enemy-prediction STRATEGY work; it ordered the socket built.
+The socket's comparison instrument is measurement, not strategy, and it runs
+on replays already on disk:
+
+- For each logged decision, reconstruct each enemy unit's support (the same
+  action-coordinate constructor the members use), ask each supplier for its
+  weight, score `−log w(action actually played)` against `Turn.moves` —
+  the wire records every applied move.
+- Report per supplier: mean log-loss; DECISION-WEIGHTED log-loss (restricted
+  to turns where some candidate's ε-reading would change ordering under that
+  weight — the dof-synthesis's refinement); calibration curve; and the
+  entropy column of 09-doc §5 so fog cells read comparably later.
+- 'adversarial' enters the table as the reference row it is: its log-loss is
+  the price of refusing to predict, and the gap between it and 'cover' on
+  logged play is the measured value of ruling 23's rule before any bot
+  changes behavior.
+
+Zero games, zero strategy work, and the day ruling 13 lifts, the ladder's
+next rung starts from a measured baseline instead of a debate.
+
 ## 5. The one risk dial: ε-contamination closes open question 5
 
 D3 needs a computable interpolation between maximin (α at full paranoia) and
