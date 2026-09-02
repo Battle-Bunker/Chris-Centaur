@@ -5,7 +5,7 @@ hours of academic research and inspection of expert open-source implementations
 of the paradigms in use") and read against **ruling 49** ("fitted numbers enter
 as members with provenance; the mandate is a joint-carving core machine").
 
-Sixteen domains, surveyed against the four lens syntheses as they stood at
+Seventeen domains, surveyed against the four lens syntheses as they stood at
 `origin/design/{time-interruption,belief-fog,value-evaluation,joints-composition}`.
 Nothing here is a summary of a paper. Every entry is a mapping: *what the
 experts decided, why, and whether our carve agrees, contradicts, or misses the
@@ -29,10 +29,11 @@ case.*
 | 14 | algorithm selection and portfolios — the theory of `Choice`, and a falsifier for the architecture | `14-algorithm-selection-and-portfolios.md` |
 | 15 | opponent modelling and safe exploitation — **ε is a ledger, not a dial** | `15-opponent-modelling-and-safe-exploitation.md` |
 | 16 | diminishing returns, and how to read a performance profile (response to the first compiled CPPs) | `16-diminishing-returns-and-reading-a-profile.md` |
+| 17 | **coordination graphs** — the exact algorithm `cluster-enum.ts` is missing | `17-coordination-graphs-and-the-joint-argmax.md` |
 
 ---
 
-## If you only do six things
+## If you only do seven things
 
 Ordered by (value × cheapness). Every one of the first three runs on data
 already on disk and needs no new games.
@@ -77,7 +78,15 @@ already on disk and needs no new games.
    A scalar reduction discards the Centaur surface, the value of information, and
    the record of what the search learned, all at once.
 
-6. **Replace `sliderCandidateCap` with progressive widening** (domain 13).
+6. **Measure the induced width of our conflict graphs** (domain 17, one pass
+   over the archive). `cluster-enum.ts` already builds a coordination graph and
+   then discards its structure; **variable elimination** gets the same *exact*
+   argmax at a cost exponential in induced width rather than in joint-space size,
+   which would make the `512` cap essentially never bind and would emit R-4's
+   conditional object for free. That one integer decides how much of this is
+   available.
+
+7. **Replace `sliderCandidateCap` with progressive widening** (domain 13).
    `⌊c·N^α⌋`: the cheapest of four principled replacements, needs no value model
    so it ships before (3), monotone so it composes with the incumbent, natively
    anytime. Requires the generator to expose an ordered list instead of
@@ -164,6 +173,7 @@ Ordered by how much they should change lens work. **C** = contradicts our carve;
 
 | id | lens | one line |
 |---|---|---|
+| **C49/C50** | SEARCH | **`maxJointsPerCluster: 512` bounds the wrong quantity, and the ICM fallback is the baseline the literature beats.** `cluster-enum.ts` builds an exact pairwise factor graph — which *is* a coordination graph — and then discards its structure to enumerate the product. **Variable elimination** computes the same exact argmax at a cost exponential in the **induced width**, not the joint-space size; at width 2 a 6-unit component costs ~162 ops where enumeration costs 729 and falls off the cap. Max-plus is the anytime replacement for ICM, with a monotone incumbent at every message round. Free first step: measure the induced-width distribution on the archive. |
 | **C42** | COMPOSITION | **We have never measured our own VBS–SBS gap, and it is the falsifier for the whole joints architecture.** SAT practice reports both the single best solver and the per-instance oracle; the gap is the entire headroom of per-instance selection, and the field measures it BEFORE building a selector. Cheap on the existing archive. Large ⟹ the quantitative case for the manifest; small ⟹ the architecture must be pitched on hygiene, which is a different and more honest claim. Complementary to (not substitutable by) Nash averaging: redundancy and complementarity are different quantities and we measure neither. |
 | **C43** | COMPOSITION | Our selection is at **config** time (and per *process*); Rice's is per **instance**. So even if the gap is large, the current architecture cannot capture any of it — which reframes the missing production bot-binding site from an operator convenience into the mechanism without which the portfolio thesis is unexpressible in production. |
 | **C36** | SEARCH | **`cluster-enum.ts`'s "cross-cluster terms are PROVABLY ZERO" is a perfect-information theorem.** The proof is geometric and assumes each unit is at a *known cell*; a hidden unit is a *set* spanning components, so the same possible occupant appears in two clusters and `φ_uv ≡ 0` becomes false — silently, because no law-suite case has a subject whose position is a cloud. The exactness claim is load-bearing for everything above it. |
