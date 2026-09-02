@@ -4030,3 +4030,12 @@ architectural commitments; every fitted value carries its fit provenance
 (lineage, roster density) as premise coordinates — generalizing beyond that
 provenance is an explicit premise crossing; the hand-set evaluator remains a
 selectable member beside any derived one.
+
+## RULING 50 (owner, 2026-09-02): sustained design investment
+The architecture question is HARD and deserves hours of parallel thinking,
+academic research, and inspection of expert open-source implementations of
+the paradigms in use. Keep 4 background design agents running CONTINUOUSLY,
+iterating — restart/resume them when they stop. First-pass syntheses are
+not final; deeply respect the difficulty of digesting the accumulated
+strategy complexity into a joint-carving architecture. Do not declare a
+final synthesis prematurely.
