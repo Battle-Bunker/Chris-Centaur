@@ -60,7 +60,15 @@ Three consequences worth stating plainly:
    which is exactly the defect `voc.ts` has today, where a stale unit is offered
    only `catchup` because the preconditions were written per-lever rather than
    derived (`10 §F2`).
-3. **`measure.range` is the odd one and needs its own transport code.** Every
+3. **Two coordinates lack `tighten`, for two different reasons** — a
+   correction the running sketch produced against my own prose, which said
+   horizon was the only one. `observable.horizon` lacks it because the two
+   intervals bound **different random variables** (§4). `measure.weight` lacks
+   it because tightening is a **sound-channel** operation and the weight governs
+   the **advisory** channel: two readings under one weight compose by
+   precision-weighted merge, not by max/min. Same absence, different cause, and
+   conflating them would put an interval operation on a density.
+4. **`measure.range` is the odd one and needs its own transport code.** Every
    other coordinate either persists or is discarded across `advance`; the range
    is *updated* by what the turn revealed. It is the one place `advance` is more
    than bookkeeping.
@@ -238,6 +246,11 @@ in `30` (14 of 15 laws); Law H′ is a clause of the existing Law H, not a new
 one; the operations table is a *property* of coordinates already counted; and
 the inversion **reduces** the visible surface by deleting four module-local
 tuples. `7.1` removes one duplicate lifetime spelling.
+
+**Quantified, from the sketch:** only **four of nine** coordinates are
+purchasable by compute. The economy can buy less than half the index's width;
+everything else is a choice, an observation, or fixed. That is the number the
+lever menu should have been generated from all along.
 
 **Limits.** The operations table is a claim about what is *sound*, not a promise
 that each operation is *cheap*: `support.model`'s meet is the expensive one and

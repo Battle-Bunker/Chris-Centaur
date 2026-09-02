@@ -362,3 +362,37 @@ console.log('  absent value          :', JSON.stringify(read(COLUMNS, 'sharePar'
 console.log('  statistic at its bound:', JSON.stringify(read(COLUMNS, 'voronoiShare', 441)));
 
 console.log('\ndata entries pinned by version:', DATA.map((d) => d.id).join(', '));
+
+// ---- cycle 14: the index as a PRODUCT of coordinate structures -------------
+import { COORDINATES, cloneFindings, combine, purchasableMeets } from './manifest.ts';
+
+const P = (h: number, model: string): Premise => ({
+  support: { model }, observable: { horizon: h }, measure: null, config: null,
+});
+const eqIx = (x: Premise, y: Premise): boolean => JSON.stringify(x) === JSON.stringify(y);
+const sameH = (x: Premise, y: Premise): boolean =>
+  JSON.stringify((x.observable as { horizon: number }).horizon) ===
+  JSON.stringify((y.observable as { horizon: number }).horizon);
+
+console.log('\n--- the index ---');
+console.log('purchasable by compute:', purchasableMeets().map((m) => m.path).join(', '));
+console.log('NOT purchasable      :',
+  COORDINATES.filter((c) => c.meet !== 'compute').map((c) => `${c.path}(${c.meet ?? 'none'})`).join(', '));
+console.log('advance is a real computation only at:',
+  COORDINATES.filter((c) => c.advance === 'update').map((c) => c.path).join(', ') || '(none)');
+console.log('equality does NOT license tightening at:',
+  COORDINATES.filter((c) => c.tighten !== true && c.join === true).map((c) => c.path).join(', '));
+
+const same = P(1, 'm1');
+console.log('\nsame index      :', JSON.stringify(combine({ bound: { lo: 2, hi: 9 }, at: same }, { bound: { lo: 4, hi: 7 }, at: same }, eqIx, sameH)));
+console.log('cross-horizon   :', JSON.stringify(combine({ bound: { lo: 2, hi: 9 }, at: P(1, 'm1') }, { bound: { lo: 5, hi: 6 }, at: P(3, 'm1') }, eqIx, sameH)));
+console.log('differing index :', JSON.stringify(combine({ bound: { lo: 2, hi: 9 }, at: P(1, 'm1') }, { bound: { lo: 4, hi: 7 }, at: P(1, 'm2') }, eqIx, sameH)));
+console.log('inversion       :', JSON.stringify(combine({ bound: { lo: 8, hi: 9 }, at: same }, { bound: { lo: 1, hi: 2 }, at: same }, eqIx, sameH)));
+
+console.log('\nclone detector:');
+for (const f of cloneFindings([
+  { name: 'EvalMemoKey', fields: ['weight', 'provenance'], usedAsKey: true },
+  { name: 'BasisKey', fields: ['model', 'replies'], usedAsKey: true },
+  { name: 'BoardHash', fields: ['bot'], usedAsKey: true, allowed: 'experiment-scale row key, reviewed' },
+  { name: 'PlanKey', fields: ['unitId', 'to'], usedAsKey: true },
+])) console.log(`  [${f.law}] ${f.detail}`);

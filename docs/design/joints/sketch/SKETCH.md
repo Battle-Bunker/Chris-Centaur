@@ -108,6 +108,40 @@ named future bot**, so "which configured bot will play this when the mode
 ships?" has to be answered when the member is written rather than when the mode
 arrives. That is the same discipline as the capability ledger, one level down.
 
+## Cycle 14: the index, and two more things running it taught
+
+The operations table, `combine` (Law T + Law H′) and the clone detector are now
+in the sketch. Output:
+
+```
+purchasable by compute: support.model, support.replies, observable.horizon, observable.provenance
+NOT purchasable      : measure.weight(choice), measure.range(observation), config.*(none)
+advance is a real computation only at: measure.range
+equality does NOT license tightening at: observable.horizon, measure.weight
+
+same index      : tightened  [2,9] + [4,7] -> [4,7]
+cross-horizon   : hull       [2,9] + [5,6] -> [2,9]      <-- vacuous, as predicted
+differing index : refused    "join first and record the widening"
+inversion       : refused    "genuine inversion: lo 8 > hi 2"
+
+clone detector: EvalMemoKey and BasisKey flagged; PlanKey ignored (not coordinates);
+                BoardHash ignored (allow-listed with a reason)
+```
+
+**4. The table caught an overstatement in my own prose.** I wrote that horizon
+is the *only* coordinate where equality does not license tightening; the table
+says `measure.weight` is the second, **for a different reason** — tightening is
+a sound-channel operation and the weight governs the advisory channel, where two
+readings compose by precision-weighted merge rather than by max/min. Two
+absences, two causes; conflating them would put an interval operation on a
+density.
+
+**5. The cross-horizon hull is visibly vacuous.** `[2,9]` combined with a
+*tighter* deep reading `[5,6]` yields `[2,9]` — the deep reading contributes
+nothing to the sound channel, which is exactly the claim Law H′ makes and the
+reason depth's value has to travel in the advisory channel. Seeing it return the
+input is more convincing than the argument for it.
+
 ## What the sketch deliberately does not do
 
 No joint semantics. A manifest row carries a codec and a law; what a move

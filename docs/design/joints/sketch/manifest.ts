@@ -606,3 +606,104 @@ export function read(columns: ReadonlyMap<string, Column>, name: string, raw: nu
   if (column.bound !== undefined && raw >= column.bound) return { kind: 'saturated', at: column.bound };
   return { kind: 'value', value: raw };
 }
+
+// ============================================================ the index
+//
+// Cycle 14: the inversion. Five module-local conditioning tuples become
+// projections of ONE index — and the spec's structural claim is that the
+// operations are NOT uniform across coordinates, so the index is a PRODUCT of
+// coordinate structures with the operations lifted componentwise.
+
+/** What a coordinate supports. Absent = the operation is undefined there, and
+ * a caller that attempts it is a type error rather than a silent no-op. */
+export interface CoordinateOps {
+  /** widen: drop assumptions, admit more worlds. */
+  readonly join?: true;
+  /** narrow, with what buys it. 'compute' | 'observation' | 'choice' | 'never' */
+  readonly meet?: 'compute' | 'observation' | 'choice' | 'never';
+  /** equality licenses composing to a TIGHTER bound (Law T). */
+  readonly tighten?: true;
+  /** what transport does at turn resolution. */
+  readonly advance: 'persist' | 'discard' | 'dilate-then-condition' | 'update';
+  readonly scale: 'decision' | 'experiment' | 'both';
+}
+
+export interface CoordinateDecl extends CoordinateOps {
+  readonly path: string;
+  readonly group: CoordinateGroup;
+  readonly tier: 'match-durable' | 'decision-durable' | 'branch-volatile' | 'extensional';
+}
+
+/** THE TABLE. Note what is missing per row: horizon has no `tighten`, weight's
+ * meet is a CHOICE and not a purchase, and config supports no lattice
+ * operation at all — you cannot widen a botId. */
+export const COORDINATES: ReadonlyArray<CoordinateDecl> = [
+  { path: 'support.model',            group: 'support',    join: true, meet: 'compute',     tighten: true, advance: 'dilate-then-condition', scale: 'decision',   tier: 'branch-volatile' },
+  { path: 'support.replies',          group: 'support',    join: true, meet: 'compute',     tighten: true, advance: 'discard',               scale: 'decision',   tier: 'branch-volatile' },
+  { path: 'observable.horizon',       group: 'observable', join: true, meet: 'compute',     /* NO tighten — Law H' */ advance: 'discard',    scale: 'decision',   tier: 'decision-durable' },
+  { path: 'observable.provenance',    group: 'observable', join: true, meet: 'compute',     tighten: true, advance: 'discard',               scale: 'decision',   tier: 'decision-durable' },
+  { path: 'measure.weight',           group: 'measure',    join: true, meet: 'choice',      advance: 'persist',                              scale: 'both',       tier: 'match-durable' },
+  { path: 'measure.range',            group: 'measure',    join: true, meet: 'observation', tighten: true, advance: 'update',                scale: 'decision',   tier: 'branch-volatile' },
+  { path: 'config.bot',               group: 'config',     advance: 'persist',              scale: 'both',       tier: 'match-durable' },
+  { path: 'config.opponents',         group: 'config',     advance: 'persist',              scale: 'experiment', tier: 'match-durable' },
+  { path: 'config.regime',            group: 'config',     advance: 'persist',              scale: 'experiment', tier: 'match-durable' },
+];
+
+export class IndexError extends Error {}
+
+const coord = (path: string): CoordinateDecl => {
+  const c = COORDINATES.find((x) => x.path === path);
+  if (c === undefined) throw new IndexError(`no coordinate "${path}" — the index has one definition site`);
+  return c;
+};
+
+/** THE LEVER MENU, GENERATED. voc.ts's defect is that its preconditions were
+ * written per lever; here what may be bought is derived from the table, so a
+ * coordinate whose meet is a choice or an observation is never offered as a
+ * compute purchase. */
+export function purchasableMeets(): ReadonlyArray<{ path: string; by: string }> {
+  return COORDINATES.filter((c) => c.meet === 'compute').map((c) => ({ path: c.path, by: 'compute' }));
+}
+
+export interface Bound { readonly lo: number; readonly hi: number }
+
+/**
+ * LAW T — index equality licenses TIGHTENING. Sound channel only, and not
+ * transitive across a widening (the caller must pass indices that were never
+ * joined, which is why the record travels with the value).
+ *
+ * LAW H' — across horizons the sound channel yields the HULL, never an
+ * intersection: the two intervals bound DIFFERENT random variables.
+ */
+export function combine(
+  a: { bound: Bound; at: Premise },
+  b: { bound: Bound; at: Premise },
+  eq: (x: Premise, y: Premise) => boolean,
+  sameHorizon: (x: Premise, y: Premise) => boolean
+): { kind: 'tightened' | 'hull' | 'refused'; bound?: Bound; why?: string } {
+  if (!sameHorizon(a.at, b.at)) {
+    if (coord('observable.horizon').tighten === true) throw new IndexError('unreachable: horizon declares tighten');
+    return { kind: 'hull', bound: { lo: Math.min(a.bound.lo, b.bound.lo), hi: Math.max(a.bound.hi, b.bound.hi) } };
+  }
+  if (!eq(a.at, b.at)) return { kind: 'refused', why: 'indices differ; join first and record the widening' };
+  const lo = Math.max(a.bound.lo, b.bound.lo);
+  const hi = Math.min(a.bound.hi, b.bound.hi);
+  if (lo > hi + 1e-3) return { kind: 'refused', why: `genuine inversion: lo ${lo} > hi ${hi}` };
+  return { kind: 'tightened', bound: { lo, hi: Math.max(lo, hi) } };
+}
+
+/** CI: a structural clone is a type whose field set is a subset of the index's
+ * coordinate paths AND which is used as a key. Detected from declarations. */
+export function cloneFindings(
+  declaredKeyTypes: ReadonlyArray<{ name: string; fields: ReadonlyArray<string>; usedAsKey: boolean; allowed?: string }>
+): ReadonlyArray<CheckFinding> {
+  const paths = new Set(COORDINATES.map((c) => c.path.split('.')[1] ?? c.path));
+  const out: CheckFinding[] = [];
+  for (const t of declaredKeyTypes) {
+    if (!t.usedAsKey || t.fields.length === 0) continue;
+    if (!t.fields.every((f) => paths.has(f))) continue;
+    if (t.allowed !== undefined) continue;
+    out.push({ law: 'constraint', detail: `${t.name} is a module-local conditioning tuple (${t.fields.join(',')}) — the index has one definition site` });
+  }
+  return out;
+}
