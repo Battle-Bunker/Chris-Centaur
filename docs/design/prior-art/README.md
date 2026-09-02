@@ -31,6 +31,59 @@ case.*
 
 ---
 
+## If you only do six things
+
+Ordered by (value × cheapness). Every one of the first three runs on data
+already on disk and needs no new games.
+
+1. **Measure the two numbers nobody has measured** (domains 9 and 14, one script
+   each, existing replays). *Nash averaging* over the arm-vs-arm matrix gives the
+   **redundancy** of our evaluation population — Balduzzi et al.'s invariance
+   axiom explicitly excludes Elo and uniform averaging, and their Atari
+   re-evaluation *reversed* a headline conclusion. The **VBS−SBS gap** (per-seed
+   oracle minus best single arm) gives the **complementarity** — the entire
+   headroom of per-instance member selection, i.e. the falsifier for the joints
+   architecture. Redundancy and complementarity are different quantities; we
+   measure neither; together they are the only quantitative answer to ruling 49
+   this survey found. Add the matrix's **cyclic fraction** while you are there:
+   if our arms cycle, "which bot is better" is not a well-posed question.
+
+2. **Record `(runner-up plan, deciding rung, margin)` for the top-k on every
+   decision** (domain 10). `better()` computes it and throws it away. One
+   telemetry column, three consumers: the contrastive explanation the Centaur
+   surface requires (an explanation *is* a fact/foil pair), the input to
+   `P(refinement flips better())` that the hypothesis market is missing, and the
+   point-of-comparison spread the inert-weight taxonomy needs. Nothing else in
+   this survey has a better ratio.
+
+3. **Build the conditional performance profile** `Pr(quality | quanta, premise)`
+   (domain 2). The time economy currently has prices and no goods: five policies
+   over allocations, no model of what an allocation buys. It compiles offline
+   from the replay archive, it fibers over the premise index for free, and the
+   one question the time lens escalated to the owner dissolves once it exists.
+
+4. **Add the fifth premise coordinate before fog step 5** (domain 12). Our
+   decomposition arguments — `cluster-enum.ts`'s `φ_uv ≡ 0`, premise-keyed
+   memoisation, re-base/ADVANCE — are perfect-information theorems, and
+   imperfect-information decomposition is *provably unsound* with unbounded error.
+   The fix is one coordinate (reach/range, or a counterfactual-value bound) and
+   one new object crossing each boundary — a type the bounds bank already
+   produces. Cheap now, unlocalisable later.
+
+5. **Make the reduction return a set** (domains 3, 8, 10 — R-4). Maximality's
+   optimal set, α-vectors' dominance regions and explanation's (fact, foil) are
+   the same object seen from decision theory, value theory and cognitive science.
+   A scalar reduction discards the Centaur surface, the value of information, and
+   the record of what the search learned, all at once.
+
+6. **Replace `sliderCandidateCap` with progressive widening** (domain 13).
+   `⌊c·N^α⌋`: the cheapest of four principled replacements, needs no value model
+   so it ships before (3), monotone so it composes with the incumbent, natively
+   anytime. Requires the generator to expose an ordered list instead of
+   discarding.
+
+---
+
 ## The three things that recur across unrelated literatures
 
 When four fields that have never heard of each other say the same thing about
