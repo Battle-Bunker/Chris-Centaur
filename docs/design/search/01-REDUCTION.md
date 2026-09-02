@@ -92,6 +92,41 @@ the bank computes a floor by one formula and the ordering channel computes `est`
 on the same `v_a`, and the *difference between them* is a measured quantity
 rather than an accident.
 
+### Law R1 corollary — the bank's four hand-written soundness arguments are two properties
+
+`bank.ts`'s header argues the soundness of B0, B1, B2 and B3 separately, in
+prose, one paragraph each. Under R1 they are four instances of exactly two
+properties, and stating that is worth more than the four paragraphs:
+
+> Every bank rung computes `reduce_{𝒫ᵣ}(vᵣ)` where
+> **(i)** `vᵣ ≤ v` pointwise — the payoff is relaxed by *holding* a unit at a
+> bound rather than letting it choose; and
+> **(ii)** `𝒫ᵣ ⊇ 𝒫_true` — the reply set is *widened*, never narrowed.
+>
+> `reduce` is monotone in `v` (i) and antitone in `𝒫` (ii), so every rung is a
+> sound floor and the max over rungs is the tightest of them.
+
+Two payoffs from saying it that way.
+
+- **The `WHICH-truncation is forbidden` law is a special case, not a separate
+  rule.** *"Look at a SUBSET of one enemy's replies and the min over that subset
+  is an over-estimate of the min over all of them — not a floor"* is precisely
+  antitonicity failing in the forbidden direction. `declareTruncatedFloor`'s
+  named-assumption escape hatch is then the statement "I am reducing over a
+  smaller `𝒫`, and here is its name" — which is exactly what a declared member
+  of this joint is.
+- **A fifth rung inherits its soundness proof.** Today, adding a rung means
+  writing a fifth paragraph and hoping. Under R1 it means exhibiting `vᵣ` and
+  `𝒫ᵣ` and checking two inclusions. That is the difference between a joint and a
+  ladder, and it is the concrete sense in which this law is architecture rather
+  than vocabulary.
+
+And superadditivity (the third row of the table above) is what governs the
+value lens's decomposition: `inf_P E_P[Σ flows] ≥ Σ inf_P E_P[flow]`, so
+**reducing the total is at least the sum of reducing the parts**, with equality
+only when one reply attains the worst case for every flow at once. That is
+finding C-V1's mechanism, and it is a theorem rather than a caution.
+
 ## 2. The members
 
 Ordered from most to least pessimistic. Every one is `inf_{P∈𝒫} E_P[v_a]` for

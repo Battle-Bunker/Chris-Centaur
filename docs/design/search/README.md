@@ -17,6 +17,7 @@ summary (piped through `tools/principal-glossary/check-briefing.js` on
 | `02-DECOMPOSITION.md` | when is the factorization sound; should boundaries be searched? | Law D1: generate only, never value. Boundaries ARE searched today — at depth, where it is least useful. Four sub-joints, three at their null member |
 | `03-PROPOSAL.md` | what does the literature say about basin coverage? | eight operators, nine constants, no socket, no record. Law P1: restrictions must be adaptive on value or bounded. The missing operator is an ejection chain |
 | `04-BACKUP.md` | how does our max-min backup compare to the standard rules? | implicit-minimax-backups shaped with a strictly better combiner. A floor folded into a mean slot, over an odometer prefix that collapses on slider boards |
+| `06-THE-COLUMN-SET.md` | what does the double-oracle half we DID build cost? | the restricted matrix is already computed cell by cell and thrown away; `price()` cost drifts upward within a decision because the witness set only grows; workers generate columns and discard them. Contains the full S0 specification |
 
 `probes/accept-cycle.probe.ts` — drop into `src/lobster/__tests__/` on
 `claude/cluster-lookahead` and run under the repo's jest. It imports the real

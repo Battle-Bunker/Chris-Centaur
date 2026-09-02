@@ -202,6 +202,44 @@ arity      (point | SET)             -- what the consumer gets
 
 and the ADVICE kind — the Centaur surface — consumes the set-valued member.
 
+### 2.4½ The restricted matrix is not merely derivable — it is computed and thrown away
+
+Sharper than doc 00's first statement, and it changes S0 from "cheap" to "free".
+
+`bank.ts`'s B2 rung resolves **every priced plan against every banked witness**
+and computes a full `ScoreBounds` for each pair, then keeps `bounds.best`, mins
+it, and discards the rest. That is one complete row of the restricted payoff
+matrix, computed in full and reduced to its row-minimum on the spot. Retaining
+it costs one number per cell — on the measured 23×23 three-team board, 152
+distinct plans by however many witnesses accumulated, i.e. tens of kilobytes —
+and **zero additional resolutions**. The standard objection to solving a matrix
+game (it costs simulations we cannot afford) does not apply: they are already
+spent.
+
+Two findings come out of looking at the column set properly (doc 06):
+
+> **W-1.** `WitnessSet` has no capacity and no eviction policy, and B2 is
+> `O(|witnesses|)` resolutions **per priced plan**. So `price()` gets
+> monotonically more expensive through a decision, unboundedly and unmeasured.
+> The kernel sizes its slices from that *measured* cost, so slices lengthen late
+> in a turn for a reason that has nothing to do with the board — and events are
+> drained between slices, never inside one. That is an operator-latency drift
+> with a compute cause, against a cap the time lens states in milliseconds.
+> A real double oracle prunes columns outside the equilibrium support; we never
+> do; **and solving the matrix produces that support as a by-product.** The
+> diagnostic pays for itself in the same LP.
+
+> **W-2.** `speculate` ships the witness set **down** with every parcel and
+> nothing comes back. Workers price rows the coordinator has not reached, their
+> banks discover real minimisers, and those columns die with the parcel. In a
+> double oracle the column is the artifact that *transfers* — it is an
+> upper-bound certificate against every plan, by the witness law's own argument
+> — so we parallelise the row side and discard the plan-independent side. The
+> one-way rule is a **determinism** decision, not a value one (a witness
+> arriving on worker time would make the decision depend on worker timing), and
+> the determinism cost is avoidable by the canonical-order, slice-boundary fold
+> the evaluation channel already uses.
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
@@ -398,6 +436,8 @@ decide alone.
 | **C-T3** | TIME | nine operator sub-budgets (`clusterOffersPerRound/PerSlice`, `maxSweeps`, `restarts`, `pairRepairPerUnit`, `polishUnits`, `polishPerUnit`, `stage0Attempts`, `climbSteps`) are constants answering the one question their allowance-split table exists to answer | **Ask: does the allowance table have a row per proposal operator, or only per layer?** If only per layer, the nine constants survive the refactor and the search stays the one place with un-priced sub-budgets |
 | **C-T4** | TIME | Finding B-4 reduces the cost of a quantum without changing its product, invalidating quanta-denominated arm comparisons across the change | their own answer exists (*"equal refine-quanta AND equal total-quanta"*); this is a concrete worked case for the measurement-denominator question they are putting to the owner |
 | **C-T5** | TIME | **§2.4**: their economy buys sharpened beliefs, and under Γ-maximin the output is one plan regardless of how sharp. The economy's product is invisible in the artifact it pays for | the set-valued arity member. Option-set cardinality becomes the economy's natural progress metric, and `maxGap` is revealed as the scalar proxy that had to be invented because the criterion produced no set |
+| **C-T6** | TIME | **W-1**: the witness set only grows, B2 is `O(\|witnesses\|)` per priced plan, so `price()` cost drifts upward through a decision. The kernel sizes slices from that measured cost, so slices lengthen late in a turn and operator-pin latency worsens — against a cap their design states in fixed milliseconds. The slice-sizing comment attributes the cost to roster size, which is constant within a decision; witness count is not | their exchange rate must be a function of a *measured, drifting* step cost, which it already is — but the **latency cap** must be enforced as a hard slice ceiling independent of measured cost, or it is not a cap. Column pruning (doc 06 §3b) removes the drift at source |
+| **C-T7** | TIME | **W-2**: the parallel one-way witness rule is a determinism decision. Their design turns wall cuts inside work into counting cuts precisely so worker timing cannot influence the decision sequence | a returned-witness channel folded at a **slice or epoch boundary** in canonical `witnessKey` order preserves that property, using the discipline `foldParallel` already applies to evaluations. **Ask: does the counting-cut redesign make a returned-column channel deterministic by construction?** If so, W-2's fix is nearly free once their work lands |
 | **C-B1** | BELIEF | two paranoia dials double-charge one ignorance: `sigmaOfPly.theirMiss` charges un-covered replies as **precision**, an ε-contaminated reduction charges the same ignorance as **value** | Law R1's composition rule: one ambiguity set per decision; composing two restrictions is the **intersection of the sets**, never the sequential application of two reductions. Decide before either lens ships a dial — their B7 falsifier already suspects it |
 | **C-B2** | BELIEF | `influenceOf` reads clouds, so the partition is a function of the belief state, but `schedule = once-per-decision` means a mid-decision narrowing cannot reach it. Free today, expensive under the fog programme where C1/C2 evidence arrives during play | add `on-observation` to the `schedule` sub-joint, driven by their reducibility tag |
 | **C-B3** | BELIEF | stage 0's *provably-safe* draw domain is a projection of the support `S` that their inventory of nine projections omits | add **the safe action set** as a ninth projection; its degradation ladder (unit-safe → safe joint combos → rules-certain death only when nothing else exists) is already built and correct |
@@ -423,7 +463,7 @@ whose population is modest variations of one lineage.
 
 | # | increment | changes behaviour? | what it decides |
 |---|---|---|---|
-| **S0** | **`restrictedGap`** — build the matrix from `BankResult.members` × `witnessList`, solve for `V_mixed` (RM⁺, fixed iterations), emit `V_mixed − V_pure` in weight units per decision | no | whether the mixed/equilibrium direction is worth anything on our boards. A near-zero gap **retires it on evidence**; a multi-unit gap prices it. Also yields `P*` for C-B5 |
+| **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
 | **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
 | **S2** | **`planDistance(staged, nearestProposal)`** per decision | no | whether the enumeration reaches the plan we stage. No decomposition design survives a bad answer |
 | **S3** | **split `adjudication.*Decided` by contested-vs-quiet** | no | Prediction P-1: whether the floor really goes flat where the decision is hardest (§2.3) |

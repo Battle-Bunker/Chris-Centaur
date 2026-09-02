@@ -214,6 +214,88 @@ are potentially distortionary. A gap that is near zero on our boards would
 *retire* the mixed-strategy direction on evidence; a gap of several weight units
 would price it. Either answer is worth more than another 660-game sweep.
 
+**(c) And it is stronger than "derivable": the matrix is already COMPUTED,
+cell by cell, on every `price()` call, and thrown away.**
+
+`bank.ts`'s B2 loop is, verbatim:
+
+```ts
+if (cfg.b2 && this.witnessList.length > 0) {
+  for (const witness of this.witnessList) {
+    …
+    const branch = this.priceBranch(view, withMoves(base, [...witness.replies.values()]), "B2", …)
+    ceilingBranches.push(branch)
+    members.push({ rung: "B2", …, complete: false, floor: null, ceiling: branch.bounds.best })
+  }
+}
+```
+
+So for **every plan the search prices**, the bank resolves that plan against
+**every banked witness** and computes `branch.bounds` — then keeps only
+`bounds.best`, feeds it into a `min`, and discards the rest. That is exactly one
+row of the restricted payoff matrix, computed in full and reduced to its
+row-minimum on the spot.
+
+Retaining it costs **one number per (row, column) pair** — on the measured
+23×23 three-team board, 152 distinct plans against however many distinct
+witnesses accumulated, i.e. a few tens of kilobytes — and **zero additional
+resolutions**. The whole objection one would expect to "solve the matrix game"
+(it costs simulations we cannot afford) does not apply: the simulations are
+already spent.
+
+Two refinements that make the instrument sounder than my first statement of it:
+
+- **The entries are intervals, and the floor side is the one to use.**
+  `priceBranch` returns `bounds` with both endpoints. Building the matrix from
+  `bounds.worst` makes every entry a sound floor at that reply, so `V_pure` and
+  `V_mixed` are computed on the *same* entries and their difference is a clean
+  comparison of two reductions of one matrix — no mixing of floors and ceilings.
+- **The LP pays for itself.** The equilibrium mixture's *column support* names
+  the witnesses that actually matter. Everything outside the support can be
+  dropped, which is the pruning step a real double oracle performs and we never
+  do — see finding (d).
+
+**(d) The witness set is uncapped and every witness is re-priced against every
+plan, so `price()` gets monotonically more expensive within a decision.**
+
+`WitnessSet` and the bank's own `witnessList` have **no capacity and no eviction
+policy**. Witnesses are added in `closeGroup` (the minimiser of each B1/B3
+group), de-duplicated by key, and never removed; `adoptWitnesses` deliberately
+carries them across restarts and pin contexts, which is right and is what makes
+them the double oracle's memory. But the B2 loop is `O(|witnesses|)` resolutions
+**per priced plan**, so:
+
+> **Finding W-1.** The cost of one `price()` grows linearly in the number of
+> distinct opponent replies the decision has discovered so far. A decision that
+> prices 152 plans does not price them at 152 equal costs: the last plan costs
+> materially more than the first, and the growth is unbounded and unmeasured.
+
+Three consequences, one of them cross-lens:
+
+1. **It interacts with the kernel's adaptive slice length.** `drive` sizes a
+   slice from `entry.stepCostMs * sliceCostFactor` — a *measured* cost that is
+   therefore drifting upward through the turn. So slices get longer late in a
+   decision for a reason that has nothing to do with the board, which reduces
+   the number of points at which an operator's pin can be drained (events are
+   taken between slices, never inside one). That is a **latency drift with a
+   compute cause**, and the time lens's operator-latency cap is stated in
+   milliseconds against a quantity that moves.
+2. **A real double oracle prunes columns and we never do.** The standard
+   algorithm drops columns outside the equilibrium support once the restricted
+   game is solved. We keep every column for the life of the decision. Solving
+   the matrix (increment R0) *produces* the support as a by-product, so the
+   instrument that measures the pure-vs-mixed gap is also the thing that would
+   let the bank shed columns — turning a diagnostic into a cost saving in the
+   same LP.
+3. **The law that keeps witnesses sound is exactly what makes them expensive**,
+   and it is the right trade. `witness.ts`: *"the ascent may not choose a plan a
+   witness refutes without the witness being RE-PRICED against that plan …
+   reusing a verdict computed against a different plan is how a double oracle
+   silently turns into a restricted game it has forgotten it restricted."* That
+   is correct and must not be relaxed. Pruning by equilibrium support is the
+   sound way to reduce the cost, because a column outside the support is one the
+   opponent's best mixture never plays — not one whose verdict we are reusing.
+
 **Caveat, stated because it is real.** `V_mixed` on the *restricted* matrix is
 neither an upper nor a lower bound on the true game's value: adding rows raises
 it, adding columns lowers it. It is a *within-the-searched-set* measurement of
