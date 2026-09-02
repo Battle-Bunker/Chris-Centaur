@@ -367,3 +367,7 @@
 - [ ] FIX (build lane): the scout's no-restricted-imports lint ban is
       shadowed by a later flat-config block and DOES NOT FIRE (recorded in
       pins; Law V's founding instance). Restore + falsification test.
+- [ ] DSM from git co-change (librarian C52): mine which joints/files
+      co-change over 4 months of history; test whether the five-kind carve
+      aligns with the DESIGN's joints (Parnas) or only the domain's.
+      Zero games, pure git.
