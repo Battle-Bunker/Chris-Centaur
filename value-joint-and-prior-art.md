@@ -366,3 +366,50 @@ Stated plainly, since the mandate is iteration and not defence.
 - **§6's tail-chasing member.** Retrodict it: on the corpus, how often was a unit that died by
   entrapment or exhaustion one legal move from a tail-follow that would have survived? If the
   answer is ~0, the member is inert here regardless of how well it works in Battlesnake.
+
+---
+
+## 9. TAIL-CHASING RETRODICTED — a null, and the reason is structural
+
+§8 pre-registered the falsifier: *"on the corpus, how often was a unit that died by entrapment one
+legal move from a tail-follow that would have survived? If the answer is ~0, the member is inert
+here regardless of how well it works in Battlesnake."* Run over all 144 games, snakes only,
+counting a tail-follow as **available** when the unit's own tail cell is orthogonally adjacent to
+its head and not occupied by another unit (an upper bound on "would have survived", since a third
+party may contest the cell):
+
+| cell | snake entrapment deaths | tail-follow available | share | weight preserved |
+|---|---|---|---|---|
+| snake6 | 373 | 23 | **6.2%** | 72 / 1321 = 5.5% |
+| snake5-queen | 292 | 8 | **2.7%** | 30 / 962 = 3.1% |
+| snake5-knight | 325 | 10 | **3.1%** | 38 / 1052 = 3.6% |
+
+**The member is near-inert here, and the falsifier fires.** I would not build it.
+
+**The reason is structural and worth keeping, because it generalises to the rest of the
+Battlesnake borrow.** Snake death causes in our corpus, snakes only:
+
+```
+snake6         bodyBlock 142 | edge 108 | exhaustion 75 | wall 72 | contest 59 | self 51
+snake5-queen   contest  275 | bodyBlock 190 | exhaustion 76 | edge 64 | self 25 | wall 13
+snake5-knight  bodyBlock 182 | exhaustion 140 | edge 90 | contest 75 | self 37 | wall 16
+```
+
+Tail-chasing solves **self**-entrapment, which is 51 of 373 entrapment deaths on the null roster
+and 25 of 292 on the queen board. Two shape differences drive it:
+
+1. **Our snakes are short.** Mean final length 4–6, max 10, against Battlesnake snakes that grow
+   past 20. A tail is adjacent to its own head only in a tight coil, which a length-5 snake rarely
+   forms.
+2. **Our boards are crowded with *foreign* bodies.** 18 units on 25×25, against 1–4 in
+   Battlesnake. The dominant death mode is running into *someone else* (`bodyBlock`) or being
+   hunted (`contest`, 275 on the queen board), neither of which a tail-follow addresses.
+
+**The transferable lesson is about the borrow, not about this member.** A heuristic canonical in a
+neighbouring game can be near-inert here for reasons of roster and board shape rather than of
+quality, and the retrodiction cost nothing and settled it without a game. **Before importing any
+of §6's other members, retrodict it the same way** — flood-fill and Voronoi are already ours in
+some form, but "fewest open spaces" packing and the food-ownership variant should each face this
+test first. On present evidence I would expect packing to fail for the same reason tail-chasing
+did, and food-ownership to survive, since the growth channel is real and crowded boards make food
+contested rather than irrelevant.
