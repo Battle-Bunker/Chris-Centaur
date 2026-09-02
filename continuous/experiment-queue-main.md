@@ -344,3 +344,11 @@
       PLAYED move against their own security value with our bank, from
       logged moves. Licensing event stream for the appetite stake-cap
       ledger. Zero games.
+- [ ] Coverage oracle (red team round 3): one exogenous probe plan
+      (random-legal or opponent-model line) priced per N decisions through
+      the ordinary bank; probe-beat rate = standing measured number for
+      generator blindness — the third arbitration discriminator (margin
+      cannot see proposal-set holes). Same shape as the reappearance oracle.
+- [ ] CPP margin cut-points: register per-stratum "wide"/"near-zero"
+      thresholds in the v1 spec BEFORE compiling, or the conditional
+      arbitration is a band-shaped procedure (red team round 3, item 4).
