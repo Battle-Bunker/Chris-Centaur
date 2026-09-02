@@ -336,3 +336,11 @@
       TEST; iteration-order invariance; allowance monotonicity (more quanta
       never worsens the proved floor); premise widening (wider premise
       bounds narrower). Three of four nearly free.
+- [ ] Floor-undominated-set SIZE per decision (belief lens, from existing
+      adjudication counters): the maximality-object cardinality the
+      architecture already computes then collapses — a set stuck at 1 under
+      widening fog is the Troffaes symptom, measured. Free.
+- [ ] giftRate column (belief lens, ruling-13-clean): re-price the enemy's
+      PLAYED move against their own security value with our bank, from
+      logged moves. Licensing event stream for the appetite stake-cap
+      ledger. Zero games.
