@@ -206,6 +206,15 @@ whose blended value is high but whose floor is DEAD is still vetoed — the
 lattice bottom is not blendable (DEAD·ε is still DEAD; the blend is defined
 only over finite floors, and the veto fires before the blend is read).
 
+THIRD PASS (11-doc Part A): ε is no longer a swept dial at all. Read
+generatively, the contamination class makes ε a population parameter of
+logged play with a closed-form estimator, ε_min = 1 − min_a p(a)/w(a),
+fitted per (supplier, stratum) by the §4b harness and carried as a
+PremisedMember on the supplier's calibration record. The (supplier × ε)
+grid above collapses to (supplier) plus fit-transport validation; D3
+retains appetite as its only free parameter. This section's blend formula
+and placement are unchanged — only who supplies the number.
+
 ## 6. Deep findings in the table (no change, one clarification)
 
 `max_a min_b` on the advanced board stays exactly as built: in table terms it

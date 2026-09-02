@@ -190,10 +190,15 @@ slot is also read by step 7's mixture dodge.
    — else clouds saturate, C1 dies, invisibility strictly dominates); deaths
    public; hidden-unit promotions masked (fork returns) or published (fork
    dormant). Each is a fog-depth vs bot-complexity dial; priced in 03-doc.
-2. **ε ownership** (step 4): ε is the one legible paranoia dial the dof
-   synthesis reserves for D3 — confirm it is the operator-facing control and
-   the per-term mean-vs-worst choices (dodge's reading) fold into it rather
-   than surviving as term-local knobs.
+2. **ε ownership** (step 4): DISSOLVED at third pass (11-doc Part A). ε is
+   fitted (ε_min per supplier per stratum, closed form off the log-loss
+   harness), not owned by anyone as a dial; the per-term mean-vs-worst
+   choices still fold into the single blend, and the operator-facing D3
+   control that REMAINS is appetite only (utility curvature — the
+   tournament-context call that was always the operator's). What needs the
+   owner's eyes is no longer "who holds ε" but the fit-transport rule:
+   an ε̂ fitted on the population refuses per-opponent use until ruling 13
+   lifts.
 3. **Thread-reply coupling** (step 4): REVERSED on second pass (06-doc §2).
    Recursive per-ply blending is the Epstein-Schneider rectangular
    construction: dynamically consistent, but the advised component decays as
