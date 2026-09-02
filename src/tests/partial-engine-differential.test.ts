@@ -17,150 +17,46 @@
  * just replay it: sever damage is invisible in a survivor list, and a mutual
  * annihilation is invisible to any pair-repair that matches deaths up by cell.
  *
+ * ── AND THE ORACLE IS NOW SETTLEMENT ──────────────────────────────────────
+ *
+ * The oracle used to be `resolveTurn`, which stops at the board half. Four
+ * rules live past it — potion collection, effect expiry, the ally-buff cancel
+ * and tier settlement — and this repo's consumer reads all of them off
+ * `settleTurn` on every candidate move it prices, so leaving them out of the
+ * differential left the only rules a client is REQUIRED not to re-derive
+ * (VENDOR.md) as the only rules nothing executed.
+ *
+ * Two seeded sets now run:
+ *
+ *   · seeds 1..2000, the standing set, board-for-board identical to what it
+ *     always was (the counters below are the proof), now settled rather than
+ *     merely resolved — so settlement is shown INERT on a board that gives it
+ *     nothing to do, which is the control the potion set is read against;
+ *   · seeds 1..1200 of `buildPotionCase`, a separately-seeded stream that adds
+ *     potions, a turn number, a pickup window and opening buffs and debuffs
+ *     whose levels sum to each unit's tier.
+ *
  * `npx jest src/tests/partial-engine-differential.test.ts` is the one-command
  * check.
  *
  * Ported from packages/engine/src/partial-differential.test.ts.
  */
 
+import { resolveTurn } from '../engine-vendor/engine/resolveTurn';
 import { makeGrid, makeTerrain, newBoard, PartialEngine } from '../partial-engine/index';
+import { HAZARD_DAMAGE, MAX_HEALTH, W, buildCase, buildPotionCase } from './partial-engine-boards';
 import type { OracleCase } from './partial-engine-oracle';
-import { engineOutcome, oracleOutcome, outcomeDiff, perimeter } from './partial-engine-oracle';
+import {
+  engineOutcome,
+  oracleInput,
+  oracleOutcome,
+  oracleSettlement,
+  outcomeDiff,
+  perimeter,
+  settlementDiff,
+} from './partial-engine-oracle';
 
-const W = 9;
 const GRID = makeGrid(W, W);
-const KINDS = [0, 1, 2, 3, 4, 5, 6];
-const ORTHO = [
-  [0, -1],
-  [1, 0],
-  [0, 1],
-  [-1, 0],
-] as const;
-const HAZARD_DAMAGE = 100;
-const MAX_HEALTH = 100;
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * A crowded 9x9: short trails, mixed pieces, a fifth of them a tier up, and
- * staged destinations that are only sometimes legal — because falling back to
- * the kind's own default identically is part of the agreement too.
- */
-function buildCase(seed: number): OracleCase {
-  const rnd = mulberry32(seed);
-  const interior: number[] = [];
-  for (let y = 1; y < W - 1; y++) for (let x = 1; x < W - 1; x++) interior.push(y * W + x);
-  const used = new Set<number>();
-  const take = (): number => {
-    for (let i = 0; i < 300; i++) {
-      const c = interior[(rnd() * interior.length) | 0] as number;
-      if (!used.has(c)) {
-        used.add(c);
-        return c;
-      }
-    }
-    return -1;
-  };
-
-  const units: OracleCase['units'] = [];
-  const n = 2 + ((rnd() * 4) | 0);
-  for (let i = 0; i < n; i++) {
-    // Half trail units on purpose: a SEVER needs a strictly-higher-tier unit
-    // to arrive on somebody's body, and a uniform kind draw almost never
-    // produces one — 800 boards of it produced none at all.
-    const kind = rnd() < 0.5 ? 0 : (KINDS[(rnd() * KINDS.length) | 0] as number);
-    const head = take();
-    if (head < 0) continue;
-    const cells = [head];
-    if (kind === 0) {
-      const len = 2 + ((rnd() * 3) | 0);
-      for (let j = 1; j < len; j++) {
-        const prev = cells[j - 1] as number;
-        const px = prev % W;
-        const py = (prev / W) | 0;
-        let placed = false;
-        for (let attempt = 0; attempt < 8 && !placed; attempt++) {
-          const d = ORTHO[(rnd() * 4) | 0] as readonly [number, number];
-          const nx = px + d[0];
-          const ny = py + d[1];
-          if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= W - 1) continue;
-          const c = ny * W + nx;
-          if (used.has(c) || cells.includes(c)) continue;
-          used.add(c);
-          cells.push(c);
-          placed = true;
-        }
-        if (!placed) break;
-      }
-    }
-    const weight = kind === 0 ? cells.length : 1 + ((rnd() * 3) | 0);
-    let orientation = (rnd() * 4) | 0;
-    if (kind === 0 && cells.length >= 2) {
-      // For a trail unit orientation IS head-minus-neck, physically.
-      const hx = (cells[0] as number) % W;
-      const hy = ((cells[0] as number) / W) | 0;
-      const nx = (cells[1] as number) % W;
-      const ny = ((cells[1] as number) / W) | 0;
-      const dx = Math.sign(hx - nx);
-      const dy = Math.sign(hy - ny);
-      const found = ORTHO.findIndex((o) => o[0] === dx && o[1] === dy);
-      orientation = found < 0 ? 0 : found;
-    }
-    units.push({
-      unitId: i,
-      kind,
-      team: i % 2,
-      cells,
-      weight,
-      health: 20 + ((rnd() * 80) | 0),
-      tier: rnd() < 0.3 ? 1 : 0,
-      orientation,
-    });
-  }
-
-  const food: number[] = [];
-  for (let i = 0; i < 2; i++) {
-    if (rnd() < 0.6) {
-      const c = take();
-      if (c >= 0) food.push(c);
-    }
-  }
-  const hazards: number[] = [];
-  for (let i = 0; i < 2; i++) {
-    if (rnd() < 0.3) {
-      const c = take();
-      if (c >= 0) hazards.push(c);
-    }
-  }
-
-  const orders = new Map<number, number>();
-  const pick = mulberry32(seed * 7919 + 3);
-  for (const u of units) {
-    if (pick() < 0.2) continue; // nothing staged: the kind's own default
-    const cx = ((u.cells[0] as number) % W) + ((pick() * 5) | 0) - 2;
-    const cy = (((u.cells[0] as number) / W) | 0) + ((pick() * 5) | 0) - 2;
-    if (cx < 0 || cy < 0 || cx >= W || cy >= W) continue;
-    orders.set(u.unitId, cy * W + cx);
-  }
-  return {
-    width: W,
-    height: W,
-    units,
-    food,
-    hazards,
-    hazardDamage: HAZARD_DAMAGE,
-    maxHealth: MAX_HEALTH,
-    orders,
-  };
-}
 
 const SEEDS = 2000;
 
@@ -191,12 +87,16 @@ describe('the possibility-cloud engine agrees with this repo\'s vendored resolve
           )
         : engine;
 
-      const truth = oracleOutcome(tc);
+      const { outcome: truth, settlement } = oracleSettlement(tc);
       const mine = engineOutcome(boardEngine, tc);
       compared++;
 
       const where = `seed ${seed}`;
       expect([where, outcomeDiff(truth, mine).join('; ')]).toEqual([where, '']);
+      // Settlement on a board that gives it nothing to do: the CONTROL for the
+      // potion set below. Every tier must come out as it went in and the
+      // schedule must be untouched — law 5 in partial-engine-oracle.ts.
+      expect([where, settlementDiff(tc, settlement, mine).join('; ')]).toEqual([where, '']);
       expect([where, [...mine.deaths.entries()].sort()]).toEqual([
         where,
         [...truth.deaths.entries()].sort(),
@@ -337,5 +237,129 @@ describe('the possibility-cloud engine agrees with this repo\'s vendored resolve
     expect(mine.clashes.some((c) => c.kind === 'sever' && c.victimIDs.length === 0)).toBe(true);
     // Non-fatal: the owner is short a segment, not dead.
     expect(mine.survivors.has(0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The settlement set: potions, windows, and opening effects
+// ---------------------------------------------------------------------------
+
+const POTION_SEEDS = 1200;
+
+describe('settlement: potion collection, expiry, the ally cancel and tiers', () => {
+  test(`the board half and all three settlement coordinates over ${POTION_SEEDS} boards`, () => {
+    let compared = 0;
+    let withPotions = 0;
+    let withCollection = 0;
+    let withAllyBuff = 0;
+    let withCancel = 0;
+    let withCancelFired = 0;
+    let withExpiry = 0;
+    let withNegativeTier = 0;
+    let withDeaths = 0;
+
+    for (let seed = 1; seed <= POTION_SEEDS; seed++) {
+      const tc = buildPotionCase(seed);
+      if (tc.units.length < 2) continue;
+      const boardEngine = new PartialEngine(
+        makeTerrain(GRID, perimeter(W, W), tc.hazards),
+        { food: newBoard(GRID), potions: newBoard(GRID) },
+        { maxUnits: 8, maxTrail: 16, hazardDamage: HAZARD_DAMAGE, maxHealth: MAX_HEALTH }
+      );
+      const { outcome: truth, settlement } = oracleSettlement(tc);
+      const mine = engineOutcome(boardEngine, tc);
+      compared++;
+
+      const where = `potion seed ${seed}`;
+      // The board half still agrees, coordinate for coordinate, on a board
+      // carrying potions and non-zero tiers — which is where a tier the two
+      // encodings disagree about would show up first, since the contest is
+      // ordered on tier before anything else (turnEngine.ts strictMaximum).
+      expect([where, outcomeDiff(truth, mine).join('; ')]).toEqual([where, '']);
+      expect([where, [...mine.deaths.entries()].sort()]).toEqual([
+        where,
+        [...truth.deaths.entries()].sort(),
+      ]);
+      expect([where, mine.clashes]).toEqual([where, truth.clashes]);
+      expect([where, [...mine.severedCells.entries()].sort()]).toEqual([
+        where,
+        [...truth.severedCells.entries()].sort(),
+      ]);
+      // And the settlement coordinates, against the laws that do not restate
+      // the pickup arithmetic.
+      expect([where, settlementDiff(tc, settlement, mine).join('; ')]).toEqual([where, '']);
+
+      const potions = tc.potions ?? [];
+      if (potions.length > 0) withPotions++;
+      if (potions.length > (settlement.potions.length as number)) withCollection++;
+      if (settlement.effects.some((e) => e.kind === 'buff' && e.sourceId !== e.unitId)) {
+        withAllyBuff++;
+      }
+      if (settlement.vulnerableCollided.length > 0) withCancel++;
+      // The ally-buff cancel ACTUALLY FIRING: a teammate's buff that was on
+      // the board when the turn opened and is gone now, on a team where
+      // somebody collided vulnerable. Counted rather than asserted per board,
+      // because whether the rule fires is settlement's answer, not ours.
+      const bereaved = new Set(
+        settlement.vulnerableCollided.map((id) => tc.units.find((u) => u.unitId === id)?.team)
+      );
+      const survived = new Set(
+        settlement.effects.map((e) => `${e.unitId}:${e.kind}:${e.level}:${e.expiryTurn}`)
+      );
+      const cancelled = (tc.effects ?? []).some((e) => {
+        if (e.type !== 'invulnerability_buff') return false;
+        const owner = Number.parseInt(e.playerID.slice(1), 10);
+        if (settlement.vulnerableCollided.includes(owner)) return false;
+        const team = tc.units.find((u) => u.unitId === owner)?.team;
+        if (!bereaved.has(team)) return false;
+        return (
+          truth.survivors.has(owner) &&
+          !survived.has(`${owner}:buff:${e.level}:${e.expiryTurn}`)
+        );
+      });
+      if (cancelled) withCancelFired++;
+      if ((tc.effects ?? []).some((e) => e.expiryTurn <= (tc.turn ?? 0))) withExpiry++;
+      if (tc.units.some((u) => u.tier < 0)) withNegativeTier++;
+      if (truth.deaths.size > 0) withDeaths++;
+    }
+
+    console.log(
+      `settlement: ${compared} boards, ${withPotions} with a potion, ${withCollection} with a ` +
+        `collection, ${withAllyBuff} with an ally buff issued, ${withCancel} with a vulnerable ` +
+        `collision (${withCancelFired} cancelling an ally buff), ${withExpiry} with an effect due this turn, ${withNegativeTier} with a ` +
+        `negative tier, ${withDeaths} with a death`
+    );
+    // Anti-vacuity: a settlement suite whose boards never collect a potion or
+    // expire an effect is a suite about nothing at all.
+    expect(compared).toBeGreaterThan(1000);
+    expect(withCollection).toBeGreaterThan(20);
+    expect(withAllyBuff).toBeGreaterThan(5);
+    expect(withExpiry).toBeGreaterThan(200);
+    expect(withNegativeTier).toBeGreaterThan(200);
+    expect(withCancel).toBeGreaterThan(0);
+    expect(withCancelFired).toBeGreaterThan(0);
+    expect(withDeaths).toBeGreaterThan(200);
+  });
+
+  test('settlement never moves the board half', () => {
+    // The substitution this whole change rests on: `settleTurn` is
+    // `resolveTurn` plus bookkeeping, so switching the oracle cannot silently
+    // have moved a survivor. Checked on the boards where it has the most to do.
+    let compared = 0;
+    for (let seed = 1; seed <= 400; seed++) {
+      const tc = buildPotionCase(seed);
+      if (tc.units.length < 2) continue;
+      const input = oracleInput(tc);
+      const board = resolveTurn(input);
+      const { settled } = oracleSettlement(tc);
+      compared++;
+      const where = `potion seed ${seed}`;
+      expect([where, settled.board]).toEqual([where, board.board]);
+      expect([where, settled.deaths]).toEqual([where, board.deaths]);
+      expect([where, settled.clashes]).toEqual([where, board.clashes]);
+      expect([where, settled.severedCells]).toEqual([where, board.severedCells]);
+      expect([where, settled.food]).toEqual([where, board.food]);
+    }
+    expect(compared).toBeGreaterThan(350);
   });
 });
