@@ -20,6 +20,9 @@ no shipping code on this branch. Anchors verified against
 | `07-SYNTHESIS.md` | the whole factorization, the build order across lenses, the risks, and a checker-clean owner summary |
 | `08-FIT-PROVENANCE.md` | ruling 49: a fitted number is a value with the premise it was fitted under; transfer penalty, the two fit laws, and six degrees of freedom the machine expresses that we never tried |
 | `09-REDTEAM-RESPONSE.md` | the TIME lens's six breaks against this carve: all six adopted, three with sharper forms (obligation composes by min-deadline; Law K for calibration; per-site reduction bindings that default to broadcast) |
+| `11-REDUCTION-BINDINGS.md` | after the rectangularity reversal: the site-class table with its constraint column, blend-at-read, commitments recording their reduction binding, and cross-joint constraints as manifest data |
+| `12-EXPRESSIVENESS.md` | answering the dedicated red team: the sacrifice seat, in-game adaptation under Law K, the sixth kind decided, the linearity finding conceded in part with sub-provenance as the answer, the cross-horizon law written, and commit-timing leakage answered from source |
+| `13-OWNER-DECISION-PACKAGE.md` | the human boundary as one decision: two worked designs (ADVICE-first vs kernel-law parameterisation), with the decisive code fact that a pinned sacrifice already plays today |
 | `10-REDTEAM-BELIEF.md` | adversarial pass on the EPISTEMICS carve: the "touches nothing" claim is a diff test against a regime shift, plus lever preconditions, frozen-slot contention, the tag's non-partition, fog-tracking fear, the oracle's sampling bias and the observer-belief cost model |
 
 Cross-lens: this set adopts the EPISTEMICS lens's support/weight vocabulary
