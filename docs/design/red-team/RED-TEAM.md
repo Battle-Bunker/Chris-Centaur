@@ -41,21 +41,33 @@ the king file; trade a 2-weight unit to open a 30-weight account.
 
 - **What it needs:** a plan in which one of our units takes a rules-certain
   fatal move, priced at team level as net-positive weight-share flow.
-- **Where it plugs today:** nowhere reachable. Three independent walls, and the
-  carve *hardens* two of them:
-  1. `pruneFatalNoGain` (today a knob, `candidates.ts:341`, default true) is
-     reclassified by the joints inventory (§3) as set-closure, and the refusal
-     list is explicit: *"Set-closures stay kernel even though they are
-     numbers."* A positional sacrifice — fatal, no capture, no food — is
-     removed from the candidate set before any member prices it. Today a bot
-     could at least turn the knob off; under the carve the seat is deleted.
-  2. The `tier` band (`safe`/`atRisk`/`doomed`) survives as residual
-     precedence, and the VALUE lens pins it there deliberately: *"a doomed
-     move is outside the value function's domain, not a low number …
-     must never become a weight."* So even an admitted sacrifice loses every
-     ordering comparison to every non-doomed move, at any member weighting.
-  3. The safety floor ("rules-certain fatality refusals … no entry and no
-     config may reach them", `registry.ts` seam rule) is inviolate by design.
+- **Where it plugs today:** nowhere reachable, via three stacked walls whose
+  mechanics I verified against `candidates.ts`, and the carve *hardens* the
+  first and pins the second:
+  1. **Admission.** `pruneFatalNoGain` ("drop moves that certainly kill us
+     and certainly gain nothing", default true) removes every *gainless*
+     sacrifice — and "gain" is one-ply gain, so a decoy or body-block whose
+     payoff arrives at ply 3 is "no gain" at admission, gone before any
+     member prices it. A capturing sacrifice survives this wall. Today the
+     knob could at least be turned off per-bot; the joints inventory (§3)
+     reclassifies the prune as set-closure and the refusal list makes
+     closures kernel ("set-closures stay kernel even though they are
+     numbers") — under the carve, the seat is deleted.
+  2. **Ordering starvation.** The `tier` band tops the precedence order, and
+     the VALUE lens pins it there by ruling: *"a doomed move is outside the
+     value function's domain, not a low number … must never become a
+     weight."* A doomed candidate therefore sorts below every safe move, and
+     since the caps take a sorted prefix (`sliderCandidateCap: 4` of ~71),
+     an admitted capturing sacrifice is ordered last and cut by the cap on
+     exactly the boards where sacrifices matter. B6 keeps the death band as
+     a precedence resident, so this survives the re-carve verbatim.
+  3. **Economy starvation.** Even where the small option set admits the
+     sacrifice (snake boards, ≤3 options), its payoff is deeper than one
+     ply, deep threads root at the enumeration's own proposals, and a
+     bottom-ordered candidate never seeds a thread — so nothing ever computes
+     the value that would justify it. The plan-level `accept()` has no
+     doomed veto (the floor accounts the wipe honestly); the sacrifice loses
+     upstream, in ACTION and ECONOMY, before VALUE is consulted.
 - **The irony:** the VALUE lens's own currency prices sacrifice *correctly* —
   "a death costs exactly the balance it wipes" is the whole point of the
   account algebra, and a 2-weight outflow buying a 30-weight transfer is a
@@ -97,17 +109,24 @@ walks into a prepared refutation.
   more): FITS — it is a state-conditional supplier member (weights concentrate
   on findable replies; hard positions spread mass onto mistakes) read through
   the standard reduction. No new joint.
-- **Commitment-timing** (when to stage/commit orders, if the wire leaks any
-  readiness signal to the other teams; playing fast to pressure a human
-  operator; withholding commitment to deny information): **FAILS.** The
-  inventory itself classifies `economy/emit` as "kernel constraint (not a
-  member)" — emission timing is owned by the deadline discipline and the emit
-  gates, and no joint exposes it. If TacticToes reveals *anything* about
-  another team's readiness (a "team ready" indicator, ordering of the turn
-  resolution, latency observable through the doc), then timing is a strategy
-  axis with no seat. This is conditional on the wire's information leakage and
-  should be settled by reading the game server; the carve as written has
-  nowhere to put the answer if it comes back "yes".
+- **Commitment-timing** — **FAILS, and the leakage is now VERIFIED, not
+  conditional.** The game server resolves the turn early once every alive
+  player has committed (`active-game-manager.ts:199`,
+  `firebase-interface.ts:1968`), commitment is recorded in a shared per-turn
+  document (`moveStatuses/${turn}`, `movedPlayerIDs` via `arrayUnion`) that
+  clients read, and the commit action is *human-triggered* ("the
+  MoveCommitter implementation for the human-triggered Submit All"). So the
+  timing game is real and two-sided: committing early donates your remaining
+  reaction window and accelerates resolution; committing last, after
+  watching `movedPlayerIDs` fill, gives your team the only live hand at the
+  table — everyone else is frozen while you still think. That is a genuine
+  strategy axis, it is observable in the live data model today, and the
+  carve has no seat for it: the inventory classifies `economy/emit` as
+  "kernel constraint (not a member)", and no joint reads `movedPlayerIDs`
+  at all (nothing bot-side ingests opponents' commit status). Worse, since
+  the commit belongs to the *operator*, the natural home for a
+  when-to-commit policy is advice to the human — which is F11, the joint
+  kind that does not exist. Two carve failures intersect on this square.
 
 ### F4. Coordinated multi-turn combinations — **FITS, with a law amendment owed**
 
@@ -588,8 +607,12 @@ mode lands.
 9. **Fat-member sub-provenance (F6/F7):** members with internal term
    structure declare it, or the manifest's visibility claim is one member
    deep.
-10. **Settle the wire's commitment-timing leakage (F3b)** by reading the game
-    server, before deciding emission stays kernel.
+10. **Give commitment-timing a seat (F3b — leakage verified).** The server's
+    early-resolution rule plus the shared `movedPlayerIDs` document make
+    commit timing a live two-sided strategy today. Minimum: an ECONOMY-side
+    reader of opponents' commit status (it is a determination source for the
+    reaction table anyway), and a policy seat — likely inside the F11 advice
+    joint, since the commit is operator-owned.
 
 Nothing here says the carve is the wrong shape. It says the carve as
 converged is a machine for *never again mis-comparing two numbers*, and
