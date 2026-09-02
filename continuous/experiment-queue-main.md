@@ -246,3 +246,7 @@
       within one improve() call; max>1 = the two-comparator cycle is live
       (structurally reachable whenever the scout has spoken). Repair law on
       record (search-theory doc 00 §3).
+- [ ] Supplier log-loss harness (belief lens, 02 §4b): score every
+      weight-supplier's −log w(actual move) against Turn.moves on the replay
+      archive; 'adversarial' as reference row; gap to 'cover' = measured
+      value of ruling 23 before any bot changes. Zero games.
