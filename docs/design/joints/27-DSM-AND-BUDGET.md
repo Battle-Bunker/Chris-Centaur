@@ -21,6 +21,14 @@ the pre-teardown branch. So this is a weak instrument, and its results are
 reported as such. A robust pass (each file touched ≥ 3 times, killing the
 cosine-1.0 pairs that come from files touched once, together) is the one to read.
 
+> **SUPERSEDED IN PART by `29-DSM-WEIGHTED.md`.** The weighted pass
+> (commit-size weighting + mechanical sweeps excluded) sharpens the headline to
+> **3.10×**, **withdraws the MODEL reading below** (30% → 6%: its cohesion was
+> bulk fix rounds, not structure), and answers the split-versus-distribute
+> question in the other direction — **ACTION distributes; it is a kind with no
+> module of its own.** Read this section for the method and §3's argument, and
+> `29` for the numbers that stand.
+
 ### 2. The result
 
 ```

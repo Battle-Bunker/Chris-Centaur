@@ -63,9 +63,13 @@ purpose inexpressible.
 *A joint declares two things, and they are not the same decision: its **kind**
 (the composition law — the domain's joint, stable because it follows the game)
 and its **module** (the hiding unit — the design's joint, chosen to absorb
-churn). Co-change mining says they coincide at ~1.94× for four kinds and diverge
-sharply for ACTION, which is one law over four things whose changes are
-unrelated — see `27-DSM-AND-BUDGET.md`.*
+churn). Co-change mining (weighted by commit size, mechanical sweeps excluded) says they
+coincide at **3.10×** and diverge sharply for ACTION — one law over four things
+whose changes are unrelated, so ACTION is **a kind with no module of its own**,
+hosted in its consumers' modules. This is Parnas's standing position (1979;
+Parnas/Clements/Weiss 1985: a system needs several distinct structures, and
+conflating module with uses is a standard error), reached here from measurement.
+See `27-DSM-AND-BUDGET.md` and `29-DSM-WEIGHTED.md`.*
 
 | kind | member is | composition law | notes |
 |---|---|---|---|
