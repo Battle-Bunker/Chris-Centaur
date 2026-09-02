@@ -102,27 +102,18 @@ Shared objects (single definitions, no forks): **AttentionPolicy** (03
 **the conformance deadline** (≤1 tranche, 03 §5), **guidance flow
 channels** (`guidance:<target>`, 01 §2.2).
 
-The factoring offer, from this side's vocabulary: the mandate notes `goto`
-(target + completion event) vs `near` (target, continuous, no completion)
-strains the drives/preferences factoring. Seen from the OUT surface:
-
-> a **drive** = a HELD (operator-authored, with a completion/invalidation
-> condition) **plus** a flow channel;
-> a **preference** = a flow channel **only**.
->
-> `goto` is a drive (its HELD completes on arrival); `near` is a
-> preference *with a target-parameterised channel* (nothing to complete,
-> so no HELD — its whole being is the continuous stat). The "new factoring
-> needed" dissolves: target-having is a property of the channel's
-> parameterisation; event-having is the presence of a HELD. Two orthogonal
-> bits, four quadrants, all four meaningful (a fear-with-target that never
-> completes = "keep distance from X" is near's mirror; a global goal with
-> completion = "collect any potion" is a HELD on a non-target channel).
-
-Every quadrant's OUT echo is then automatic: channels report as FLOW,
-HELDs report health and completion edges. Offered to the guidance lens on
-their branch's terms; adopted here regardless, since the echo side must
-render whatever they mint.
+The factoring: **superseded by the guidance lens's cycle-1 push**
+(⟨PORT, SCOPE, CONSTRUCTOR, LIFECYCLE, AUTHORITY⟩ @ a7a2c2a). My earlier
+sketch here (drive = HELD + flow channel; preference = channel only) is
+consistent with theirs but coarser — their CONSTRUCTOR/LIFECYCLE split is
+the finer truth and is adopted. What this surface contributes back is the
+**echo theorem** (doc 05 §1): the OUT echo of an utterance is determined
+by its PORT — one echo generator per port, so their seventeen affordances
+get supervision for free. The frustration signal (their M5) is adopted as
+a first-class composite (doc 05 §2). Utterance echoes render every
+`Carried(author: operator)` as a HELD and every value-field as a FLOW
+channel — the earlier sketch survives as the echo mapping, not as the
+factoring.
 
 ## 7. Smaller frictions
 

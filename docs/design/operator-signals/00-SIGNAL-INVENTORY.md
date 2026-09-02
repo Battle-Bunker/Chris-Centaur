@@ -73,6 +73,8 @@ it lands on in `01-TYPE-SYSTEM.md`.
 | commit/intervention conformance — received / incorporated within ≤1 tranche / overridden by a floor | citation-scoped invalidation + conformance stream | time SYNTHESIS build 4 | future (increment 4 starts the telemetry — no operator event has ever fired in a harness game) | edge(HELD) |
 | guidance progress — e.g. the near/goto stat's current per-move value, visible while it has no completion event | waypoint stat already computed per candidate | platform (goto/near), IN-lens shared item | live platform-side | FLOW (the guidance term is a flow channel like any other) |
 | ask-status — an issued ask's lifecycle (open, answered, expired-unanswered, mooted by events) | this surface | new | — | HELD (role=ask echo) |
+| guidance-frustration — why the bot is not doing what was asked: never-priced / outvoted / beaten-at-reduction, with the remedy per cause | ledger dispositions + FLOW contrast + the foil, joined on the utterance id | guidance lens M5, doc 05 §2 | instrumented (all three reads exist in this design) | composite bundle, edge-triggered |
+| per-port echoes — one echo generator per guidance port (value-field→FLOW channel, attention→funded trace, support-demand→floor-delta edge, license→exercise edges, ...) | doc 05 §1 echo theorem | doc 05 | designed | port-determined |
 
 Section 6 is the load-bearing coordination point with `design/operator-guidance`:
 **every IN affordance owes an OUT echo**, else Horvitz's minimise-the-cost-of-

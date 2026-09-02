@@ -204,8 +204,11 @@ role: 'offer' | 'ask'
   one-way Law V is preserved: this surface still never writes into a
   staged-plan joint; the human does, through affordances that already exist.
   (Shared-vocabulary item #2 with `design/operator-guidance`: asks are
-  *invitations to use IN affordances*, so the two surfaces must agree on the
-  affordance vocabulary — an ask names the affordance that answers it.)
+  *invitations to use IN affordances* — refined in doc 05 §3 after their
+  cycle-1 push: an ask carries a pre-filled utterance template; the
+  answering utterance cites the ask via `provokedBy`; accepted templates
+  carry `ratified` provenance under their anti-laundering rider, and asks
+  never pre-fill an A3 license.)
 
 ## 5. The presentation split (M27, enforced by type)
 
