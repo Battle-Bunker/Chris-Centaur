@@ -381,3 +381,60 @@ sits under `food` (4), whose pull reaches 1 for a starving unit — so a hungry
 unit still takes a contested meal and a healthy one declines it. Weights of 2
 and 5 were both watched over five seeds; 2 is inert on contests and 5 buys
 nothing 3 does not.
+
+---
+
+## The first member that prices a tier
+
+`tier` (`src/lobster/evaluate/tier.ts`, weight 2 in `DEFAULT_WEIGHTS`) is the
+fold's first term that knows what an invulnerability window is worth.
+
+The gap it closes is a specific one. The forward step reads tier, effects and
+potions off the rules' own settlement now, so a pickup's consequences are a
+real state rather than a guess — but nothing in the SCORE priced that state.
+`material` does not price a tier, `contest` prices only this turn's arrival
+verdict at the tier a unit already holds, and the one place tier reached a
+decision at all was `candidates.ts::tierRisk`, which is an ORDERING: it decides
+which moves the search looks at first and never which move it stages. So no
+amount of depth could find a line that acquires a buff, because no term in the
+objective was worth more after the buff than before it.
+
+What it prices is read straight off `strictMaximum`. A tier is worth exactly
+the contests it flips, so against the best enemy arrival at our destination the
+rule is asked twice — once at the tier we will hold, once with our own tier
+zeroed — and the difference is +1 where our tier turned a loss or a tie into a
+win, −1 where it turned a win into a loss, and 0 everywhere else. That is the
+two clauses of the design in one number: a buff matters only where an enemy
+could reach and would otherwise win or tie, and a debuff matters only where an
+enemy who could not win now can. The enemy's reach is `contest`'s own field
+(`contestField`, one enumeration per decision, cached), so this adds no second
+enumeration and costs one array read per unit per node. What a pickup does to
+the tier vector is `settleTurn`'s answer through
+`substrate.ts::tiersAfterPickupBy`, asked once per collector per decision — so
+neither polarity nor magnitude of the pickup rule is restated here. The edge is
+then averaged over the potion window, one turn at the arrival tier and the rest
+at the tier that follows, which is the "over the remaining window" half: a buff
+with one turn left is worth a third of one that outlives the horizon.
+
+The weight is 2, and the placement is the calibration. The term's range is
+[−1, 1] by construction, so `2 × 1` sits an order of magnitude inside the cliff
+ceiling of `10 × lightest unit weight` and can never buy a unit's life. It
+clears `momentum` (1) and the spread of `reach` and `room` across one unit's
+own options (about a tenth), so it decides among moves those terms tie — which
+is the point. It sits UNDER `contest` (3), which prices the arrival verdict
+this term only explains: above it, a unit would walk into a square it loses in
+order to be holding a buff there. And under `food` (4), so a hungry unit eats
+rather than chasing a potion.
+
+**What is measured, and what is not.** The term is identically zero on a board
+with no live effect and no live potion — a whole-decision gate, checked over
+the admission-law corpus and, in play, over the three local-runner scenarios at
+five seeds each: `mixed`, `snakes` and `sparse` are byte-identical on every
+counter, per board class, with the member seated. That is the whole of the play
+evidence, because THERE IS NO POTION SCENARIO IN THE RUNNER YET. The behaviour
+on a potion board is pinned on constructed boards instead: an ally that ties an
+enemy on weight is credited for the window a teammate's pickup opens and the
+fold prefers that line; a unit that out-weighs an enemy is debited for the
+window its own pickup opens; and neither fires where no enemy contests the
+square, or where the square was already lost on weight. A play measurement on a
+potion board is the next thing this member needs and it does not have one.

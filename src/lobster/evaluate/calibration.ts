@@ -99,6 +99,30 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * healthy one declines it. See `./contest.ts`.
    */
   contest: 3,
+  /**
+   * Tier value. TWO, and the placement between `momentum` and `contest` is the
+   * whole calibration:
+   *
+   * · the term's range is [-1, 1] by construction (one unit's edge is at most
+   *   1, divided by our unit count), so `2 x 1` sits an order of magnitude
+   *   inside the cliff ceiling of `10 x lightest unit weight` and can never
+   *   buy a unit's life;
+   * · it clears `momentum` (1) and the spread of `reach` and `room` across one
+   *   unit's own options (about a tenth), so it decides among moves those
+   *   terms tie — which is the point, since acquiring a window is otherwise
+   *   invisible to every term in the fold;
+   * · it sits UNDER `contest` (3), which prices the arrival-turn verdict this
+   *   one only explains. Above it, a unit would walk into a square it loses in
+   *   order to be holding a buff there, which inverts the term's own reason
+   *   for existing;
+   * · and under `food` (4), for the reason `contest` is: a hungry unit eats
+   *   rather than chasing a potion.
+   *
+   * Identically zero on a board with no live effect and no live potion, so
+   * every measurement taken on the potion-free scenarios is unaffected by it.
+   * See `./tier.ts`.
+   */
+  tier: 2,
 };
 
 /**
@@ -360,6 +384,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     food: 0,
     momentum: 0,
     contest: 0,
+    tier: 0,
   },
   reachHorizonTurns: 0,
 };

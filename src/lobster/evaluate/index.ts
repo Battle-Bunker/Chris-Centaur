@@ -77,6 +77,7 @@ export { CONTEST_LOSS, contestFeature, contestField, winsContest } from './conte
 export type { ContestField } from './contest';
 export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
+export { tierFeature, tierIsLive } from './tier';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
