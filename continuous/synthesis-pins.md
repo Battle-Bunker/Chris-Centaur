@@ -4256,3 +4256,23 @@ record; coordinator relays only what genuinely cannot wait.
   Time lens owes a SURFACE-TITHE row (frame assembly never bids at the
   market). Standing risk named: anchoring/automation bias — surface
   measures its own distortion via override track record.
+- Index inversion SPECCED (composition @ 373916d, 32-INDEX-INVERSION.md):
+  the index is a PRODUCT OF COORDINATE STRUCTURES, not one lattice —
+  per-coordinate operation table (join/meet/tighten/advance/pool),
+  operations lifted componentwise, undefined where unsupported. Economy
+  lever menus GENERATED from the table (the voc.ts stale-unit-catchup
+  defect is the exhibit for not doing so). measure.weight = choice not
+  purchase (ruling 13 pins); config.* no lattice ops; measure.range =
+  the only coordinate whose advance is real computation (the one silent-
+  transport-bug site). LAW H′ written (closes the red team's 4-round
+  demand): across horizons the sound channel yields the HULL, never
+  intersection — kill-one-lose-two is the standing counterexample; the
+  vacuity is the point (arbitrary cross-horizon discounts came from
+  pretending otherwise). Law T guards: sound-channel-only; not
+  transitive across a widening. CI: allow-list + clone detection +
+  character-for-character projection round-trip (byte-identity gate);
+  every check owes a falsification test. Six increments X1-X6; only X4
+  can change behaviour and only by refusing. ADVICE ratification rider:
+  cause=surfaced-by:<member>, fits STRATIFY on it, caused rows never
+  pool with unprompted (evidence about operator preferences, not option
+  quality). Budget: zero new; deletes four module-local tuples.
