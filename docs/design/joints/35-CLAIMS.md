@@ -34,6 +34,7 @@ check.
 | `tier` is an input-only field, so a window cannot advance in the model | `ResolveUnit.tier` in, nothing out |
 | both reduced-product operands ship | `grammar.ts` `colourBound`; `bank.ts`'s "parity-exact" argument |
 | a `no-restricted-imports` ban exists and **does not fire** | shadowed by a later flat-config block; recorded, still open |
+| `colourBound` (bishop-only exact narrowing) has **never run in a measured game** | bishop appears in 0 batch specs; Law R's runtime clause would flag it |
 
 ## 3. Assumed — and what would refute each
 
@@ -46,7 +47,7 @@ ones to attack.
 | **the generator does not introduce a worse failure than it removes** | the independent oracle (`20 §3`) firing on a manifest-caused mismatch that the old duplicated-copies world would have caught earlier | free once the oracle exists — and if it never fires in six months, the oracle itself is the untested thing |
 | **`behaviourId` retains measurements across refactors** | a refactor that leaves every decision identical on the probe suite but whose `behaviourId` moves — i.e. the probe suite is too sensitive; or one that changes decisions the suite does not see — too coarse | one probe-suite run per refactor |
 | **Law T pays more than it costs** (tightening is the asset, refusal the tax) | count, over a decision: pairs tightened vs comparisons refused. If refusals dominate by an order of magnitude the index is a tax with a rebate | a counter, no batch |
-| **the reduced product fires** | instrument `reduceProduct` for a week: if the congruence entry never narrows a live interval, the operands ship but never meet, and the table is dead weight | a counter |
+| **the reduced product fires** | instrument `reduceProduct` for a week: if the congruence entry never narrows a live interval, the operands ship but never meet, and the table is dead weight. **Partly settled already**: bishop counts **0** across every batch spec (snake 392, king 121, pawn 85, queen 71, knight 50, rook 32), so the *spatial* congruence's operand is absent from the corpus and the live entry must be **trail-unit step parity** | a counter; the roster half was a grep |
 | **the entry floor is worth paying** | unmeasurable honestly; the proxy is time-to-first-correct-change for a contributor who has not read the design. If it exceeds the current tree's, the laws have not paid for themselves | one observation per new contributor |
 | **kinds stay stable while modules churn** (the Parnas bet) | re-run the DSM after three months of the new architecture: if the *kind* boundaries move too, the carve was following the work programme rather than the domain | free (a re-mine) |
 | **scoped contributions are identifiable at arity 2** | fit one pair term and check the design's rank: if every corpus is rank-deficient at 36 parameters, the arity cap is 1 in practice and the scope machinery is ceremony | one fit |

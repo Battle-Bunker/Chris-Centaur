@@ -274,6 +274,22 @@ gives `[4,4]` where the direct product gives `[3,5]`.
   **temporal congruence**, and note where it lives: **inside the bank**, being
   reasoned about informally to justify a soundness argument.
 
+**But which operand is LIVE is the opposite of the one I led with.** Counting
+unit kinds across every batch spec in the kit: snake 392, king 121, pawn 85,
+queen 71, knight 50, rook 32, **bishop 0**. The bishop appears in one preset
+roster and in **no measured cell**, so the *spatial* congruence — the elegant
+example — would fire on a roster nobody runs. The *temporal* one is everywhere:
+trail units are the most common unit in the corpus by a factor of three, and
+`headPossible` parity is a fact about every one of them.
+
+So the reduction table's first entry should be built against **trail-unit step
+parity**, not bishop colour, and the doc's lead example is retained only because
+it is the clearest illustration. **Second-order finding, and it belongs to
+someone else's list:** `colourBound: true` is a kind-specific exact narrowing
+that has never run in a measured game — the same class as the four zero-firing
+reduction mechanisms (`23 §4`), found on the engine side rather than the search
+side, and Law R's runtime clause would flag it.
+
 That second one carries two consequences. Under Law A (`25`) it is a soundness
 argument whose hypothesis — step parity — is currently prose in a comment and
 should be an asserted hypothesis. And under this section it is a **bound family
