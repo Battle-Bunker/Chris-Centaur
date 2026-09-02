@@ -4182,3 +4182,18 @@ must encourage LONGER PRIVATE EXPLORATION SESSIONS and a HIGHER BAR OF
 INSIGHT QUALITY before proactively messaging the coordinator. Agents
 cross-read sibling branches directly; pushed branches are the durable
 record; coordinator relays only what genuinely cannot wait.
+- Value-lens batch (bf1508f): coverage declared over MECHANISMS not
+  distance (king-present cells carry 9.7x residual; distance anti-
+  correlates within no-king cells — wipe-closure defect measured; not
+  refusing costs ~10x). P(A beats B) retrofit: potionOrder>plain 0.516
+  [.482,.555], potionBoth 0.482, parentDefault>potionIntel 0.568 — three
+  standing verdicts contain 0.5. Coverage gaps: food 0.5 / potion 0.15
+  NEVER varied in 43 cells; K=3 in 18,282/18,295 games; pieces 3 and 5
+  never run (the sign-reversal crossing needs 2/3/5-piece cells). Fold
+  proved policy-inert twice (prefactor positive per-turn constant — void
+  by construction; flow CONTENT explains contested play +0.131, folding
+  explains none). Two new extraction rules: never build a spend-decision
+  statistic whose denominator is the spend; run the PLAUSIBILITY check
+  before the statistical one (4 of 6 artifacts caught that way).
+  Harness requirement: record scored-but-unplayed candidates (M72 and
+  C60's estimator half both need it).
