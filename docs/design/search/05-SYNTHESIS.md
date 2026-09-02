@@ -240,6 +240,34 @@ Two findings come out of looking at the column set properly (doc 06):
 > the determinism cost is avoidable by the canonical-order, slice-boundary fold
 > the evaluation channel already uses.
 
+### 2.4¾ The seed uses the partition's components and inverts the conditioning order that makes it sound
+
+`cluster-partition.ts` justifies the slider fiat as **cutset conditioning on a
+star hub**, and `cluster-enum.ts` honours it: sliders are the outer coordinate,
+components solved conditional on each slider joint, *"condition, never
+marginalise"*.
+
+The multi-start seed does the reverse and nothing says so. `core.ts` passes
+`clusters.map(c => c.members)` — members, **not** variables — so sliders fall
+into `groupsOf`'s trailing `rest` group; stage 1's group loop is sequential and
+committing (`trial.set(working)` … `working[slot] = chosen.choice[slot]`).
+Therefore **every component is optimised against the sliders' stage-0 random
+draw, and the sliders are optimised last against the resulting components.**
+Conditioning on the hub *last* is the one order cutset conditioning exists to
+avoid.
+
+The fix is a reordering — one line in `groupsOf` — and the finding's real
+content is architectural: **the two layers derive the same partition twice
+(`openMultiStart` and `openCluster` both call `partitionOf`) and then use it in
+opposite orders.** Group order and group conditioning are members of the
+DECOMPOSITION joint's `focus` sub-joint applied to the seed rather than to the
+enumeration, which is the argument for one shared `Decomposition` value.
+
+Note what this says about the redesign it belongs to: the sampling apparatus
+correctly stopped the rejected seed's *unit-level* committed greedy argmax, and
+left the *cluster-level* one standing — at exactly the level where the coupling
+is strongest, because that is where the sliders are.
+
 ### 2.5 The layer that decides what the bot plays has no socket and no record
 
 Eight proposal operators (rung-0 conform, multi-start stages 0 and 1, cluster
