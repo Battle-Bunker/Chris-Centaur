@@ -324,6 +324,19 @@ export interface AssessedCandidate {
   readonly tier: SafetyTier;
   /** Does this move take something? 'yes' in every world, 'maybe', or 'no'. */
   readonly capture: 'yes' | 'maybe' | 'no';
+  /**
+   * WHAT the move takes, in HALF-UNITS of the victim's weight: the heaviest
+   * expected capture along the path, priced `weight × 2` for a defeat the risk
+   * layer proves and `weight × 1` for one it only allows. Ordering hint only —
+   * `capture` remains the certainty every prune reads.
+   *
+   * Zero whenever no victim can be named. That is not "no capture": a defeat
+   * against a CLOUD (a held unit that merely might be standing there) has no
+   * unit on the target square to price, and an exchange the mover might lose
+   * has no victim it certainly outlives. Those keep the pre-weight order,
+   * because `captureOrder` falls through to `capture` when the values tie.
+   */
+  readonly captureValue: number;
   /** Health the move spends, at its interval endpoints. */
   readonly healthSpent: { readonly lo: number; readonly hi: number };
   /**
@@ -372,6 +385,8 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly shadows = new WeakMap<EngineSubstrate, ReadonlySet<CellIndex>>();
   /** Enemy last-king squares, per substrate. An ordering hint, computed once. */
   private readonly regicideCells = new WeakMap<EngineSubstrate, ReadonlyMap<CellIndex, number>>();
+  /** Head cell → occupant, per substrate. The capture order's price list. */
+  private readonly victims = new WeakMap<EngineSubstrate, VictimTable>();
 
   constructor(knobs: CandidateKnobs = {}) {
     this.knobs = { ...DEFAULT_KNOBS, ...flaggedKnobs(), ...knobs };
@@ -397,13 +412,26 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub));
+    return generate(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.victimsFor(sub)
+    );
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(sub, unitId, this.knobs, this.shadowsFor(sub), this.regicideFor(sub))
-      .kept;
+    return generateAssessed(
+      sub,
+      unitId,
+      this.knobs,
+      this.shadowsFor(sub),
+      this.regicideFor(sub),
+      this.victimsFor(sub)
+    ).kept;
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -420,6 +448,14 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
     if (hit !== undefined) return hit;
     const made = enemyRegicideCells(sub);
     this.regicideCells.set(sub, made);
+    return made;
+  }
+
+  private victimsFor(sub: EngineSubstrate): VictimTable {
+    const hit = this.victims.get(sub);
+    if (hit !== undefined) return hit;
+    const made = victimTable(sub);
+    this.victims.set(sub, made);
     return made;
   }
 }
@@ -448,14 +484,16 @@ function generate(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  victims: VictimTable
 ): CandidateSet {
   const { kept, pruned, legalCount } = generateAssessed(
     sub,
     unitId,
     knobs,
     shadows,
-    regicideCells
+    regicideCells,
+    victims
   );
   return {
     unitId,
@@ -470,7 +508,8 @@ function generateAssessed(
   unitId: UnitId,
   knobs: Required<CandidateKnobs>,
   shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  victims: VictimTable
 ): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
@@ -535,7 +574,7 @@ function generateAssessed(
   // can be broken by it. It only stops a move that cannot survive from being
   // the one the search starts on.
   const assessed = surviving.map((candidate) => {
-    const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells);
+    const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells, victims);
     if (one.tier === 'doomed') return one;
     if (certainlySelfFatal(sub, unit, candidate) !== null) {
       return { ...one, tier: 'doomed' as SafetyTier };
@@ -776,7 +815,9 @@ function assessOne(
   /** Enemy last-king squares, or null when `gainOrdering` is off — in which
    * case neither gain key is computed at all, so the shipped path pays nothing
    * for a key it does not read. */
-  regicideCells: ReadonlyMap<CellIndex, number> | null
+  regicideCells: ReadonlyMap<CellIndex, number> | null,
+  /** Head cell → who is standing on it, for the capture ordering's price. */
+  victims: VictimTable
 ): AssessedCandidate {
   const verdict =
     candidate.path.length === 0
@@ -791,10 +832,25 @@ function assessOne(
         : 'atRisk';
 
   let capture: AssessedCandidate['capture'] = 'no';
+  let captureValue = 0;
   let contingencies = 0;
-  for (const cell of verdict.perCell) {
+  for (let i = 0; i < verdict.perCell.length; i++) {
+    const cell = verdict.perCell[i] as EncounterVerdict;
     if (cell.defeat === 'yes') capture = 'yes';
     else if (cell.defeat === 'maybe' && capture === 'no') capture = 'maybe';
+    // WHAT is taken here. `perCell` is one verdict per staged cell, in path
+    // order, so the victim is whoever stands on `path[i]` — and only a HEAD can
+    // be defeated (`bodyOutcome` defeats nothing at all), which is why the
+    // table is head-indexed and a ray crossing a long snake cannot price its
+    // body. The MAX, not the sum: a path takes one thing, and the best thing it
+    // might take is what the order should reach for.
+    if (cell.defeat !== 'no') {
+      const victim = victims.get(candidate.path[i] as CellIndex);
+      if (victim !== undefined && victim.team !== unit.team) {
+        const priced = victim.weight * (cell.defeat === 'yes' ? 2 : 1);
+        if (priced > captureValue) captureValue = priced;
+      }
+    }
     for (const cause of cell.causes) if (cause.contingent) contingencies++;
   }
 
@@ -833,6 +889,7 @@ function assessOne(
     candidate,
     tier,
     capture,
+    captureValue,
     healthSpent: verdict.healthSpent,
     exhaustionFatal: verdict.exhaustionFatal,
     landing,
@@ -1121,7 +1178,8 @@ function restoreLeastBad(
  * a search that stops early loses only the moves it did not reach, and every
  * move it did reach was scored by the evaluator, not by this comparator.
  *
- * Tiers first (danger order), then captures, then the escort ray-shadow hint,
+ * Tiers first (danger order), then captures by what they TAKE (see
+ * `captureOrder`), then the escort ray-shadow hint,
  * then health preserved, then the number of held units the outcome rests on
  * (fewer contingencies first: a decision that needs less refinement is worth
  * more per millisecond), and finally the destination, so the order is total and
@@ -1137,12 +1195,45 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   // off and the order below it is byte-for-byte what it always was.
   const risk = tierRisk(a) - tierRisk(b);
   if (risk !== 0) return risk;
-  const capture = captureRank(b.capture) - captureRank(a.capture);
+  const capture = captureOrder(a, b);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
   if (a.healthSpent.hi !== b.healthSpent.hi) return a.healthSpent.hi - b.healthSpent.hi;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
+}
+
+/**
+ * THE CAPTURE ORDER — expected captured weight first, certainty second.
+ *
+ * A queen is worth thirty-one of what a two-segment snake is worth, and the
+ * old key ranked the two the same: both `capture: 'yes'`, both rank 2, and
+ * which one the anytime path reached first came down to cell index. Under a
+ * `candidateCap` the lighter one is not merely reached first, it is sometimes
+ * the only one reached at all.
+ *
+ * `captureValue` is the price and `capture` is the tie-break, in that order, so
+ * that:
+ *
+ * · a heavier certain capture outranks a lighter certain one (the whole point);
+ * · at EQUAL weight, certain outranks possible — 2w against w;
+ * · a possible capture of something more than twice as heavy outranks a certain
+ *   capture of the light thing, because that is what an EXPECTED value says and
+ *   the evaluator, not this comparator, decides whether the trade is taken;
+ * · a move that takes nothing still sorts last, since any priced victim weighs
+ *   at least one and any unpriced capture still wins the certainty tie-break
+ *   against `no`.
+ *
+ * This carries no more soundness weight than the key it replaces: it changes
+ * which move the anytime path reaches first, never which move is chosen among
+ * the moves it reached. The evaluator prices the material either way — see
+ * `materialBounds` in `./evaluate/features.ts`, which folds each unit's own
+ * weight — so this closes the gap between what the search LOOKS at first and
+ * what it is already able to score.
+ */
+export function captureOrder(a: AssessedCandidate, b: AssessedCandidate): number {
+  if (a.captureValue !== b.captureValue) return b.captureValue - a.captureValue;
+  return captureRank(b.capture) - captureRank(a.capture);
 }
 
 const captureRank = (c: AssessedCandidate['capture']): number =>
@@ -1190,7 +1281,7 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const risk = tierRisk(a) - tierRisk(b);
   if (risk !== 0) return risk;
   if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
-  const capture = captureRank(b.capture) - captureRank(a.capture);
+  const capture = captureOrder(a, b);
   if (capture !== 0) return capture;
   if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
@@ -1275,6 +1366,40 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
  * king may not be there next turn, which is precisely why the corpus's attempt
  * rate converts at only one in five.
  */
+/** What one capture is worth, and whose it is. */
+interface Victim {
+  readonly team: number;
+  readonly weight: number;
+}
+
+/** Head cell → the unit standing on it. */
+type VictimTable = ReadonlyMap<CellIndex, Victim>;
+
+/**
+ * The capture order's price list, one entry per unit, indexed by the cell that
+ * can actually be contested.
+ *
+ * HEAD-INDEXED on purpose. The engine defeats a unit only in a head contest —
+ * `bodyOutcome` reports `defeatAll: false, defeatSome: false`, because arriving
+ * at a body cell blocks or severs and never kills the owner — so a body cell is
+ * not a square where anything is taken, and indexing it would price a ray that
+ * merely crosses a long snake as if it captured the snake.
+ *
+ * Own-team entries are kept and filtered at the point of use: the table is per
+ * substrate and shared by every unit assessed on it, and one unit's ally is
+ * another's victim only in the sense that neither may be priced by the mover
+ * that owns it.
+ */
+function victimTable(sub: EngineSubstrate): VictimTable {
+  const out = new Map<CellIndex, Victim>();
+  for (const u of sub.roster()) {
+    const head = u.cells[0];
+    if (head === undefined) continue;
+    out.set(head, { team: u.team, weight: u.weight });
+  }
+  return out;
+}
+
 function enemyRegicideCells(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> {
   const out = new Map<CellIndex, number>();
   const regicide = sub.regicideTeamNumbers();

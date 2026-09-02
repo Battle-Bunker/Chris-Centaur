@@ -22,6 +22,7 @@ import {
   PRUNE,
   PRUNE_EXACT,
   PRUNE_NOTES,
+  captureOrder,
   defaultCandidateGenerator,
 } from '../candidates';
 import type { AssessedCandidate } from '../candidates';
@@ -795,6 +796,164 @@ describe('a certainly-unaffordable move is refused unless the kill is certain to
         (e) => e.candidate.to === onHazard.candidate.to && e.prune === PRUNE.terrainFatal
       )
     ).toBe(true);
+    sub.release();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The capture order prices what it takes
+// ---------------------------------------------------------------------------
+
+/**
+ * A queen with two captures in front of it and nothing else to want: a heavy
+ * one due west, a light one due east, both clean unobstructed slides of the
+ * same length, so nothing BUT the capture key can separate them. Before the
+ * weight went into the key the two tied at rank 1 and the order fell through
+ * to health spent and cell index; now the heavier victim comes first.
+ */
+const CAPTURE_CHOICE_BOARD = (): Board =>
+  boardOf([
+    piece('Q', { x: 4, y: 4 }, 'queen', 12, { teamID: 'red', orientation: { dx: 1, dy: 0 } }),
+    piece('HEAVY', { x: 1, y: 4 }, 'queen', 8, { teamID: 'blue', orientation: { dx: 1, dy: 0 } }),
+    piece('LIGHT', { x: 7, y: 4 }, 'pawn', 1, { teamID: 'blue', orientation: { dx: -1, dy: 0 } }),
+  ]);
+
+/** One assessed candidate, with everything but the fields under test neutral. */
+const assessedWith = (
+  to: number,
+  capture: AssessedCandidate['capture'],
+  captureValue: number
+): AssessedCandidate =>
+  ({
+    candidate: { unitId: 0 as UnitId, from: 0, to, path: [to] },
+    tier: 'safe',
+    capture,
+    captureValue,
+    healthSpent: { lo: 0, hi: 0 },
+    exhaustionFatal: 'no',
+    landing: [to],
+    tierGrade: 'clear',
+    selfDebuff: 'none',
+    contingencies: 0,
+    shadowBonus: 0,
+    foodGain: 0,
+    regicideShot: 0,
+  }) as AssessedCandidate;
+
+describe('the capture order prices the victim', () => {
+  test('a heavy capture is reached before a light one', () => {
+    const sub = makeSubstrate({ board: CAPTURE_CHOICE_BOARD(), turn: TURN, asTeam: 'red' });
+    const queen = sub.unitOfWireId('Q')?.unitId as UnitId;
+    const heavyCell = sub.unitOfWireId('HEAVY')?.cells[0] as number;
+    const lightCell = sub.unitOfWireId('LIGHT')?.cells[0] as number;
+
+    const ordered = defaultCandidateGenerator.assess(sub, queen);
+    const heavy = ordered.find((a) => a.candidate.to === heavyCell) as AssessedCandidate;
+    const light = ordered.find((a) => a.candidate.to === lightCell) as AssessedCandidate;
+
+    // Both are captures the engine allows, of victims eight weights apart.
+    expect(heavy.capture).not.toBe('no');
+    expect(light.capture).not.toBe('no');
+    expect(heavy.captureValue).toBeGreaterThan(light.captureValue);
+
+    // And the heavy one is handed to the search first — it is the SEED, which
+    // is what an anytime path that runs out of budget after one candidate
+    // actually plays.
+    expect(ordered.indexOf(heavy)).toBeLessThan(ordered.indexOf(light));
+    expect(ordered[0]?.candidate.to).toBe(heavyCell);
+    sub.release();
+  });
+
+  test('a body cell the ray merely crosses is not priced as a capture', () => {
+    // The victim table is head-indexed because `bodyOutcome` defeats nothing:
+    // arriving at a body cell blocks or severs, it does not kill the owner.
+    const board = boardOf([
+      piece('Q', { x: 4, y: 4 }, 'queen', 12, { teamID: 'red', orientation: { dx: 1, dy: 0 } }),
+      makeSnake(
+        'S',
+        [
+          { x: 1, y: 4 },
+          { x: 1, y: 3 },
+          { x: 1, y: 2 },
+        ],
+        { teamID: 'blue', orientation: { dx: 1, dy: 0 } }
+      ),
+    ]);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const queen = sub.unitOfWireId('Q')?.unitId as UnitId;
+    const bodyCell = sub.unitOfWireId('S')?.cells[1] as number;
+    const onBody = defaultCandidateGenerator
+      .assess(sub, queen)
+      .find((a) => a.candidate.to === bodyCell);
+    if (onBody !== undefined) expect(onBody.captureValue).toBe(0);
+    sub.release();
+  });
+
+  test('at equal weight, a certain capture outranks a possible one', () => {
+    const certain = assessedWith(10, 'yes', 4 * 2);
+    const possible = assessedWith(20, 'maybe', 4);
+    expect(captureOrder(certain, possible)).toBeLessThan(0);
+  });
+
+  test('a possible capture of something twice as heavy outranks a certain light one', () => {
+    // The specified semantics: EXPECTED captured weight. A `maybe` on a
+    // weight-8 queen is priced 8; a `yes` on a weight-1 pawn is priced 2.
+    // Whether the trade is worth taking is the evaluator's question, not the
+    // order's — the order only decides which one the search sees first.
+    const heavyMaybe = assessedWith(10, 'maybe', 8);
+    const lightCertain = assessedWith(20, 'yes', 1 * 2);
+    expect(captureOrder(heavyMaybe, lightCertain)).toBeLessThan(0);
+  });
+
+  test('at equal EXPECTED weight, certainty is the tie-break', () => {
+    const certainTwo = assessedWith(10, 'yes', 2 * 2);
+    const maybeFour = assessedWith(20, 'maybe', 4);
+    expect(certainTwo.captureValue).toBe(maybeFour.captureValue);
+    expect(captureOrder(certainTwo, maybeFour)).toBeLessThan(0);
+  });
+
+  test('an unpriced capture still outranks taking nothing', () => {
+    // A defeat against a cloud has no unit on the square to price. It must not
+    // fall behind a move that takes nothing at all.
+    const unpriced = assessedWith(10, 'maybe', 0);
+    const nothing = assessedWith(20, 'no', 0);
+    expect(captureOrder(unpriced, nothing)).toBeLessThan(0);
+    expect(captureOrder(nothing, unpriced)).toBeGreaterThan(0);
+  });
+
+  test('the capture order is total, antisymmetric and reproducible', () => {
+    const all = [
+      assessedWith(1, 'no', 0),
+      assessedWith(2, 'maybe', 0),
+      assessedWith(3, 'maybe', 1),
+      assessedWith(4, 'yes', 2),
+      assessedWith(5, 'maybe', 4),
+      assessedWith(6, 'yes', 4),
+      assessedWith(7, 'maybe', 31),
+      assessedWith(8, 'yes', 62),
+    ];
+    // `|| 0` normalises the negative zero a self-comparison produces.
+    const sign = (n: number): number => Math.sign(n) || 0;
+    for (const a of all) {
+      for (const b of all) {
+        expect(sign(captureOrder(a, b))).toBe(sign(-captureOrder(b, a)));
+      }
+    }
+    // Every class above separates from every other, so the sort never leaves
+    // two of them to an implementation-defined tie.
+    const sorted = [...all].sort(captureOrder).map((a) => a.candidate.to);
+    expect(sorted).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+    const fromReversed = [...all].reverse().sort(captureOrder).map((a) => a.candidate.to);
+    expect(fromReversed).toEqual(sorted);
+  });
+
+  test('the whole order stays total and deterministic on a real board', () => {
+    const sub = makeSubstrate({ board: CAPTURE_CHOICE_BOARD(), turn: TURN, asTeam: 'red' });
+    const queen = sub.unitOfWireId('Q')?.unitId as UnitId;
+    const once = defaultCandidateGenerator.assess(sub, queen).map((a) => a.candidate.to);
+    const twice = defaultCandidateGenerator.assess(sub, queen).map((a) => a.candidate.to);
+    expect(twice).toEqual(once);
+    expect(new Set(once).size).toBe(once.length);
     sub.release();
   });
 });
