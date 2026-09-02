@@ -126,6 +126,30 @@ Mapping onto (S, w):
   Same problem, two compressions — theirs weighted and unsound-if-truncated,
   ours unweighted and sound. The next section is about getting both.
 
+### 3b. The honest counter-example: DeepNash
+
+DeepNash (Pérolat et al., *Science* 378, 2022 — fetched) reached human-expert
+Stratego — imperfect information at 10^535 nodes — MODEL-FREE, with no
+search and NO explicit belief tracking at all: regularized Nash dynamics over
+self-play, the belief living implicitly in the policy network's weights. The
+strongest published result on a large fog board game is belief-free, and an
+audit that only cited ReBeL would be curating the evidence.
+
+Why the counter-example does not transfer, stated so it can be re-examined
+if the premises move: (a) DeepNash's guarantee is exploitability-flavored
+(approximate Nash in expectation over huge self-play); it offers NOTHING
+like a per-decision sound floor, and the owner's Centaur doctrine (ruling
+13: conservative advice, humans take the risks) makes the per-decision floor
+the product; (b) it needs training at a scale the program does not have and
+rulings forbid depending on; (c) its implicit belief cannot be inspected,
+priced, or handed to an operator — the mechanism-report/operator-pin
+surface is load-bearing here. The honest residue: DeepNash is evidence that
+EXPLOITING fog (bluffing with invisibility, randomizing collection routes)
+may eventually want policy-gradient machinery rather than deeper belief
+modeling — which is D3's mixing temperature and the humans' empathy
+department, and a reason the mirror's scope stays deliberately narrow
+(03-doc §3, 09-doc §7).
+
 ## 4. Particles vs masks — the box-particle literature answers the compression question
 
 The question posed by the extended mandate: is the possibility-cloud

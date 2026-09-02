@@ -5,6 +5,17 @@ The standalone summary of the design/belief-fog line. Details and derivations:
 wire parameter), `02-PROJECTIONS-AND-WEIGHTS.md` (value table, weight socket,
 risk dial), `03-WORKED-FOG-SCENARIO.md` (the trace and its three findings).
 
+SECOND-PASS STATE (owner rulings 49/50 — nothing final): this doc is amended
+in place where later passes changed it, and three documents extend it:
+`06-RESEARCH-AUDIT.md` (the object tested against the imprecise-probability,
+belief-state-search, box-particle-filter and uncertainty-weighted-search
+literatures; one reversal, one new law rider, one new mechanism, one
+representation upgrade, one honest counter-example), `07-REDTEAM-VALUE-FOLD.md`
+(the assigned red team of the value lens's fold), `08-CONTRACTS-SKETCH.md`
+(builder-facing signatures), `09-AMENDMENTS-COMPOSITION-REDTEAM.md` (the
+composition lens's eight findings answered; the falsifiable claim below is
+restated per its adopted form).
+
 ---
 
 ## 1. The answer to the mandate's question, in one paragraph
