@@ -133,3 +133,29 @@ retired-constructor row must surface as a HELD health change
 ("your escort directive's constructor was retired; row served under
 compatibility") — the visibly-retire rule their §5 no-silence principle
 requires, delivered through this surface.
+
+## 6. Third cross-read (their 04-PRIOR-ART + 05-WORKED-SCENARIO @ e87b36b)
+
+**MAPGEN's doctrine moves the frustration signal up my build order.**
+Their §3: mixed-initiative systems live or die on the human seeing why
+the machine resisted a pin — "build the explanation surface *with* the
+port, not after". Adopted: the frustration composite is named in O3
+explicitly (it was implicit in the selection/digest step), and its
+ledger-read half is an O0 retention requirement alongside the foil
+column.
+
+**Their §6 A0 correction refines the attention-field echo**: on
+saturated strata A0 guidance is behaviourally inert (byte-identity); on
+starved strata it legitimately changes staged plans by choosing which
+comparisons get priced. So the attention echo carries the stratum
+verdict from the CPP ("your watch-this steered work that changed the
+staged move" vs "…confirmed what was already settled") — without it, an
+operator on a saturated board concludes their guidance is dead when it
+is merely redundant, and the distinction is one premise read.
+
+**Their worked scenario (05) and mine (07) compose end to end** — their
+u2 support-demand's "floor drops 3.1, emit record cites u2" is exactly
+the input my support-demand echo renders; their u4 belief-weight's
+"ordering flip cites u4" feeds the calibration trace. No seam gaps found
+on the third pass; the two lenses' worked examples could be merged into
+one Centaur turn trace when a synthesis round wants it.
