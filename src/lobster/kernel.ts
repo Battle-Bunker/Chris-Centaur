@@ -1885,6 +1885,10 @@ export class LobsterKernel implements Kernel {
       assumptions: this.assumptions(run, cand),
       epoch: run.epoch,
       crossfade,
+      // ON THE KERNEL'S OWN CLOCK, measured from this decision's t0 — the same
+      // origin `KernelReport.elapsedMs` is measured from, so a journal and the
+      // report summary are one timeline and a fake-clock test is exact.
+      elapsedMs: run.now() - run.t0,
     }
   }
 

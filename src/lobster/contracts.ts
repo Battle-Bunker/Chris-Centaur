@@ -310,6 +310,17 @@ export interface EmitRecord {
    * a record the kernel emitted; optional so a hand-built record (a harness,
    * a fixture) need not assert a verdict it never computed. */
   readonly crossfade?: CrossfadeVerdict
+  /**
+   * Milliseconds from the decision's own start (the kernel's `t0`) to the
+   * moment this record was built, ON THE KERNEL'S CLOCK — the same clock
+   * `BudgetHandle.now` reads, so a journal replayed against `KernelReport`'s
+   * `elapsedMs`/`budgetMs` is on one scale and a fake-clock test is exact.
+   *
+   * Present on every record the kernel emits. Optional so a hand-built record
+   * (a harness, a fixture) need not invent a time it never measured — the
+   * emission journal reports "unknown" rather than zero for those.
+   */
+  readonly elapsedMs?: number
 }
 
 // -------------------------------------------------------- refinement levers
@@ -463,6 +474,39 @@ export interface PlanEvaluation {
   readonly ledgerSize: number
 }
 
+/** One feature's share of an evaluation, as a human reads it: the feature's
+ * own unweighted reading, the profile weight applied to it, and the product
+ * that actually entered the fold. `contribution` is `value × weight` on the
+ * interval — weights are non-negative by contract, so the endpoints do not
+ * swap and the three are consistent by construction. */
+export interface FeatureContribution {
+  readonly key: string
+  /** The feature's own bound, BEFORE weighting (the fold's `parts` entry). */
+  readonly value: Bound
+  readonly weight: number
+  /** `value × weight` — what this feature added to the total. */
+  readonly contribution: Bound
+}
+
+/**
+ * WHY a plan scored what it scored, per feature.
+ *
+ * THE EXPLAIN SURFACE IS NOT ON THE HOT PATH. Nothing in the search or the
+ * kernel calls it: it exists so telemetry can report, once per unit after a
+ * decision has already settled, which term carried the verdict. It costs one
+ * ordinary evaluation plus a map over the fold's parts — no second scoring
+ * pipeline, which the single-pipeline rule forbids.
+ */
+export interface PlanExplanation {
+  /** The criterion profile's own name, so a stored row says which objective
+   * produced it rather than leaving a reader to guess the build. */
+  readonly profile: string
+  readonly bound: Bound
+  readonly features: ReadonlyArray<FeatureContribution>
+  readonly exact: boolean
+  readonly ledgerSize: number
+}
+
 /** B1 owns: evaluation (triple library). Must be monotone/separable per unit;
  * DEAD is a lattice bottom (−∞), never a scalar on the heuristic scale. The
  * evaluate module exports the canonical DEAD; postures.ts defaults its cliff
@@ -472,6 +516,15 @@ export interface Evaluator {
   /** The same evaluation with discharge status — exactness, basis, ledger
    * size — so the bound bank never needs a second call to learn them. */
   evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation
+  /**
+   * Optional: the same evaluation with the per-feature accounting attached.
+   *
+   * Optional because an evaluator that is not a weighted fold has no honest
+   * answer — a stub, a memo wrapper, a scripted test double. A consumer that
+   * cannot get one reports the bounds without the breakdown rather than
+   * fabricating weights, so the absence is visible in the row.
+   */
+  explainPlan?(sub: Substrate, plan: JointPlan, asTeam: number): PlanExplanation
 }
 
 /** B2 owns: the bound bank + joint search. floorOf may be served by any mix of

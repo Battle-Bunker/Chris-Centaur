@@ -32,8 +32,10 @@ import { structuralIdentity } from '../contracts';
 import type {
   Bound,
   Evaluator,
+  FeatureContribution,
   JointPlan,
   PlanEvaluation as ContractPlanEvaluation,
+  PlanExplanation,
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
@@ -154,6 +156,41 @@ export class BoundEvaluator implements Evaluator {
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
       return finish(ctx, evaluation);
     });
+  }
+
+  /**
+   * THE EXPLAIN SURFACE. One evaluation, then the fold's own `parts` paired
+   * with the weights that folded them — so a reader sees `value × weight =
+   * contribution` per feature and can name the term that carried the verdict.
+   *
+   * NOT ON THE HOT PATH, and it does not open a second one: it re-uses
+   * `evaluatePlan` rather than re-deriving anything, so an explained candidate
+   * is priced by exactly the pipeline that priced the decision. The weight
+   * read is `weights[key] ?? feature.defaultWeight` — the same expression
+   * `fold` uses, because reporting a weight the fold did not apply would be a
+   * breakdown that does not add up to its own total.
+   */
+  explainPlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanExplanation {
+    const evaluation = this.evaluatePlan(sub, plan, asTeam);
+    const features: FeatureContribution[] = [];
+    for (const feature of this.features) {
+      const value = evaluation.parts[feature.key];
+      if (value === undefined) continue;
+      const weight = this.weights[feature.key] ?? feature.defaultWeight;
+      features.push({
+        key: feature.key,
+        value,
+        weight,
+        contribution: { lo: value.lo * weight, est: value.est * weight, hi: value.hi * weight },
+      });
+    }
+    return {
+      profile: this.profile.name,
+      bound: evaluation.bound,
+      features,
+      exact: evaluation.exact,
+      ledgerSize: evaluation.ledgerSize,
+    };
   }
 }
 
