@@ -365,6 +365,58 @@ Three things are true at once and all three should be said:
 > value, which is both honest and, usefully, self-correcting: the search stops
 > preferring plans whose options it did not look at.
 
+#### 3a. MEASURED, AND IT REFUTES MY SEVERITY CLAIM — the defect re-localizes to the comparator
+
+The VALUE lens ran the test Law P1 asks for and it came back against the
+reading I had been giving it. Recorded here at full strength, because this is
+the law working rather than the law failing.
+
+**What they measured.** Not "is the cap value-blind" (it is, formally) but
+**what the cap actually removes**. Result: when food sits on a ray, the slider
+takes it **75% of the time at the 48th percentile**. The rank prefix is not
+discarding the long moves that matter — the comparator's ordering already
+surfaces them.
+
+**What that means, precisely.** The filter **preserves the value the comparator
+can NAME and discards only value it CANNOT** — and the reason it cannot is that
+there is **no positional slot above `healthSpent`** in the twelve-slot
+precedence. So:
+
+> **Finding P-5′ (superseding the severity of P-5).** `sliderCandidateCap: 4`
+> is not, on this evidence, a capability loss in any dimension the search can
+> currently express. The admission defect **re-localizes from the cap to the
+> missing slot.** Charging the cap (increment P2/S13) would faithfully measure a
+> loss that is not there in the nameable dimension, and would leave the binding
+> constraint untouched.
+
+**And this is Law P1 discharging its own obligation, which is worth noticing.**
+P1 says a restriction must be *adaptive on value* **or** *carry a bound on what
+it removed*. The cap is not adaptive; it had no bound; the law named the missing
+artifact; someone computed it; and the answer changed the design. That is the
+difference between a law and a complaint. The status is now:
+
+> the cap satisfies P1's **second** clause **empirically and conditionally** —
+> conditional on the comparator's expressiveness. The bound is on value the
+> comparator can rank. Value it cannot rank is still unbounded by that
+> measurement, and the missing slot is what makes that residual unbounded.
+
+**The consequence for progressive widening, which is sharper than my §3 said.**
+`widen.ts` admits more options as a node is revisited. Widening admits more
+**usefully only if the comparator can rank what it admits.** Against a
+twelve-slot precedence with no positional term above `healthSpent`, a wider
+draw returns options the comparator sorts arbitrarily — so the width knob and
+the ordering joint are **coupled**, and turning the first without the second
+buys sampling noise. That is the same conclusion the composition lens's B6
+(the ordering joint over a weight-flow currency) and the value lens's
+⟨priority, logit⟩ currency work reach from the other side, and it means **the
+ordering joint is a prerequisite for the admission joint**, not a sibling of it.
+
+Build-order consequence: **P2/S13 (charge the cap) drops down the list** and the
+ordering slot moves up. The instrument that would now be worth building is not
+"how much did we cut" but "how often does `better()` fall through to the tie key
+among options the cap admitted" — which is S3, already on the list, and which
+this makes more valuable rather than less.
+
 And the portfolio member deserves naming because it is cheap and it is shipped
 elsewhere: **HPS restricts to what a small set of named scripts would do.** We
 have the scripts — the candidate layer's orderings *are* scripts (safest,
@@ -417,6 +469,48 @@ conflict graph the chain walks already exists: `ConflictIndex` and
 > spawn, the multi-start seed must not compress own-team separation the way the
 > cell-claim seed did"*) generalises directly to "from a locked corridor
 > formation, the chain repair must recover separation within N slices".
+
+### 4a. The COVERAGE ORACLE — turning D-6 from a conjecture into a standing number
+
+Owed to the red team, and it is a PROPOSAL-joint instrument so it is specified
+here.
+
+**The problem it solves.** Every arbitration signal this program has —
+adjudication margins, floor spread, `estSpread` — is computed **among the plans
+that were priced**. So a hole in the proposal set is *invisible to all of them*:
+generator blindness produces exactly the signature of a well-solved position
+(wide margin, flat agreement across rungs), and reads as "saturated because
+extracted" at every rung. There is no internal signal that distinguishes "we
+searched this well" from "we never proposed the thing that beats us".
+
+**The instrument.** One **exogenous probe plan** per `N` decisions, priced
+through the **ordinary bank** on the ordinary path, and compared to the staged
+plan. Report the **probe-beat rate**: how often a plan the generator never
+proposed beats the one it staged.
+
+Properties that make it worth building:
+
+- **exogenous by construction.** The probe must come from outside the proposal
+  operators — a uniform draw over safe joint moves is the obvious member (stage
+  0 already builds one), or a portfolio script, or a plan from a *different*
+  bot's generator. What it may not be is anything already in the eight
+  operators, or it measures nothing.
+- **it costs one extra `price()` per N decisions**, which is a knob, and it
+  changes no staged plan (the probe is priced and reported, never staged unless
+  it wins under the ordinary comparator — in which case the search should have
+  had it anyway).
+- **it converts Finding D-6 from a conjecture with a named mechanism into a
+  standing number.** D-6 says a coverage hole is *steerable* under partial
+  information. Probe-beat rate is the direct observable, and its trend under fog
+  is the test.
+- **it is the same shape as the belief lens's reappearance oracle** — a cheap,
+  always-on, production-safe audit whose violations are informative rather than
+  fatal — and it should be built the same way and reported beside it.
+
+It also subsumes doc 02's D-1 (`planDistance(staged, nearestProposal)`): D-1
+measures whether the enumeration reached the staged plan, the oracle measures
+whether *anything we never proposed* was better. D-1 is the cheap version and
+the oracle is the one that can be wrong in an informative direction.
 
 ## 5. The joint
 
@@ -524,7 +618,8 @@ action set*.
 |---|---|---|---|
 | **P0** | `proposedBy` on every priced trial; report accepted-trial counts by operator (Finding P-7) | one tag | which of the eight operators does any work. Prerequisite for everything adaptive, and it will probably retire two of them outright |
 | **P1** | measure the gap-scale distribution in the multi-start pool and normalise `t₀` by spread (Finding P-2) | analysis + one line | removes a constant whose meaning varies by board class |
-| **P2** | charge the candidate cap: emit `1 − admitted/available` per unit; do not yet fold it (Finding P-5) | one counter | makes Law P1's violation visible per board class, which is what decides whether the slider case is a real capability loss or a 98.9%-inert ration like `maxClusterCells` |
+| **P1½** | **the coverage oracle** (§4a): one exogenous probe plan per N decisions through the ordinary bank; report probe-beat rate | one extra price per N | the only signal that can distinguish "searched well" from "never proposed it". Converts D-6 from conjecture to a standing number |
+| ~~**P2**~~ | ~~charge the candidate cap~~ — **DEFERRED** by Finding P-5′: the measurement says the cap discards only value the comparator cannot name, so this would measure a loss that is not there and leave the binding constraint (the missing positional slot) untouched | — | superseded; the ordering joint moves ahead of it |
 | **P0½** | **bound `budgetSamples` by the space** (Finding P-9): `min(maxSamples, poolCap, ∏\|choose_v\|, max(minSamples, share))`, plus a no-new-entry early exit, plus **returning the unspent budget** | two lines | nothing to decide — it is a pure win, and on 88.7% of boards it hands most of a 100 ms slice back to the ascent. Do it before any bot seats the member |
 | **P2½** | **hub-first group order** in `groupsOf` (Finding P-8) — emit the slider group before the components | one line | whether the seed's cluster-level conditioning order matters. Falsifier: the multi-start's own separation regression test, on a slider board rather than a trail board |
 | **P3** | **conflict-chain repair** as an eighth operator (§4) | small, self-contained, existing `ConflictIndex` | the corridor lock-in hypothesis. Falsifier already written (the multi-start's separation regression test, generalised) |

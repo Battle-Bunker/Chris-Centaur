@@ -20,7 +20,13 @@ summary (piped through `tools/principal-glossary/check-briefing.js` on
 | `04-BACKUP.md` | how does our max-min backup compare to the standard rules? | implicit-minimax-backups shaped with a strictly better combiner. A floor folded into a mean slot, over an odometer prefix that collapses on slider boards |
 | `06-THE-COLUMN-SET.md` | what does the double-oracle half we DID build cost? | the restricted matrix is already computed cell by cell and thrown away; `price()` cost drifts upward within a decision because the witness set only grows; workers generate columns and discard them. Contains the full S0 specification |
 | `08-METAREASONING.md` | which computation runs next, and who says so? | `voc.ts` is meta-greedy in Russell & Wefald's sense, with its known failure live and patched by hand. `alternate()` is `pairRepair()` for the metalevel — the same myopia, twice, at two levels, patched twice, never named once. Fourteen unprovenanced constants decide what gets computed before anything is compared |
+| `09-RESTRICTED-GAP-RESULT.md` | **MEASURED.** is the pure argmax already optimal on our boards? | `pureDuality = 0` on every board that produced a column, at all three readings — an exact pure saddle, so mixing buys zero — and NOT vacuous: 4–9 weight units of span with 3–5 distinct security values. Five of nine boards produce no columns at all. Retires the mixed-strategy direction; leaves the set-valued/Centaur direction standing alone. Corrects three of my own claims |
 | `07-ANYTIME-STRUCTURE.md` | what does the search promise about being interrupted, and what does prefix determinism cost? | we have a *proved* recognizable-quality measure (`maxGap`) and have never plotted it against time — which is the missing input to every allocation question. Prefix determinism is maintained across six sites for one analysis the critic discounted; Law I says an invariant is addressed like a member |
+
+`probes/restricted-gap.probe.ts` — the S0 measurement of doc 09. Drop into
+`src/lobster/__tests__/` on `claude/cluster-lookahead` and run under the repo's
+jest; it builds the restricted matrix from the real `BoundBank`'s witnesses and
+real bounded resolutions, and prints the table in doc 09 §2.
 
 `probes/accept-cycle.probe.ts` — drop into `src/lobster/__tests__/` on
 `claude/cluster-lookahead` and run under the repo's jest. It imports the real
@@ -38,7 +44,7 @@ member it fixes has not been seated yet:
 Then seven instruments, **none of which change behaviour**, each answering a
 question about our own boards from data we already hold:
 
-1. `restrictedGap` — the value of the matrix the bank already computes and throws away (S0)
+1. ~~`restrictedGap`~~ — **DONE, doc 09.** The verdict is in: mixing buys exactly zero on the searched set. What remains worth shipping from S0 is `pureDuality` as a standing row (exact, solver-free) plus `colSupport` when it is nonzero, for W-1's column pruning
 2. `maxGap` against elapsed time — the proved anytime quality axis nobody has plotted (S0¾)
 3. `(family, cost, Δ maxGap)` per applied lever — is the metalevel's model right (S0⅞)
 4. `proposedBy` — which of eight operators proposed the accepted trial (S1)

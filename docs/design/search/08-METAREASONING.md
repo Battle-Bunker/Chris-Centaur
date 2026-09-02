@@ -123,14 +123,33 @@ That is a handful of lines, it changes no lever semantics, and it directly
 targets the failure mode `alternate()` is patching. If it works, `alternate()`
 can go — which is a *deletion*, and this program has learned to prefer those.
 
-Two honest caveats:
+Three honest caveats, the first strengthened after the red team's second catch.
 
-1. **The bundle's terminal value is not the sum of the individual values.**
-   Catch-up's value formula prices its own citations; the bundle's value is the
-   value of the *narrow* it enables. So the bundle estimate needs a value, not
-   a sum of values — but that is exactly one existing formula evaluated under
-   the assumption that the precondition has been met, which is a cheap
-   substitution rather than a new model.
+1. **The preconditions are respected in ORDER but not in STATE, so the bundle's
+   inner value is a FORECAST and not a substitution.** I first wrote that the
+   bundle's value is "one existing formula evaluated under the assumption that
+   the precondition has been met, which is a cheap substitution". That
+   understates it. A catch-up does not merely unlock `narrow` — it **dilates
+   before it conditions**, so the cloud that `narrow` would act on *after* the
+   catch-up is a different cloud from the one on the table now. Pricing
+   `narrow` inside the bundle therefore requires a **forecast post-catch-up
+   cloud**, not the current one.
+   That is real work and it should be named as such: it is a one-step prediction
+   of a cloud the dilation machinery can already produce (the cloud engine
+   advances by absolute-turn query), but it is a *prediction*, and its error
+   belongs in the bundle's estimate rather than being assumed away. A bundle
+   priced on the pre-catch-up cloud would systematically over-value narrowing —
+   which is the same optimism the single-step assumption has, arriving through
+   a different door.
+
+1b. **Bundles must be VALUATIONS, never COMMITMENTS.** A bundle is an estimate
+   used to *select* the next lever; selecting `catchup → narrow` must schedule
+   the catch-up and then re-decide, not lock in the narrow. Otherwise the
+   metalevel stops being interruptible at slice granularity, which is the
+   property doc 07 spends a whole document on and which the kernel's event
+   drain depends on (events are taken between slices, never inside one). The
+   blinkered approximation in the literature is a *valuation* technique for
+   exactly this reason; it does not commit to the sequence it values.
 2. **This makes the metalevel decision depend on more state**, and the metalevel
    is inside the prefix-determinism perimeter (doc 07 §4a). The bundle is a pure
    function of the same `LeverView`, so it does not read a clock and the property
@@ -187,6 +206,44 @@ The instrument writes itself and needs no new machinery:
 > **After each lever is applied, record `(family, cost, Δ maxGap)`.** Over a
 > replay corpus that is the *measured* value-per-cost of each lever family, on
 > each board class, against the fourteen *assumed* ones.
+
+#### 6a. THE INSTRUMENT AS FIRST SPECIFIED IS ITSELF MYOPIC — and would falsify the wrong lever
+
+The red team's sharpest catch of their round, conceded in full and fixed here
+**before anyone runs M1**, because the failure mode is that the data would look
+clean and argue for deleting the right thing.
+
+Per-lever `Δ maxGap` **is the single-step assumption applied to the
+measurement**. It credits a computation with the quality change in the slice it
+ran, and by construction that assigns **≈ 0 to every ENABLING lever**. A
+catch-up does not narrow a bound; it makes a *narrow* possible, and the narrow
+pays. So a naive per-lever ledger would report catch-up as worthless —
+
+> and catch-up is **exactly the lever the blinkered bundle (§4) exists to
+> save**. The instrument built to test meta-greedy would have reproduced
+> meta-greedy's own blind spot, produced a clean-looking table, and argued for
+> deleting the lever whose value the whole document says is being missed.
+
+That is the same error one level up from the one being measured, which is
+precisely why it is easy to make.
+
+**The fix, and it is part of the spec rather than a caveat:**
+
+- **credit over a WINDOW, not a slice.** Attribute `Δ maxGap` over the `k`
+  slices *following* a lever, not the one containing it. `k` is a parameter and
+  its sensitivity must be reported alongside the result — a family whose ranking
+  moves with `k` is a family whose value is sequential, which is itself the
+  finding.
+- **or credit the BUNDLE jointly.** When §4's blinkered member lands, a bundle
+  is a single estimate and gets a single outcome; that is the cleanest
+  attribution and it makes M1 and M2 one increment rather than two.
+- **report both attributions.** Per-lever and windowed side by side. Where they
+  agree the constant is vindicated; **where they disagree, the disagreement is
+  the measurement** — it localises exactly which levers are enabling rather than
+  paying, which is the thing nobody currently knows.
+
+Without this clause M1 is worse than not running it, because it would produce a
+confident number pointing the wrong way.
 
 That is a direct falsification test for `estimates()`, it costs one subtraction
 per slice, and it is the only way I can see to hold the metalevel to Ruling 49's

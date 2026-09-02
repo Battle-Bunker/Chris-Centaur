@@ -110,12 +110,13 @@ predicate is public and the cut is legal. Under fog it is a statement about our
 would compute two different partitions from the same board. That is not a legal
 cut.
 
-> **Law D2 (the cut must be public).** A decomposition's boundary must be
-> measurable with respect to the coarsest information shared by all players.
-> Geometry is the **full-observability special case** of that law, not the law
-> itself.
+> **Law D2, first formulation (SUPERSEDED — see §2b′).** *A decomposition's
+> boundary must be measurable with respect to the coarsest information shared by
+> all players.* This is the shape the imperfect-information literature gives the
+> rule, and it is over-strong for us. §2b′ replaces it with a constructive
+> version that needs no separate fog clause.
 
-**Finding D-5 (the prior-art lens's C36, confirmed against the code).**
+**Finding D-5, first formulation (SUPERSEDED by D-5′ in §2b′).**
 `cluster-enum.ts` argues that cross-cluster terms are *provably zero*. That
 proof assumes each unit occupies a **known cell**. Under fog a hidden enemy's
 cloud spans components, so the same possible occupant appears in two clusters'
@@ -136,6 +137,81 @@ sound decomposition under imperfect information exists. What changes is the
 *order of work*: the law clause has to exist before anyone builds on the
 decomposition, because retrofitting a public-state cut into a geometric one is a
 rewrite and adding the clause now is a paragraph.
+
+### 2b′. Law D2, corrected: the relation is OCCUPANCY-REACH OVERLAP, and `influenceOf` already computes it
+
+The composition lens (25-ARGUMENT-HYPOTHESES) put a hypothesis to me that
+**dissolves** the two patches above into one law, and I checked it against the
+construction. They are right, and the correction is a definition change rather
+than a mechanism.
+
+**What `influenceOf` actually computes** (`substrate.ts`):
+
+```ts
+influenceOf(unitId) {
+  const cells = new Set<CellIndex>(unit.cells);            // the WHOLE occupancy
+  for (const candidate of this.enumerate(unitId)) {
+    if (candidate.action.kind !== 'move') continue;
+    for (const c of candidate.action.path) cells.add(c);   // the WHOLE path
+  }
+  return cells;
+}
+```
+
+It is the union of the unit's **entire occupancy** (a trail unit's whole body,
+not its head) and **every cell every legal path enters** (the whole ray, not the
+destination). And `cluster-partition`'s relation is the **intersection** of two
+such sets. So the scoping is already occupancy overlap, not destination
+equality — the correct relation, at full observability, by the composition
+lens's own argument: two units interact when their occupancy-reach sets meet,
+and a trail unit occupies many cells.
+
+> **Law D2′ (the constructive form).** The interaction relation is the
+> intersection of **occupancy-reach sets**, where a unit's occupancy is its
+> **cloud** when its position is uncertain and its **cells** when it is not.
+> Full observability is the point-mass case. There is no separate fog clause.
+
+**Finding D-5′ (replacing D-5, and sharper).** The gap is not that positions
+become set-valued in the abstract. It is that **`influenceOf` computes reach
+from a POINT — the last-seen record cell — and enumerates the grammar from
+there.** For a unit with `staleness > 0` the true occupancy is the dilated
+cloud, and reach-from-cloud strictly contains reach-from-last-seen. So:
+
+- **at ply 1 today**, `staleness = 0` for every unit and the two coincide
+  exactly, which is why nothing is wrong now;
+- **at ply ≥ 2** the door manufactures staleness (`staleness = rootTurn −
+  record.heldAtTurn`), and under fog it arrives directly;
+- and the divergence is **in the unsound direction**: point-reach
+  **under**-approximates, which **misses pair terms**, which is exactly how
+  `cluster-enum`'s cross-cluster-zero identity goes false.
+
+**And the fix degrades in the safe direction, which is the direction the
+function's own doctrine already prefers.** `influenceOf`'s comment reads: *"a
+footprint that is too big makes a tier-2 cache transfer fail to apply (work
+repeated, never a wrong answer), and makes a dirty-set re-search too eager (time
+spent, never a stale bound kept). A footprint too SMALL would silently keep an
+invalidated evaluation."* Cloud-based occupancy is the too-big direction. It
+merges components, costing **arity**, never correctness.
+
+**This retracts the strong reading of my own D2.** A belief-derived cut does not
+need to be *public* to be sound, because under Law D1 the partition only
+generates: a coarser partition is always a sound generator, so a cut computed
+from our own beliefs costs cluster size and nothing else. What must hold is that
+the relation **over-approximates consistently** — which is precisely what
+occupancy = cloud gives. Two patches (a public-state clause and a set-valued
+law-suite case) become **one law with one enforcement**, as the composition lens
+predicted.
+
+**The S2½ case, respecified with its own falsifier** (their ordering rule
+requires it: *an assertion that never fires is indistinguishable from an
+unviolable hypothesis*):
+
+> A law-suite subject with `staleness > 0` whose **cloud spans two components**
+> while its **last-seen cell does not**. Assert the partition **merges** them.
+> The falsifier is built in: the case must **FAIL against today's point-based
+> `influenceOf`** — proving the assertion can fire — and **pass** against the
+> cloud-based one. A case that passes both ways is testing nothing, and should
+> be deleted rather than kept as reassurance.
 
 #### 2b.1 Law D1 is exactly what makes the theorem non-binding today — a stronger argument than the one I first gave
 
@@ -339,6 +415,93 @@ learned-vs-rule-based experiment at scale and the rule-based baselines held. So
 the boundary-search member list should be **rule-based heuristics plus a bandit
 over them**, and nothing else, until something forces otherwise.
 
+### 4b½. Two principled members the joint was missing: variable elimination and max-plus
+
+From the prior-art lens's domains 17–18, with their own honest self-correction
+carried through.
+
+**(i) `cluster-enum` builds a coordination graph and then throws its structure
+away.** It materialises the order-2 factor tables and walks the **full Cartesian
+product** (`enumerateExact`, ≤512 leaves), so its cost is exponential in the
+number of **units**. **Variable elimination** computes the identical exact joint
+argmax at cost exponential in the **induced width** of the graph — a quantity
+that is 1 for a star, 1 for a chain, and small for most sparse graphs regardless
+of how many units they contain.
+
+Their self-correction is the important part and I am carrying it verbatim in
+spirit: **there is no win on ≤3-unit components**, because at that size the
+product *is* the elimination and the file's refusal to build a junction tree is
+correct. What VE changes is elsewhere:
+
+- it converts today's **ICM-fallback case** (5–6+ variables, slider boards —
+  `ClusterStats.rungIcm`) from an approximation into an **exact** solve;
+- it **decouples a slider's option count from component size.** Under the
+  product, a queen's domain multiplies every other unit's; under elimination the
+  slider is eliminated once, against its neighbours only.
+
+That second point is the one with teeth, and it names a mechanism nothing else
+in this program has: **it is the first place a unit's option count enters the
+*structure* of the computation rather than only its *scores*, and therefore the
+mechanism by which `sliderCandidateCap` gets RELAXED rather than re-tuned.**
+Doc 03's Law P1 says a value-blind rank prefix is not an admissible restriction;
+this says the reason the prefix exists (a queen's 71 options blow up the
+product) is an artifact of the *algorithm*, not of the problem.
+
+Elimination order, from the same source: **high-domain units early where their
+conflict degree is low** — which is exactly a slider sitting as a star hub, the
+89.7% case.
+
+**(ii) The ICM fallback loses to max-plus in two literatures** (Kok & Vlassis on
+coordination graphs; the RTS line), and max-plus has a property ICM structurally
+cannot have: it is **natively anytime**, with a monotone incumbent after every
+message round. That is exactly the interruptibility witness doc 07 §2 finds
+missing — an enumerate-then-cap step cannot produce one, because its intermediate
+state is not a plan.
+
+So the `size`/fallback ladder gains two members and the ladder becomes a real
+member list rather than a degradation sequence:
+
+| member | exactness | cost driver | anytime? |
+|---|---|---|---|
+| **product enumeration** (today's exact rung) | exact | units | at leaf stride only |
+| **variable elimination** | **exact** | **induced width** | no (but it terminates where the product does not) |
+| **max-plus** | approximate, converges on trees | messages × edges | **yes, monotone per round** |
+| **ICM** (today's fallback) | approximate | sweeps × units | weakly |
+| **threshold-split** (today's other fallback) | approximate | edges kept | no |
+
+**(iii) M50, and it is the best of the three.** VE's intermediate objects are
+**conditional payoff functions**: for each eliminated unit, "if my neighbours do
+*this*, my best response is *that*, worth *this much*". That object is
+**exactly the set-valued output** doc 01 §8's Finding R-4 says the ADVICE
+consumer needs — options *plus the conditions under which each is best* — and VE
+emits it **free, as a by-product of computing the argmax it was already
+computing**.
+
+Three consequences worth stating separately:
+
+- it is a **natural cache unit**, valid exactly while that unit's neighbourhood
+  is unchanged — which is the same invalidation predicate `SweepDirty` already
+  maintains;
+- it is a **ready-made contrastive explanation** ("we went left because the
+  queen stayed; had it advanced, right was worth 3 more"), which is the Centaur
+  surface asking for a data structure and being handed one;
+- and it means the set-valued arity member (doc 09 §5's one surviving
+  motivation) may not need a new mechanism at all — it may be a *by-product of
+  changing the exact solver*.
+
+**(iv) The free first step, and it goes in the build order at D0.**
+Measure the **induced-width distribution of the conflict graphs** on the replay
+archive. One integer per decision decides how much of (i) is available: if
+induced width is ≤2 almost everywhere, VE buys nothing over the product and the
+ICM-fallback case is rarer than the slider census suggests; if it is small while
+unit counts are large, the whole of (i) is on the table.
+
+And that integer is a **premise coordinate**, not just a statistic: a
+`Choice = conditional` selector reads it to pick `{enumerate, VE, max-plus,
+ascent}` per instance — which is the composition lens's own conditional-choice
+form doing real work, on a quantity the board supplies rather than a flag a
+person sets.
+
 ### 4c. The joint
 
 ```ts
@@ -362,6 +525,12 @@ interface Decomposition {
   /** HOW BIG. Members: exact-ration (today: `maxClusterCells` = 8000),
    *  fixed-k, bandit-over-sizes (BALANCE). */
   readonly size: SizePolicy
+
+  /** HOW the exact/approximate solve is done. Members: product enumeration
+   *  (today), variable elimination (exact, cost in INDUCED WIDTH), max-plus
+   *  (natively anytime), ICM (today's fallback), threshold-split. Selected
+   *  per instance by a `Choice = conditional` reading the induced width. */
+  readonly solver: ClusterSolver
 }
 ```
 
@@ -502,6 +671,7 @@ this width*, and for a held unit whose hold is game-imposed the answer is
 
 | # | increment | cost | what it decides |
 |---|---|---|---|
+| **D0⁻** | **the induced-width distribution** of conflict graphs over the replay archive (§4b½ iv) | one integer per decision, analysis on existing replays | how much of variable elimination is available at all — and it is the premise coordinate a conditional solver selector reads. Free, and it gates two members |
 | **D0** | coverage instrument (Finding D-1): `planDistance(staged, nearestProposal)` per decision | one loop over ≤32 proposals | whether the enumeration contributes to the plan we actually stage. No design survives a "distance 4 on 90% of decisions" answer |
 | **D0½** | **a law-suite subject with a SET-VALUED position** (Finding D-5) | one fixture | the cheapest possible prophylactic. It makes cluster-enum's "cross-cluster terms are provably zero" identity break *inside the suite, localised*, on the day the observation model changes — instead of surfacing later as an unlocalisable regression. Spec it now; it costs a fixture and it is the difference between a caught break and a hunt |
 | **D1** | write Laws D1 **and D2** down and give them a structural test (the scout's import-law test is the model: nothing under `search/cluster-*` may be imported by `bounds/`). D2's clause: *cuts at public-state boundaries only; geometry is the full-observability special case* | a test + a paragraph | prevents the one failure mode the architecture is currently safe from by accident, and puts the fog clause in before anyone builds on the decomposition — retrofitting a public-state cut into a geometric one is a rewrite; adding the clause now is a paragraph |
