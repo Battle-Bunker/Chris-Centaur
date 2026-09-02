@@ -4276,3 +4276,16 @@ record; coordinator relays only what genuinely cannot wait.
   cause=surfaced-by:<member>, fits STRATIFY on it, caused rows never
   pool with unprompted (evidence about operator preferences, not option
   quality). Budget: zero new; deletes four module-local tuples.
+- Inbound-guidance batch 2 (@ 22b3054): echo theorem now a TWO-SIDED
+  contract (per-port RETENTION column; GuidanceDecisionRecord type;
+  ports not done without their echo feed). Wire has TWO CHANNELS with
+  different physics: durable guidanceId-bearing TABLE vs ephemeral
+  SPECULATION stream (what-ifs must not touch the table — a table write
+  invalidates caches; interrogation free precisely when most needed).
+  A2 chain closing ruling 13's loop: support-demand → floor ordering
+  degrades (measured, search v2) → est-decided board → authority-
+  collapse ask → the pick returns to the human; demand cap tuned on
+  collapse rate, not compute. Ratified (as-is/magnitude) vs authored
+  (structural edit) pinned; A3 never pre-filled. No seam gaps with
+  operator-signals (three cross-reads, worked scenarios compose).
+  Owner decisions carried: Q11; Q12 (+ calibration scoreboard).
