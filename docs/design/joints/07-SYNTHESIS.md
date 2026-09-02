@@ -181,27 +181,24 @@ observability and load-bearing the day masks arrive.
 
 ## 5. Build order
 
-Shared increments are marked; each has a falsifier; behaviour-changing steps are
-last.
+**The plan lives in `34-BUILD-ORDER.md`** — one ordered table across all five
+increment lists, with dependencies, what is shared with which lens, and the
+smallest useful subset. It is not repeated here: a build order in two places is
+a second truth, which is the disease this design is about.
 
-| # | increment | shared with | falsifier |
-|---|---|---|---|
-| **B0** | `botId` + `behaviourId` stamped; kit records per seat; `verify-null` compares addresses | — | none needed: one field, no behaviour change |
-| **B1** | value table on `BankResult` — `envelope[(horizon, frame)]`, `estSound`, `estAdvised`, `advisoryPrecision`; rungs declare read-sets | EPISTEMICS | the dose-response curve must flatten; **`frame` in the key or shadow-driven invocation cannot be built on it** |
-| **B2** | the joint manifest; codec, stamp, columns, diff, knob schema generated; `BotStamp` and hand codecs deleted; ambiguity detection over declared coordinates | TIME (allowance-ledger schema — one increment) | generated stamp reproduces `BotStamp` field-for-field; every behaviour-affecting measured value is classified under Law K or the build fails |
-| **B3** | bots as total addressed values; roster; `botDiff`; reachability + single-binding + Law-S checks | — | R must flag `territoryRefine`, `multistartSeed`, `sampledCap`, `search.clusterEnum` on today's tree |
-| **B4** | `settleTurn` with the spawner injected; `adjudicate`/`sharePar` exported and called by all three; grammar queries exported | TIME (replay-rebase dependency), VALUE | the potion-window acceptance game: the window opens **in the model** |
-| **B4t** | **the terminal-boundary row** — `model/terminal@1` sourced from the export, the fold's interior domain declared, `FitProvenance.metric` as that member id | VALUE | the +0.969 game-length dependence moves into explained variance; and three turns from the cap a terminal-seated bot declines a trade a capless bot takes |
-| **B5** | the ADVICE kind with sacrifice-warrant, commit-timing and disagreement members (**owner decision required** — `13`) | — | on a seeded board the warrant appears, the staged plan is unchanged, and a pin makes it play |
-| **B6** | carried premises + the `⟨board, premise⟩` attention map; mutations as deferred commands at sync points | TIME | **split**: within-turn re-entry rate for the map; cross-turn on decisions changed, never recurrence |
-| **B7** | the ordering joint: additive over the currency plus the named residual precedence (death band, bound-width→ECONOMY, tie key) | VALUE | shipped order reproduced exactly on generated candidate sets |
-| **B8** | the reduction site-class table; ε applied once at the read; supplier members | EPISTEMICS | Law B's check (no persisted blend) plus the double-discount test: hold ε, vary `plyCap` |
+Its three headline facts, for a reader who stops at this document:
 
-Two rules govern the order: **byte-identity at every step**, with
-`bots/shipped.json` *generated* from today's defaults rather than written; and
-**nothing lands without a roster bot that plays it**.
-
----
+- **Only six increments change behaviour**, and four of those are gated on an
+  owner decision, an engine step, or a measurement.
+- **The critical path to the owner's stated priority** (potion intelligence in
+  play) is `E1 → E2 → B6 → L3 → B5`, and **E2 is the keystone**: `tier` is an
+  input-only field today, so a simulated turn cannot advance a window and a
+  three-turn plan is unmodellable at any budget.
+- **If only three things are built: `A1`, `X1–X3`, `E1–E2`** — the address that
+  answers "which bot produced this number", the byte-identical half of the index
+  inversion (recognition, not invention — the bank already implements it), and
+  the capability unlock. Everything else improves how we build and measure;
+  those three change what is possible.
 
 ## 6. What I refuse to build
 

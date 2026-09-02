@@ -204,10 +204,16 @@ ranges over.
 ## 7. Falsifiers
 
 1. **If nothing valuable survives `advance`**, the whole object is a cache with
-   extra ceremony. The cheapest test is the re-entry one: instrument how often a
-   decision's `⟨board, premise⟩` address recurs within a game under live
-   operator play. If the recurrence rate is near zero, the map is worthless and
-   the commitment half must stand on its own.
+   extra ceremony. **CORRECTED (`09 §BREAK 5`)** — as first written this
+   falsifier conflated two populations and would have deleted a healthy
+   mechanism, because cross-turn *address recurrence* is ≈ 0 **by design**:
+   - **within-turn** (human pin oscillation): gate the map on the exact-address
+     re-entry rate and the compute it saves against a full re-open;
+   - **cross-turn**: gate on **decisions changed** — carry-effect rate and
+     time-to-refutation at N+1 — **never** on recurrence.
+   The key is also `⟨name, trace hashes⟩` rather than `⟨board, premise⟩`
+   (`18 §3`): a content hash can only match exact recurrences, which is the
+   population that is near zero.
 2. **If C2 makes commitments inert**, the potion doctrine gets nothing. The
    acceptance test is behavioural and already specified by the capability
    ledger's standard: on a seeded board the committed bot walks to the potion

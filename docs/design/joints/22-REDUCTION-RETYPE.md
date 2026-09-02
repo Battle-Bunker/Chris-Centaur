@@ -147,7 +147,7 @@ and it is the double-oracle discipline, not an invention.
 | change | source | affects |
 |---|---|---|
 | REDUCTION's type: `Gambles → Set<(option, condition)>`; scalar collapse is one member | R-4 | `07 §2` kind table, `11 §2` site-class table (unchanged in structure), `12 §D3` ADVICE input type |
-| collapse moves to the **emission barrier**; the set is materialised at consuming seams | R-4 | `02` row 11, `09 §BREAK 1`'s obligation law |
+| collapse moves to the **emission barrier**; the set is materialised at consuming seams. **The barrier needed a named performer, added as the `emission/collapse` site-class row (`26 §1`, now in `11 §2`)** — without it this move reintroduced the unnamed-decider defect | R-4 | `02` row 11, `09 §BREAK 1`, `11 §2` |
 | ECONOMY gains a second currency (operator attention), **non-fungible**, with the ask as an anticipatory meet answered by an operator pin | C33 | `07 §2`, `05 §3` |
 | M27: complete internally, selected externally — ADVICE does not inherit exhaustiveness | C33 | `12 §D3` |
 | Law R's upgrade path: reachability + engagement now, meta-Nash support once a matrix exists; the meta-Nash is a versioned `DataEntry` with provenance | M24 | `07 §3` law table, `20` ledger schema |

@@ -49,6 +49,7 @@ work — *totality removes silent drift* — reattached to the right object.
 | `read/deep-fold` | the deep estimate as it is folded at its origin branch | **free, and bound to `read/root-est`** | one blend per projection; see §3 |
 | `thread/interior` | a thread's inner reply reduction at depth | **kernel-pinned to maximin** | rectangularity: recursive blending compounds to `(1−ε)^d` and double-discounts depth |
 | `ponder/target` | which hypothesis an anticipatory meet is aimed at | **pinned to W0–W2 (ruling 13)** | no learned weight may steer inter-turn compute until the owner opens the socket |
+| `emission/collapse` | the survivor set → **the one move on the wire** | **total order** — the constraint is on the CODOMAIN, not the functional | added by `26 §1`: without it, a bot binding e-admissibility has its played move chosen by unnamed code. Launch member Γ-maximin + the salted tie key; **no mixed draws** pending their own pass |
 
 Three properties this shape has that "exactly one" did not:
 
