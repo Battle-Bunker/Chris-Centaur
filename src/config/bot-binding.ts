@@ -54,8 +54,7 @@ import type { CandidateKnobs } from '../lobster/candidates';
 import { stagingSafetyFrom } from '../lobster/staging-safety';
 import type { StagingSafety } from '../lobster/staging-safety';
 import { behaviourId as processBehaviourId } from './build-identity';
-import { botIdentityOf, type BotIdentity, type BotSpec } from './bot-identity';
-import type { CentaurEngineKind } from './centaur-engine';
+import { botIdentityOf, type BotIdentity, type BotSpec, type CentaurEngineKind } from './bot-identity';
 
 // ------------------------------------------------------------------- catalog
 
@@ -63,9 +62,8 @@ import type { CentaurEngineKind } from './centaur-engine';
  * The bots this build ships, addressable by name from a stored binding.
  *
  * Every one is a profile that already exists and is already measured — see
- * `src/config/centaur-engine.ts` for the numbers that made `lobster-territory`
- * the default and `src/lobster/evaluate/calibration.ts` for what the other two
- * are for. This map adds no bot; it makes the ones there NAMEABLE, which is
+ * `src/lobster/evaluate/calibration.ts` for what the non-default two are for.
+ * This map adds no bot; it makes the ones there NAMEABLE, which is
  * the difference between "the process plays whatever it was compiled with" and
  * "the operator selects a validated member".
  */
@@ -134,7 +132,7 @@ export interface BotBinding {
 // ---------------------------------------------------------------- parsing
 
 const STAGING_SAFETY_VALUES: ReadonlyArray<StagingSafety> = ['off', 'auto', 'guard', 'full'];
-const ENGINE_VALUES: ReadonlyArray<CentaurEngineKind> = ['legacy', 'lobster'];
+const ENGINE_VALUES: ReadonlyArray<CentaurEngineKind> = ['lobster'];
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);

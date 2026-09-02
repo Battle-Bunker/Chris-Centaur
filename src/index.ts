@@ -2,10 +2,8 @@ import express from 'express';
 import compression from 'compression';
 import path from 'path';
 import { createServer } from 'http';
-import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { DecisionLogger } from './logic/decision-logger';
 import { CommandLogger } from './logic/command-logger';
-import { DecisionWorkerPool } from './logic/decision-worker-pool';
 import { ActiveGameManager } from './server/active-game-manager';
 import { ActivityController } from './server/activity-controller';
 import { GameWebSocketServer } from './server/websocket-server';
@@ -42,7 +40,6 @@ app.use((req, _res, next) => {
 
 app.use(express.static(path.join(__dirname, '../src/web')));
 
-const voronoiStrategy = new VoronoiStrategy();
 const gameManager = ActiveGameManager.getInstance();
 const serverEventLogger = ServerEventLogger.getInstance();
 const gameRegistry = GameRegistry.getInstance();
@@ -126,7 +123,7 @@ gameManager.startStaleGameCleanup(300000, 600000);
 // serves the web UI — see README.md for configuration.
 const ttFirebaseConfig = firebaseInterfaceConfigFromEnv(process.env);
 const ttFirebase = ttFirebaseConfig
-  ? new TacticToesFirebaseInterface(voronoiStrategy, ttFirebaseConfig)
+  ? new TacticToesFirebaseInterface(ttFirebaseConfig)
   : null;
 if (ttFirebase) {
   // Attach the status listener BEFORE start() so a failure during the initial
@@ -160,13 +157,6 @@ if (ttFirebase) {
     'and TACTICTOES_FUNCTIONS_REGION (see README.md). Serving the web UI only.'
   );
 }
-
-// Idle teardown, after the Firebase suspend above: terminate the decision
-// worker threads (they are unref'd but still hold memory); the pool respawns
-// lazily on the next decision after a wake.
-activityController.onIdle('decision-worker-pool', () => {
-  DecisionWorkerPool.shutdownSharedIfRunning();
-});
 
 // Firebase connection status surface: the centaur is nonfunctional without its
 // Firebase connection, so the web UI shows a red banner (with a Retry button)
@@ -258,7 +248,6 @@ activityController.onShutdown('command-logger-flush', () => CommandLogger.getIns
 activityController.onShutdown('decision-logger-flush', () => DecisionLogger.getInstance().shutdown());
 activityController.onShutdown('connection-logger-close', () => ConnectionLogger.getInstance().shutdown());
 activityController.onShutdown('pg-pool-end', () => pool.end());
-activityController.onShutdown('decision-worker-pool', () => DecisionWorkerPool.shutdownSharedIfRunning());
 activityController.onShutdown('http-close', () => {
   httpServer.close(() => {
     console.log('Server closed');

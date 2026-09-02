@@ -30,7 +30,7 @@ import { makeSearchCore } from '../lobster/search';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
-import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/piece-moves';
+import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
 
 // ---------------------------------------------------------------------------
 // Board construction

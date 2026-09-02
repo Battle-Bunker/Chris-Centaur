@@ -27,9 +27,9 @@ const RESTRICTED_IMPORTS = {
   workerThreads: {
     name: 'worker_threads',
     message:
-      'worker_threads is owned by src/logic/decision-worker-pool.ts (and its worker ' +
-      'entry src/logic/decision-worker.ts) — the pool idle entry terminates and ' +
-      'graceful shutdown tears down. Submit work through DecisionWorkerPool.',
+      'Nothing in this process runs worker threads any more: the decision worker pool ' +
+      'went with the legacy decision path, and the one engine decides in-process ' +
+      'against a deadline. A thread nobody terminates is a process that never exits.',
   },
   ws: {
     name: 'ws',
@@ -147,10 +147,6 @@ module.exports = [
   {
     files: ['src/database/db.ts'],
     rules: { 'no-restricted-imports': restrictedImports(['pgPool']) },
-  },
-  {
-    files: ['src/logic/decision-worker-pool.ts', 'src/logic/decision-worker.ts'],
-    rules: { 'no-restricted-imports': restrictedImports(['workerThreads']) },
   },
   {
     files: ['src/server/websocket-server.ts'],

@@ -1,18 +1,18 @@
 /**
- * The one behavioural change the clock-skew guard makes to the legacy path:
- * the full decision pass's deadline is now measured rather than assumed.
+ * The clock-skew guard's one behavioural claim: the full decision pass's
+ * deadline is MEASURED rather than assumed.
  *
  * `src/tests/wire-deadline.test.ts` pins the arithmetic. This pins the WIRING —
  * that the transport actually feeds the guard the turn's server timestamps and
- * hands the strategy what the guard returns, so a host clock behind server time
- * shortens the decision instead of silently overrunning the deadline (an
- * overrun is invisible: the late write is accepted and then discarded).
+ * hands the decision engine what the guard returns, so a host clock behind
+ * server time shortens the decision instead of silently overrunning the
+ * deadline (an overrun is invisible: the late write is accepted and then
+ * discarded).
  */
 
 import { Timestamp } from 'firebase/firestore';
 import { FirebaseInterfaceConfig, TacticToesFirebaseInterface } from '../firebase/firebase-interface';
 import { TTGameSetup, TTGameStateDoc, TTTurn } from '../firebase/tactictoes-types';
-import { CENTAUR_ENGINE_ENV } from '../config/centaur-engine';
 
 const W = 7;
 const H = 6;
@@ -72,15 +72,17 @@ const config: FirebaseInterfaceConfig = {
  * decision pass was handed. */
 async function deadlineForTurn(gameID: string, startTimeMs: number | null): Promise<number> {
   const deadlines: number[] = [];
-  const strategy = {
-    getBestMoveIterative: jest.fn(async (_view, _team, _wp, opts: { deadlineMs: number }) => {
-      deadlines.push(opts.deadlineMs);
+  const fi = new TacticToesFirebaseInterface(config);
+  // The one decision engine, stubbed at the seam the transport hands the
+  // deadline across. There is no flag and no second pass to distinguish any
+  // more, so this IS the full pass.
+  (fi as never as { teamEngine: unknown }).teamEngine = {
+    decideTurn: jest.fn(async (input: { deadlineMs: number }) => {
+      deadlines.push(input.deadlineMs);
       throw new Error('stop here — the deadline is all this test wants');
     }),
-    onGameEnd: jest.fn(),
-  } as never;
-
-  const fi = new TacticToesFirebaseInterface(strategy, config);
+    release: jest.fn(),
+  };
   (fi as never as { gameManager: unknown }).gameManager = {
     registerGame: jest.fn(),
     setGameSession: jest.fn(),
@@ -89,10 +91,8 @@ async function deadlineForTurn(gameID: string, startTimeMs: number | null): Prom
     applyResolvedMoves: jest.fn(),
     getActiveWaypointTarget: jest.fn().mockReturnValue(null),
     setBotRecommendation: jest.fn(),
-    // The flag branch drives this switch in BOTH directions (V4 H3): under
-    // legacy it must actively turn the team transport off, so a stub of the
-    // manager has to carry it.
     enableTeamStaging: jest.fn(),
+    updatePieceTurn: jest.fn(),
   };
   (fi as never as { gameLogger: unknown }).gameLogger = {
     startGame: jest.fn(),
@@ -120,18 +120,6 @@ async function deadlineForTurn(gameID: string, startTimeMs: number | null): Prom
   expect(deadlines.length).toBe(1);
   return deadlines[0];
 }
-
-// THIS SUITE ASSERTS ON THE LEGACY PATH, so it pins the flag EXPLICITLY rather
-// than riding the ambient default. The default is a measured decision that can
-// move; what this file is about does not. Without the pin, a flag flip would
-// reroute the full pass out from under these assertions and read as a
-// regression in something unrelated.
-beforeEach(() => {
-  process.env[CENTAUR_ENGINE_ENV] = 'legacy';
-});
-afterEach(() => {
-  delete process.env[CENTAUR_ENGINE_ENV];
-});
 
 describe('the full pass deadline comes from the guard', () => {
   let nowSpy: jest.SpyInstance;

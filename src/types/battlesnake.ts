@@ -65,10 +65,10 @@ export interface Board {
   // readers use `board.hazardDamage ?? 100`.
   hazardDamage?: number;
   // Weight threshold at which a pawn promotes to a queen, from the game
-  // setup (GameSetup.pawnPromotionWeight). The Simulator reads this to mirror
+  // setup (GameSetup.pawnPromotionWeight). Lookahead reads this to mirror
   // the engine's post-eat/growth promotion step. Absent means the engine
   // default — readers use `board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT`
-  // (piece-moves.ts).
+  // (logic/staging-legality.ts).
   pawnPromotionWeight?: number;
   // The turn count the game is adjudicated at (GameSetup.maxTurns): absent
   // means the engine's default limit, null means unlimited.

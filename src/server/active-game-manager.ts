@@ -4,17 +4,25 @@ import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../type
 // with src/wire/team-submitter.ts (which imports IntendedMoveSource from here,
 // also type-only).
 import type { TeamStagedUnit } from '../wire/team-submitter';
-import { BoardGraph } from '../logic/board-graph';
+import { RouteBoard } from '../logic/route';
 import {
   CasualtyContext,
   emptyCasualtyContext,
   evaluateCandidatePath,
-  healthAfterEntering,
   marshalBoard,
+  resolvePartialTurn,
 } from '../logic/turn-oracle';
-import { planPieceAction, legalPieceDestinations, canHold, PieceAction, Orientation } from '../logic/piece-moves';
+import {
+  BoardShape,
+  Orientation,
+  PieceAction,
+  canHold,
+  grammarUnitAt,
+  legalStagingCandidates,
+  stagingActionFor,
+  stagingBoard,
+} from '../logic/staging-legality';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
-import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
   WaypointContext,
@@ -24,7 +32,7 @@ import {
   waypointRoute,
   waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
-import { CellOwnership } from '../logic/multi-source-bfs';
+import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/territory-view';
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
@@ -1682,9 +1690,9 @@ export class ActiveGameManager {
         return;
       }
       const board = gs.board;
-      // One graph for every leg: waypointRoute would otherwise rebuild the whole
-      // typed-array board per call, and this runs on every stage.
-      const graph = new BoardGraph(gs);
+      // One route board for every leg: waypointRoute would otherwise rebuild
+      // the whole typed-array board per call, and this runs on every stage.
+      const routeBoard = new RouteBoard(gs);
       // The move staged for THIS turn, if any — a record bound to an earlier
       // turn says nothing about where the unit is heading now.
       const staged = controlled.staged?.turn === game.boardStateTurn ? controlled.staged : null;
@@ -1766,7 +1774,7 @@ export class ActiveGameManager {
       const occupancyByCell = new Map<number, number[]>();
       const noteOccupied = (steps: RouteStep[], firstRouteIndex: number) => {
         steps.forEach((step, n) => {
-          const idx = graph.cellIndexOf(step.cell);
+          const idx = routeBoard.cellIndexOf(step.cell);
           const at = occupancyByCell.get(idx);
           if (at) at.push(firstRouteIndex + n);
           else occupancyByCell.set(idx, [firstRouteIndex + n]);
@@ -1786,7 +1794,7 @@ export class ActiveGameManager {
       for (const target of targets) {
         const legStartIndex = route.length;
         const leg = waypointRoute(gs, snakeId, from, target, {
-          graph,
+          board: routeBoard,
           startTurn: turnCursor,
           occupied,
           orientation: facing,
@@ -1826,8 +1834,8 @@ export class ActiveGameManager {
   //   adjusted(move) = engineScore(move)
   //                  - recordedWaypointContribution(move)   // bias applied at decision time
   //                  + weight × progressStat(move)          // bias for the target as it is NOW
-  // then pickBestMove (the shared trapped-veto + argmax exported from the
-  // decision engine). This makes a target set or moved MID-TURN take effect
+  // then the trapped-veto argmax below. This makes a target set or moved
+  // MID-TURN take effect
   // immediately, and guarantees the staged move is always "the best output of
   // the heuristic matrix with the waypoint weight integrated" — never a hard
   // path override.
@@ -1866,10 +1874,10 @@ export class ActiveGameManager {
         snakeId,
         wp,
         rows.map(e => ({ cell: ActiveGameManager.destinationOf(head, e.move) })),
-        { graph: new BoardGraph(gs) }
+        { board: new RouteBoard(gs) }
       );
 
-      return pickBestMove(rows.map((evaluation, i) => {
+      return ActiveGameManager.argmaxSurvivingMove(rows.map((evaluation, i) => {
         const breakdown: any = evaluation.breakdown || {};
         const weighted = breakdown.weighted || {};
         const weights = breakdown.weights || {};
@@ -1906,6 +1914,40 @@ export class ActiveGameManager {
     return snake?.head || snake?.body?.[0] || null;
   }
 
+  // Regicide and fatal-pocket thresholds for the waypoint re-bias below. A
+  // breakdown states these as stats, so the comparison is against the stat's
+  // own "it happened" value rather than against a weight.
+  private static readonly REGICIDE_THRESHOLD = 1;
+  private static readonly FATAL_TRAP_THRESHOLD = 1;
+
+  /**
+   * The winner among re-scored candidate rows: never one that ends our own
+   * team, then never one the row calls a fatal pocket, then the highest score.
+   * Each veto degrades to the full pool rather than to nothing, so a position
+   * in which every move is bad still stages the least-bad one.
+   *
+   * This is the snake counterpart of `bestPieceCandidate`'s veto ladder, and
+   * it lives here because the waypoint re-bias is now its only caller — it
+   * used to be exported from the legacy decision engine so that engine and
+   * this re-bias could not disagree, and that engine is gone.
+   */
+  private static argmaxSurvivingMove(
+    candidates: Array<{ move: Direction; score: number; trapped: number; regicide?: number }>
+  ): Direction | null {
+    if (candidates.length === 0) return null;
+    const survivingTeam = candidates.filter(
+      c => (c.regicide ?? 0) < ActiveGameManager.REGICIDE_THRESHOLD
+    );
+    const alive = survivingTeam.length > 0 ? survivingTeam : candidates;
+    const nonFatal = alive.filter(c => c.trapped < ActiveGameManager.FATAL_TRAP_THRESHOLD);
+    const pool = nonFatal.length > 0 ? nonFatal : alive;
+    let best = pool[0];
+    for (const c of pool) {
+      if (c.score > best.score) best = c;
+    }
+    return best.move;
+  }
+
   private static destinationOf(head: Coord, move: Direction): Coord {
     switch (move) {
       case 'up':    return { x: head.x,     y: head.y + 1 };
@@ -1916,14 +1958,22 @@ export class ActiveGameManager {
   }
 
   // Non-mutating safety probe. Reports whether `move` would put THIS snake's
-  // head on an impassable cell next turn — off-board, wall/hazard, our own
-  // body, a non-severable enemy body, or a stationary chess-piece square
-  // whose contest we would lose or tie (tier first, weight second; a WINNABLE
-  // piece square is a legal kill, not fatal) — evaluated from the committing
-  // snake's OWN perspective via passabilityIdxFor(snakeId), so an invulnerable
-  // snake attacking a weaker enemy is correctly NOT fatal. Uses optimistic turn-1
-  // semantics, the same the goto-route and space BFS use, so a step onto a tail
-  // that vacates this turn is not flagged.
+  // head somewhere it cannot survive — off-board, a wall, its own body, a
+  // body or piece square whose contest it loses or ties, or a hazard dose its
+  // health cannot pay.
+  //
+  // ASKED OF THE ENGINE, NOT OF A MODEL OF IT. The candidate's one-cell path
+  // is staged into the vendored rules with every other unit frozen where it
+  // stands (`turn-oracle.ts`'s baseline contract) and the answer is read off
+  // the death registry. That is the same call the piece candidate scorer
+  // makes, so the red marker a human sees and the fatality a piece's move is
+  // vetoed on are the same judgement — and neither is a passability table
+  // that re-derives severability, the stationary contest and hazard health
+  // arithmetic three more times.
+  //
+  // Only the frozen baseline is asked: whether an ADJACENT enemy could kill
+  // us by choosing to step into us is a risk, not a certainty, and this marks
+  // certain death. The consent gate (`stageMove`) is built on that meaning.
   //
   // This NEVER changes the committed move. The staged move is sacrosanct and
   // commits verbatim; this exists solely so the UI can warn a human that the
@@ -1933,50 +1983,22 @@ export class ActiveGameManager {
     // After /end the stored boardState can be a final payload with no `board`
     // (scores/winners only), so a UI staged-move hint has nothing to evaluate.
     if (!game?.boardState?.board?.snakes) return false;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const board = game.boardState.board;
+    const snake = board.snakes.find(s => s.id === snakeId);
     const head = snake?.head || snake?.body?.[0];
-    if (!head) return false;
+    if (!snake || !head) return false;
     try {
       const dest = ActiveGameManager.destinationOf(head, move);
+      // Off the board entirely: the engine would be handed a cell that is not
+      // on the grid, so answer from the geometry rather than from a settlement.
+      if (dest.x < 0 || dest.x >= board.width || dest.y < 0 || dest.y >= board.height) return true;
 
-      // Own-tail refinement: if the staged move steps onto our OWN tail and
-      // that cell has no food, then by definition we are NOT eating this turn,
-      // so no speculative "could eat" may keep the tail in place. The tail
-      // vacates unless the snake just ate (head already on food) — or, under
-      // grow-next-turn, the body is too short for the tail to move. The tail
-      // cell must be uniquely the tail (not stacked under an interior segment
-      // from a just-completed growth) for this shortcut to apply.
-      const body = snake?.body || [];
-      const tail = body[body.length - 1];
-      const isOwnTail = !!tail && dest.x === tail.x && dest.y === tail.y && body.length > 2;
-      const tailStacked = isOwnTail &&
-        body.slice(1, -1).some(seg => seg.x === tail.x && seg.y === tail.y);
-      const food = game.boardState.board.food || [];
-      const destHasFood = food.some(f => f.x === dest.x && f.y === dest.y);
-      if (isOwnTail && !tailStacked && !destHasFood) {
-        const justAte = food.some(f => f.x === head.x && f.y === head.y);
-        return justAte;
-      }
-
-      const graph = new BoardGraph(game.boardState);
-      if (!graph.isInBounds(dest)) return true;
-
-      // Hazards are damage-based (board.hazardDamage on entry, default 100;
-      // death only at health <= 0), so a hazard step is only CERTAIN death
-      // when the simulator's exact entry rule says the health won't survive
-      // it — same health-aware classification MoveAnalyzer applies, and the
-      // same charge-then-eat order, so food on the cell is not a way out of a
-      // step whose own cost kills. A survivable hazard step still checks
-      // hazard-blind wall/body fatality.
-      const boardHazards = game.boardState.board.hazards ?? [];
-      if (snake && boardHazards.some(h => h.x === dest.x && h.y === dest.y)) {
-        if (healthAfterEntering(game.boardState.board, game.boardState.turn, snake, dest) <= 0) return true;
-        return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic', ignoreHazards: true })
-          .passableIdx(graph.cellIndexOf(dest), 1);
-      }
-
-      return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic' })
-        .passableIdx(graph.cellIndexOf(dest), 1);
+      const marshalled = marshalBoard(board, game.boardState.turn);
+      const settled = resolvePartialTurn(
+        marshalled,
+        new Map([[snakeId, { path: [marshalled.toIndex(dest)] }]])
+      );
+      return settled.deaths[snakeId] !== undefined;
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);
@@ -2234,10 +2256,11 @@ export class ActiveGameManager {
   // ── Chess pieces ─────────────────────────────────────────────────────────
   // A piece's staged move is the FULL-BOARD index of its destination square
   // (the TacticToes wire format), not a Direction. Commanding is goto-based:
-  // the head of the goto queue IS the destination. Legality mirrors the
-  // server's pieceMoves.ts via src/logic/piece-moves.ts, so the centaur never
-  // stages a move the server would reject; an illegal target stages the
-  // piece's own square, which the server treats as stay.
+  // the head of the goto queue IS the destination. Legality is the SERVER'S,
+  // asked through src/logic/staging-legality.ts — the api-coordinate adapter
+  // over the vendored grammar queries — so the centaur never stages a move the
+  // server would reject; an illegal target stages the piece's own square,
+  // which the server treats as stay.
 
   private isPieceUnit(controlled: ControlledSnake): boolean {
     return (controlled.unitType ?? 'snake') !== 'snake';
@@ -2252,18 +2275,12 @@ export class ActiveGameManager {
     return apiCoordToIndex(head, board.width + 2, board.height + 2);
   }
 
-  // Every square holding food or ANY unit at the start of the turn, as
-  // full-board indices — the target set a pawn's diagonal-forward step is
-  // legal into (attack or eat; no friendly exemption, matching the engine).
-  private pawnTargetSquares(board: NonNullable<BoardSnapshot['board']>): Set<number> {
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
-    const targets = new Set<number>();
-    for (const f of board.food || []) targets.add(apiCoordToIndex(f, fullW, fullH));
-    for (const s of board.snakes || []) {
-      for (const seg of s.body || []) targets.add(apiCoordToIndex(seg, fullW, fullH));
-    }
-    return targets;
+  // The board a staging question is asked against, marshalled once per call
+  // site. A pawn's diagonal targets — every square holding food or ANY body at
+  // the start of the turn, no friendly exemption — are derived from it INSIDE
+  // the grammar queries, so this layer never states that rule at all.
+  private stagingBoardFor(board: NonNullable<BoardSnapshot['board']>): BoardShape {
+    return stagingBoard(board);
   }
 
   // The SINGLE resolver for a piece's commanded destination this turn —
@@ -2271,7 +2288,7 @@ export class ActiveGameManager {
   // candidate UI) both funnel through here.
   //
   //  - manual is an explicit human destination, decided by exactly one
-  //    planPieceAction call: a legal single move (ray/jump/step, pawn
+  //    grammar call: a legal single move (ray/jump/step, pawn
   //    orientation and diagonal-only-onto-target rules included; a pawn's side
   //    square is the rotate encoding) stages that square's index, anything
   //    else stages the piece's own square (= stay; the wire accepts any int and
@@ -2324,8 +2341,8 @@ export class ActiveGameManager {
         action: best?.action ?? { kind: 'stay' },
       };
     }
-    const pawnTargets =
-      controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+    const shape = this.stagingBoardFor(board);
+    const grammarUnit = grammarUnitAt(controlled.unitType, originIdx, you.orientation);
 
     if (intent.kind !== 'manual' || typeof intent.move !== 'number') {
       // THE BOT RUNG, third and last — reached only when no operator command
@@ -2334,20 +2351,12 @@ export class ActiveGameManager {
       // every piece and an uncommanded piece stages nothing at all, which is
       // still what happens when the bot has nothing to say.
       //
-      // The recommendation is validated through the SAME planPieceAction the
-      // manual rung uses, so a destination the server would reject stages the
-      // piece's own square (= stay) instead of a write the engine discards.
+      // The recommendation is validated through the SAME grammar the manual
+      // rung uses, so a destination the server would reject stages the piece's
+      // own square (= stay) instead of a write the engine discards.
       const recommended = controlled.botRecommendation;
       if (typeof recommended !== 'number') return null;
-      const botAction = planPieceAction(
-        controlled.unitType,
-        originIdx,
-        recommended,
-        fullW,
-        fullH,
-        you.orientation,
-        pawnTargets
-      );
+      const botAction = stagingActionFor(grammarUnit, recommended, shape);
       if (!botAction) {
         console.warn(
           `[ActiveGameManager] Bot recommended illegal destination ${recommended} for ` +
@@ -2361,15 +2370,7 @@ export class ActiveGameManager {
       };
     }
 
-    const action = planPieceAction(
-      controlled.unitType,
-      originIdx,
-      intent.move,
-      fullW,
-      fullH,
-      you.orientation,
-      pawnTargets
-    );
+    const action = stagingActionFor(grammarUnit, intent.move, shape);
     return {
       move: action ? intent.move : originIdx,
       source: 'manual',
@@ -2383,8 +2384,8 @@ export class ActiveGameManager {
   // candidate carries a positive score — an unreachable target pulls nowhere
   // and the piece stays put.
   private bestPieceCandidate(gameId: string, snakeId: string): PieceCandidateScore | null {
-    // Candidate-level FATAL veto, the piece counterpart of pickBestMove's
-    // fatal-pocket veto for snakes: a candidate whose projected traversal
+    // Candidate-level FATAL veto, the piece counterpart of the snake
+    // argmax's fatal-pocket veto: a candidate whose projected traversal
     // kills the piece (projected health 0) is never chosen while a survivable
     // candidate exists — the hard guarantee on top of the strongly-negative
     // deaths weight already inside `score`, which a large enough waypoint
@@ -2393,7 +2394,7 @@ export class ActiveGameManager {
     // untouched: fatal candidates still reach the UI, so a human commander can
     // still stage a sacrifice.
     //
-    // REGICIDE outranks it, exactly as it does in pickBestMove for snakes: a
+    // REGICIDE outranks it, exactly as it does for snakes: a
     // candidate that takes our team's LAST king ends the whole team that turn,
     // which is strictly worse than losing this one piece — so it is filtered
     // FIRST and only ignored if literally every candidate commits it. (Staying
@@ -2463,10 +2464,10 @@ export class ActiveGameManager {
    * so a fatal-but-winning king trade carries the enemyRegicide reward and is
    * scored rather than discarded.
    *
-   * The stat comes from the shared waypoint pathfinder walking the graph's
-   * per-unit adjacency, so a knight is ordered by knight moves and a rook by
-   * rays — there is nothing type-aware in this layer, and the piece's own
-   * shortest path is what the goto route draws.
+   * The stat comes from the shared waypoint pathfinder walking the unit's own
+   * search space, so a knight is ordered by knight moves and a rook by rays —
+   * there is nothing type-aware in this layer, and the piece's own shortest
+   * path is what the goto route draws.
    */
   private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
     const game = this.games.get(gameId);
@@ -2481,14 +2482,9 @@ export class ActiveGameManager {
     const fullW = board.width + 2;
     const fullH = board.height + 2;
     const unitType = controlled.unitType ?? 'snake';
-    const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
-    const legal = legalPieceDestinations(
-      unitType,
-      apiCoordToIndex(head, fullW, fullH),
-      fullW,
-      fullH,
-      gs.you.orientation,
-      pawnTargets
+    const legal = legalStagingCandidates(
+      grammarUnitAt(unitType, apiCoordToIndex(head, fullW, fullH), gs.you.orientation),
+      this.stagingBoardFor(board)
     );
     const dests = legal.map(c => toApiCoord(c.dest, fullW, fullH));
     // Progress is measured in the STATE the candidate leaves the piece in: a
@@ -2511,7 +2507,7 @@ export class ActiveGameManager {
     if (waypoint) {
       try {
         progress = waypointProgressByDestination(gs, snakeId, waypoint, probes, {
-          graph: new BoardGraph(gs),
+          board: new RouteBoard(gs),
         });
       } catch (e) {
         // Waypoint math must never break staging or the candidate broadcast:
@@ -3413,7 +3409,33 @@ export class ActiveGameManager {
       game.boardState = canonical;
       game.boardStateTurn = incomingTurn;
       game.currentTurn = Math.max(game.currentTurn, incomingTurn);
+      this.recomputeBoardTerritory(game, canonical);
       this.notifyBoardUpdate(gameId, canonical);
+    }
+  }
+
+  // The board-wide partition, recomputed for the turn that just arrived.
+  //
+  // IT IS A PROPERTY OF THE BOARD, so it is computed here, once, for every
+  // viewer — not lifted out of whichever unit's decision happened to produce
+  // one on the way past. That is how it used to arrive: the legacy per-snake
+  // decision path handed the UI its own Voronoi by-product, so the moment the
+  // shipped decision path stopped being that one the overlay and the cell
+  // inspector went quietly dark. Nothing about a map needs a decision to have
+  // been made.
+  //
+  // Never throws: a display grid must not be able to stall a turn's board
+  // update, and a game with no partition simply draws none.
+  private recomputeBoardTerritory(game: ActiveGame, canonical: BoardSnapshot): void {
+    try {
+      const ownership = computeTerritoryView(canonical);
+      game.boardTerritory = {
+        turn: canonical.turn ?? 0,
+        territoryCells: territoryCellsOf(ownership),
+        cellOwnership: ownership,
+      };
+    } catch (e) {
+      console.error(`[ActiveGameManager] territory view failed for turn ${canonical.turn}:`, e);
     }
   }
 

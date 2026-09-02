@@ -46,14 +46,12 @@
  * numbers come from a fully-resolved real turn either way.
  */
 
-import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
+import { DEFAULT_PAWN_PROMOTION_WEIGHT, isKingUnit, isPieceUnit } from './staging-legality';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import { resolveMaxTurns } from '../engine-vendor/engine/adjudicate';
 import { Board, Coord, Snake } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { TeamDetector } from './team-detector';
-import { isKingUnit, isPieceUnit } from './piece-threats';
-import { tierAtArrival } from './simulator';
 import { planUnitAction } from '../engine-vendor/engine/moveGrammar';
 import {
   ResolveTurnInput,
@@ -236,7 +234,7 @@ export interface MarshalledBoard {
 /**
  * THE EXACT TIER A UNIT CARRIES INTO THE ARRIVAL TURN, read off the schedule.
  *
- * `tierAtArrival` (simulator.ts) reads the two fields the WIRE collapses the
+ * `tierAtArrival` (below) reads the two fields the WIRE collapses the
  * schedule into: an aggregate `invulnerabilityLevel` and a single
  * `invulnerabilityExpiryTurn`, which `translate.ts::aggregateExpiryTurn` sets
  * to the EARLIEST expiry among the unit's effects. That collapse is lossy the
@@ -263,6 +261,17 @@ export interface MarshalledBoard {
  * no schedule at all (`activeEffects` absent: hand-built fixtures, documents
  * predating the field) never reaches here and keeps `tierAtArrival` verbatim.
  */
+/**
+ * The tier the WIRE says a unit carries into the turn after `currentTurn`: its
+ * aggregate level, kept only while the aggregate expiry still covers that
+ * turn. The lossy reading — see above for when it is wrong and what corrects
+ * it — but the one every board with no effect schedule at all still gets.
+ */
+export function tierAtArrival(unit: Snake, currentTurn: number): number {
+  const expiry = unit.invulnerabilityExpiryTurn ?? currentTurn;
+  return currentTurn + 1 <= expiry ? (unit.invulnerabilityLevel ?? 0) : 0;
+}
+
 function tierFromSchedule(
   snake: Snake,
   currentTurn: number,

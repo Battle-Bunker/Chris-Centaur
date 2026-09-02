@@ -7,7 +7,7 @@
  *    green route, the evaluator's progress stats, and the server's staging
  *    re-bias. One pathfinder means the path the user sees, the stat the
  *    matrix scores, and the move the snake stages can never disagree. It walks
- *    the graph's per-unit SEARCH SPACE, so one BFS plans a rook's rays, a
+ *    the unit's own SEARCH SPACE, so one BFS plans a rook's rays, a
  *    knight's jumps and a pawn's turn-then-step sequences without knowing
  *    which is which; `waypointPath` is its cells-only projection.
  *  - `gotoProgressStat` / `nearProgressStat` — pure functions mapping
@@ -17,16 +17,16 @@
  *    because the stat (and therefore weight × stat) is bounded.
  *  - `computeWaypointProgressByMove` — the per-move stat table, computed ONCE
  *    per decision from the pre-move board. It is a plain serializable object,
- *    so the same table crosses the structured clone into decision worker
- *    threads (see decision-chunk.ts) instead of every chunk re-running BFS.
+ *    so one BFS per decision serves every consumer of the stat instead of
+ *    each of them re-running it.
  *
  * The waypoint TARGET is the durable intent state; paths and stats are
  * derived data, recomputed from the live board every time they're needed.
  */
 
 import { GameState, Coord, Direction } from '../types/battlesnake';
-import { BoardGraph } from './board-graph';
-import { Orientation } from './piece-moves';
+import { RouteBoard } from './route';
+import { Orientation } from './staging-legality';
 
 // The active waypoint target handed to the decision engine: the current goto
 // target (head of the goto queue) or the near target.
@@ -82,12 +82,12 @@ export function destinationOf(head: Coord, move: Direction): Coord {
 }
 
 export interface WaypointPathOptions {
-  graph?: BoardGraph;
+  board?: RouteBoard;
   startTurn?: number;
   /**
    * Extra "our own future body" test: given a cell index and the turn we
    * would ARRIVE there, is it still occupied? Consulted in addition to the
-   * graph's own passability, never instead of it.
+   * route board's own passability, never instead of it.
    */
   occupied?: (cellIdx: number, arrivalTurn: number) => boolean;
   /**
@@ -104,7 +104,7 @@ export interface WaypointPathOptions {
  * turn spent, or null when the target is unreachable. Distance = route.length;
  * from === target → [].
  *
- * One BFS level is one of the unit's own turns, taken over the graph's per-unit
+ * One BFS level is one of the unit's own turns, taken over the unit's own
  * search space — so a knight's route is L-hops, a rook's is ray landings, and a
  * pawn's interleaves quarter turns with forward steps, all from this one loop.
  * A turn spent TURNING carries `rotation` and repeats the square it was spent
@@ -117,15 +117,15 @@ export interface WaypointPathOptions {
  *
  * `occupied` layers ADDITIONAL, caller-supplied blocking on top of that: cells
  * the subject will occupy in the future because of movement the board does not
- * know about yet. The graph models our body RECEDING as the tail advances, but
+ * know about yet. The route board models our body RECEDING as the tail advances, but
  * it has no idea our head is going to walk somewhere — so a caller chaining
  * several path legs must tell it, or later legs happily route back through the
  * cells the earlier legs just filled (most visibly, straight back into the neck
  * the snake would have created by arriving).
  *
- * Runs on the graph's flat node indices (the board is a typed-array grid since
- * the perf rework); a caller that already built a BoardGraph for this turn
- * should pass it rather than paying for a rebuild.
+ * Runs on flat node indices over a typed-array grid; a caller that already
+ * built a RouteBoard for this turn should pass it rather than paying for a
+ * rebuild.
  */
 export function waypointRoute(
   gameState: GameState,
@@ -146,21 +146,21 @@ export function waypointRoute(
   const ourSnake = board.snakes.find(s => s.id === ourSnakeId);
   if (!ourSnake) return null;
 
-  const graph = opts?.graph ?? new BoardGraph(gameState);
+  const routeBoard = opts?.board ?? new RouteBoard(gameState);
   const occupied = opts?.occupied;
-  const pass = graph.passabilityIdxFor(ourSnakeId, { clearance: 'optimistic' });
+  const pass = routeBoard.passabilityFor(ourSnakeId);
   // The subject's own search space: one BFS level is one of ITS turns, and the
   // space decides whether facing is part of a node. Nothing here knows which
   // unit it is walking for.
-  const unit = graph.unitAdjacencyFor(ourSnakeId);
-  const space = graph.searchSpaceFor(
+  const unit = routeBoard.unitFor(ourSnakeId);
+  const space = routeBoard.searchSpaceFor(
     opts?.orientation ? { ...unit, orientation: opts.orientation } : unit
   );
-  const W = graph.boardWidth;
+  const W = routeBoard.boardWidth;
   const N = space.nodeCount;
 
-  const targetIdx = graph.cellIndexOf(target);
-  const startIdx = graph.cellIndexOf(from);
+  const targetIdx = routeBoard.cellIndexOf(target);
+  const startIdx = routeBoard.cellIndexOf(from);
   const startNode = space.startNode(startIdx);
   const parent = new Int32Array(N).fill(-1);
   const visited = new Uint8Array(N);
@@ -319,7 +319,7 @@ export interface WaypointCandidateProgress {
  * Probe-keyed because a candidate is where the turn LEAVES the unit: a snake's
  * four steps and a piece's ray/jump destinations are squares, and a pawn's
  * quarter turn is the same square facing a new way. All three are measured by
- * exactly this code, over the graph's per-unit search space, so no caller
+ * exactly this code, over the unit's own search space, so no caller
  * re-derives what "one turn closer" means for its unit type.
  */
 export function waypointProgressByDestination(
@@ -327,17 +327,17 @@ export function waypointProgressByDestination(
   ourSnakeId: string,
   waypoint: WaypointContext,
   probes: WaypointProbe[],
-  opts?: { graph?: BoardGraph; from?: Coord }
+  opts?: { board?: RouteBoard; from?: Coord }
 ): WaypointCandidateProgress[] {
-  const graph = opts?.graph ?? new BoardGraph(gameState);
+  const routeBoard = opts?.board ?? new RouteBoard(gameState);
   const from = opts?.from ?? gameState.you.head;
   const target = waypoint.target;
-  const baseDist = waypointDistance(gameState, ourSnakeId, from, target, { graph });
+  const baseDist = waypointDistance(gameState, ourSnakeId, from, target, { board: routeBoard });
   const statOf = waypoint.kind === 'goto' ? gotoProgressStat : nearProgressStat;
 
   return probes.map(probe => {
     const dist = waypointDistance(gameState, ourSnakeId, probe.cell, target, {
-      graph,
+      board: routeBoard,
       startTurn: 1,
       orientation: probe.orientation,
     });
@@ -358,7 +358,7 @@ export function waypointProgressByDestination(
 export function computeWaypointProgressByMove(
   gameState: GameState,
   waypoint: WaypointContext | null | undefined,
-  opts?: { graph?: BoardGraph }
+  opts?: { board?: RouteBoard }
 ): WaypointProgressByMove | null {
   if (!waypoint) return null;
   const head = gameState.you.head;

@@ -18,7 +18,7 @@
 
 import { ActiveGameManager, TurnData } from '../server/active-game-manager';
 import { GameState, Snake, Coord } from '../types/battlesnake';
-import { CellOwnership } from '../logic/multi-source-bfs';
+import { CellOwnership } from '../logic/territory-view';
 
 const BoardRenderer = require('../web/board-renderer.js');
 

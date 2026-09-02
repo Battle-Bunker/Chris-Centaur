@@ -1,9 +1,13 @@
 /**
  * Tests for the goto/near waypoint redesign: waypoints are weighted votes in
- * the heuristic matrix (bounded per-move shortest-path progress stats), never
+ * the decision's per-move scores (bounded shortest-path progress stats), never
  * hard path overrides; goto supports a queue of targets that shift on arrival;
  * the rendered green route is derived from the STAGED move (staged destination
  * first, shortest path onward) and recomputed on every stage.
+ *
+ * The route half runs over `logic/route.ts` — the per-unit search space taken
+ * from the vendored grammar — so a knight's route is L-hops, a rook's is ray
+ * landings and a pawn's interleaves its quarter turns, from one BFS loop.
  */
 
 import {
@@ -14,7 +18,6 @@ import {
   nearProgressStat,
   computeWaypointProgressByMove,
 } from '../logic/waypoint-pathing';
-import { DecisionEngine, pickBestMove } from '../logic/decision-engine';
 import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
 
@@ -282,75 +285,6 @@ describe('computeWaypointProgressByMove', () => {
     const gs = makeGameState('g', 1, [snake], 's');
     expect(computeWaypointProgressByMove(gs, null)).toBeNull();
     expect(computeWaypointProgressByMove(gs, undefined)).toBeNull();
-  });
-});
-
-describe('pickBestMove', () => {
-  test('applies the fatal-pocket veto before the argmax, and degrades to least-bad when all are fatal', () => {
-    expect(pickBestMove([
-      { move: 'up', score: 100, trapped: 1 },
-      { move: 'left', score: 50, trapped: 0 },
-    ])).toBe('left');
-    expect(pickBestMove([
-      { move: 'up', score: 100, trapped: 1 },
-      { move: 'left', score: 50, trapped: 1 },
-    ])).toBe('up');
-    expect(pickBestMove([])).toBeNull();
-  });
-});
-
-describe('DecisionEngine waypoint integration', () => {
-  test('goto: the optimal next move toward the target wins and carries gotoProgress = 1', () => {
-    const engine = new DecisionEngine();
-    const snake = makeSnake('s', { x: 5, y: 5 });
-    const gs = makeGameState('g', 1, [snake], 's');
-
-    const decision = engine.decide(gs, new Set(['s']), { kind: 'goto', target: { x: 8, y: 5 } });
-
-    expect(decision.move).toBe('right');
-    const right = decision.evaluations.find(e => e.move === 'right')!;
-    const up = decision.evaluations.find(e => e.move === 'up')!;
-    expect(right.worstEvaluation.stats.gotoProgress).toBe(1);
-    expect(up.worstEvaluation.stats.gotoProgress).toBeLessThan(1);
-  });
-
-  test('near: the ideal approach (distance 1) earns the full bonus and wins', () => {
-    const engine = new DecisionEngine();
-    const snake = makeSnake('s', { x: 5, y: 5 });
-    const gs = makeGameState('g', 1, [snake], 's');
-
-    // Target two cells right: moving right reaches the ideal distance of 1.
-    const decision = engine.decide(gs, new Set(['s']), { kind: 'near', target: { x: 7, y: 5 } });
-
-    expect(decision.move).toBe('right');
-    const right = decision.evaluations.find(e => e.move === 'right')!;
-    expect(right.worstEvaluation.stats.nearProgress).toBe(1);
-    expect(right.worstEvaluation.stats.gotoProgress).toBe(0);
-  });
-
-  test('near: landing ON the target earns nothing (arrival is never rewarded)', () => {
-    const engine = new DecisionEngine();
-    const snake = makeSnake('s', { x: 5, y: 5 });
-    const gs = makeGameState('g', 1, [snake], 's');
-
-    // Target directly adjacent: the landing move gets a 0 stat — near's pull
-    // simply vanishes at the doorstep rather than penalising below neutral.
-    const decision = engine.decide(gs, new Set(['s']), { kind: 'near', target: { x: 6, y: 5 } });
-
-    const right = decision.evaluations.find(e => e.move === 'right')!;
-    expect(right.worstEvaluation.stats.nearProgress).toBe(0);
-  });
-
-  test('no waypoint: both progress stats stay 0 across every candidate', () => {
-    const engine = new DecisionEngine();
-    const snake = makeSnake('s', { x: 5, y: 5 });
-    const gs = makeGameState('g', 1, [snake], 's');
-
-    const decision = engine.decide(gs, new Set(['s']));
-    for (const evaluation of decision.evaluations) {
-      expect(evaluation.worstEvaluation.stats.gotoProgress).toBe(0);
-      expect(evaluation.worstEvaluation.stats.nearProgress).toBe(0);
-    }
   });
 });
 
