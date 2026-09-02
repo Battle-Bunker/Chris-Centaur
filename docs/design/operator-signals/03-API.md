@@ -80,6 +80,11 @@ interface AttentionPolicy {                   // operator-authored; versioned li
       // policy constant with provenance.
   readonly cursors: { look: Cursor; commit: Cursor }   // client-maintained, sent up
   readonly askAppetite: 'eager' | 'normal' | 'quiet'   // multiplies the ask price, never zero
+  readonly holdout?: { offerEpsilon: number; askEpsilon: number }
+      // exploration rates (doc 13) — defaults are program members with
+      // provenance; an operator may lower them (their attention, their
+      // call), and fitters refuse epsilon=0 strata rather than
+      // extrapolating into them
 }
 ```
 

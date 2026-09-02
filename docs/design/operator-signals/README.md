@@ -28,6 +28,7 @@ provenance caveats (ruling 49).
 | `10-SELF-RED-TEAM.md` | nine attacks on this design; five amendments; the what-if hole and `signals.quote` |
 | `11-O0-RETENTION-SPEC.md` | the unlock increment specified against the real code sites (`better()`, the B2 loop, `prunedLedger`, the term vectors), with cost gates and falsifiers |
 | `12-OVERRIDE-LEDGER.md` | the surface measuring its own distortion: intervention join keys, counterfactual anchors, the credit-assignment refusal, owner-scale-first custody |
+| `13-PROPENSITY-AND-HOLDOUT.md` | closed-loop presentation bias (librarian 43, co-adopted with the IN lens): the selector logs exact P(surfaced) per eligible item; two small budget-charged epsilons maintain the supply of uncaused rows; fitters refuse propensity-less rows |
 | `contracts.sketch.ts` | the whole wire in one builder-facing file |
 | `SYNTHESIS.md` | the standalone summary (start here for the whole argument) |
 

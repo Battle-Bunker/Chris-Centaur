@@ -166,6 +166,16 @@ vehicle); the record shape above is deliberately a degenerate
 | content | on the contested-3 probe board, the serialized matrix reproduces the search lens's v2 table (their probe becomes a regression test of our retention — one instrument, two consumers) |
 | foil | on every bench decision, the last accepted ContestEntry's `decidedBy` matches the incumbent's actual acceptance path under a hand-traced spot check; the distribution's `tie` share on contested boards is the doc 09 §3 prior (expected high) |
 
+## 7½. The frame-time sibling (pointer)
+
+The DecisionLedger retains what the *engine* computed; the **FrameLedger**
+(doc 13) retains what the *selector* did — per-item exposure
+probabilities and the holdout draw. It is O1's obligation, not O0's
+(there is no selection before frames exist), but it ships **with** the
+first frame, never after: the first shipped frame is the moment outcome
+rows start being caused by the surface, and a caused corpus without
+propensities cannot be corrected later (librarian 43's timing point).
+
 ## 8. What O0 explicitly does not do
 
 No selection, no frames, no wire, no presentation, no reads-back, no new

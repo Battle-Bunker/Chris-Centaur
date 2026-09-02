@@ -171,9 +171,29 @@ interface AttentionPolicy {
   readonly cursors: { look: string; commit: string }
   readonly acks: ReadonlyArray<SignalRef>        // sticky-item acknowledgements
   readonly askAppetite: 'eager' | 'normal' | 'quiet'
+  readonly holdout?: { offerEpsilon: number; askEpsilon: number }  // exploration (doc 13); fitters refuse epsilon=0 strata
   readonly maxV: number
   // LAW (no-mix, guidance H9): nothing here may be read by the search
   // context; nothing in the guidance table may name a SignalClassId.
+}
+
+// ---------- the propensity log (doc 13; O1's obligation) -------------------
+
+interface SelectionEntry {
+  readonly itemRef: SignalRef
+  readonly gainAtSelection: number
+  readonly attentionWeight: 1 | 2 | 3
+  readonly surfaced: boolean
+  readonly cause: 'greedy' | 'holdout' | 'pin' | 'sticky' | 'ask-open' | 'not-surfaced'
+  readonly propensity: number                    // exact P(surfaced | frame state, policy), logged at selection time
+}
+
+interface FrameLedger {
+  readonly frameKey: string                      // (gameId, teamId, scope, turn, seq)
+  readonly policyId: string
+  readonly holdoutDraw: { seed: string; offerSlot: SignalRef | null; askSlot: SignalRef | null }  // ledger-seeded, replay-exact
+  readonly entries: ReadonlyArray<SelectionEntry>
+  readonly ineligible: ReadonlyArray<{ itemRef: SignalRef; why: 'shelved' | 'inhibited' | 'flood' }>  // P=0 by policy/hygiene: a distinct population, never extrapolated into
 }
 
 // ---------- the store (pull; team-private while live) ----------------------

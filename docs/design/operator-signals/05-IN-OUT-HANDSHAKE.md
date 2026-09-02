@@ -196,3 +196,24 @@ Their M10 (echo obligations are port contract, co-owned) is the seam's
 final form: the echo theorem is mine, the retention column is theirs,
 and a port is not done until both halves exist. Falsifier 3 stays
 textually identical in both build orders.
+
+## 8. Co-adoption: propensity + holdout (librarian 43; cannot-wait)
+
+Doc 13 designs the exposure log and randomised holdout into my selector.
+The IN-side halves this binds (offered for their co-adoption, no wire
+change needed on their side):
+
+- **their uptake telemetry (02 §7) is a caused corpus**: `provokedBy`
+  joins observe action conditional on surfacing; the honest uptake number
+  is IPS-weighted through the FrameLedger row of the provoking item
+  (join: utteranceId → provokedBy → itemRef → SelectionEntry). Their
+  ratified/authored strata answer *whose preference*; the weights answer
+  *despite whose selection* — both needed, neither substitutes.
+- **the ask/act threshold** (librarian M101, self-corrected in 43): fits
+  only with propensity + holdout attached; their Q7 demand-cap tuning on
+  authority-collapse rate reads collapse-ask outcomes, which are
+  themselves surfaced items — same clause applies.
+- The librarian's distinction is kept verbatim on both branches:
+  *ratification is evidence about the operator's preferences, and it is
+  not evidence about the option's quality. Two different fits, two
+  different corpora.*

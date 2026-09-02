@@ -130,7 +130,13 @@ exchange rates.
 
 - **Anchoring**: a good brief teaches the operator to see what the bot
   sees; the surface must measure its own distortion (override track
-  record) — doc 10 §4.
+  record, doc 12) — and because the surface is a deployed ranker, every
+  outcome row it produces is conditioned on its own selection: the
+  selector logs exact exposure probabilities and keeps a small
+  budget-charged randomised holdout from the first shipped frame
+  (doc 13, librarian 43 co-adoption — correction needs propensities,
+  identification needs uncaused rows, and neither can be retrofitted
+  once every row is a caused row).
 - **Retention custody** beyond game end, spectator/broadcast frames, and
   presentation-template governance remain open (doc 04 §9).
 - The SET's native supplier (the set-valued reduction member) is designed

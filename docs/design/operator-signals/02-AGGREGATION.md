@@ -108,6 +108,16 @@ test is then automatic: an ask surfaces exactly when its decisionRelevance
 clears the inflated price against the competition. No separate ask-throttle
 mechanism exists.
 
+**The selector logs its own exposure model and explores** (doc 13,
+librarian domain 43 — designed in, not retrofitted): every eligible item
+gets a SelectionEntry with its exact P(surfaced) at selection time, and
+two small epsilons (ε_offer, ε_ask) fill an occasional budget-charged
+slot by seeded random draw — the deliberately-maintained supply of
+uncaused rows without which every downstream fit (uptake, override
+ledger, ask thresholds) re-fits the selection policy to itself. Greedy
+stays the selection law; the epsilons are the identification instrument
+riding it.
+
 ## 4. digest — the temporal aggregation
 
 `digest(cursor)` folds everything since a cursor into: (a) the edges that

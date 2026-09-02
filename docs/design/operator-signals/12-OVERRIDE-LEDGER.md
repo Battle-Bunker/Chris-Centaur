@@ -63,6 +63,16 @@ its conservation check:
   are reported as their own stratum, never merged with `authored` — else
   the surface can inflate the human's record by pre-filling good answers,
   which is the laundering rider read as a measurement threat.
+- **The propensity requirement** (doc 13, librarian 43's correction of
+  their own M101): an override is only observable on a *surfaced* item,
+  so this whole corpus is conditioned on the selection policy. Every row
+  joins its provoking item's SelectionEntry and estimates are
+  IPS-weighted (1/P(surfaced)); **a selection-affected outcome row
+  without its propensity column is refused by every fitter** — in
+  particular, the ask/act threshold may not be fitted on overrides
+  without it, or the threshold re-fits to itself. Strata the operator
+  made unexplorable (shelved classes, ε = 0 policies) are a distinct
+  population, reported as such, never extrapolated into.
 
 ## 4. What the instrument feeds, and who sees it
 
