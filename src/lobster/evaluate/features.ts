@@ -66,6 +66,7 @@ import type { Admission, Partition } from './territory';
 import { contestFeature } from './contest';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
+import { tierFeature } from './tier';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -934,6 +935,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   foodFeature,
   momentumFeature,
   contestFeature,
+  tierFeature,
 ];
 
 /** Re-exported so a consumer can read a held unit's interval without the engine. */

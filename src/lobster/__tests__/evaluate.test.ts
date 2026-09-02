@@ -37,6 +37,7 @@ import {
   contestField,
   defaultEvaluator,
   makeContext,
+  tierFeature,
   materialBounds,
   materialEvaluator,
   scale,
@@ -592,6 +593,289 @@ describe('contest avoidance prices the rule turnEngine adjudicates', () => {
   });
 });
 
+// --------------------------------------------------------------- tier value
+
+describe('tier value prices the window, and is free without one', () => {
+  /**
+   * One joint plan, scored two ways: the `tier` part alone, and the whole
+   * fold's total. Both are needed — the part says the term saw what it was
+   * supposed to see, the total says the fold ACTS on it, which is the whole
+   * reason the term exists.
+   */
+  function scoreOf(
+    board: Board,
+    orders: ReadonlyArray<[string, Coord]>,
+    asTeam = 'red'
+  ): { tier: { lo: number; est: number; hi: number }; total: number; lo: number } {
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam,
+      modeled: orders.map(([id]) => id),
+    });
+    try {
+      const plan = new Map<UnitId, Candidate>();
+      for (const [id, to] of orders) {
+        const unit = sub.unitOfWireId(id)?.unitId as UnitId;
+        const dest = at(board, to);
+        plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+      }
+      const team = sub.teamNumber(asTeam);
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, team);
+      const part = ev.parts['tier'] as { lo: number; est: number; hi: number };
+      return {
+        tier: { lo: part.lo, est: part.est, hi: part.hi },
+        total: ev.bound.est,
+        lo: ev.bound.lo,
+      };
+    } finally {
+      sub.release();
+    }
+  }
+
+  // -- the zero -------------------------------------------------------------
+
+  test('EXACTLY zero on every board with no live effect and no potion', () => {
+    // The claim the whole seating rests on: with no tier anywhere, this term
+    // is a point at zero, so every counter measured on a potion-free board is
+    // the counter that was measured before it existed. Checked over the law
+    // cases — pieces, snakes, kings, held units.
+    for (const c of LAW_CASES) {
+      const sub = makeSubstrate({
+        board: c.board,
+        turn: c.turn,
+        asTeam: c.asTeam,
+        modeled: c.stages,
+        observedTurns: c.observedTurns,
+      });
+      try {
+        const plan = new Map<UnitId, Candidate>();
+        for (const wireId of c.stages) {
+          const unit = sub.unitOfWireId(wireId)?.unitId as UnitId;
+          const dest = c.orders.get(wireId) as number;
+          plan.set(unit, {
+            unitId: unit,
+            from: -1,
+            to: dest,
+            path: sub.pathFor(unit, dest) ?? [],
+          });
+        }
+        const team = sub.teamNumber(c.asTeam);
+        const ev = defaultEvaluator.evaluatePlan(sub, plan, team);
+        expect([c.name, ev.parts['tier']]).toEqual([c.name, { lo: 0, est: 0, hi: 0 }]);
+      } finally {
+        sub.release();
+      }
+    }
+  });
+
+  test('a potion the rules do not collect is still no tier', () => {
+    // `invulnerabilityPotionsEnabled: false` makes a potion inert scenery, and
+    // the term has to read the flag rather than the cells.
+    const board = boardOf(
+      [
+        makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('them', [{ x: 5, y: 3 }, { x: 6, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }], invulnerabilityPotionsEnabled: false }
+    );
+    expect(scoreOf(board, [['me', { x: 2, y: 3 }]]).tier).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  // -- the buff side --------------------------------------------------------
+
+  /**
+   * THE ALLY-BUFF BOARD. Two of ours; one enemy that TIES our ally on weight.
+   *
+   *   ally (3,1) w2 --> (4,1)   <-- foe (5,1) w2
+   *   taker (1,3) w2 --> (2,3), where the potion is
+   *
+   * A tie kills everyone (`strictMaximum` returns a survivor only where the
+   * maximum is unique), so at tier 0 the ally's destination is a square it
+   * dies on. Settlement pays every LIVING ally of a collector +1 for the
+   * window, and at +1 the ally is the unique maximum and lives. Nothing else
+   * on the board moves between the two plans below.
+   */
+  const allyBuffBoard = (): Board =>
+    boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('ally', [{ x: 3, y: 1 }, { x: 2, y: 1 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 5, y: 1 }, { x: 6, y: 1 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+
+  test('the fold prefers the line that collects the potion', () => {
+    const board = allyBuffBoard();
+    const ally: Coord = { x: 4, y: 1 };
+    const takes = scoreOf(board, [
+      ['taker', { x: 2, y: 3 }],
+      ['ally', ally],
+    ]);
+
+    // The term sees the ally's window and nothing else: one of two units, an
+    // edge of +1, over the two remaining turns of a three-turn window.
+    expect(takes.tier.hi).toBeCloseTo((1 * (3 - 1)) / 3 / 2, 9);
+    expect(takes.tier.est).toBeGreaterThan(0);
+    // The CREDIT is a ceiling fact and the floor is right to refuse it: the
+    // resolution adjudicates this turn's contest at the PRE-pickup tier, so
+    // the ally is contingent in it, and a credit for a unit that might not be
+    // there is exactly what a floor may not bank. `lo` therefore stays at
+    // zero — the term can order a move and can never buy a unit's life.
+    expect(takes.tier.lo).toBe(0);
+
+    // And the FOLD acts on it: the same ally move, priced higher because the
+    // teammate armed it, against every other move the taker has.
+    for (const elsewhere of [{ x: 1, y: 2 }, { x: 1, y: 4 }] as Coord[]) {
+      const declines = scoreOf(board, [
+        ['taker', elsewhere],
+        ['ally', ally],
+      ]);
+      expect([elsewhere, declines.tier]).toEqual([elsewhere, { lo: 0, est: 0, hi: 0 }]);
+      expect([elsewhere, takes.total > declines.total]).toEqual([elsewhere, true]);
+    }
+  });
+
+  test('the buff is worth nothing where no enemy contests the square', () => {
+    // The same pickup, with the ally walking away from the contest instead.
+    // A +1 over ground nobody wants buys exactly nothing, which is the half of
+    // the contest rule this term is built on.
+    const board = allyBuffBoard();
+    expect(
+      scoreOf(board, [
+        ['taker', { x: 2, y: 3 }],
+        ['ally', { x: 3, y: 2 }],
+      ]).tier
+    ).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  // -- the debuff side ------------------------------------------------------
+
+  /**
+   * THE SELF-DEBUFF BOARD. One unit of ours, weight three, against a weight-two
+   * enemy that reaches the potion cell. At tier 0 we are the unique maximum
+   * there and live; settlement charges a collector −1, and at −1 the enemy
+   * outranks us on TIER before weight is even read. So the pickup turns a
+   * square we win into a square we lose, for the whole window it opens — the
+   * exact case "an enemy who could not win now can".
+   */
+  const selfDebuffBoard = (): Board =>
+    boardOf(
+      [
+        makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }, { x: 0, y: 2 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+
+  test('collecting a potion that costs us a square we were winning is a debit', () => {
+    const board = selfDebuffBoard();
+    const takes = scoreOf(board, [['me', { x: 2, y: 3 }]]);
+
+    // One unit, an edge of −1, over the two remaining turns of the window —
+    // and DETERMINATE in both readings, because at tier 0 this unit is the
+    // unique maximum at that square and nothing about it is contingent. The
+    // debit is therefore one the FLOOR carries, not merely the ceiling.
+    expect(takes.tier).toEqual({
+      lo: -((1 * (3 - 1)) / 3),
+      est: -((1 * (3 - 1)) / 3),
+      hi: -((1 * (3 - 1)) / 3),
+    });
+
+    // A line that does not collect is untouched by the term.
+    expect(scoreOf(board, [['me', { x: 1, y: 2 }]]).tier).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('the debuff costs nothing where the square was already lost', () => {
+    // The same pickup against an enemy that OUT-weighs us: we lose the square
+    // at tier 0 and we lose it at −1, so the debuff changed nothing and is not
+    // charged for it. `contest` prices the loss; this term prices only the
+    // part tier is responsible for.
+    const board = boardOf(
+      [
+        makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 5, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+    expect(scoreOf(board, [['me', { x: 2, y: 3 }]]).tier).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  // -- a pre-existing window ------------------------------------------------
+
+  test('a buff already held is worth its REMAINING turns, and nothing after them', () => {
+    // Our snake ties the enemy on weight at (4,3) and carries a +1. The term
+    // is positive while the window has turns left in it and zero once the
+    // window has run out — the "over the remaining window" clause, with no
+    // potion anywhere on the board.
+    const held = (expiry: number): Board =>
+      boardOf([
+        makeSnake('me', [{ x: 3, y: 3 }, { x: 2, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          invulnerabilityLevel: 1,
+          invulnerabilityExpiryTurn: expiry,
+        }),
+        makeSnake('foe', [{ x: 5, y: 3 }, { x: 6, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ]);
+    const dest: Coord = { x: 4, y: 3 };
+    const long = scoreOf(held(TURN + 9), [['me', dest]]).tier;
+    const short = scoreOf(held(TURN + 1), [['me', dest]]).tier;
+    const lapsed = scoreOf(held(TURN), [['me', dest]]).tier;
+
+    expect(long.lo).toBeGreaterThan(0);
+    expect(short.lo).toBeGreaterThan(0);
+    // A window with one turn left is worth a third of one that outlives the
+    // horizon; a window already over is worth nothing.
+    expect(short.lo).toBeLessThan(long.lo);
+    expect(long.lo).toBeCloseTo(1, 9);
+    expect(short.lo).toBeCloseTo(1 / 3, 9);
+    expect(lapsed).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('the feature is seated LAST, and every shipped profile names it', () => {
+    expect(FEATURES[FEATURES.length - 1]).toBe(tierFeature);
+    expect(tierFeature.key).toBe('tier');
+    expect(DEFAULT_WEIGHTS.tier).toBe(2);
+    // The ordering the calibration argues for, checked rather than argued.
+    expect(DEFAULT_WEIGHTS.tier as number).toBeGreaterThan(DEFAULT_WEIGHTS.momentum as number);
+    expect(DEFAULT_WEIGHTS.tier as number).toBeLessThan(DEFAULT_WEIGHTS.contest as number);
+    expect(DEFAULT_WEIGHTS.tier as number).toBeLessThan(DEFAULT_WEIGHTS.food as number);
+    expect(materialEvaluator.profile.weights.tier).toBe(0);
+  });
+});
+
 // --------------------------------------------------------------- terminal clamps
 
 describe('terminal clamps are ORDERED, not additive', () => {
@@ -849,6 +1133,8 @@ describe('calibration is data', () => {
       'momentum',
       'reach',
       'room',
+      // Tier value: what a window is worth, over the window.
+      'tier',
     ]);
     expect(Object.keys(TERRITORY_PROFILE.weights).sort()).toEqual(
       FEATURES.map((f) => f.key).sort()
