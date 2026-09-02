@@ -250,7 +250,11 @@ APPROXIMATION whose error is un-modeled interference. A future builder who
 reuses the game's cluster partition as the store's coupled-subset partition
 (or vice versa) has silently crossed an exact decomposition with a lossy
 one; the two partitions share code shapes and must never share an
-authority. The store's partition is BY SHARED VARIABLES ONLY.
+authority. The store's partition is BY SHARED VARIABLES ONLY. (And on the
+game side, d12's sharpening — folded via 16-doc §4: once positions are
+sets, geometry is not even a well-defined cut; the boundary that survives
+fog is the PUBLIC state, and the game partition's premise must record the
+conditioning depth of the hulls it read.)
 
 ## 6. The mirror: Belief is observer-indexed, and invisibility's payoff needs the enemy's S
 
