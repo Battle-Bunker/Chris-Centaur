@@ -638,15 +638,19 @@ decide alone.
 
 ## 5. Build order
 
-Sorted by **information per millisecond**, and the top six change no behaviour at
-all. That ordering is deliberate under Ruling 49: every one of them answers a
+**S0½ first**, because it is the only item on the list that is a pure win with
+nothing to decide, and because the member it fixes has not been seated yet — so
+fixing it now costs a rebase and fixing it later costs a re-measurement.
+
+Everything after it is sorted by **information per millisecond**, and the next
+seven change no behaviour at all. That ordering is deliberate under Ruling 49: every one of them answers a
 question about *our* boards from data we already hold, without playing a game
 whose population is modest variations of one lineage.
 
 | # | increment | changes behaviour? | what it decides |
 |---|---|---|---|
-| **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
 | **S0½** | **bound the seed's sample count by the size of the space** (§2.4⅞) and return the unspent budget | yes, but strictly less work for the same output | nothing to decide — a pure win, and it must land before `multistartSeed` is ever seated or the redesign ships spending most of a 100 ms slice re-drawing five options |
+| **S0** | **`restrictedGap`** — retain the cells B2 already computes, partition by basis, solve with RM⁺ (~40 lines, no dependency), emit shape / `vPure` / `vMixed` / gap / row-and-column support / imputed fraction. Full spec in doc 06 §5 | no | **three useful answers from one build.** `rowSupport = 1` on most decisions retires the whole mixed/equilibrium direction on evidence with zero games; a multi-unit gap prices it; and `colSupport ≪ cols` unlocks W-1's column pruning regardless of what the gap says. Also yields `P*` for C-B5 |
 | **S0¾** | **the performance profile**: emit `basis.maxGap` with each emission's timestamp and plot it per board class from the replay corpus (doc 07 §3) | one field, then analysis on existing replays | diminishing returns, and it converts every allocation constant into a calculation. We already have a **proved, monotone, recognizable** quality measure — `maxGap` is simultaneously the ratchet's enforcement variable, the hand-built proxy for the option set Γ-maximin refuses to produce, and the anytime y-axis — and have never drawn the curve |
 | **S0⅞** | **`(family, cost, Δ maxGap)`** recorded after each applied lever, on top of S0¾ (doc 08, Finding M-4) | no | the *measured* value-per-cost of each lever family against the fourteen *assumed* ones. This layer decides what got computed before anything was compared, so it is upstream of every measurement the program takes — and it is one subtraction per slice |
 | **S1** | **`proposedBy`** on every priced trial; accepted-trial counts by operator | no | which of eight operators does any work. Prerequisite for every adaptive schedule; will probably retire two outright |
