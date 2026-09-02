@@ -133,7 +133,9 @@ export class Simulator {
         orientation: result.orientation[snake.id]
           ? { ...result.orientation[snake.id] }
           : { ...snake.orientation },
-        unitType: result.unitTypes[snake.id] ?? snake.unitType,
+        // A unit that declared no kind is a snake by the bot's convention; keep
+      // that shape and read the settled kind back only where one was declared.
+      unitType: snake.unitType === undefined ? undefined : (result.unitTypes[snake.id] ?? snake.unitType),
         invulnerabilityLevel: result.tiers[snake.id] ?? 0,
       };
       // How long that level is safe to bank on: the earliest expiry among the

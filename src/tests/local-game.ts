@@ -649,7 +649,9 @@ export function stepGame(
       orientation: result.orientation[snake.id]
         ? { ...result.orientation[snake.id] }
         : { ...snake.orientation },
-      unitType: result.unitTypes[snake.id] ?? snake.unitType,
+      // A unit that declared no kind is a snake by the bot's convention; keep
+      // that shape and read the settled kind back only where one was declared.
+      unitType: snake.unitType === undefined ? undefined : (result.unitTypes[snake.id] ?? snake.unitType),
       invulnerabilityLevel: tier,
     };
     if (result.promoted.includes(snake.id)) {

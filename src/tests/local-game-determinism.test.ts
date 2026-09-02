@@ -37,9 +37,9 @@ const SEED = 7;
 // mode of "just make the budget tiny, then it is reproducible".
 const NODES = 300;
 
-async function play(spec: typeof MIXED_SCENARIO, scenario: string) {
+async function play(spec: typeof MIXED_SCENARIO, scenario: string, turns: number = TURNS) {
   const result = await runGame(
-    { ...spec, maxTurns: TURNS, seed: SEED, nodeBudget: NODES },
+    { ...spec, maxTurns: turns, seed: SEED, nodeBudget: NODES },
     { scores: false }
   );
   clearGeometryCache();
@@ -47,7 +47,7 @@ async function play(spec: typeof MIXED_SCENARIO, scenario: string) {
     json: JSON.stringify(
       summaryOf(
         result.metrics,
-        { label: 'test', scenario, seed: SEED, turnsRequested: TURNS },
+        { label: 'test', scenario, seed: SEED, turnsRequested: turns },
         { kind: 'nodes', nodes: NODES }
       )
     ),
@@ -94,8 +94,11 @@ describe('the deterministic mode', () => {
    * twice, which the effect schedule and the seeded respawn both have to obey.
    */
   test('the potion board collects potions, moves tiers, and does it identically twice', async () => {
-    const first = await play(POTION_SCENARIO, 'potions');
-    const second = await play(POTION_SCENARIO, 'potions');
+    // Long enough that a collection lands with a living ally, so the ally's
+    // tier-up is observable as well as the collector's tier-down; the engine
+    // now rewrites facing every turn, which moved the first pickup later.
+    const first = await play(POTION_SCENARIO, 'potions', 16);
+    const second = await play(POTION_SCENARIO, 'potions', 16);
     expect(second.json).toBe(first.json);
     expect(second.log).toBe(first.log);
     const summary = JSON.parse(first.json) as {
