@@ -71,6 +71,9 @@ const ROLE: Readonly<Record<Divergence['kind'], RiskCause['role']>> = {
   potion: 'item',
   exhaustion: 'terrain',
   promotion: 'item',
+  // A regicide divergence is keyed to the king whose fall would take the
+  // team; the unknown unit's role at that cell is the one it plays in the shot.
+  regicide: 'head',
 };
 
 /** Divergence kinds that can END a mover's movement at the cell they name. */

@@ -214,11 +214,34 @@ const settled = settlePartial({
   held: [{ id: "u3", observedTurn: turn }],   // ...and optionally `options`
 }, NO_SPAWN)                                   // the normal choice in this mode
 
-settled.ledger   // every (cell, subStep, unitId, heldId, kind) a world could differ at
+settled.ledger   // every (cell, subStep, unitId, heldId, via, kind) a world could differ at
 settled.fates    // per unit: "alive" and "dead" are proofs, "contingent" is a work list
 settled.claims   // where each held unit could be, and how strong — hoistable, see below
 // ...and every field settleTurn returns, for the units that WERE modelled.
 ```
+
+**`heldId` is always a HELD unit, and `via` is how the difference got there.**
+Contingency spreads: a modelled unit whose own outcome is unknown is, from its
+first divergence on and along its own traversal, a second source of unknown
+presence, and a second source of unknown absence at every clash it took part in
+afterwards. Every entry that spread produces is still charged to the held unit
+at the ROOT of the chain, with `via` listing the modelled units it travelled
+through, in order. A caller therefore partitions the worlds by a held unit's
+OPTIONS — which is the only enumeration that buys it anything — rather than by
+its own roster, whose moves it already knows. `via` is empty when the held unit
+acts on `unitId` directly.
+
+Two consequences worth naming, because a caller can spend them:
+
+- Everything a modelled unit did STRICTLY BEFORE the earliest sub-step the
+  ledger names it at is what it did in every world. A contingent unit is
+  contingent *there and afterwards*, not everywhere; its earlier cells are
+  certain and may be scored as such.
+- `kind: "regicide"` is the team-wide verdict off one king's fall — the one
+  divergence with no cell of its own to travel through. The king is the LAST
+  link of the chain, `via[via.length - 1] ?? heldId`, so a caller can price the
+  shot at that one unit instead of writing off the team. It is emitted only for
+  a king whose death is actually in doubt.
 
 **An empty ledger is a proof; a non-empty one is a work list.** With no
 entries, every modelled unit's disposition — where it went, whether it lived,
@@ -230,6 +253,29 @@ one to three held units, every legal concrete assignment settled with the
 ordinary `settleTurn`, and the two compared coordinate for coordinate. With no
 held units at all, `settlePartial` *is* `settleTurn`, which is the reduction
 that makes "one engine" a fact rather than a slogan.
+
+**`Claim.deathPossible` is conditional under regicide, and says on what.** A
+team that plays under regicide loses everything with its last king, so any unit
+of it can be taken off the board by a king it never met — but only by a king
+that could actually fall, and pricing that as an unconditional says the same
+thing about the plan that shoots at the king and the plan that walks away.
+So a claim carries three answers, not one:
+
+```ts
+claim.selfDeathPossible  // its OWN peril: terrain, exhaustion, its own body,
+                         // a modelled unit, another claim. No cascade.
+claim.regicideKingId     // the king whose fall would take it, or null
+claim.deathPossible      // selfDeathPossible, plus that king's fall
+```
+
+`!selfDeathPossible && regicideKingId !== null` is a unit that is in danger
+only because its king is, and the `regicide` ledger entry keyed to that king is
+where the shot gets priced. A HELD king's peril is settled inside
+`computeClaims`; a MODELLED king's cannot be — nothing there settles a turn —
+so `settlePartial` discharges it against the king's `fate`, and the claims it
+returns are the discharged ones. A regicide team with no king left on the
+roster is lost outright when the turn resolves: `deathPossible` is true and
+`regicideKingId` is null, because there is no shot to price.
 
 A held unit's OWN position is not in the ledger — it is inherently unknown, and
 what is known about it is its `Claim`. `Claim` is a pure function of the held

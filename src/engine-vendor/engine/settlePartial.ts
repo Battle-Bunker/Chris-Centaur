@@ -62,17 +62,31 @@ import { outranks } from "./turnEngine"
  * its survival. A caller reading the ledger for a held unit's whereabouts has
  * the wrong object in hand.
  *
- * ## Contingency propagates
+ * ## Contingency propagates, and it propagates ALONG A PATH
  *
  * A unit a claim could have halted did not go on to kill what it killed here,
  * and a unit a claim could have killed was not standing where this timeline
  * has it standing. So contingency spreads: a modelled unit whose own outcome
  * is contingent becomes, for the rest of the turn, a second source of
- * unknown presence — able to be standing on any cell of its own traversal —
- * and a second source of unknown absence, at every clash it took part in
- * afterwards. The ledger is closed under that spread before it is returned,
- * which is why `heldId` names *the unit whose unknown disposition creates the
- * difference* rather than always a held one.
+ * unknown presence — and a second source of unknown absence, at every clash it
+ * took part in afterwards. The ledger is closed under that spread before it is
+ * returned.
+ *
+ * Two things bound the spread, and both matter to a caller that has to
+ * discriminate between plans rather than merely stay sound.
+ *
+ *   · IN SPACE AND TIME. A modelled unit that becomes contingent at sub-step
+ *     `s` is contingent THERE and from `s` on, along ITS OWN traversal: the
+ *     cells it walked, not the board. Everything it did strictly before `s` is
+ *     what it is in every world, which is what lets a caller keep a unit's
+ *     pre-divergence cells as certain instead of writing the unit off.
+ *
+ *   · IN ATTRIBUTION. `heldId` is always the HELD unit at the root of the
+ *     chain — never a modelled one. When the uncertainty travelled through
+ *     modelled units to get here, `via` lists them in order, so a caller can
+ *     still partition the worlds by the held unit's OPTIONS. A ledger that
+ *     named our own roster as the cause would ask a searcher to enumerate the
+ *     moves it already knows, and every candidate would carry the same answer.
  *
  * ## Purity
  *
@@ -97,6 +111,7 @@ export type DivergenceKind =
   | "potion" // a claim could have taken the potion this unit took
   | "exhaustion" // energy spent here depends on whether a claim halted it
   | "promotion" // the weight the threshold is read against could differ
+  | "regicide" // a king that could fall takes this team-mate off the board
 
 export interface Divergence {
   readonly cell: number
@@ -107,10 +122,21 @@ export interface Divergence {
    */
   readonly unitId: string
   /**
-   * The unit whose unknown disposition creates the difference — a held unit,
-   * or a modelled unit whose own outcome is already contingent.
+   * The HELD unit whose unknown move is the root cause. Always one of
+   * `input.held`, so a caller can partition the worlds by its options.
    */
   readonly heldId: string
+  /**
+   * The modelled units the uncertainty travelled through to reach `unitId`,
+   * in order — empty when `heldId` acts on `unitId` directly. Each is a unit
+   * whose own outcome is contingent, and each is contingent only from its own
+   * first divergence on, along its own traversal.
+   *
+   * For a `regicide` entry the last link is the KING whose fall carries the
+   * team, so `via[via.length - 1] ?? heldId` names it and a caller can price
+   * the shot at that one unit.
+   */
+  readonly via: ReadonlyArray<string>
   readonly kind: DivergenceKind
   /**
    * WHICH ENDPOINT RIDES ON IT.
@@ -148,9 +174,23 @@ export interface PartialSettlement extends Settlement {
   readonly claims: ReadonlyArray<Claim>
 }
 
-/** Anything whose presence at a cell is unknown: a claim, or a contingent unit. */
+/**
+ * Anything whose presence at a cell is unknown: a claim, or a contingent unit.
+ *
+ * The three occupancy questions are PREDICATES rather than sets, and that is a
+ * cost decision rather than a taste one. `entangle` asks each of them once per
+ * modelled unit per sub-step, and a ghost that answered with a set rebuilt the
+ * same set for every unit on the board — which was the single largest line in
+ * this mode's profile. Both ghosts can answer the predicate off an index they
+ * build once: a claim's head set is cumulative, so `Claim.earliestSubStep`
+ * already IS the answer and no set is built at all.
+ */
 interface Ghost {
   readonly id: string
+  /** The held unit at the root of this ghost's uncertainty. */
+  readonly origin: string
+  /** The modelled units between `origin` and this ghost, in order. */
+  readonly via: ReadonlyArray<string>
   readonly narrowed: boolean
   readonly leavesTrail: boolean
   readonly traversesEdges: boolean
@@ -158,14 +198,16 @@ interface Ghost {
   readonly tierMax: number
   readonly weightMax: number
   readonly deathPossible: boolean
-  /** Cells it holds in every world where it is alive and unsevered. */
-  readonly certain: ReadonlySet<number>
   /** Sub-step from which this ghost's disposition is unknown. */
   readonly from: number
-  head(subStep: number): ReadonlySet<number>
-  body(subStep: number): ReadonlySet<number>
-  /** Everything it could have held at a STRICTLY earlier sub-step. */
-  before(subStep: number): ReadonlySet<number>
+  /** Does it hold this cell in every world where it is alive and unsevered? */
+  certain(cell: number): boolean
+  /** Could its head be here after `subStep` sub-steps? */
+  head(cell: number, subStep: number): boolean
+  /** Could its trail hold this cell after `subStep` sub-steps? */
+  body(cell: number, subStep: number): boolean
+  /** Could any part of it have held this cell at a STRICTLY earlier sub-step? */
+  before(cell: number, subStep: number): boolean
 }
 
 /** One modelled unit, as the optimistic timeline left it. */
@@ -186,7 +228,27 @@ interface Track {
 }
 
 const setOf = (cells: Iterable<number>): Set<number> => new Set(cells)
-const EMPTY: ReadonlySet<number> = new Set<number>()
+const NO_VIA: ReadonlyArray<string> = []
+
+/**
+ * One modelled unit's contingency, as one held unit caused it. Keyed by the
+ * PAIR, because a unit two held units could each have changed must be
+ * partitionable by either of them, and a single slot would keep only one.
+ */
+interface Contingency {
+  readonly unitId: string
+  /** The held unit at the root. */
+  readonly origin: string
+  /** Sub-step from which this unit's disposition is unknown, for that root. */
+  readonly subStep: number
+  readonly narrowed: boolean
+  /** The modelled units between `origin` and `unitId`, in order. */
+  readonly via: ReadonlyArray<string>
+}
+
+/** The chain, extended by one link — and never through the same unit twice. */
+const through = (via: ReadonlyArray<string>, id: string): ReadonlyArray<string> =>
+  via.includes(id) ? via : [...via, id]
 
 /**
  * Settle a turn some of whose movers are unknown.
@@ -232,9 +294,14 @@ export const settlePartial = (
   const trackById = new Map(tracks.map((t) => [t.id, t]))
 
   const entries = new Map<string, Divergence>()
+  // The same entries in insertion order, so the closure below can resume where
+  // it left off instead of re-reading the whole ledger on every pass.
+  const order: Divergence[] = []
   const add = (entry: Divergence): void => {
     const key = `${entry.subStep}|${entry.cell}|${entry.kind}|${entry.heldId}|${entry.unitId}`
-    if (!entries.has(key)) entries.set(key, entry)
+    if (entries.has(key)) return
+    entries.set(key, entry)
+    order.push(entry)
   }
 
   claimList.forEach((claim) => entangle(ghostOfClaim(claim), tracks, subSteps, add))
@@ -244,17 +311,34 @@ export const settlePartial = (
   // sub-step on, exactly the same kind of unknown presence a claim is — and
   // exactly the same kind of unknown ABSENCE at every clash it took part in
   // afterwards. Both directions, to a fixpoint.
-  const contingent = new Map<string, { subStep: number; narrowed: boolean }>()
+  //
+  // The state is keyed by (unit, HELD ROOT) rather than by unit: the whole
+  // point of the closure is to hand a caller a work list of held units, and a
+  // unit that two held units could each have changed is two pieces of work,
+  // not one. The chain that got here rides along so every entry the expansion
+  // adds can name the root and the route.
+  const contingent = new Map<string, Contingency>()
+  // A state's sub-step only ever falls, and an entry already read was compared
+  // against a state no LATER than the current one — so it can never open
+  // anything a second time. The watermark is that argument, spent.
+  let read = 0
   const seed = (): boolean => {
     let grew = false
-    entries.forEach((entry) => {
-      const track = trackById.get(entry.unitId)
-      if (!track) return
-      const known = contingent.get(entry.unitId)
-      if (known && known.subStep <= entry.subStep) return
-      contingent.set(entry.unitId, { subStep: entry.subStep, narrowed: entry.narrowed })
+    for (; read < order.length; read++) {
+      const entry = order[read]
+      if (!trackById.has(entry.unitId)) continue
+      const key = `${entry.unitId}|${entry.heldId}`
+      const known = contingent.get(key)
+      if (known && known.subStep <= entry.subStep) continue
+      contingent.set(key, {
+        unitId: entry.unitId,
+        origin: entry.heldId,
+        subStep: entry.subStep,
+        narrowed: entry.narrowed,
+        via: entry.via,
+      })
       grew = true
-    })
+    }
     return grew
   }
 
@@ -262,13 +346,13 @@ export const settlePartial = (
   for (let pass = 0; pass < tracks.length + 1; pass++) {
     if (!seed()) break
     let opened = false
-    contingent.forEach((state, id) => {
-      const stamp = `${id}@${state.subStep}`
+    contingent.forEach((state, key) => {
+      const stamp = `${key}@${state.subStep}`
       if (expanded.has(stamp)) return
       expanded.add(stamp)
       opened = true
-      const track = trackById.get(id) as Track
-      entangle(ghostOfTrack(track, state.subStep, state.narrowed), tracks, subSteps, add)
+      const track = trackById.get(state.unitId) as Track
+      entangle(ghostOfTrack(track, state), tracks, subSteps, add)
       absences(track, state, settlement.clashes, trackById, add)
     })
     if (!opened) break
@@ -277,10 +361,11 @@ export const settlePartial = (
   scheduleSpread(input, settlement, contingent, trackById, add)
   seed()
 
-  derivedDivergences(input, settlement, tracks, entries, add)
+  derivedDivergences(input, settlement, tracks, byId, entries, add)
 
-  const ledger = Array.from(entries.values()).sort(byLedgerOrder)
-  const named = new Set(ledger.map((entry) => entry.unitId))
+  const ledger = order.slice().sort(byLedgerOrder)
+  const named = new Set<string>()
+  ledger.forEach((entry) => named.add(entry.unitId))
 
   const fates: Record<string, Fate> = {}
   tracks.forEach((track) => {
@@ -290,7 +375,10 @@ export const settlePartial = (
         ? "dead"
         : "alive"
   })
-  claimList.forEach((claim) => {
+
+  // The regicide cascade, discharged now that the kings have fates.
+  const settledClaims = dischargeRegicide(input, claimList, fates)
+  settledClaims.forEach((claim) => {
     fates[claim.id] = claim.certainlyGone
       ? "dead"
       : claim.deathPossible
@@ -302,18 +390,58 @@ export const settlePartial = (
   // into this one: settlement never saw it, so nothing charged it. The claim's
   // interval is what brackets the truth.
   const tiers = { ...settlement.tiers }
-  claimList.forEach((claim) => {
+  settledClaims.forEach((claim) => {
     tiers[claim.id] = claim.tierAtArrival
   })
 
   return {
     ...settlement,
     tiers,
-    outcome: outcomeOf(input, settlement, claimList, byId),
+    outcome: outcomeOf(input, settlement, settledClaims, byId),
     ledger,
     fates,
-    claims: claimList,
+    claims: settledClaims,
   }
+}
+
+/**
+ * A claim's regicide term, discharged against the settlement.
+ *
+ * `claims.ts` is a pure function of the board and settles nothing, so it
+ * cannot tell whether a MODELLED king survives; it leaves that half of
+ * `deathPossible` conservative and names the king in `regicideKingId`. Here
+ * the king has a `fate`, and "alive" is a proof over every world. A team whose
+ * every king is proved alive loses nobody to the rule, and the claims that
+ * were possibly-dead only by cascade come back alive.
+ *
+ * The ledger above was built against the wider reading. That is sound in the
+ * one direction that matters: a ledger may name a world the claims go on to
+ * prove impossible; it may never miss one.
+ */
+const dischargeRegicide = (
+  input: PartialSettleInput,
+  claims: ReadonlyArray<Claim>,
+  fates: Readonly<Record<string, Fate>>,
+): ReadonlyArray<Claim> => {
+  if (!claims.some((claim) => claim.regicideKingId !== null)) return claims
+  const claimById = new Map(claims.map((claim) => [claim.id, claim]))
+  const safe = new Map<string, boolean>()
+  const teamIsSafe = (teamID: string): boolean => {
+    const known = safe.get(teamID)
+    if (known !== undefined) return known
+    const answer = input.units.every((unit) => {
+      if (!unit.isKing || unit.teamID !== teamID) return true
+      const claim = claimById.get(unit.id)
+      return claim ? !claim.selfDeathPossible : fates[unit.id] === "alive"
+    })
+    safe.set(teamID, answer)
+    return answer
+  }
+  return claims.map((claim) =>
+    claim.regicideKingId !== null && teamIsSafe(claim.teamID)
+      ? { ...claim, deathPossible: claim.selfDeathPossible, regicideKingId: null }
+      : claim,
+  )
 }
 
 const byLedgerOrder = (a: Divergence, b: Divergence): number =>
@@ -358,21 +486,24 @@ const trackOf = (unit: ResolveUnit, settlement: Settlement, subSteps: number): T
 
   const settled = settlement.board[unit.id]
   const body: Set<number>[] = []
-  for (let k = 0; k <= subSteps; k++) {
-    if (!trail) {
-      body.push(new Set<number>())
-      continue
+  if (!trail) {
+    // A stack drags nothing, so one empty set stands for every sub-step: the
+    // array is only ever read.
+    const none = new Set<number>()
+    for (let k = 0; k <= subSteps; k++) body.push(none)
+  } else {
+    const kept = settled?.occupancy
+    const length = unit.occupancy.length
+    for (let k = 0; k <= subSteps; k++) {
+      // Occupancy after k steps is the last k heads followed by the record's
+      // kept prefix; the settled occupancy covers what growth and severing did.
+      const cells = new Set<number>()
+      for (let j = Math.max(1, k - length + 1); j <= k; j++) cells.add(head[j])
+      for (let j = 0; j < length - k; j++) cells.add(unit.occupancy[j])
+      if (kept !== undefined) for (let j = 0; j < kept.length; j++) cells.add(kept[j])
+      cells.delete(head[k])
+      body.push(cells)
     }
-    // Occupancy after k steps is the last k heads followed by the record's
-    // kept prefix; the settled occupancy covers what growth and severing did.
-    const cells = new Set<number>()
-    for (let j = Math.max(1, k - unit.occupancy.length + 1); j <= k; j++) cells.add(head[j])
-    unit.occupancy
-      .slice(0, Math.max(0, unit.occupancy.length - k))
-      .forEach((cell) => cells.add(cell))
-    settled?.occupancy.forEach((cell) => cells.add(cell))
-    cells.delete(head[k])
-    body.push(cells)
   }
 
   const death = settlement.deaths[unit.id]
@@ -391,19 +522,54 @@ const trackOf = (unit: ResolveUnit, settlement: Settlement, subSteps: number): T
 }
 
 const ghostOfClaim = (claim: Claim): Ghost => {
-  const heads = claim.headPossible.map(setOf)
-  const bodies = claim.bodyPossible.map(setOf)
-  const prefix: Set<number>[] = []
-  const running = new Set<number>()
-  for (let k = 0; k < heads.length; k++) {
-    prefix.push(new Set(running))
-    heads[k].forEach((cell) => running.add(cell))
-    bodies[k]?.forEach((cell) => running.add(cell))
+  // The head. `headPossible` is cumulative — a unit stopped short of its ray
+  // stays where it was stopped — so "could its head be at this cell by k" is
+  // "was this cell reachable at or before k", which `earliestSubStep` answers
+  // in one typed-array read. Nothing is allocated for it.
+  const earliest = claim.earliestSubStep
+  const span = claim.headPossible.length
+  const head = (cell: number, k: number): boolean =>
+    cell >= 0 && cell < earliest.length && earliest[cell] <= Math.max(0, k)
+
+  // The trail. `bodyPossible` repeats ONE array for every sub-step after the
+  // first, so the sets are built per distinct array rather than per sub-step.
+  const bodies: Set<number>[] = []
+  const built = new Map<ReadonlyArray<number>, Set<number>>()
+  claim.bodyPossible.forEach((cells) => {
+    let set = built.get(cells)
+    if (set === undefined) {
+      set = setOf(cells)
+      built.set(cells, set)
+    }
+    bodies.push(set)
+  })
+  const body = (cell: number, k: number): boolean =>
+    bodies.length !== 0 && bodies[Math.min(Math.max(0, k), bodies.length - 1)].has(cell)
+
+  // The pile. Everything it could have held STRICTLY earlier is the head half
+  // — cumulative again — plus the first sub-step each trail cell appears at.
+  const firstBody = new Map<number, number>()
+  let previous: Set<number> | undefined
+  bodies.forEach((set, k) => {
+    if (set === previous) return
+    previous = set
+    set.forEach((cell) => {
+      if (!firstBody.has(cell)) firstBody.set(cell, k)
+    })
+  })
+  const before = (cell: number, k: number): boolean => {
+    if (k <= 0) return false
+    const bound = Math.min(k, span - 1)
+    if (bound <= 0) return false
+    const trail = firstBody.get(cell)
+    return head(cell, bound - 1) || (trail !== undefined && trail < bound)
   }
-  const at = (sets: Set<number>[], k: number): ReadonlySet<number> =>
-    sets.length === 0 ? EMPTY : sets[Math.min(k, sets.length - 1)]
+
+  const certain = setOf(claim.certainIfAlive)
   return {
     id: claim.id,
+    origin: claim.id,
+    via: NO_VIA,
     narrowed: claim.narrowed,
     leavesTrail: claim.leavesTrail,
     traversesEdges: claim.traversesEdges,
@@ -411,11 +577,11 @@ const ghostOfClaim = (claim: Claim): Ghost => {
     tierMax: claim.tierMax,
     weightMax: claim.weightMax,
     deathPossible: claim.deathPossible,
-    certain: setOf(claim.certainIfAlive),
     from: 0,
-    head: (k) => at(heads, Math.max(0, k)),
-    body: (k) => at(bodies, Math.max(0, k)),
-    before: (k) => (k <= 0 ? EMPTY : at(prefix, k)),
+    certain: (cell) => certain.has(cell),
+    head,
+    body,
+    before,
   }
 }
 
@@ -426,28 +592,37 @@ const ghostOfClaim = (claim: Claim): Ghost => {
  * on. Its strength is not an interval — it is a unit, and its tier and weight
  * are frozen and known.
  */
-const ghostOfTrack = (track: Track, from: number, narrowed: boolean): Ghost => {
-  const possible = (k: number): ReadonlySet<number> => {
-    const cells = new Set<number>()
-    for (let j = Math.max(0, from - 1); j < Math.min(k, track.head.length); j++) {
-      cells.add(track.head[j])
-    }
-    cells.delete(track.head[Math.min(k, track.head.length - 1)])
-    return cells
+const ghostOfTrack = (track: Track, state: Contingency): Ghost => {
+  const from = state.subStep
+  const last = track.head.length - 1
+  // Its own traversal, indexed ONCE by the earliest sub-step each cell was
+  // walked at or after the divergence. The predicate then costs a map lookup
+  // instead of rebuilding the walk for every unit on the board.
+  const walked = new Map<number, number>()
+  for (let j = Math.max(0, from - 1); j <= last; j++) {
+    const cell = track.head[j]
+    if (!walked.has(cell)) walked.set(cell, j)
+  }
+  const possible = (cell: number, k: number): boolean => {
+    if (cell === track.head[Math.min(Math.max(0, k), last)]) return false
+    const first = walked.get(cell)
+    return first !== undefined && first < Math.min(Math.max(0, k), track.head.length)
   }
   return {
     id: track.id,
-    narrowed,
+    origin: state.origin,
+    via: through(state.via, track.id),
+    narrowed: state.narrowed,
     leavesTrail: track.leavesTrail,
     traversesEdges: track.traversesEdges,
     tierMin: track.tier,
     tierMax: track.tier,
     weightMax: track.weight,
     deathPossible: true,
-    certain: EMPTY,
     from,
+    certain: () => false,
     head: possible,
-    body: () => EMPTY,
+    body: () => false,
     before: possible,
   }
 }
@@ -477,32 +652,36 @@ const entangle = (
     if (track.id === ghost.id) return
     const base = {
       unitId: track.id,
-      heldId: ghost.id,
+      heldId: ghost.origin,
+      via: ghost.via,
       narrowed: ghost.narrowed,
     }
-    for (let k = Math.max(1, ghost.from); k <= Math.min(subSteps, track.lastSubStep); k++) {
+    // The contest comparison reads only the two frozen strengths, so it is the
+    // same answer at every sub-step of this pairing.
+    const couldBeat = couldLose(track, ghost)
+    const until = Math.min(subSteps, track.lastSubStep)
+    for (let k = Math.max(1, ghost.from); k <= until; k++) {
       const cell = track.head[k]
-      const heads = ghost.head(k)
       let contacted = false
 
-      if (heads.has(cell)) {
+      if (ghost.head(cell, k)) {
         contacted = true
         add({
           ...base,
           cell,
           subStep: k,
           kind: "contest",
-          assumedPresent: ghost.certain.has(cell),
-          couldBeat: couldLose(track, ghost),
+          assumedPresent: ghost.certain(cell),
+          couldBeat,
         })
       }
 
       // The body rule: equal-or-lower tier dies on the segment, strictly
       // higher tier severs it and capture-stops. Both halves can be live at
       // once when the claim's tier interval straddles this unit's.
-      if (ghost.leavesTrail && ghost.body(k).has(cell)) {
+      if (ghost.leavesTrail && ghost.body(cell, k)) {
         contacted = true
-        const assumedPresent = ghost.certain.has(cell)
+        const assumedPresent = ghost.certain(cell)
         if (ghost.tierMax >= track.tier) {
           add({
             ...base,
@@ -525,29 +704,29 @@ const entangle = (
         track.moved[k] &&
         track.traversesEdges &&
         ghost.traversesEdges &&
-        ghost.head(k - 1).has(cell) &&
-        heads.has(track.head[k - 1])
+        ghost.head(cell, k - 1) &&
+        ghost.head(track.head[k - 1], k)
       ) {
         add({
           ...base,
           cell,
           subStep: k,
           kind: "edge",
-          assumedPresent: ghost.certain.has(cell),
-          couldBeat: couldLose(track, ghost),
+          assumedPresent: ghost.certain(cell),
+          couldBeat,
         })
       }
 
       // A death never removes anything from the board, so a claim that could
       // have died earlier is a pile this arrival joins.
-      if (!contacted && ghost.deathPossible && track.moved[k] && ghost.before(k).has(cell)) {
+      if (!contacted && ghost.deathPossible && track.moved[k] && ghost.before(cell, k)) {
         add({
           ...base,
           cell,
           subStep: k,
           kind: "durable",
           assumedPresent: false,
-          couldBeat: couldLose(track, ghost),
+          couldBeat,
         })
       }
 
@@ -556,13 +735,13 @@ const entangle = (
       // death.
       if (track.leavesTrail) {
         track.body[k].forEach((segment) => {
-          if (!heads.has(segment)) return
+          if (!ghost.head(segment, k)) return
           add({
             ...base,
             cell: segment,
             subStep: k,
             kind: "sever",
-            assumedPresent: ghost.certain.has(segment),
+            assumedPresent: ghost.certain(segment),
             couldBeat: false,
           })
         })
@@ -578,11 +757,12 @@ const entangle = (
  */
 const absences = (
   track: Track,
-  state: { subStep: number; narrowed: boolean },
+  state: Contingency,
   clashes: ReadonlyArray<Clash>,
   trackById: Map<string, Track>,
   add: (entry: Divergence) => void,
 ): void => {
+  const via = through(state.via, track.id)
   clashes.forEach((clash) => {
     if (clash.subStep < state.subStep) return
     if (!clash.playerIDs.includes(track.id)) return
@@ -594,7 +774,8 @@ const absences = (
         cell: clash.index,
         subStep: clash.subStep,
         unitId: other,
-        heldId: track.id,
+        heldId: state.origin,
+        via,
         kind,
         assumedPresent: true,
         couldBeat: clash.victimIDs.includes(other),
@@ -615,15 +796,29 @@ const ABSENCE_KIND: { [K in ClashKind]?: DivergenceKind } = {
 }
 
 /**
- * Regicide is a team-wide verdict off one unit's death, so a contingent king
- * makes its whole team contingent — the one place a divergence travels
+ * Regicide is a team-wide verdict off one unit's death, so a king that could
+ * fall makes its whole team contingent — the one place a divergence travels
  * without a cell to travel through.
+ *
+ * TWO THINGS KEEP IT FROM SWALLOWING THE BOARD.
+ *
+ * It fires only for a king whose death is actually in doubt. A held king's is
+ * its claim's own `deathPossible`, which no longer carries the cascade term it
+ * would be reading about itself; a modelled king's is in doubt exactly when
+ * something made it contingent. A king nothing can touch takes nobody with it,
+ * and a caller sweeping candidates gets to see that.
+ *
+ * And it is attributed to the HELD unit at the root rather than to the king.
+ * A modelled king is one of ours: keying the entry to it would tell a searcher
+ * to enumerate our own move, which it already knows, and every candidate would
+ * come back with the same work list. `via` ends at the king, so the entry
+ * still says which one unit's fall is being priced.
  */
 const regicideSpread = (
   input: PartialSettleInput,
   settlement: Settlement,
   claims: ReadonlyArray<Claim>,
-  contingent: Map<string, { subStep: number; narrowed: boolean }>,
+  contingent: Map<string, Contingency>,
   trackById: Map<string, Track>,
   add: (entry: Divergence) => void,
 ): void => {
@@ -632,26 +827,45 @@ const regicideSpread = (
   const claimById = new Map(claims.map((claim) => [claim.id, claim]))
   input.units.forEach((king) => {
     if (!king.isKing || !regicide.has(king.teamID)) return
+
+    // Who the fall would be charged to, and by what route. A held king is its
+    // own root; a modelled one is a link in every chain that reached it, and
+    // each of those chains is a separate partition of the worlds.
+    const routes: { origin: string; via: ReadonlyArray<string>; narrowed: boolean }[] = []
     const claim = claimById.get(king.id)
-    const state = contingent.get(king.id)
-    // A held king's survival is unknown by construction; a modelled king's is
-    // unknown once anything has made it contingent.
-    if (!claim && !state) return
-    if (claim && !claim.deathPossible) return
+    if (claim) {
+      if (!claim.deathPossible) return
+      routes.push({ origin: king.id, via: NO_VIA, narrowed: claim.narrowed })
+    } else {
+      contingent.forEach((state) => {
+        if (state.unitId !== king.id) return
+        routes.push({
+          origin: state.origin,
+          via: through(state.via, king.id),
+          narrowed: state.narrowed,
+        })
+      })
+    }
+    if (routes.length === 0) return
+
     input.units.forEach((unit) => {
       if (unit.teamID !== king.teamID || unit.id === king.id) return
       const track = trackById.get(unit.id)
       if (!track) return
-      add({
-        cell: settlement.deaths[unit.id]?.cell ?? track.head[track.lastSubStep],
-        subStep: settlement.subStepCount,
-        unitId: unit.id,
-        heldId: king.id,
-        kind: "contest",
-        assumedPresent: true,
-        couldBeat: true,
-        narrowed: claim?.narrowed ?? state?.narrowed ?? false,
-      })
+      const cell = settlement.deaths[unit.id]?.cell ?? track.head[track.lastSubStep]
+      routes.forEach((route) =>
+        add({
+          cell,
+          subStep: settlement.subStepCount,
+          unitId: unit.id,
+          heldId: route.origin,
+          via: route.via,
+          kind: "regicide",
+          assumedPresent: true,
+          couldBeat: true,
+          narrowed: route.narrowed,
+        }),
+      )
     })
   })
 }
@@ -675,22 +889,25 @@ const regicideSpread = (
 const scheduleSpread = (
   input: PartialSettleInput,
   settlement: Settlement,
-  contingent: Map<string, { subStep: number; narrowed: boolean }>,
+  contingent: Map<string, Contingency>,
   trackById: Map<string, Track>,
   add: (entry: Divergence) => void,
 ): void => {
   const potions = new Set(input.potionsEnabled ? input.potions : [])
-  contingent.forEach((state, id) => {
+  contingent.forEach((state) => {
+    const id = state.unitId
     const track = trackById.get(id)
     if (!track) return
     const teamID = input.teamOf[id]
+    const via = through(state.via, id)
     const where = settlement.deaths[id]?.cell ?? track.head[track.lastSubStep]
     const spread = (unitId: string, cell: number): void =>
       add({
         cell,
         subStep: settlement.subStepCount,
         unitId,
-        heldId: id,
+        heldId: state.origin,
+        via,
         kind: "potion",
         assumedPresent: true,
         couldBeat: false,
@@ -734,16 +951,24 @@ const itemDivergences = (
     ? new Set(input.potions.filter((cell) => !settlement.potions.includes(cell)))
     : new Set<number>()
 
+  // One set per claim, not one per (unit, claim) pair: `everPossible` is a
+  // property of the claim and rebuilding it inside the sweep was quadratic in
+  // the roster for no answer that changed.
+  const reachOf = new Map<string, Set<number>>()
+  claims.forEach((claim) => reachOf.set(claim.id, setOf(claim.everPossible)))
+
   tracks.forEach((track) => {
     const finalCell = settlement.finalCell[track.id]
+    if (!eaten.has(finalCell) && !potions.has(finalCell)) return
     claims.forEach((claim) => {
-      const reachable = new Set(claim.everPossible)
+      const reachable = reachOf.get(claim.id) as Set<number>
       if (eaten.has(finalCell) && reachable.has(finalCell)) {
         add({
           cell: finalCell,
           subStep: settlement.subStepCount,
           unitId: track.id,
           heldId: claim.id,
+          via: NO_VIA,
           kind: "food",
           assumedPresent: false,
           couldBeat: false,
@@ -756,6 +981,7 @@ const itemDivergences = (
           subStep: settlement.subStepCount,
           unitId: track.id,
           heldId: claim.id,
+          via: NO_VIA,
           kind: "potion",
           assumedPresent: false,
           couldBeat: false,
@@ -778,15 +1004,21 @@ const itemDivergences = (
   //     killed, or severed and still standing — takes its team's borrowed
   //     invulnerability down with it. A claim can do that by walking into a
   //     wall, with nobody modelled anywhere near it.
-  const alliesOf = (teamID: string): Track[] =>
-    tracks.filter((track) => input.teamOf[track.id] === teamID)
+  const byTeam = new Map<string, Track[]>()
+  tracks.forEach((track) => {
+    const teamID = input.teamOf[track.id]
+    const roster = byTeam.get(teamID)
+    if (roster === undefined) byTeam.set(teamID, [track])
+    else roster.push(track)
+  })
   const schedule = (claim: Claim, cell: number, subStep: number): void =>
-    alliesOf(claim.teamID).forEach((track) =>
+    (byTeam.get(claim.teamID) ?? []).forEach((track) =>
       add({
         cell,
         subStep,
         unitId: track.id,
         heldId: claim.id,
+        via: NO_VIA,
         kind: "potion",
         assumedPresent: false,
         couldBeat: false,
@@ -825,6 +1057,7 @@ const derivedDivergences = (
   input: PartialSettleInput,
   settlement: Settlement,
   tracks: ReadonlyArray<Track>,
+  byId: Map<string, ResolveUnit>,
   entries: Map<string, Divergence>,
   add: (entry: Divergence) => void,
 ): void => {
@@ -842,6 +1075,7 @@ const derivedDivergences = (
       subStep: event.subStep,
       unitId: event.unitID,
       heldId: source.heldId,
+      via: source.via,
       kind: "exhaustion",
       assumedPresent: source.assumedPresent,
       couldBeat: true,
@@ -850,7 +1084,7 @@ const derivedDivergences = (
   })
 
   tracks.forEach((track) => {
-    const unit = input.units.find((u) => u.id === track.id)
+    const unit = byId.get(track.id)
     if (!unit || unit.type !== "pawn") return
     const source = earliest.get(track.id)
     if (!source) return
@@ -862,6 +1096,7 @@ const derivedDivergences = (
       subStep: settlement.subStepCount,
       unitId: track.id,
       heldId: source.heldId,
+      via: source.via,
       kind: "promotion",
       assumedPresent: source.assumedPresent,
       couldBeat: false,
@@ -883,13 +1118,14 @@ const outcomeOf = (
   claims: ReadonlyArray<Claim>,
   byId: Map<string, ResolveUnit>,
 ): Settlement["outcome"] => {
-  const gone = new Set(claims.filter((claim) => claim.certainlyGone).map((claim) => claim.id))
-  const held = new Map(claims.map((claim) => [claim.id, claim]))
+  const held = new Map<string, boolean>()
+  claims.forEach((claim) => held.set(claim.id, claim.certainlyGone))
   const alive: string[] = []
   const pieces: { [unitID: string]: ReadonlyArray<number> } = {}
   input.units.forEach((unit) => {
-    if (held.has(unit.id)) {
-      if (gone.has(unit.id)) return
+    const gone = held.get(unit.id)
+    if (gone !== undefined) {
+      if (gone) return
       alive.push(unit.id)
       pieces[unit.id] = (byId.get(unit.id) as ResolveUnit).occupancy
       return
