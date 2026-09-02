@@ -1696,3 +1696,112 @@ corpus is conditioned on the surfacing policy and fitting `p*_{D,A}` on it witho
 the exposure probability **re-fits the threshold to itself**. **M101 stands only
 with the propensity log and the holdout attached** — the same two instruments the
 rider needs. Build them once, for both.
+
+---
+
+**OPERATOR-INBOUND + OPERATOR-OUTBOUND — domain 44: automation bias, and the
+counterweight d39 owes you.** Domain 10 argued for the Centaur surface and d39 gave
+you its decision theory; both treat a better advisor as straightforwardly better.
+A large empirical literature says the failure modes of a decision aid **grow with
+the operator's trust in it** — they are measured, they appear in experts, and they
+**cannot be trained away**.
+
+**C89 — the surface's damage scales with its QUALITY, and nothing in the design has
+a term for it.** Automation bias produces two error kinds when the aid is
+imperfect:
+  - **commission** — the operator follows the advice *against information they
+    themselves hold*. Reviewed rate: **in 5.2% of prescribing cases, correct
+    answers were switched to incorrect after the system's advice**, mediated by
+    trust, decision confidence, task difficulty, and (inversely) experience;
+  - **omission** — the operator misses what the aid did not flag, because its
+    silence has become a substitute for looking.
+
+  Both are mediated by trust, and **trust is earned by accuracy**, so the surface's
+  net value is **not monotone in the advisor's quality**: there is a regime where a
+  good advisor makes the pair worse than the human alone on the cases where it is
+  wrong. Two concrete consequences: the **omission channel is invisible by
+  construction** (nothing logs a non-surfacing), and **C88's randomised holdout is
+  the only instrument that can see it** — so that one instrument now has **three
+  purposes: propensity correction, threshold identification, omission detection**.
+  The commission channel has a cheap proxy: a ratified surfaced option whose
+  realised outcome is worse than the operator's own prior pattern in that cell.
+
+**C90 — OUTBOUND: the ask threshold is a PORTFOLIO constraint, not a per-decision
+optimum.** Horvitz's `p*_{A,D}` optimises *this* interaction from four utilities.
+The cry-wolf result says the channel's effectiveness is a property of the **set**
+surfaced: **a 20% false-alarm rate with PPV 0.3 caused operators to ignore about
+HALF of the TRUE alarms on the difficult targets** — the cases the surface exists
+for.
+
+  So lowering the threshold does not trade "a few needless interruptions" for "a
+  few more catches". It **lowers the surfaced set's PPV, degrading the response to
+  the alarms that matter**, and the cost lands on *future* interactions — where a
+  per-decision expected-utility calculation is structurally unable to see it,
+  because the loss is not in `u(A,¬G)` but in the next decision's
+  `p(operator acts | we signal)`.
+
+  > **Set the threshold so the surfaced set's positive predictive value stays above
+  > a floor; optimise the utilities within that constraint.**
+
+  PPV is measurable over a window from ratification and override rates, so this is
+  **the outbound lens's first hard acceptance criterion**. It sharpens d39's C75 in
+  the direction that matters: the middle band's width is not free to be set from
+  four assessed utilities alone. And **`disuse` is the endgame if it is got wrong**
+  — an over-alerting surface is not merely ignored, it is **switched off**, and then
+  the whole Centaur direction is unavailable however good the advisor becomes.
+
+**C91 — OUTBOUND: compliance and reliance are two channels with two causes, and the
+design has one word.** *"False alarms tend to affect operator **compliance**,
+whereas misses tend to affect operator **reliance**."*
+  - **compliance** = acting when we signal — damaged by **false alarms**;
+  - **reliance** = trusting our **silence** — damaged by **misses**.
+
+  In the three-region structure **the silent region is a signal too** ("nothing here
+  worth your attention"), and its failures have a different cause and a different
+  victim. So you need **two acceptance criteria**, and only one is currently
+  conceivable: the surfaced region judged by **PPV** (from ratifications), the
+  silent region judged by **the miss rate inside the silence** — which nothing
+  observes and only the holdout can estimate. **A single "trust" or "confidence"
+  number cannot carry both**: raising the threshold improves compliance and worsens
+  reliance, and that trade *is* the content of the middle band's width.
+
+**M112 — INBOUND: intermediate automation preserves the take-back C73 makes
+mandatory, and it is M100's THIRD independent argument.** Endsley & Kiris: *"the
+out-of-the-loop performance problem was significantly greater under **full**
+automation than under **intermediate** levels"*, and at lower levels *"subjects were
+more able to assume manual control when needed."* Composed with C73:
+
+  > **The strategy must end in take-back by the agent, and the operator's ability to
+  > take back is a decreasing function of how much was automated in between.** A
+  > design that automates fully in order to be helpful degrades the very capability
+  > its fallback depends on.
+
+  And M100 ("do less, but do it correctly under uncertainty" — a direction not a
+  cell, a role not a path) was argued from R-4 and from Horvitz's principle 8; this
+  adds that the coarser commitment is **also an intermediate level of automation**,
+  which is what keeps the operator able to take over. C74's buy-time action is one
+  too, by construction — it *defers* commitment rather than making it. **The same
+  design move now satisfies three independent constraints**, which is the strongest
+  form of evidence this survey has produced for any recommendation.
+
+**M113 — BOTH: complacency's precondition is our standing condition, and C76's
+coordinate already covers it.** Three properties make it a constraint rather than a
+caution: it *"occurs under conditions of **multiple-task load**"*; it is *"found in
+both naive and expert participants"*; and it *"cannot be overcome with simple
+practice"*. So **"the operator will learn to check" is not an available
+mitigation**, and "our operator is skilled" is not an escape. Our operator steers
+multiple units against a clock — the precondition by definition. **And C76's two
+proposed proxies — which unit last received a manual command (focus), elapsed
+fraction of the deadline (rush) — are exactly the complacency preconditions**, so
+one operator-state coordinate serves both the threshold displacement and the
+complacency risk, and is cheaper than either finding implied alone.
+
+**The honest balance, stated because the rest reads as a warning.** Endsley &
+Kiris's failures are failures of **full** automation, and a Centaur surface is the
+intermediate level their result *recommends*. **The programme is on the right side
+of this literature's main finding**; everything above is about how to stay there.
+Two scoping notes: most of this work studies passive monitoring rather than an
+active collaborator, which weakens the vigilance read-across but **strengthens** the
+load-driven complacency one (an active player has more attentional competition, not
+less); and the 5.2% is from clinical prescribing — cite it as evidence the effect is
+real and measurable, not as a rate to expect.
