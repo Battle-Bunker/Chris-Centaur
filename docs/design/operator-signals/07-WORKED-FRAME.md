@@ -1,14 +1,18 @@
 # 07 — A worked frame: three moments on the contested-queen board
 
+*(REVISED after search doc-09 v2 @ ab7ed5f superseded its v1 numbers —
+see my doc 09. Moment A is now refutation-led; the earlier margin-led
+variant survives as the quiet-board aside at the end of §A.)*
+
 The schema (docs 01–03), exercised end to end. Board: the search lens's
-`contested-queen` probe scenario (09-RESTRICTED-GAP-RESULT @ 10e47ed) —
-23 candidate plans, 5 banked witness columns, floor spread 4.0 weight
-units, pureDuality 0, four distinct row minima. Real numbers from that
-probe are used where they exist; everything else is **illustrative and
-marked ~**. Team weight ~38 with the queen holding ~31 (the joints lens's
-weight-blindness exhibit). Budget 2s ≈ ~2000 quanta at an illustrative
-exchange rate. One operator, budget 4 items, one standing `near` on the
-queen, one pinned class (`soundness` is pinned by default policy).
+`contested-queen` probe scenario — 23 candidate plans, 5 banked witness
+columns, and under v2's corrected cells **all 23 rows refuted** at the
+shipped gate (a banked reply drives each floor to the lattice bottom).
+Real numbers from that probe are used where they exist; everything else
+is **illustrative and marked ~**. Team weight ~38 with the queen holding
+~31 (the joints lens's weight-blindness exhibit). Budget 2s ≈ ~2000
+quanta at an illustrative exchange rate. One operator, budget 4 items,
+one standing `near` on the queen, `soundness` pinned by default policy.
 
 ## Moment A — mid-turn, 40% of budget spent
 
@@ -23,13 +27,28 @@ queen, one pinned class (`soundness` is pinned by default policy).
     {
       "signal": "sig_set_t22", "role": "offer",
       "presentation": {
-        "headline": "Two plans still live, 1.0 weight apart; the rest of the 23 are 4.0 below.",
-        "foil": { "instead": "p_j7q", "because": "keeps the queen's escape ray open but concedes the contested cell", "margin": 1.0 },
-        "causes": ["flow_q_contest", "flow_q_escape"]
+        "headline": "No plan here is proof-safe: the enemy queen's ray-hold refutes 19~ of 23 plans and the rest fall to two other replies. I am choosing by estimate.",
+        "foil": { "instead": "p_j7q", "because": "survives one more reply class than the staged plan before its own refutation", "margin": 0.0 },
+        "causes": ["flow_q_contest"]
       }
-      // payload behind sig_set_t22: options[23] with floors (span 4.0, 4
-      // distinct row minima — real probe numbers), staged = p_k4x,
-      // deciding = { rung: "floor", margin: 1.0 }~
+      // payload behind sig_set_t22 (doc 09 §2): options[23] each with
+      // refutedBy (real v2 structure: ALL ROWS REFUTED at the shipped
+      // gate), refutation = { liveCount: 0, dominantColumn: "w_qray",
+      // refutesCount: 19~ }, deciding = { rung: "est", ... } — and the
+      // premise carries the gate config (enemyCap 3, gateOnEntanglement)
+      // because live-counts are gate-relative (doc 09 §5).
+      // NOTE the aggregation win: one dominant refuter = ONE item, not
+      // 19 line items; the refuter doubles as the threat anchor.
+    },
+    {
+      "signal": "sig_edge_authority", "role": "ask",
+      "presentation": {
+        "headline": "Between the estimate-ranked top plans my proof rungs are silent — if you read this position, your call beats my tie-break.",
+        "affordance": "utt_template:determination{unit:queen}",
+        "causes": []
+      }
+      // the authority-collapse ask (doc 09 §3): deciding rung fell past
+      // the floor; fires only at collapse grade, hysteresis per 01 §3
     },
     {
       "signal": "sig_flow_qnear", "role": "offer",
@@ -39,16 +58,6 @@ queen, one pinned class (`soundness` is pinned by default policy).
       }
       // the guidance echo (05 §1, value-field port): FLOW on channel
       // guidance:utt_near_q, continuous — the `near` case, no completion
-    },
-    {
-      "signal": "sig_trace_gap", "role": "offer",
-      "presentation": {
-        "headline": "Still climbing: the last 200 quanta moved the margin; this board type historically improves through the full budget.",
-        "causes": []
-        // squeeze(trace) verdict = climbing; premise cites CPP member
-        // cpp/queen@v0 (fit provenance attached) — the queen cell's
-        // climbs-through-top-rung curve, a real compiled result
-      }
     },
     {
       "signal": "sig_ask_q7", "role": "ask",
@@ -66,8 +75,9 @@ queen, one pinned class (`soundness` is pinned by default policy).
   "asksOpen": [ { "ref": "sig_ask_q7", "since": { "turn": 22, "seq": 3 }, "state": "open" } ],
   "index": [
     // stubs, not payloads — the not-selected middle:
+    { "ref": "sig_trace_gap", "shape": "trace", "anchor": "clock", "label": "climbing — this board type improves through the full budget (cpp/queen@v0)" },
     { "ref": "sig_width_all", "shape": "width", "anchor": "enemies", "label": "3 tracked widths, 2 quiet" },
-    { "ref": "sig_matrix_t22", "shape": "set", "anchor": "decision", "label": "restricted matrix 23x5, pure saddle (drill)" },
+    { "ref": "sig_matrix_t22", "shape": "set", "anchor": "decision", "label": "restricted matrix 23x5, refutation-attributed (drill)" },
     { "ref": "sig_flows_t22", "shape": "flow", "anchor": "team", "label": "~41 flow records this decision (rollup by unit)" },
     { "ref": "sig_held_pins", "shape": "held", "anchor": "operator", "label": "1 standing guidance, 0 pins" }
   ]
@@ -77,15 +87,25 @@ queen, one pinned class (`soundness` is pinned by default policy).
 Points proved by writing it:
 
 1. **Every item's payload names a real generator.** SET = bank floors +
-   discarded matrix (O0 retention); the guidance echo = the shipped
-   near-stat read per candidate; the trace verdict = gapCurve + compiled
-   CPP; the ask = cloud width × margin overlap. Nothing had to be invented
-   engine-side beyond the O0–O3 build steps.
-2. **The budget forced a real omission.** The (K,W,p) share context and
-   the two quiet enemy widths lost the greedy selection to the ask — and
-   remain one tap away via `index`. Selection ≠ censorship, visibly.
-3. **Statistics stayed in the drill.** pureDuality, R², visit counts:
-   none headline. Both headline causes are flows with event anchors.
+   refutation records (O0 retention, v2 probe path); the authority-collapse
+   ask = the deciding-rung telemetry graded; the guidance echo = the
+   shipped near-stat read per candidate; the knight ask = cloud width ×
+   decision overlap. Nothing had to be invented engine-side beyond the
+   O0–O3 build steps.
+2. **The budget forced a real omission.** The climbing-trace verdict, the
+   (K,W,p) share context and the two quiet enemy widths lost the greedy
+   selection — and remain one tap away via `index`. Selection ≠
+   censorship, visibly.
+3. **Statistics stayed in the drill.** pureDuality, refutation counts per
+   column, visit counts: none headline raw. The headline causes are a
+   named enemy reply and a flow with an event anchor.
+3½. **Refutation aggregation is the attention win** (doc 09 §2): nineteen
+   refuted plans cost one item because one column refutes them; and on a
+   *quiet* board (hub-queen: one column, 24 live rows, 72.9-unit span —
+   real v2 numbers) the same SET item reverts to the margin-led form
+   ("13 distinct proof-backed levels; staged leads by a wide floor
+   margin") with the authority ask never firing. One schema, two regimes,
+   the deciding-rung grade switching the template.
 
 ## Moment B — the enemy knight commits east; reveal at sub-step 2
 
@@ -100,7 +120,7 @@ Operator answered the ask (submitted the pre-filled support-demand
     {
       "signal": "sig_bundle_e1", "role": "offer",   // coincidence bundle, first-out led (02 §6)
       "presentation": {
-        "headline": "The knight's commitment east collapsed its cloud, dropped the floor 2.0~, and flipped the staged plan to the escape-ray line you were shown as the foil.",
+        "headline": "The knight's commitment east collapsed its cloud, un-refuted two plans (its columns no longer apply), and flipped the staged plan to the escape-ray line you were shown as the foil.",
         "causes": ["flow_k_threat", "flow_q_escape"]
       }
       // drills: edge(WIDTH eKnight, collapsed) + edge(SET, staged-changed)

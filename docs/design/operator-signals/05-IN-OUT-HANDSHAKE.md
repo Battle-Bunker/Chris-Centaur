@@ -89,3 +89,47 @@ lets an operator direct the bot's *clock* posture; my frame cadence
 policy-configurable. If the owner ever wants "brief me only at commits",
 that is an AttentionPolicy cursor mode, not a deadline utterance — the two
 lenses agree tempo-of-play and tempo-of-briefing are different dials.
+
+## 5. Second cross-read (their 02-WIRE-API + 03-SELF-RED-TEAM @ 7036c14)
+
+**H9 settles AttentionPolicy ownership — my §4 table stands corrected.**
+I had assigned AttentionPolicy to the guidance lens as operator config;
+their H9 draws the sharper line: *"the guidance table biases the game; the
+advice subscription biases the conversation — the rows never mix (an
+ADVICE threshold can never change an ordering)."* Adopted: AttentionPolicy
+is **OUT-owned** (it is the advice subscription), but it rides the same
+generated-schema machinery (their constructor-row generation gives me
+pins/shelves/budget rows for free) and the same transport family. The
+no-mix law becomes checkable: nothing in the search context may read the
+policy doc; nothing in the guidance table may name a SignalClassId.
+
+**H5's belief-weight port gets its echo** (extending §1's table): the
+operator-authored weight-supplier tilt is supervisable *and gradeable* —
+the fog lens's log-loss harness reads Turn.moves at zero match cost, so
+the echo is (a) edges on decisions the tilt actually swung (like
+appetite), and (b) a per-utterance **calibration trace**: how the
+operator's read on that enemy is scoring against observed replies. The
+empathy channel comes with an empathy scoreboard, which is exactly the
+feedback loop that keeps ruling 13's "humans take the risks" honest —
+risk-taking with a visible track record. (Their falsifier for H5 is also
+an OUT read: changed decisions cite the supplier utterance.)
+
+**A-3's two signs echo symmetrically**: a standing *restriction* is a HELD
+like a license, and the frustration signal gains the case their H4 names —
+"your restriction is what killed the alternative" renders from the emit
+record's premise tags; when a restriction's remainder approaches all-fatal
+the consent surface is theirs, but the *early warning* ("your no-north
+rule is down to one live option") is an OUT edge on the restriction's
+HELD, cheap and probably the difference between a consent dialog arriving
+as a shock or as a confirmation.
+
+**Their `guidanceId` premise coordinate** (02 §6) is adopted as the join
+key on every echo item's premise — frames computed under different live
+guidance never compare silently, and "did guidance help" A/B reads drop
+out of the same address discipline.
+
+**Their Q10 (constructor versioning across deploys) has an OUT half**: a
+retired-constructor row must surface as a HELD health change
+("your escort directive's constructor was retired; row served under
+compatibility") — the visibly-retire rule their §5 no-silence principle
+requires, delivered through this surface.

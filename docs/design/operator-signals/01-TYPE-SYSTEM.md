@@ -59,13 +59,19 @@ interface Signal<Shape> {
 interface SetPayload {
   readonly options: ReadonlyArray<{
     readonly plan: PlanRef
-    readonly floor: WeightUnits                    // proved, basis-tagged via premise
+    readonly floor: WeightUnits | 'refuted'        // proved, basis-tagged via premise; 'refuted' = a banked reply drives it to the lattice bottom — NEVER rendered as a number (doc 09 §2)
+    readonly refutedBy: WitnessRef | null           // the refuting reply — a complete contrastive cause, free from the bank
     readonly dominance: DominanceCondition | null   // when this option is the right one; null = undominated with no known separating condition yet
     readonly paidBy: ReadonlyArray<FlowRef>         // ≤ a few refs; the causal citations
     readonly playable: 'stageable' | 'requires-pin' | 'closed'  // the sacrifice warrant is requires-pin
   }>
   readonly staged: PlanRef                          // the incumbent
-  readonly deciding: { rung: RungId; margin: WeightUnits } | null  // vs runner-up
+  readonly deciding: { rung: RungId; margin: WeightUnits } | null  // vs runner-up; rung grades the machine's own authority (doc 09 §3)
+  readonly refutation: {                            // the contested-board aggregate (doc 09 §2)
+    readonly liveCount: number
+    readonly dominantColumn: WitnessRef | null      // the one reply that punishes everything, when #argCol = 1
+    readonly refutesCount: number
+  } | null
 }
 ```
 
