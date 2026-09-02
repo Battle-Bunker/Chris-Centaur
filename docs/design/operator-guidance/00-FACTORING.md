@@ -451,6 +451,30 @@ ordering-only. Recommendation: ordering-only until a fitted exchange into
 weight-share exists — and that exchange, if ever fitted, is a member with
 provenance, not a constant.
 
+**M8 — platform corpus, doctrinal (found cycle 3).** The platform's interest
+map is not merely compute-ordering: a simulated world **counts for scoring
+iff every foreign move it assumes was nominated by some active Drive**
+(bot-framework spec, reactive-inputs requirement). Its worst case is taken
+over a *human-curated support, narrowed from nothing* — an unnominated
+threat is invisible to the min. Ours is the polar opposite: adversarial
+support by default, operator demands *widen from everything* (A2's
+widen-only law). Under ruling 13 ours is the sound polarity; the platform
+design makes the human responsible for the completeness of the fear set,
+and a silent port of its nomination semantics onto our engine would convert
+guidance from sound-safe to soundness-destroying. The affordance carries
+over; the polarity must invert. (The platform's own lattice priority
+weights are the A0 half and port cleanly.)
+
+**M9 — platform corpus, adopted INTO our carve.** The current-generation
+spec refines Drive retirement: *re-derived from each turn's observed board,
+never latched* — a satisfied Drive returns when its predicate stops
+holding. That is a **maintenance** lifecycle (dormant while satisfied,
+alive when violated), distinct from `goto`'s latched one-shot arrival, and
+it is the natural semantics for "hold this region" / "escort". Adopted:
+`lifecycle.until` carries `latched | maintenance` (02-doc §1). The
+restart-statelessness discipline (re-derive from the authoritative board)
+comes with it.
+
 ---
 
 ## 7. The wire, in one paragraph (full sketch in 02)
