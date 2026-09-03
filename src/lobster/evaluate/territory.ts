@@ -76,7 +76,7 @@
 import { NEVER } from '../../engine-vendor/engine/claims';
 import { leavesTrail } from '../../engine-vendor/engine/moveGrammar';
 import { outranks } from '../../engine-vendor/engine/turnEngine';
-import { bbPopcount, bbTest } from '../bits';
+import { bbPopcount, bbSet, bbTest } from '../bits';
 import type { Grid, Terrain } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
@@ -93,6 +93,13 @@ export interface TerritorySubject {
   readonly weightMax: number;
   readonly tierMax: number;
   readonly tierExpiresAtTurn: number | null;
+  /**
+   * The cells this unit STILL OCCUPIES in every world it is alive in — the
+   * engine's own `Claim.certainIfAlive`, empty for a mover (whose settled
+   * occupancy is not conditional at all). Read only for a HELD unit, and only
+   * to build `certainDomain`.
+   */
+  readonly certainIfAlive: ReadonlyArray<number>;
 }
 
 /** Which units each side admits, in one reading. */
@@ -128,6 +135,21 @@ export interface Partition<S> {
    */
   readonly domain: Uint32Array;
   /**
+   * THE SAME DOMAIN, MINUS WHAT A HELD ENEMY MERELY MIGHT HOLD.
+   *
+   * `domain` is a SUPERSET of the ground plane 1 really contests, because a
+   * held enemy trail unit is dilated from where it was OBSERVED and its front
+   * is its whole claim cloud. That direction is right for a term counting what
+   * THEIR pieces can act on and exactly wrong for one counting what OURS can:
+   * it hands our own pieces ground no world guarantees, and a floor read off it
+   * is above worlds it claims to bound. Here a held ENEMY trail contributes
+   * only the cells it certainly still occupies (`Claim.certainIfAlive`);
+   * everything else contributes exactly what it does to `domain`. Subset of
+   * `domain` by construction, and equal to it when nothing of theirs is held —
+   * so the two readings still collapse to a point on a fully modelled board.
+   */
+  readonly certainDomain: Uint32Array;
+  /**
    * Every non-wall cell — the substrate's own slab, read-only. A consumer that
    * restricts itself to `domain` needs this the moment `domain` is EMPTY: a
    * team whose last trail unit died contests no ground on plane 1, and a term
@@ -142,10 +164,12 @@ export interface Partition<S> {
 const emptyPartition = <S>(
   open: number,
   domain: Uint32Array,
+  certainDomain: Uint32Array,
   openBoard: Uint32Array
 ): Partition<S> => {
   domain.fill(0);
-  return { balance: 0, ours: 0, theirs: 0, open, trails: [], domain, openBoard };
+  certainDomain.fill(0);
+  return { balance: 0, ours: 0, theirs: 0, open, trails: [], domain, certainDomain, openBoard };
 };
 
 /** The invulnerability tier a unit still carries at an absolute turn. */
@@ -194,11 +218,21 @@ export class TerritoryWorkspace {
    * would let the second reading rewrite the first's answer.
    */
   private readonly domains: { lo: Uint32Array; hi: Uint32Array };
+  /** The same, for `Partition.certainDomain` — one board per reading, for the
+   * same reason: both readings are cached side by side on one context. */
+  private readonly certainDomains: { lo: Uint32Array; hi: Uint32Array };
   /** Scratch for the resolved food board — one evaluation runs at a time. */
   readonly foodOut: Uint32Array;
+  /** The same, for the held-cloud-free food board (`EvalContext.certainFood`).
+   * A second slab because both boards are read side by side. */
+  readonly certainFoodOut: Uint32Array;
 
   domainFor(reading: 'lo' | 'hi'): Uint32Array {
     return this.domains[reading];
+  }
+
+  certainDomainFor(reading: 'lo' | 'hi'): Uint32Array {
+    return this.certainDomains[reading];
   }
 
   constructor(grid: Grid, terrain: Terrain, table: ShellTable) {
@@ -223,7 +257,9 @@ export class TerritoryWorkspace {
     this.others = new Uint32Array(w);
     this.decisive = new Int32Array(grid.cells);
     this.domains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
+    this.certainDomains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
     this.foodOut = new Uint32Array(w);
+    this.certainFoodOut = new Uint32Array(w);
   }
 
   planeFor(index: number): Uint32Array {
@@ -359,7 +395,9 @@ export function partitionOf<S extends TerritorySubject>(
   admit: Admission<S>,
   /** Where this reading's trail domain is written. One per reading — see
    * `Partition.domain`. Defaults to a fresh board for callers that ignore it. */
-  domain: Uint32Array = new Uint32Array(ws.grid.words)
+  domain: Uint32Array = new Uint32Array(ws.grid.words),
+  /** Where the same reading's `certainDomain` is written. Same rule. */
+  certainDomain: Uint32Array = new Uint32Array(ws.grid.words)
 ): Partition<S> {
   const grid = ws.grid;
   const w = grid.words;
@@ -379,7 +417,7 @@ export function partitionOf<S extends TerritorySubject>(
     (leavesTrail(s.kind) ? trails : pieces).push(ws.takeEntry(s, sh, mine));
   }
   if (trails.length === 0 && pieces.length === 0) {
-    return emptyPartition<S>(ws.open, domain, ws.notWall);
+    return emptyPartition<S>(ws.open, domain, certainDomain, ws.notWall);
   }
 
   const needDecisive = pieces.length > 0 && trails.length > 0;
@@ -392,6 +430,7 @@ export function partitionOf<S extends TerritorySubject>(
   oursBoard.fill(0);
   theirsBoard.fill(0);
   coveredPrev.fill(0);
+  certainDomain.fill(0);
   for (let k = 0; k < trails.length; k++) ws.planeFor(k).fill(0);
   if (needDecisive) decisive.fill(NEVER);
 
@@ -412,6 +451,12 @@ export function partitionOf<S extends TerritorySubject>(
       if (f === null) continue;
       const dst = e.mine ? ourStep : theirStep;
       for (let i = 0; i < w; i++) dst[i] |= f[i] as number;
+      // The certain domain takes this front only when the front IS the unit's
+      // reach rather than its claim cloud. A held enemy's is a cloud, and it
+      // rejoins below at the cells it cannot have left.
+      if (!e.s.held || e.mine) {
+        for (let i = 0; i < w; i++) certainDomain[i] |= f[i] as number;
+      }
     }
     for (let i = 0; i < w; i++) {
       const oc = ((ourCum[i] as number) | (ourStep[i] as number)) >>> 0;
@@ -523,8 +568,17 @@ export function partitionOf<S extends TerritorySubject>(
   // The trail domain is `coveredPrev` after the last turn: the running OR of
   // every admitted trail unit's arriving fronts. Masked to open ground, because
   // a consumer counting cells is counting places a unit can stand.
+  // A held enemy trail rejoins the certain domain at exactly the cells its
+  // claim says it still occupies in every world it survives.
+  for (let k = 0; k < trails.length; k++) {
+    const e = trails[k] as Entry<S>;
+    if (!e.s.held || e.mine) continue;
+    for (const cell of e.s.certainIfAlive) bbSet(certainDomain, cell);
+  }
   for (let i = 0; i < w; i++) {
-    domain[i] = (((coveredPrev[i] as number) & (notWall[i] as number)) >>> 0);
+    const mask = notWall[i] as number;
+    domain[i] = (((coveredPrev[i] as number) & mask) >>> 0);
+    certainDomain[i] = (((certainDomain[i] as number) & mask) >>> 0);
   }
 
   const open = ws.open;
@@ -535,6 +589,7 @@ export function partitionOf<S extends TerritorySubject>(
     open,
     trails: trailRooms,
     domain,
+    certainDomain,
     openBoard: notWall,
   };
 }

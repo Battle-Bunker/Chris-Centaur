@@ -37,6 +37,8 @@ import {
   contestField,
   defaultEvaluator,
   makeContext,
+  commandFeature,
+  worldsOf,
   tierFeature,
   materialBounds,
   materialEvaluator,
@@ -247,6 +249,38 @@ const LAW_CASES: LawCase[] = [
       asTeam: 'red',
       stages: ['me'],
       orders: new Map([['me', at(board, { x: 2, y: 3 })]]),
+    };
+  })(),
+  (() => {
+    // A HELD ENEMY TRAIL AND OUR OWN PIECE — the board the two-domain rule is
+    // for. Everything of ours but the queen is held, so `lo` reads our piece
+    // against a blue snake carried as a CLAIM, and a claim's cloud is a
+    // superset of where the snake really is. See the block at the bottom of
+    // this file for what the cloud used to buy us.
+    const board = boardOf(
+      [
+        piece('q', { x: 2, y: 5 }, 'queen', 3, { teamID: 'red', health: 60 }),
+        makeSnake('rs', [
+          { x: 1, y: 1 },
+          { x: 2, y: 1 },
+          { x: 3, y: 1 },
+        ], { teamID: 'red', health: 80 }),
+        makeSnake('bs', [
+          { x: 2, y: 2 },
+          { x: 3, y: 2 },
+          { x: 4, y: 2 },
+        ], { teamID: 'blue', health: 80 }),
+        piece('bk', { x: 4, y: 4 }, 'king', 1, { teamID: 'blue', health: 60 }),
+      ],
+      { food: [{ x: 4, y: 3 }, { x: 5, y: 2 }] }
+    );
+    return {
+      name: 'our queen holding, against a held enemy snake and food',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['q'],
+      orders: new Map([['q', NO_ORDER_MOVE]]),
     };
   })(),
 ];
@@ -1150,3 +1184,156 @@ describe('calibration is data', () => {
     expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
   });
 });
+
+// ------------------------------------------------- command, and the two domains
+
+/**
+ * A HELD ENEMY'S CLOUD IS NOT OUR GROUND — the R1 defect a randomised sweep
+ * found in `commandFeature`, and the repair, pinned.
+ *
+ * `command` prices what a piece can act on next turn by intersecting its front
+ * with the reading's trail domain and with the food board. Both of those were
+ * read from the SAME reading for both sides, and both are supersets of the
+ * truth when something is held:
+ *
+ *   THE DOMAIN. A held enemy trail is dilated from where it was OBSERVED, so
+ *   its front is its whole claim cloud rather than where it is. Counted for
+ *   THEIR pieces that is conservative — it subtracts. Counted for OURS it hands
+ *   our own pieces ground no world guarantees.
+ *
+ *   THE FOOD. `resolution.food` is the food the settlement CLOSED with, and a
+ *   settlement leaves a held unit's meal on the board because it does not know
+ *   whether the unit went and took it. At `food: 20` against `ground: 1` one
+ *   uncertain meal is most of the term.
+ *
+ * On the board below — our queen holding, our snake and both blue units held —
+ * `command.lo` read 1.000 (saturated) against worlds at 0.776 and 0.694, and
+ * the fold's floor sat above the floor of the worlds it claimed to bound. Our
+ * own pieces now read `Partition.certainDomain` (a held enemy trail enters only
+ * at the cells it cannot have left) and `EvalContext.certainFood` (minus every
+ * cell a held cloud could be eating on); theirs still read the wide boards, so
+ * the error stays on the conservative side in both directions.
+ *
+ * The floor this produces is LOWER, and that is the point: it is under the
+ * worlds now instead of over them.
+ */
+describe('command reads two domains, because a claim cloud is not ground we hold', () => {
+  const CASE = LAW_CASES.find(
+    (c) => c.name === 'our queen holding, against a held enemy snake and food'
+  ) as LawCase;
+
+  const commandOf = (sub: ReturnType<typeof makeSubstrate>, plan: JointPlan, asTeam: number) =>
+    sub.withResolution(plan, asTeam, ({ resolution, bounds }) =>
+      commandFeature.evaluate(
+        makeContext(sub, resolution, bounds, asTeam, TERRITORY_PROFILE.reachHorizonTurns, TERRITORY_PROFILE)
+      )
+    );
+
+  const planOf = (sub: ReturnType<typeof makeSubstrate>, c: LawCase): JointPlan => {
+    const plan = new Map<UnitId, Candidate>();
+    for (const wireId of c.stages) {
+      const u = sub.unitOfWireId(wireId);
+      const to = c.orders.get(wireId) as number;
+      plan.set((u as { unitId: UnitId }).unitId, {
+        unitId: (u as { unitId: UnitId }).unitId,
+        from: -1,
+        to,
+        path: sub.pathFor((u as { unitId: UnitId }).unitId, to) ?? [],
+      });
+    }
+    return plan;
+  };
+
+  test('the whole fold is sound here, world by world', () => {
+    const result = checkSoundness(defaultEvaluator, CASE);
+    expect([CASE.name, result.violations]).toEqual([CASE.name, []]);
+    // The board is worth measuring only because the world set is big.
+    expect(result.checked).toBeGreaterThan(100);
+  });
+
+  test('and so is the command term on its own, which is where the defect was', () => {
+    const sub = makeSubstrate({
+      board: CASE.board,
+      turn: CASE.turn,
+      asTeam: CASE.asTeam,
+      modeled: [...CASE.stages],
+    });
+    try {
+      const asTeam = sub.teamNumber(CASE.asTeam);
+      const partial = commandOf(sub, planOf(sub, CASE), asTeam);
+      let worlds = 0;
+      let worst = Number.POSITIVE_INFINITY;
+      for (const w of worldsOf(sub, CASE, 400)) {
+        const v = commandOf(sub, w.plan, asTeam);
+        worlds++;
+        // A world names every unit, so the term must be a point there.
+        expect([worlds, v.lo]).toEqual([worlds, v.hi]);
+        worst = Math.min(worst, v.lo);
+      }
+      expect(worlds).toBeGreaterThan(100);
+      expect(partial.lo).toBeLessThanOrEqual(worst + 1e-9);
+      // NOT the saturated reading the wide boards produced: 1.000 was the
+      // measured value before the repair, and every world was under it.
+      expect(partial.lo).toBeLessThan(1);
+      expect(worst).toBeLessThan(1);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('the certain domain is a subset of the wide one, and strictly smaller here', () => {
+    const sub = makeSubstrate({
+      board: CASE.board,
+      turn: CASE.turn,
+      asTeam: CASE.asTeam,
+      modeled: [...CASE.stages],
+    });
+    try {
+      const asTeam = sub.teamNumber(CASE.asTeam);
+      sub.withResolution(planOf(sub, CASE), asTeam, ({ resolution, bounds }) => {
+        const ctx = makeContext(
+          sub,
+          resolution,
+          bounds,
+          asTeam,
+          TERRITORY_PROFILE.reachHorizonTurns,
+          TERRITORY_PROFILE
+        );
+        const p = ctx.partition('lo');
+        let wide = 0;
+        let certain = 0;
+        let outside = 0;
+        for (let i = 0; i < sub.grid.words; i++) {
+          const d = p.domain[i] as number;
+          const c = p.certainDomain[i] as number;
+          wide += popcount(d);
+          certain += popcount(c);
+          outside += popcount((c & ~d) >>> 0);
+        }
+        // A subset, by construction — never a different set.
+        expect(outside).toBe(0);
+        expect(certain).toBeLessThan(wide);
+        // And the food board narrows for the same reason: two meals sit inside
+        // the held snake's cloud.
+        let food = 0;
+        let certainFood = 0;
+        for (let i = 0; i < sub.grid.words; i++) {
+          food += popcount(ctx.food()[i] as number);
+          certainFood += popcount(ctx.certainFood()[i] as number);
+        }
+        expect(certainFood).toBeLessThan(food);
+        return null;
+      });
+    } finally {
+      sub.release();
+    }
+  });
+});
+
+/** Bits set in a 32-bit word. Local: the production one is not exported. */
+function popcount(x: number): number {
+  let v = x - ((x >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
+}

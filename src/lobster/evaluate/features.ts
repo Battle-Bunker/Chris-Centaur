@@ -101,11 +101,18 @@ export interface Standing {
   /** Observed energy. A held unit's true energy is at most this. */
   readonly energy: number;
   readonly cell: number;
+  /** The cells a HELD unit still occupies in every world it survives — the
+   * engine's `Claim.certainIfAlive`. Empty for a mover: a mover's occupancy is
+   * settled, not conditional. */
+  readonly certainIfAlive: ReadonlyArray<number>;
   /** Alive in the subject's WORST world. */
   readonly worstAlive: boolean;
   /** Alive in the subject's BEST world. */
   readonly bestAlive: boolean;
 }
+
+/** One frozen empty list, so a mover's `certainIfAlive` is not an allocation. */
+const EMPTY_CELLS: ReadonlyArray<number> = Object.freeze([]);
 
 export interface EvalContext {
   readonly sub: EngineSubstrate;
@@ -163,6 +170,18 @@ export interface EvalContext {
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
   food(): Bitboard;
+  /**
+   * THE FOOD NO HELD UNIT COULD HAVE TAKEN — `food()` minus every cell a held
+   * unit's cloud could have its head on when the turn closes.
+   *
+   * `food()` is the food the SETTLEMENT closed with, and a settlement leaves a
+   * held unit's meal uneaten because it does not know whether the unit went
+   * there. That is the right board for a term counting what THEY can reach and
+   * the wrong one for a term counting what WE can: a meal a held enemy may
+   * already have eaten is not ours to count in a floor. Equal to `food()` when
+   * nothing is held, so the readings still collapse to a point.
+   */
+  certainFood(): Bitboard;
 }
 
 /**
@@ -208,6 +227,7 @@ export function standingOf(
         partialLossMax: Math.max(0, unit.weight - claim.weightMin),
         energy: claim.energyMax,
         cell: unit.cells[0] as number,
+        certainIfAlive: claim.certainIfAlive,
         worstAlive: !claim.certainlyGone && (!mine || !contested),
         bestAlive: !claim.certainlyGone && (mine || !contested),
       });
@@ -246,6 +266,7 @@ export function standingOf(
       partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
       energy: settled?.energy ?? 0,
       cell: settled?.occupancy[0] ?? (unit.cells[0] as number),
+      certainIfAlive: EMPTY_CELLS,
       worstAlive: !dead && (!mine || !contingent),
       bestAlive: !dead && (mine || !contingent),
     });
@@ -314,6 +335,7 @@ export function makeContext(
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
   let foodCache: Bitboard | null = null;
+  let certainFoodCache: Bitboard | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
     lo: null,
     hi: null,
@@ -363,7 +385,9 @@ export function makeContext(
       if (twin !== null && sameAdmission(standing, asTeam)) {
         const board = ws.domainFor(reading);
         board.set(twin.domain);
-        const shared: Partition<Standing> = { ...twin, domain: board };
+        const certain = ws.certainDomainFor(reading);
+        certain.set(twin.certainDomain);
+        const shared: Partition<Standing> = { ...twin, domain: board, certainDomain: certain };
         parts[reading] = shared;
         return shared;
       }
@@ -373,7 +397,8 @@ export function makeContext(
         ctx.shells(),
         asTeam,
         ADMISSION[reading],
-        ws.domainFor(reading)
+        ws.domainFor(reading),
+        ws.certainDomainFor(reading)
       );
       parts[reading] = made;
       return made;
@@ -385,6 +410,27 @@ export function makeContext(
         arrivalsCache = out;
       }
       return arrivalsCache;
+    },
+    certainFood() {
+      if (certainFoodCache === null) {
+        const board = ws.certainFoodOut;
+        board.set(ctx.food());
+        const words = sub.grid.words;
+        // A HELD unit of EITHER side, because either can eat: our own held
+        // team-mate is not admitted to `lo` and can still take the meal.
+        for (const s of standing) {
+          if (!s.held) continue;
+          const sh = ctx.shells().get(s.unitId);
+          if (sh === undefined) continue;
+          const front = sh.frontAt(sub.arrivalTurn);
+          if (front === null) continue;
+          for (let i = 0; i < words; i++) {
+            board[i] = ((board[i] as number) & ~(front[i] as number)) >>> 0;
+          }
+        }
+        certainFoodCache = board;
+      }
+      return certainFoodCache;
     },
     food() {
       if (foodCache === null) {
@@ -796,13 +842,24 @@ export function budgetShare(
  * board and carries no information at all, and it is the intersection with the
  * trail domain and with food that discriminates.
  *
- * SOUNDNESS. It reads exactly the inputs `reach` reads, through the same
- * ADMISSION, and in the same direction. A held enemy's front is its cloud's
- * head-possible set, which is a SUPERSET of the truth, so `theirs` is over-
- * counted in `lo` and narrowing it can only raise our floor (R2 up in
- * held-arrival). Our own held units are dropped from `lo` and theirs from `hi`,
- * so with nothing held the two readings are the same set at the same fronts and
- * the feature collapses to a point (R3).
+ * SOUNDNESS, AND WHY EACH SIDE READS ITS OWN BOARDS. It reads exactly the
+ * inputs `reach` reads, through the same ADMISSION, and in the same direction.
+ * A held enemy's front is its cloud's head-possible set, which is a SUPERSET of
+ * the truth, so `theirs` is over-counted in `lo` and narrowing it can only
+ * raise our floor (R2 up in held-arrival). Our own held units are dropped from
+ * `lo` and theirs from `hi`, so with nothing held the two readings are the same
+ * set at the same fronts and the feature collapses to a point (R3).
+ *
+ * A superset is only conservative on the side it SUBTRACTS from, though, and
+ * both of this term's boards are supersets when something is held: the trail
+ * domain carries a held enemy's whole claim cloud, and `resolution.food` still
+ * carries the meal a held unit may already have taken. Read for OUR pieces
+ * either one lifts the floor above worlds it claims to bound — measured by a
+ * randomised R1 sweep at `command.lo` 1.000 against worlds of 0.776 and 0.694.
+ * So our own pieces read `Partition.certainDomain` and `EvalContext.certainFood`
+ * — the same two boards minus what a held cloud merely MIGHT hold — and theirs
+ * read the wide ones. Both narrowings vanish when nothing is held, so R3 is
+ * untouched, and both can only shrink under a refinement, so R2 is too.
  *
  * NOT FOR A ROYAL UNIT. `knobs.royal` is off, and it is off for a reason the
  * rules supply rather than a tuning one — see `CommandKnobs.royal`.
@@ -841,15 +898,38 @@ function commandSum(
   if (open === 0) return 0;
   const admit = ADMISSION[reading];
   const words = ctx.sub.grid.words;
-  // Contested ground, or the whole open board when plane 1 is contesting
-  // nothing. A team whose last trail unit died has an EMPTY trail domain, and a
-  // term that read only the domain would go blind on exactly the position where
-  // the pieces are the entire game — the late mixed board this repair is for.
-  let domain = partition.domain;
+  // TWO DOMAINS, ONE PER DIRECTION THE ERROR MAY POINT.
+  //
+  // `partition.domain` is a SUPERSET of the contested ground: a held enemy
+  // trail is dilated from where it was observed, so its front is its claim
+  // cloud. Counting THEIR pieces on it over-states what they command, which
+  // subtracts, and is the direction a floor may be wrong in. Counting OURS on
+  // it over-states what we command, which adds — and that is a floor above
+  // worlds it claims to bound (measured: `command.lo` 1.000 against worlds
+  // 0.776 and 0.694 on a held-snake board). Our own pieces therefore read
+  // `certainDomain`, which takes a held enemy trail only at the cells it
+  // cannot have left.
+  //
+  // Both fall back to the open board when plane 1 is contesting NOTHING — a
+  // team whose last trail unit died has an empty domain, and a term that read
+  // only the domain would go blind on exactly the position where the pieces
+  // are the entire game. The fallback is gated on the FULL domain, never on
+  // the certain one: an empty certain domain under a non-empty full one is the
+  // defect above, not a piece-only board, and widening our own side there
+  // would restore precisely what this fixes.
+  let ourDomain = partition.certainDomain;
+  let theirDomain = partition.domain;
   let any = 0;
-  for (let i = 0; i < words; i++) any |= domain[i] as number;
-  if (any === 0) domain = partition.openBoard;
-  const food = ctx.food();
+  for (let i = 0; i < words; i++) any |= theirDomain[i] as number;
+  if (any === 0) {
+    ourDomain = partition.openBoard;
+    theirDomain = partition.openBoard;
+  }
+  // TWO FOOD BOARDS, for the same reason there are two domains: a meal a held
+  // unit's cloud covers is one our floor may not count for OUR piece, and one
+  // it must still count for theirs.
+  const ourFood = ctx.certainFood();
+  const theirFood = ctx.food();
   const nextTurn = ctx.sub.arrivalTurn + 1;
   let total = 0;
   for (const s of ctx.standing) {
@@ -864,6 +944,8 @@ function commandSum(
     if (front === null) continue;
     let ground = 0;
     let meals = 0;
+    const domain = mine ? ourDomain : theirDomain;
+    const food = mine ? ourFood : theirFood;
     for (let i = 0; i < words; i++) {
       const f = front[i] as number;
       if (f === 0) continue;
