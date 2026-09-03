@@ -465,6 +465,278 @@ describe('a mover the ledger says could be SEVERED is not worth its uncut weight
   }, 120_000);
 });
 
+/**
+ * THE RANDOMISED SWEEP — the arm that finds the defect nobody thought of.
+ *
+ * The two exhaustive suites above run twelve hand-picked boards through 120
+ * bank configurations each, which is deep and NARROW: every board is
+ * six-or-seven squares wide, food-free, and one or two units a side. Both
+ * inversions this file records were found in a GAME rather than in that
+ * cross-product, and both needed a board feature the cross-product does not
+ * generate — a pawn diagonally adjacent to an enemy, a snake standing on the
+ * cell two claims can reach.
+ *
+ * So this arm goes the other way: many boards, one configuration. The whole
+ * shipped mixture, the unbounded clock, the complete generator, and B0 alone
+ * beside it — and boards that carry everything a real one does. Pieces and
+ * snakes from the same kind table; FOOD, which is the one thing that moves a
+ * held unit's WEIGHT while it is frozen; POTIONS, which are the one thing that
+ * moves its TIER; and one, two or three units a side, so the held set is a set
+ * rather than a singleton and the additive per-enemy lemma is actually load
+ * bearing.
+ *
+ * The ground truth is the same one everything here uses: every uncontrolled
+ * unit's complete option list, resolved through the engine with nothing held.
+ * That is a product, so a board whose reply space is larger than
+ * `REPLY_SPACE_CAP` is skipped rather than approximated — an approximated
+ * truth is not a truth, and a sweep that quietly compared against one would be
+ * worse than no sweep at all. The count of boards actually swept is asserted,
+ * so the skips can never hollow this out.
+ */
+/** Up to `count` entries spread evenly across `xs`, ends included. */
+function stride<T>(xs: ReadonlyArray<T>, count: number): ReadonlyArray<T> {
+  if (xs.length <= count) return xs;
+  const out: T[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(xs[Math.floor((i * (xs.length - 1)) / (count - 1))] as T);
+  }
+  return out;
+}
+
+const REPLY_SPACE_CAP = 1200;
+const SWEEP_TARGET = 210;
+
+interface RandomStats {
+  boards: number;
+  skipped: number;
+  checks: number;
+  potionBoards: number;
+  violations: Violation[];
+}
+
+describe('the randomised bracket sweep', () => {
+  test('floor ≤ truth ≤ ceiling over 200+ generated boards', () => {
+    const stats: RandomStats = {
+      boards: 0,
+      skipped: 0,
+      checks: 0,
+      potionBoards: 0,
+      violations: [],
+    };
+    const evaluate = makeEvaluator();
+    // perSide cycles 1, 2, 3 so the held set is a singleton on a third of the
+    // boards and a real set on the rest. Size grows with it, or three units a
+    // side on a 6x6 is a board with no room to move on.
+    const shapes: ReadonlyArray<{ perSide: number; size: number; food: number }> = [
+      { perSide: 1, size: 5, food: 1 },
+      { perSide: 2, size: 5, food: 1 },
+      { perSide: 1, size: 6, food: 2 },
+      { perSide: 2, size: 6, food: 2 },
+      { perSide: 3, size: 6, food: 2 },
+      { perSide: 3, size: 7, food: 3 },
+    ];
+    for (let seed = 1; stats.boards < SWEEP_TARGET && seed <= 400; seed++) {
+      const shape = shapes[seed % shapes.length] as (typeof shapes)[number];
+      // Potions on a third of the boards: enough that tiers move under the
+      // bracket, few enough that the other confounds stay readable.
+      const potions = seed % 3 === 0 ? 2 : 0;
+      const spec = seededBoard(seed, shape.size, shape.perSide, shape.food, potions);
+      const board = makeTestBoard(spec);
+      if (replySpaceSize(board, OURS) > REPLY_SPACE_CAP) {
+        stats.skipped++;
+        continue;
+      }
+      stats.boards++;
+      if (potions > 0) stats.potionBoards++;
+      const gen = makeGenerator();
+      const sub = makeSubstrate(board, OURS);
+      try {
+        // A STRIDE, not a prefix. `allPlans` builds the cross-product in
+        // option order, so taking its first few plans samples only the head of
+        // one unit's option list — and the actions that break a bound are not
+        // at the head of anything. The pawn capture that motivates this file
+        // sits at index 3 or 4 of a five-option list on most of the boards
+        // below, so a prefix of three would have swept past every one of them.
+        for (const plan of stride(allPlans(sub, gen, OURS, 96), 6)) {
+          const truth = trueWorstCase(board, OURS, plan).value;
+          const label = planLabel(plan);
+          for (const cfg of [
+            { name: 'full', config: DEFAULT_BANK_CONFIG },
+            { name: 'B0', config: B0_ONLY },
+          ]) {
+            const out = priceWith(sub, gen, evaluate, plan, cfg.config, unboundedBudget());
+            stats.checks++;
+            // Nothing here is truncated — complete generator, unbounded clock
+            // — so every floor is unconditional and every one of them is a
+            // promise about the real game.
+            expect(out.assumptions).toEqual([]);
+            if (out.floor > truth + EPS) {
+              stats.violations.push({
+                seed,
+                config: cfg.name,
+                clock: 'unbounded',
+                generator: 'complete',
+                plan: label,
+                floor: out.floor,
+                truth,
+                ceiling: out.ceiling,
+                side: 'floor',
+              });
+            }
+            if (out.ceiling < truth - EPS) {
+              stats.violations.push({
+                seed,
+                config: cfg.name,
+                clock: 'unbounded',
+                generator: 'complete',
+                plan: label,
+                floor: out.floor,
+                truth,
+                ceiling: out.ceiling,
+                side: 'ceiling',
+              });
+            }
+          }
+        }
+      } finally {
+        sub.release();
+      }
+    }
+    console.log(
+      `  [random] boards=${stats.boards} (potions on ${stats.potionBoards}) ` +
+        `skipped=${stats.skipped} checks=${stats.checks} violations=${stats.violations.length}`,
+    );
+    expect(stats.violations).toEqual([]);
+    // Anti-vacuity, both halves: the sweep has to have run the boards it
+    // claims, and the potion arm has to have been more than a flag nobody set.
+    expect(stats.boards).toBeGreaterThanOrEqual(200);
+    expect(stats.potionBoards).toBeGreaterThan(30);
+    expect(stats.checks).toBeGreaterThan(400);
+  }, 900_000);
+});
+
+/**
+ * THE PAWN-CAPTURE BOARD — the minimal reproduction of the `floor=B0
+ * ceiling=B1` inversion measured at 990 per game on `mixed` seed 3.
+ *
+ * TWO UNITS, which is as few as an inversion can have. Our pawn faces `-y`;
+ * one square diagonally forward stands a held enemy rook of weight two. The
+ * pawn's diagonal step is the one action in the whole grammar whose legality
+ * reads the BOARD rather than the mover: `planUnitAction` admits it only when
+ * the destination is in `pawnTargetsOf` — the food, plus every body standing
+ * there as the turn opens. So the rook's own square is what makes the capture
+ * a legal move at all.
+ *
+ * And `settlePartial` settles its optimistic timeline over the units whose
+ * moves are KNOWN — the held rook is not on that board. Re-read against it,
+ * the staged capture is not a legal action, `stagedAction` substitutes the
+ * kind's default, and a piece's default is to hold. B0 therefore settled a
+ * pawn standing still: alive, at full weight, with an EMPTY ledger, because a
+ * unit that never left its square ran into nothing for the ledger to name.
+ * Every enumeration of the rook's replies that leaves it where it is settles
+ * the arrival instead, and the rook outweighs the pawn, so the true value is
+ * the pawn's death — a floor strictly above the truth, and above B1's own
+ * ceiling.
+ *
+ * Neither unit is decoration and neither is a placeholder: drop the rook and
+ * the diagonal is not a legal target for the pawn to stage, and give the rook
+ * one square instead of two and the contest is a tie the pawn survives no
+ * worse than the rook does.
+ *
+ * The repair is in `substrate.ts::stagedRecordFor`, and it is about WHAT IS
+ * STAGED rather than about how a ledger is read: a plan names an ACTION, so
+ * the substrate hands the engine the path that action walks on the observed
+ * board rather than a destination the engine re-derives against a board with
+ * units deliberately missing from it.
+ */
+const PAWN_WIDTH = 5;
+const pawnCell = (x: number, y: number): number => y * PAWN_WIDTH + x;
+const PAWN_CAPTURE_BOARD: BoardSpec = {
+  width: PAWN_WIDTH,
+  height: PAWN_WIDTH,
+  units: [
+    {
+      id: 0,
+      team: OURS,
+      type: 'pawn',
+      occupancy: [pawnCell(2, 3)],
+      orientation: { dx: 0, dy: -1 },
+    },
+    { id: 1, team: 1, type: 'rook', occupancy: [pawnCell(3, 2), pawnCell(3, 2)] },
+  ],
+};
+
+/** The staged capture: the pawn's forward diagonal, onto the held rook. */
+const PAWN_CAPTURE_TARGET = pawnCell(3, 2);
+
+describe('a staged action a HOLD would make illegal is still the staged action', () => {
+  test('the whole mixture brackets the truth on the pawn-capture board', () => {
+    const stats = freshStats();
+    const board = makeTestBoard(PAWN_CAPTURE_BOARD);
+    expect(replySpaceSize(board, OURS)).toBeGreaterThan(1);
+    sweepBoard(board, 0, stats);
+    report('pawn-capture', stats);
+    expect(stats.violations).toEqual([]);
+    expect(stats.checks).toBeGreaterThan(0);
+  }, 300_000);
+
+  test('B0 settles the capture the plan named, not the hold the grammar fell back to', () => {
+    // The mechanism, pinned without reference to any score. B0 holds every
+    // enemy, so the board `settlePartial` re-reads the grammar against has no
+    // rook on it — and the pawn must still walk to the square the plan named.
+    // Before the repair `traversed` was empty and the pawn ended where it
+    // started, which is a different move from the one being priced.
+    const board = makeTestBoard(PAWN_CAPTURE_BOARD);
+    const sub = makeSubstrate(board, OURS);
+    try {
+      const capture = sub
+        .optionsFor(0)
+        .find((c) => c.to === PAWN_CAPTURE_TARGET);
+      // Anti-vacuity: the capture has to be a legal staged action on the
+      // OBSERVED board, or this board is not the fixture it claims to be.
+      expect(capture).toBeDefined();
+      const plan: JointPlan = new Map([[0, capture as NonNullable<typeof capture>]]);
+      const settled = sub.settleFor(plan);
+      expect(settled.traversed['u0']).toEqual([PAWN_CAPTURE_TARGET]);
+      // And the hold it could have been rewritten into is exactly the thing
+      // the ledger cannot see: nothing was contacted, so nothing was named.
+      expect(settled.ledger.length).toBeGreaterThan(0);
+    } finally {
+      sub.release();
+    }
+  }, 60_000);
+
+  test('B0 alone prices the capture it cannot enumerate', () => {
+    // The regression proper, at the two rungs that disagreed. B0 holds the
+    // rook; B1 enumerates it and settles the arrival. Before the repair B0
+    // answered -1 where the truth is -2, and the bank threw.
+    const board = makeTestBoard(PAWN_CAPTURE_BOARD);
+    const gen = makeGenerator();
+    const evaluate = makeEvaluator();
+    const sub = makeSubstrate(board, OURS);
+    let captures = 0;
+    try {
+      for (const plan of allPlans(sub, gen, OURS, 32)) {
+        const truth = trueWorstCase(board, OURS, plan).value;
+        const b0 = priceWith(sub, gen, evaluate, plan, B0_ONLY, unboundedBudget());
+        const full = priceWith(sub, gen, evaluate, plan, DEFAULT_BANK_CONFIG, unboundedBudget());
+        expect(b0.floor).toBeLessThanOrEqual(truth + EPS);
+        expect(full.floor).toBeLessThanOrEqual(truth + EPS);
+        expect(full.floor).toBeLessThanOrEqual(full.ceiling + EPS);
+        const staged = [...plan.values()][0];
+        if (staged !== undefined && staged.to === PAWN_CAPTURE_TARGET) {
+          captures++;
+          expect(b0.floor).toBe(truth);
+        }
+      }
+    } finally {
+      sub.release();
+    }
+    // Anti-vacuity: the capture has to be in our own option list at all.
+    expect(captures).toBeGreaterThan(0);
+  }, 120_000);
+});
+
 describe('held-unit value soundness: the INTERVAL, never the frozen scalar', () => {
   test('the interval form brackets and the snapshot form does not', () => {
     // "Presence-soundness is not payoff-soundness." Pricing a held unit at the

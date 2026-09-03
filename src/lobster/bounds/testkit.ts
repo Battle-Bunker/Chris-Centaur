@@ -59,6 +59,14 @@ export interface BoardSpec {
   readonly height: number;
   readonly units: ReadonlyArray<TestUnitSpec>;
   readonly food?: ReadonlyArray<number>;
+  /**
+   * Potion cells. Non-empty turns the invulnerability rules ON for the board:
+   * a collector drops a tier and lends one to every living ally for a window,
+   * which is the only thing on a harness board that can move a unit's TIER
+   * while it is held — and tier is what decides every contest. A bracket that
+   * is sound only while tiers stand still is not sound.
+   */
+  readonly potions?: ReadonlyArray<number>;
   readonly turn?: number;
 }
 
@@ -130,15 +138,16 @@ export function makeTestBoard(spec: BoardSpec): TestBoard {
       ...new Set(units.filter((u) => u.isKing === true).map((u) => u.teamID)),
     ],
   };
+  const potions = [...(spec.potions ?? [])];
   const marshalled: MarshalledBoard = {
     fullWidth: width,
     fullHeight: spec.height,
     units,
     config,
-    potions: [],
+    potions,
     arrivalTurn: turn + 1,
     effects: [],
-    potionsEnabled: false,
+    potionsEnabled: potions.length > 0,
     potionWindowTurns: 3,
     pawnPromotionWeight: 10,
     maxTurns: null,
@@ -497,7 +506,13 @@ export const SEEDED_KINDS: readonly UnitType[] = ['knight', 'king', 'rook', 'bis
  * about contests and deaths — and the whole point for the one property that is
  * about held material.
  */
-export function seededBoard(seed: number, size = 6, perSide = 1, foodCount = 0): BoardSpec {
+export function seededBoard(
+  seed: number,
+  size = 6,
+  perSide = 1,
+  foodCount = 0,
+  potionCount = 0,
+): BoardSpec {
   const random = mulberry32(seed);
   const interior: number[] = [];
   for (let y = 1; y < size - 1; y++) for (let x = 1; x < size - 1; x++) interior.push(y * size + x);
@@ -557,7 +572,12 @@ export function seededBoard(seed: number, size = 6, perSide = 1, foodCount = 0):
     const cell = interior[next++] as number;
     if (!used.has(cell)) food.push(cell);
   }
-  return { width: size, height: size, units, food };
+  const potions: number[] = [];
+  while (potions.length < potionCount && next < interior.length) {
+    const cell = interior[next++] as number;
+    if (!used.has(cell) && !food.includes(cell)) potions.push(cell);
+  }
+  return { width: size, height: size, units, food, potions };
 }
 
 // --------------------------------------------------------------- the clock
