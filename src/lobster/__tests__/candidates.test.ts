@@ -684,12 +684,31 @@ describe('the stationary terrain charge', () => {
     sub.release();
   });
 
-  test('off a hazard the hold is free and still leads the order', () => {
+  test('off a hazard the hold is free, and ranks WITH the one-cell steps', () => {
+    // The spend is zero and stays zero — that is the rules, and the test above
+    // checks it against the resolver. What the ORDER does with it is a
+    // different question, and the answer is not "the hold wins": ranking a
+    // hold at its literal spend makes it beat every step on the board by one,
+    // which is `basic-intelligence`'s "pieces act" defect. `spendRank` ranks a
+    // hold at the price of the cheapest thing it could have done instead, so
+    // off a hazard it TIES with the one-cell steps and the destination
+    // tiebreak places it among them. The hazard case immediately above is the
+    // half that still has to differ, and it does.
     const board = rookAt({ x: 4, y: 4 }, { x: 7, y: 7 }, 81);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const set = defaultCandidateGenerator.candidatesFor(sub, rook);
-    expect((set.candidates[0] as Candidate).path.length).toBe(0);
+    const holdRank = set.candidates.findIndex((c) => c.path.length === 0);
+    expect(holdRank).toBeGreaterThanOrEqual(0);
+    // Nothing that enters MORE than one cell is ordered ahead of it — the tie
+    // is with the one-cell steps and with nothing longer.
+    for (let i = 0; i < holdRank; i++) {
+      expect((set.candidates[i] as Candidate).path.length).toBeLessThanOrEqual(1);
+    }
+    // And it is not pushed behind them either: at least one longer move follows.
+    expect(
+      set.candidates.slice(holdRank + 1).some((c) => c.path.length > 1)
+    ).toBe(true);
     sub.release();
   });
 
@@ -714,13 +733,25 @@ describe('the stationary terrain charge', () => {
   });
 
   test('the knob restores the old free-hold reading', () => {
+    // The knob is about the CHARGE. With it off, a hold on a hazard reads zero
+    // spend again and is therefore no longer dominated by every step off the
+    // cell: it comes back into the one-cell tie the clean board puts it in.
+    // That difference — dominated with the charge, tied without it — is the
+    // whole of what the knob does, and it is what this pins.
     const board = rookAt({ x: 4, y: 4 }, { x: 4, y: 4 }, 81);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const rook = sub.unitOfWireId('R')?.unitId as UnitId;
     const off = new GrammarCandidateGenerator({ chargeStandingTerrain: false });
     const hold = holdOf(off.assess(sub, rook));
     expect(hold.energySpent.hi).toBe(0);
-    expect(off.candidatesFor(sub, rook).candidates[0]?.path.length).toBe(0);
+    const free = off.candidatesFor(sub, rook).candidates;
+    const charged = defaultCandidateGenerator.candidatesFor(sub, rook).candidates;
+    const rankOf = (cs: ReadonlyArray<Candidate>): number =>
+      cs.findIndex((c) => c.path.length === 0);
+    expect(rankOf(free)).toBeLessThan(rankOf(charged));
+    for (let i = 0; i < rankOf(free); i++) {
+      expect((free[i] as Candidate).path.length).toBeLessThanOrEqual(1);
+    }
     sub.release();
   });
 });
