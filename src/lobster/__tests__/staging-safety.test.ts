@@ -671,6 +671,59 @@ describe('the ordering, which is what rung 0 actually reads', () => {
   });
 
   /**
+   * THE CONSERVATISM CLAUSE, as a property rather than as a fixture.
+   *
+   * "A maybe-fatal path is ordered behind a safe one of equal gain" is what the
+   * comparator promises, and it promises something stronger than that: both
+   * `orderKey` and `gainOrderKey` compare `tier` FIRST — safe, then atRisk,
+   * then doomed — so a risky option sorts behind EVERY safe one whatever the
+   * gains are, and the gain terms only ever order within a safety class. That
+   * is exactly the direction the owner asked to err in, and it is the property
+   * a fixture board cannot pin because it holds for one board.
+   *
+   * So: over a hundred and twenty crowded boards, every unit's assessed
+   * sequence is checked to be non-decreasing in safety class, at both flag
+   * levels, and the corpus is checked to actually CONTAIN the transitions —
+   * otherwise the assertion is true because everything is safe.
+   */
+  test('a riskier option never sorts ahead of a safer one — 120 boards, both levels', () => {
+    const rank: Record<string, number> = { safe: 0, atRisk: 1, doomed: 2 };
+    let sequences = 0;
+    let mixed = 0;
+    let sawDoomed = 0;
+    for (let seed = 1; seed <= 120; seed++) {
+      const board = crowdedBoard(seed);
+      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+      for (const gen of [GUARDED(), SHIPPED()]) {
+        for (const unit of sub.roster()) {
+          const assessed = gen.assess(sub, unit.unitId);
+          if (assessed.length === 0) continue;
+          sequences++;
+          const classes = assessed.map((a) => rank[a.tier] as number);
+          for (let i = 1; i < classes.length; i++) {
+            // Named, so a failure says which board and which unit rather than
+            // just "false is not true".
+            expect([seed, unit.wireId, i, classes]).toEqual([
+              seed,
+              unit.wireId,
+              i,
+              [...classes].sort((x, y) => x - y),
+            ]);
+          }
+          if (new Set(classes).size > 1) mixed++;
+          if (classes.includes(2)) sawDoomed++;
+        }
+      }
+      sub.release();
+    }
+    // The corpus is not vacuous: it really does hold units with a mix of
+    // safety classes, and it really does hold doomed options.
+    expect(sequences).toBeGreaterThan(200);
+    expect(mixed).toBeGreaterThan(5);
+    expect(sawDoomed).toBeGreaterThan(5);
+  });
+
+  /**
    * `off` still means OFF, and the environment is still what a bare generator
    * reads.
    *
