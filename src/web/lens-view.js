@@ -413,15 +413,14 @@ var LensView = (() => {
     };
   }
   function askConditional(port, req) {
-    const answer = port.rankConditional(req.cluster, [req.lock]);
-    if (!answer.ok) return answer;
-    if (answer.clusterAfter.generation !== req.clusterGeneration) {
+    const live = port.partition().find((c) => c.id === req.cluster);
+    if (live !== void 0 && live.generation !== req.clusterGeneration) {
       return refuse(
         "generation-superseded",
-        `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
+        `cluster ${req.cluster} is at generation ${live.generation}, the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
       );
     }
-    return answer;
+    return port.rankConditional(req.cluster, [req.lock]);
   }
   function makeLiveSource(input) {
     return makeSource("live", input, (frame, at, store) => {

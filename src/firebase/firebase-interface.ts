@@ -79,22 +79,8 @@ import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
-import { askConditional } from '../lens/store/sources';
+import { makeInspectionPort } from '../lens/store/sources';
 import type { LensInspectionPort } from '../server/websocket-server';
-import type {
-  LensRefusal,
-  MovesetBreakdown,
-  Provenanced,
-  RankConditionalResult,
-} from '../lens/types';
-
-/** No decision is running on that game — the honest answer, typed, on the
- *  channel the ask came in on. */
-const LENS_NO_DECISION: LensRefusal = {
-  ok: false,
-  refusal: 'unknown-cluster',
-  detail: 'no decision is inspectable on this game right now',
-};
 import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -1159,30 +1145,14 @@ export class TacticToesFirebaseInterface {
    * happened" draws the second when it means the first.
    */
   lensInspectionPort(): LensInspectionPort {
-    return {
-      rankConditional: (gameId, req): RankConditionalResult => {
-        const port = this.teamEngine.lensPortFor(gameId);
-        if (port === null) return LENS_NO_DECISION;
-        // Through the SAME ask the in-process source uses, generation guard
-        // and all: rows from two generations are never in one list, and a
-        // handler that forwarded the request raw would serve exactly the
-        // stale list on the one path where the operator cannot see the
-        // cluster move underneath them.
-        return askConditional(port, req);
-      },
-      explainMoveset: async (
-        gameId,
-        moveset,
-        members
-      ): Promise<Provenanced<MovesetBreakdown> | LensRefusal> => {
-        const port = this.teamEngine.lensPortFor(gameId);
-        if (port === null) return LENS_NO_DECISION;
-        const answer = await port.explainMoveset(moveset, members);
-        if ('ok' in answer) return answer;
-        const at = this.gameManager.lensCursorFor(gameId) ?? { gameId, turn: 0, seq: 0 };
-        return { value: answer, basis: answer.basis, provenance: { kind: 'observed', at } };
-      },
-    };
+    return makeInspectionPort({
+      // The RUNNING decision lives here — this interface owns the engine, and
+      // the engine holds the live kernel per game. Null is not a switch: it is
+      // the state "no decision is answering questions right now", which the
+      // port turns into a typed refusal.
+      portFor: (gameId) => this.teamEngine.lensPortFor(gameId),
+      cursorFor: (gameId) => this.gameManager.lensCursorFor(gameId),
+    });
   }
 
   /**

@@ -36,6 +36,7 @@ import type {
   MovesetKey,
   Provenanced,
   RankConditionalResult,
+  UnitKey,
   SourceDelta,
   TurnEvent,
 } from '../types';
@@ -170,21 +171,85 @@ function makeSource(
  * wire handler that forwarded the request without the check would serve
  * exactly the stale list the law forbids, on the one path where the operator
  * cannot see that the cluster moved underneath them.
+ *
+ * IT IS CHECKED BEFORE THE ASK IS PRICED, against the cluster the request
+ * NAMED as it stands NOW, and not against `clusterAfter`. `clusterAfter` is
+ * the cluster with the lock applied — locking narrows, so the locked units
+ * have moved to `boundedBy` and its generation has moved on BY CONSTRUCTION.
+ * Comparing the ask's generation against it refuses every well-formed request
+ * ever made, and does so after spending the reserve on it: the operator pays
+ * for an answer and is then handed a refusal. Superseded means the cluster the
+ * operator was LOOKING AT is gone, which is a fact about the live partition.
  */
 export function askConditional(
   port: KernelLensPort,
   req: ConditionalRequest
 ): RankConditionalResult {
-  const answer = port.rankConditional(req.cluster, [req.lock]);
-  if (!answer.ok) return answer;
-  if (answer.clusterAfter.generation !== req.clusterGeneration) {
+  const live = port.partition().find((c) => c.id === req.cluster);
+  if (live !== undefined && live.generation !== req.clusterGeneration) {
     return refuse(
       'generation-superseded',
-      `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, ` +
+      `cluster ${req.cluster} is at generation ${live.generation}, ` +
         `the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
     );
   }
-  return answer;
+  return port.rankConditional(req.cluster, [req.lock]);
+}
+
+/**
+ * THE INSPECTION PORT, per game — the object the websocket server holds and
+ * serves `lens-conditional` and `lens-breakdown` out of.
+ *
+ * It lives here, beside `askConditional`, because the two rules it enforces
+ * are the source's rules and must not be re-stated on the wire: an ask with no
+ * running decision is a TYPED REFUSAL and never a silence, and rows from a
+ * superseded generation are never served. A handler that reached for the
+ * kernel port directly would be a second implementation of both, on the one
+ * path where the operator cannot see the cluster move underneath them.
+ *
+ * `portFor` says which decision is running on a game, and `cursorFor` says
+ * where its log is — a served breakdown is a number, and a number without the
+ * coordinate it was read at is a number a reader cannot place.
+ */
+export interface InspectionSources {
+  portFor(gameId: string): KernelLensPort | null;
+  cursorFor(gameId: string): Cursor | null;
+}
+
+export interface InspectionPort {
+  rankConditional(gameId: string, req: ConditionalRequest): RankConditionalResult;
+  explainMoveset(
+    gameId: string,
+    moveset: MovesetKey,
+    members?: ReadonlyArray<UnitKey>
+  ): Promise<Provenanced<MovesetBreakdown> | LensRefusal>;
+}
+
+const NO_DECISION: LensRefusal = {
+  ok: false,
+  refusal: 'unknown-cluster',
+  detail: 'no decision is inspectable on this game right now',
+};
+
+export function makeInspectionPort(sources: InspectionSources): InspectionPort {
+  return {
+    rankConditional(gameId, req): RankConditionalResult {
+      const port = sources.portFor(gameId);
+      return port === null ? NO_DECISION : askConditional(port, req);
+    },
+    async explainMoveset(
+      gameId,
+      moveset,
+      members
+    ): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
+      const port = sources.portFor(gameId);
+      if (port === null) return NO_DECISION;
+      const answer = await port.explainMoveset(moveset, members);
+      if ('ok' in answer) return answer;
+      const at = sources.cursorFor(gameId) ?? { gameId, turn: 0, seq: 0 };
+      return { value: answer, basis: answer.basis, provenance: { kind: 'observed', at } };
+    },
+  };
 }
 
 /** Live: the events arrive; `isHead` says whether determinations are legal. */
