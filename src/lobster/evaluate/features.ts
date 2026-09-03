@@ -52,11 +52,10 @@ import { boardOf } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
 import {
-  claimSurvival,
+  claimSurvivals,
   claimsById,
   moverSeverLoss,
   moverSurvival,
-  reachedByMovers,
 } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
@@ -186,15 +185,14 @@ export function standingOf(
   // plan cannot change, united with the peril it just made. See
   // `bounds/material.ts` — a fold that disagreed with the bank about who is
   // alive would be a second scoring pipeline in the one place it matters.
-  const peril = sub.perilOf();
-  const reached = reachedByMovers(settlement);
+  const survivals = claimSurvivals(settlement, sub.perilOf());
 
   for (const unit of sub.roster()) {
     const mine = unit.team === asTeam;
     const claim = claimById.get(unit.wireId);
     if (claim !== undefined) {
       // A HELD unit, bracketed by what could have become of it.
-      const contested = claimSurvival(claim, peril, reached) === 'maybe';
+      const contested = (survivals.get(claim.id) ?? 'maybe') === 'maybe';
       out.push({
         unitId: unit.unitId,
         team: unit.team,

@@ -392,15 +392,33 @@ describe('regicide is priced by the rules, and no longer by a correction on top'
     }
   });
 
-  it('and the reading does not move with the shot, which is the coarseness the engine is entitled to', () => {
-    // WORTH KNOWING, and pinned rather than hidden: `underRegicide` is
-    // unconditional — it asks whether the team plays under the rule, not
-    // whether its king is in any danger this turn. So on a board where both
-    // sides field a king, an enemy claim is possibly-dead in EVERY plan
-    // alike, and the material fold cannot tell the plan that takes the shot
-    // from the plan that walks away from it. The bot may not narrow that
-    // itself: deciding when the cascade applies is a rule, and the rules live
-    // in one place. Refining it belongs in `claims.ts`.
+  it('and the reading DOES move with the shot, now that the rule is conditional', () => {
+    // INVERTED, on the same grounds as the claim-collision block above, and by
+    // the same event: this assertion was written against the C7 engine, where
+    // `deathPossible` ORed a bare `underRegicide` team flag — "does this team
+    // play under the rule", not "could its king actually fall". Every enemy
+    // claim was then possibly-dead in every plan alike, `perilOf` said so on a
+    // board we are not even on, and the fold could not tell the plan that takes
+    // the shot from the plan that walks away. It was pinned as a coarseness the
+    // bot may not narrow itself, because deciding when the cascade applies is a
+    // rule and the rules live in one place.
+    //
+    // The re-vendor (`8107bb4`) moved that decision INTO the rules: a claim now
+    // carries `selfDeathPossible` and names the king it rides on in
+    // `regicideKingId`, null when no king of its team could fall. So the
+    // narrowing is the engine's own and the fold may read it. What the bot adds
+    // is geometry over those answers, never a rule: `perilOf` (the peril with
+    // our units off the board) united with `reachedByMovers` (the cells this
+    // plan's movers actually entered), closed over the cascade at the king —
+    // see `claimSurvival`.
+    //
+    // What that buys is exactly the thing the old reading could not do, and it
+    // is asserted here rather than described: the shot and the quiet move price
+    // differently, and they differ ONLY in the king. Blue's floor is untouched
+    // (its whole roster stands in our worst reading either way) and blue's
+    // ceiling moves by the king's own weight — 1 — because taking the king
+    // takes the roster with it while walking away leaves the king certainly
+    // alive and the two claims' own mutual peril exactly where it was.
     const shot = contextFor(LAW_CASES[0] as LawCase);
     const board = shot.sub.marshalled;
     expect(board).toBeDefined();
@@ -419,7 +437,16 @@ describe('regicide is priced by the rules, and no longer by a correction on top'
         path: shot.sub.pathFor(queen.unitId, away) ?? [],
       });
       const walking = shot.sub.resolveBoundedFor(quiet, shot.asTeam).perTeam.get(blueTeam);
-      expect(walking).toEqual(taking);
+      // king 1 + rook 3 + knight 2 standing in our worst reading, both ways:
+      // our own choice cannot ADD to what blue keeps.
+      expect([taking, walking].map((v) => (v as { worst: number }).worst)).toEqual([6, 6]);
+      // The whole roster falls with the king we swing at…
+      expect(taking).toEqual({ worst: 6, best: 0 });
+      // …and with the queen playing elsewhere the king is certainly alive, so
+      // blue keeps precisely the king. The rook and the knight are still
+      // possibly-gone — they can annihilate each other, which is `perilOf`, and
+      // no plan of ours changes that.
+      expect(walking).toEqual({ worst: 6, best: 1 });
     } finally {
       shot.sub.release();
     }

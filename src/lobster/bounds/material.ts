@@ -313,15 +313,110 @@ export function moverSeverLoss(
  * Whether a held unit could be gone by the end of the turn: the peril the plan
  * cannot change (`Substrate.perilOf`) united with the peril it just made
  * (`reachedByMovers`). Both halves are the engine's; the union is the reading.
+ *
+ * ── THE HALF THE UNION DOES NOT COVER ──────────────────────────────────────
+ *
+ * `peril ∪ reached` is a NARROWING of `Claim.deathPossible`, and a narrowing
+ * has to cover every route the wider reading admits or it is a ceiling with no
+ * world under it. `deathPossible` folds TWO routes: this unit's own peril
+ * (`selfDeathPossible`) and the fall of its team's king
+ * (`regicideKingId`). The union covers the first — `perilOf` is the peril
+ * without us on the board and `reachedByMovers` is the peril we just made by
+ * touching a cell the claim could hold — and it covers NOTHING of the second,
+ * because the cell a cascade travels through is the KING's, not the victim's.
+ *
+ * Measured, on `closing.test.ts`'s three-team board: our queen steps onto the
+ * blue king, blue's knight sits in the far corner where no mover has been and
+ * nothing without us could touch it, and the narrowing calls it certainly
+ * alive. `applyRegicide` takes it off the board with the king, so a real world
+ * scores +1 against a ceiling of −1 — the R1 violation, 60 worlds of it, in
+ * the material profile too.
+ *
+ * So the cascade route is narrowed at the place it actually runs through: the
+ * victim is possibly-gone exactly when its king is not certainly alive, asked
+ * of the king ONCE, by the same two readings (a held king by its own claim, a
+ * modelled one by `moverSurvival`). A king names no king of its own
+ * (`regicideKingId` is null for a king), so this recurses one level and stops;
+ * the visiting guard is there for the contract, not for a board.
  */
 export function claimSurvival(
-  claim: { readonly id: string; readonly certainlyGone: boolean; readonly deathPossible: boolean },
+  claim: {
+    readonly id: string;
+    readonly certainlyGone: boolean;
+    readonly deathPossible: boolean;
+    readonly selfDeathPossible: boolean;
+    readonly regicideKingId: string | null;
+  },
   peril: ReadonlySet<string>,
-  reached: ReadonlySet<string>
+  reached: ReadonlySet<string>,
+  kingSurvival: (kingId: string) => Trit = () => 'maybe'
 ): Trit {
   if (claim.certainlyGone) return 'no';
   if (!claim.deathPossible) return 'yes';
-  return peril.has(claim.id) || reached.has(claim.id) ? 'maybe' : 'yes';
+  // Route one: its own peril, which the plan narrows.
+  if (claim.selfDeathPossible && (peril.has(claim.id) || reached.has(claim.id))) return 'maybe';
+  // Route two: the cascade. `regicideKingId !== null` is documented as exactly
+  // the condition `deathPossible` adds to `selfDeathPossible`.
+  if (claim.regicideKingId !== null) {
+    return kingSurvival(claim.regicideKingId) === 'yes' ? 'yes' : 'maybe';
+  }
+  // Possibly-dead, with no peril of its own the plan left standing and no king
+  // to name: the team plays regicide with no king on the roster and is lost
+  // when the turn resolves. There is nothing here to narrow.
+  if (!claim.selfDeathPossible) return 'maybe';
+  return 'yes';
+}
+
+/**
+ * Every claim's survival off ONE settlement, with the cascade closed.
+ *
+ * One map rather than a per-claim call, because the closure asks about a king
+ * that is itself a claim and the two readers of this — the material fold and
+ * `standingOf` — must not answer that question differently. Cached on the
+ * settlement AND on the peril set's identity, which is the one input a
+ * modelled sibling can answer differently from its parent (`substrate.ts`).
+ */
+const claimSurvivalCache = new WeakMap<
+  PartialSettlement,
+  { peril: object; survivals: ReadonlyMap<string, Trit> }
+>();
+
+export function claimSurvivals(
+  settlement: PartialSettlement,
+  peril: ReadonlySet<string>
+): ReadonlyMap<string, Trit> {
+  const hit = claimSurvivalCache.get(settlement);
+  if (hit !== undefined && hit.peril === (peril as object)) return hit.survivals;
+  const made = claimSurvivalsUncached(settlement, peril);
+  claimSurvivalCache.set(settlement, { peril: peril as object, survivals: made });
+  return made;
+}
+
+function claimSurvivalsUncached(
+  settlement: PartialSettlement,
+  peril: ReadonlySet<string>
+): ReadonlyMap<string, Trit> {
+  const claims = claimsById(settlement);
+  const reached = reachedByMovers(settlement);
+  const out = new Map<string, Trit>();
+  const visiting = new Set<string>();
+  const resolve = (id: string): Trit => {
+    const memo = out.get(id);
+    if (memo !== undefined) return memo;
+    const claim = claims.get(id);
+    // Not a claim: a MODELLED king, whose fall the settlement has settled, or
+    // a unit that is not on the board at all — `moverSurvival` reads 'no' for
+    // that, and a king that is already gone is a cascade that already ran.
+    if (claim === undefined) return moverSurvival(settlement, id);
+    if (visiting.has(id)) return 'maybe';
+    visiting.add(id);
+    const made = claimSurvival(claim, peril, reached, resolve);
+    visiting.delete(id);
+    out.set(id, made);
+    return made;
+  };
+  for (const claim of settlement.claims) resolve(claim.id);
+  return out;
 }
 
 /**
@@ -340,15 +435,14 @@ export function unitValuesOf(
 ): UnitValue[] {
   const out: UnitValue[] = [];
   const claimById = claimsById(settlement);
-  const peril = sub.perilOf();
-  const reached = reachedByMovers(settlement);
+  const survivals = claimSurvivals(settlement, sub.perilOf());
   for (const unit of sub.roster()) {
     const claim = claimById.get(unit.wireId);
     if (claim !== undefined) {
       out.push({
         unitId: unit.unitId,
         team: unit.team,
-        survival: claimSurvival(claim, peril, reached),
+        survival: survivals.get(claim.id) ?? 'maybe',
         weightMin: claim.weightMin,
         weightMax: claim.weightMax,
         partialLossMax: Math.max(0, unit.weight - claim.weightMin),
