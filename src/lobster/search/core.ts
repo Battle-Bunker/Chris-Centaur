@@ -40,7 +40,7 @@ import type {
   TrialSink,
   UnitId,
 } from "../contracts";
-import type { MovesetRung } from "../../lens/types";
+import type { MovesetRung, Verdict } from "../../lens/types";
 import {
   BoundBank,
   DEFAULT_BANK_CONFIG,
@@ -156,6 +156,18 @@ interface Session {
    * repaired, polished or perturbed. */
   readonly references: ReadonlyMap<UnitId, Candidate>;
 }
+
+/** The two shapes `better()` returns, allocated once: a comparison in the
+ *  hottest function in the search must not allocate to say "no". */
+const ACCEPT: Verdict = { accept: true };
+const REFUSED = {
+  witness: { accept: false, because: "witness" },
+  basis: { accept: false, because: "basis" },
+  floor: { accept: false, because: "floor" },
+  est: { accept: false, because: "est" },
+  hi: { accept: false, because: "hi" },
+  tie: { accept: false, because: "tie" },
+} as const satisfies Readonly<Record<string, Verdict>>;
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
@@ -425,7 +437,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   let trials: TrialSink | null = null;
   let rung: MovesetRung = "seed";
-  const observe = (trial: BankResult, incumbent: BankResult, accepted: boolean): void => {
+  const observe = (trial: BankResult, incumbent: BankResult, verdict: Verdict): void => {
     if (trials === null) return;
     trials({
       plan: trial.plan,
@@ -434,23 +446,50 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       est: trial.est,
       tie: planTieKey(trial.plan, cfg.seed),
       rung,
-      accepted,
-      because: null,
-      witness: null,
+      accepted: verdict.accept,
+      because: verdict.accept ? null : verdict.because,
+      // THE CERTIFICATE, or nothing. `refutedAt` is a numeric test — this
+      // plan's ceiling sits below the incumbent's proved floor — and the
+      // concrete reply that put it there is in the bank's own witness set. A
+      // trial with no witness banked yet is still refuted, but it is refuted
+      // by ARITHMETIC, and the reservoir says `dominated` rather than
+      // fabricating a certificate nobody holds.
+      witness: trial.witnesses[0] ?? null,
     });
   };
 
-  const better = (trial: BankResult, incumbent: BankResult): boolean => {
+  /**
+   * [CHANGE 1] — THE COMPARISON RETURNS ITS REASON.
+   *
+   * The refusal branch is the whole content of the set-valued reduction: every
+   * one of these six lines already knows WHY it refused, and until now none of
+   * it reached anything. `{accept}` is the same boolean it always was — every
+   * caller reads `.accept` and nothing else — and the reason rides beside it
+   * for the reservoir to turn into a `DominanceCondition` at the barrier.
+   *
+   * THIS MUST CHANGE NO DECISION. The reason is derived from comparisons this
+   * function already performs, in the order it already performs them, and the
+   * order is the invariant: `(floor, est, ceiling, salted tie key)`, strictly,
+   * with a basis mismatch a refusal. It is a refactor of the hottest function
+   * in the search, which is exactly where an accidental reordering hides — so
+   * it is gated on G2 (`lens-determinism.test.ts`), which was green two
+   * commits before this one and has to stay green after it.
+   */
+  const better = (trial: BankResult, incumbent: BankResult): Verdict => {
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
     // PROVED floor cannot be an improvement, however good its own floor looks.
-    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return false;
+    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return REFUSED.witness;
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
-    if (!cmp.comparable) return false;
-    if (cmp.order !== 0) return cmp.order > 0;
-    if (trial.est !== incumbent.est) return trial.est > incumbent.est;
-    if (trial.bounds.best !== incumbent.bounds.best) return trial.bounds.best > incumbent.bounds.best;
-    return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed);
+    if (!cmp.comparable) return REFUSED.basis;
+    if (cmp.order !== 0) return cmp.order > 0 ? ACCEPT : REFUSED.floor;
+    if (trial.est !== incumbent.est) return trial.est > incumbent.est ? ACCEPT : REFUSED.est;
+    if (trial.bounds.best !== incumbent.bounds.best) {
+      return trial.bounds.best > incumbent.bounds.best ? ACCEPT : REFUSED.hi;
+    }
+    return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed)
+      ? ACCEPT
+      : REFUSED.tie;
   };
 
   // ------------------------------------------------------------------ moves
@@ -466,9 +505,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         if (candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = s.bank.price(withMove(best.plan, candidate));
-        const accepted = better(trial, best);
-        observe(trial, best, accepted);
-        if (accepted) best = trial;
+        const verdict = better(trial, best);
+        observe(trial, best, verdict);
+        if (verdict.accept) best = trial;
       }
     }
     return best;
@@ -503,9 +542,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
           const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
-          const accepted = better(trial, best);
-          observe(trial, best, accepted);
-          if (accepted) best = trial;
+          const verdict = better(trial, best);
+          observe(trial, best, verdict);
+          if (verdict.accept) best = trial;
         }
       }
     }
@@ -535,9 +574,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const list = lists[i];
       if (list === undefined) {
         const trial = s.bank.price(withMoves(best.plan, acc));
-        const accepted = better(trial, best);
-        observe(trial, best, accepted);
-        if (accepted) best = trial;
+        const verdict = better(trial, best);
+        observe(trial, best, verdict);
+        if (verdict.accept) best = trial;
         return;
       }
       for (const candidate of list) {
@@ -574,7 +613,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
       // whole slice never touched would have no row at all, and the operator
       // would read an empty table for the units the search is happiest about.
-      observe(best, best, true);
+      observe(best, best, ACCEPT);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -598,9 +637,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
             rung = "restart";
-            const accepted = better(local, best);
-            observe(local, best, accepted);
-            if (accepted) {
+            const verdict = better(local, best);
+            observe(local, best, verdict);
+            if (verdict.accept) {
               best = local;
               restarted = true;
               break;
@@ -673,7 +712,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         const repairing =
           cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
         if (scored === null || !repairing) return seed;
-        observe(scored, scored, true);
+        observe(scored, scored, ACCEPT);
         return repairSelfHarm(s, ctx, scored).plan;
       }
 
@@ -684,16 +723,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
         let scored = s.bank.price(plan);
-        observe(scored, scored, true);
+        observe(scored, scored, ACCEPT);
         for (const unitId of disturbed) {
           if (ctx.budget.shouldStop()) break;
           const set = s.sets.get(unitId) as CandidateSet;
           for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
             if (ctx.budget.shouldStop()) break;
             const trial = s.bank.price(withMove(scored.plan, candidate));
-            const accepted = better(trial, scored);
-            observe(trial, scored, accepted);
-            if (accepted) scored = trial;
+            const verdict = better(trial, scored);
+            observe(trial, scored, verdict);
+            if (verdict.accept) scored = trial;
           }
         }
         plan = scored.plan;
@@ -702,7 +741,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
         const scored = s.bank.price(plan);
-        observe(scored, scored, true);
+        observe(scored, scored, ACCEPT);
         plan = pairRepair(s, ctx.budget, scored).plan;
       }
       return plan;
@@ -747,9 +786,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
         if (ctx.budget.shouldStop()) break;
         const trial = s.bank.price(withMove(best.plan, candidate));
-        const accepted = better(trial, best);
-        observe(trial, best, accepted);
-        if (accepted) best = trial;
+        const verdict = better(trial, best);
+        observe(trial, best, verdict);
+        if (verdict.accept) best = trial;
       }
     }
     // The 2-opt the coordinate step above structurally cannot make: a pair
