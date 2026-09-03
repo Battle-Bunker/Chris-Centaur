@@ -32,6 +32,11 @@
 
 import type { Claim, Divergence, Fate, PartialSettlement } from "../engine-vendor/engine/settlePartial"
 import type { MaterialBounds } from "./bounds/material"
+// THE ONE UPWARD REFERENCE, and it is type-only. `KernelInput.lens` names the
+// lens's own sink type rather than re-declaring its shape here: two
+// declarations of one function type is exactly the drift the lens exists to
+// stop. `import type` is erased, so no runtime cycle exists.
+import type { LensSink } from "../lens/types"
 
 export type { Claim, Divergence, Fate, PartialSettlement, MaterialBounds }
 
@@ -713,4 +718,19 @@ export interface KernelInput {
    * not even the final flush.
    */
   readonly abandoned?: () => boolean
+  /**
+   * [CHANGE 3] — THE LENS SINK, and why it is a second channel.
+   *
+   * The frames must not travel on `AsyncIterable<EmitRecord>`: that channel's
+   * consumer is the wire, and a frame arriving there would be a staged plan.
+   * So a separate, optional, SYNCHRONOUS sink, called BETWEEN slices only and
+   * never inside one, wrapped in try/catch by the kernel — a lens consumer
+   * that throws must not be able to take a decision down, which is the rule
+   * telemetry already has.
+   *
+   * ABSENT ⇒ THE LENS COSTS EXACTLY NOTHING, and that is a gate rather than a
+   * claim: with this undefined the decision's evaluator-call and node counts
+   * are byte-identical to the pre-lens recording (05 §(d) gate 7(ii)).
+   */
+  readonly lens?: LensSink
 }
