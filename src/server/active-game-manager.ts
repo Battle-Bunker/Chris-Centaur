@@ -36,7 +36,7 @@ import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
-import { ingestLensEvents, makeSeqWriter, type SeqWriter } from '../lens/store';
+import { ingestLensEvents, makeSeqWriter, projectMovesets, type SeqWriter } from '../lens/store';
 import type {
   Actor,
   CellIndex,
@@ -2256,6 +2256,19 @@ export class ActiveGameManager {
           unitKeyOf ? { unitKeyOf } : {}
         );
         for (const row of written) this.logStoredEvent(row);
+        // A reservoir frame moves the projection. Re-project the WHOLE turn
+        // rather than appending the frame's rows: the projection is a fold, and
+        // a fold recomputed is a fold that cannot have drifted. It is ≤24 rows
+        // per decision, and it is the same call `scripts/lens-rebuild.js`
+        // makes, so the live table and a rebuilt one are the same bytes by
+        // construction rather than by agreement.
+        if (written.some(row => row.kind === 'movesets')) {
+          const decisionId = `${gameId}:${writer.turn}`;
+          DecisionLogger.getInstance().logMovesets(
+            decisionId,
+            projectMovesets(decisionId, writer.written)
+          );
+        }
       } catch (e) {
         console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
       }
