@@ -114,6 +114,11 @@ nobody takes any more.
   and the board's ink. There is no live-versus-replay branch anywhere in the
   render path; what differs is whether determinations are legal, and that is a
   label on one affordance.
+- **One implementation, bundled.** The fold, the cursor machine and the
+  renderer are TypeScript under `src/lens/`, and the page runs *that* module:
+  `npm run build:lens` bundles it to `src/web/lens-view.js`, and
+  `lens-bundle.test.ts` fails if the checked-in bundle drifts from its source.
+  Run it after changing anything under `src/lens/`.
 
 Gone with it: the per-unit heuristic table, the Voronoi territory overlay and
 its switch, the grey recommendation hint arrow (the bot's recommendation *is*

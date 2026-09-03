@@ -752,6 +752,10 @@
 
   <script src="/dom-utils.js"></script>
   <script src="/board-renderer.js"></script>
+  <!-- The lens's view-model, bundled from src/lens/view (npm run build:lens):
+       the one fold and the one cursor machine, shared with replay and with the
+       boundary tests. `lens-panel.js` renders what it produces. -->
+  <script src="/lens-view.js"></script>
   <script src="/lens-panel.js"></script>
   <script src="/keynav-machine.js"></script>
   <script src="/idle-policy.js"></script>
@@ -888,10 +892,13 @@
     //     and into the board's ink.
     //
     // The fold and the view-model are ONE implementation, in TypeScript,
-    // shared by live play and replay (Law C). `window.LensView` is where the
-    // built module lands; until L6 bundles it the rail renders the frame's own
-    // honest emptiness — which is a sentence, not a blank panel, and it is the
-    // same sentence in both directions.
+    // shared by live play, replay and the boundary tests (Law C). It reaches
+    // the browser as `window.LensView`, bundled by `npm run build:lens` and
+    // pinned byte-for-byte by `lens-bundle.test.ts` — a second fold written in
+    // JavaScript on this page is precisely the drift this rebuild is undoing.
+    // With no events yet the rail renders the frame's own honest emptiness,
+    // which is a sentence rather than a blank panel, and it is the same
+    // sentence in both directions.
     // ═══════════════════════════════════════════════════════════════════════
 
     const LENS_VIOLET = BoardRenderer.LENS_THEME.light.lens;
