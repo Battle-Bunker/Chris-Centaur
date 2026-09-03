@@ -1370,6 +1370,333 @@ describe('command reads two domains, because a claim cloud is not ground we hold
   });
 });
 
+// ----------------------------------- territory, read against the engine's board
+
+/**
+ * WHAT THE TWO TERRITORY MEMBERS CAN AND CANNOT SEE.
+ *
+ * `reach` is the two-plane partition's balance and `room` is its per-unit
+ * plane-1 ownership, both computed on the dilation shells. The shells step
+ * against the REAL board for the first unknown turn and against the PERMISSIVE
+ * board (every cell a pawn target) for every turn after it, and `shells.ts`
+ * gives the reason: after one unknown turn nobody knows where the bodies are,
+ * and over-approximating is the only direction a reach may be wrong in.
+ *
+ * That choice is sound and it has a price, and these three tests are the price
+ * written down as behaviour rather than as a paragraph. They are pins, not
+ * aspirations: two of them assert that the reading does NOT move, which is the
+ * honest record of a limitation the shells' soundness argument buys.
+ */
+describe('the territory members, read on a constructed board', () => {
+  function partsOf(
+    board: Board,
+    orders: ReadonlyArray<[string, Coord]>,
+    asTeam = 'red'
+  ): Record<string, { lo: number; est: number; hi: number }> {
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam,
+      modeled: orders.map(([id]) => id),
+    });
+    try {
+      const plan = new Map<UnitId, Candidate>();
+      for (const [id, to] of orders) {
+        const unit = sub.unitOfWireId(id)?.unitId as UnitId;
+        const dest = at(board, to);
+        plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+      }
+      return defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(asTeam)).parts as never;
+    } finally {
+      sub.release();
+    }
+  }
+
+  /**
+   * THE POCKET. Our snake's own body runs (0,2) (1,2) (2,2) (2,1) (2,0) (1,0),
+   * which together with the perimeter encloses exactly four free cells. Its
+   * head at (0,2) has one step INTO that pocket, (0,1), and one step OUT of it,
+   * (0,3). The enemy is in the far corner and reaches none of it.
+   */
+  const pocketBoard = (): Board =>
+    boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 0, y: 2 },
+          { x: 1, y: 2 },
+          { x: 2, y: 2 },
+          { x: 2, y: 1 },
+          { x: 2, y: 0 },
+          { x: 1, y: 0 },
+        ],
+        { teamID: 'red', orientation: { dx: -1, dy: 0 } }
+      ),
+      makeSnake('foe', [{ x: 6, y: 6 }, { x: 6, y: 5 }], {
+        teamID: 'blue',
+        orientation: { dx: 0, dy: 1 },
+      }),
+    ]);
+
+  test('walling ourselves in lowers `reach`, on both ends of the interval', () => {
+    const board = pocketBoard();
+    const into = partsOf(board, [['me', { x: 0, y: 1 }]])['reach'] as { lo: number; est: number };
+    const out = partsOf(board, [['me', { x: 0, y: 3 }]])['reach'] as { lo: number; est: number };
+    expect(into.est).toBeLessThan(out.est);
+    // And the FLOOR moves too, which is what makes it available to a decision
+    // rather than only to the estimate.
+    expect(into.lo).toBeLessThan(out.lo);
+  });
+
+  test('and `room` does not move at all — the executable form of a known limit', () => {
+    // A PIN ON A LIMITATION, not on a desired behaviour. `room` is the
+    // per-unit plane-1 count saturated at `min(1, sqrt(owned/len))`, and a
+    // snake in a four-cell pocket still owns cells on the FIRST shell — after
+    // which the permissive board lets its region walk out through its own
+    // body. So the term that is billed as the death predictor reads a box and
+    // the open board identically. `docs/design/entrapment.md` has the traces
+    // and what it would cost to close.
+    const board = pocketBoard();
+    expect(partsOf(board, [['me', { x: 0, y: 1 }]])['room']).toEqual(
+      partsOf(board, [['me', { x: 0, y: 3 }]])['room']
+    );
+  });
+
+  test('and plugging a chokepoint does not raise `reach` either, for the same reason', () => {
+    // Our snake lies across the board at y=3 from x=1 to x=5, so the only ways
+    // between the halves are the gaps at (0,3) and (6,3). The enemy is north,
+    // the two meals are south, and the head can PLUG the near gap at (0,3).
+    //
+    // Plugging scores BELOW both alternatives. The gap is only a gap on shell
+    // one: from shell two the enemy dilates on the permissive board, where our
+    // body is not there, so the cut buys nothing and the corner costs us our
+    // own arrivals. A partition that honoured the wall for longer would be
+    // claiming an enemy cannot go somewhere it might — which is the one
+    // direction `shells.ts` refuses to be wrong in.
+    const board = boardOf(
+      [
+        makeSnake(
+          'me',
+          [
+            { x: 1, y: 3 },
+            { x: 2, y: 3 },
+            { x: 3, y: 3 },
+            { x: 4, y: 3 },
+            { x: 5, y: 3 },
+          ],
+          { teamID: 'red', orientation: { dx: -1, dy: 0 } }
+        ),
+        makeSnake('foe', [{ x: 3, y: 6 }, { x: 4, y: 6 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { food: [{ x: 3, y: 0 }, { x: 1, y: 0 }] }
+    );
+    const plug = (partsOf(board, [['me', { x: 0, y: 3 }]])['reach'] as { est: number }).est;
+    const north = (partsOf(board, [['me', { x: 1, y: 4 }]])['reach'] as { est: number }).est;
+    const south = (partsOf(board, [['me', { x: 1, y: 2 }]])['reach'] as { est: number }).est;
+    expect(plug).toBeLessThan(north);
+    expect(plug).toBeLessThan(south);
+  });
+});
+
+// ------------------------------------- growth under the full-tank food rule
+
+/**
+ * THE RULE CHANGED AND THE FOLD DID NOT HAVE TO. A meal is `foodEnergy` added
+ * and CLAMPED to the eater's kind maximum, and it grows the eater by one weight
+ * ONLY when it brings the unit TO that maximum (`resolveTurn.ts` phase 4). So
+ * with a lean `foodEnergy` a hungry unit that eats gets fuel and no length, and
+ * only the meal that tops it off is worth a weight.
+ *
+ * These pin the division of labour that makes that work without any term
+ * knowing the rule: `food` is a POSITIONAL gradient scaled by the unit's own
+ * hunger against its own kind's ceiling, and the growth is `material`'s, read
+ * off the settlement the rules produced.
+ */
+describe('food and energy under the rule that only a full tank grows', () => {
+  const leanBoard = (energy: number, foodAt: Coord, foodEnergy?: number): Board =>
+    boardOf(
+      [
+        makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: energy,
+        }),
+        makeSnake('foe', [{ x: 6, y: 6 }, { x: 6, y: 5 }], {
+          teamID: 'blue',
+          orientation: { dx: 0, dy: 1 },
+        }),
+      ],
+      { food: [foodAt], ...(foodEnergy === undefined ? {} : { foodEnergy }) }
+    );
+
+  function partOf(board: Board, to: Coord, key: string): { lo: number; est: number; hi: number } {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const me = sub.unitOfWireId('me')?.unitId as UnitId;
+      const dest = at(board, to);
+      const plan = new Map<UnitId, Candidate>([
+        [me, { unitId: me, from: -1, to: dest, path: sub.pathFor(me, dest) ?? [] }],
+      ]);
+      return defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber('red')).parts[key] as never;
+    } finally {
+      sub.release();
+    }
+  }
+
+  test('the hunger scale is the unit`s own energy against its own kind ceiling', () => {
+    // Strictly increasing as the unit empties, and it is the KIND MAX that
+    // divides — `maxEnergyOf(kind)`, never a literal hundred.
+    const away: Coord = { x: 3, y: 3 };
+    const full = partOf(leanBoard(100, away), { x: 2, y: 3 }, 'food').est;
+    const half = partOf(leanBoard(50, away), { x: 2, y: 3 }, 'food').est;
+    const empty = partOf(leanBoard(10, away), { x: 2, y: 3 }, 'food').est;
+    expect(full).toBeLessThan(half);
+    expect(half).toBeLessThan(empty);
+    expect(full).toBeGreaterThan(0);
+  });
+
+  test('and it does NOT read foodEnergy, because it is a distance and not a meal', () => {
+    // The same three readings with a lean `foodEnergy: 5`. Identical, and that
+    // is correct rather than an oversight: `food` answers "am I closing on a
+    // meal", which is a fact about the unit's position. What the meal is WORTH
+    // is `material`'s, below.
+    for (const energy of [100, 50, 10]) {
+      expect([
+        energy,
+        partOf(leanBoard(energy, { x: 3, y: 3 }, 5), { x: 2, y: 3 }, 'food'),
+      ]).toEqual([energy, partOf(leanBoard(energy, { x: 3, y: 3 }), { x: 2, y: 3 }, 'food')]);
+    }
+  });
+
+  test('material prices the meal that FILLS above the meal that merely feeds', () => {
+    // `foodEnergy: 5` against a hundred-point tank. At 96 the meal reaches the
+    // ceiling and the unit grows a length; at 50 it does not, and the unit gets
+    // fuel and nothing else. The fold reads both off the settlement, so the new
+    // rule needed no term to learn it.
+    const grows = partOf(leanBoard(96, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'material');
+    const feeds = partOf(leanBoard(50, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'material');
+    expect(grows.lo).toBeGreaterThan(feeds.lo);
+    expect(grows.est).toBeGreaterThan(feeds.est);
+    // And the hungrier unit still WANTS the meal more, which is the half that
+    // keeps a lean board from starving its own units.
+    const pullGrows = partOf(leanBoard(96, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'food').est;
+    const pullFeeds = partOf(leanBoard(50, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'food').est;
+    expect(pullFeeds).toBeGreaterThan(pullGrows);
+  });
+});
+
+// --------------------------------- responsiveness to the invulnerability state
+
+/**
+ * A TIER CHANGES WHICH SQUARES ARE WORTH TAKING, and `contest` plus `tier`
+ * already carry it at the arrival turn. These are the two directions stated as
+ * behaviour: a buffed unit takes a square it would otherwise decline, and a
+ * debuffed one declines a square it would otherwise take.
+ */
+describe('a live tier moves which contested squares the fold will take', () => {
+  function totalAndParts(
+    board: Board,
+    to: Coord
+  ): { total: number; contest: { est: number }; tier: { est: number } } {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const me = sub.unitOfWireId('me')?.unitId as UnitId;
+      const dest = at(board, to);
+      const plan = new Map<UnitId, Candidate>([
+        [me, { unitId: me, from: -1, to: dest, path: sub.pathFor(me, dest) ?? [] }],
+      ]);
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber('red'));
+      return {
+        total: ev.bound.est,
+        contest: ev.parts['contest'] as never,
+        tier: ev.parts['tier'] as never,
+      };
+    } finally {
+      sub.release();
+    }
+  }
+
+  /** Ours and theirs both weight 2. A tie kills everyone, so (2,3) is a square
+   *  we lose at tier 0 — and win outright at +1, where tier is read first. */
+  const evenBoard = (level: number): Board =>
+    boardOf([
+      makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+        teamID: 'red',
+        orientation: { dx: 1, dy: 0 },
+        ...(level === 0
+          ? {}
+          : { invulnerabilityLevel: level, invulnerabilityExpiryTurn: TURN + 5 }),
+      }),
+      makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }], {
+        teamID: 'blue',
+        orientation: { dx: -1, dy: 0 },
+      }),
+    ]);
+
+  test('a BUFFED unit takes the contested square it would otherwise decline', () => {
+    const bare = totalAndParts(evenBoard(0), { x: 2, y: 3 });
+    const buffed = totalAndParts(evenBoard(1), { x: 2, y: 3 });
+    // At tier 0 the square is a contest we lose; at +1 it is not a contest at
+    // all, and the window is worth its own edge on top.
+    expect(bare.contest.est).toBeLessThan(0);
+    expect(buffed.contest.est).toBe(0);
+    expect(buffed.tier.est).toBeGreaterThan(0);
+    // The behavioural half: bare declines the square, buffed prefers it.
+    const bareAway = totalAndParts(evenBoard(0), { x: 1, y: 2 });
+    const buffedAway = totalAndParts(evenBoard(1), { x: 1, y: 2 });
+    expect(bare.total).toBeLessThan(bareAway.total);
+    expect(buffed.total).toBeGreaterThan(buffedAway.total);
+  });
+
+  /** Ours weight 3 against theirs weight 2. We are the unique maximum at (2,3)
+   *  and live — until a −1 puts the enemy above us on TIER, before weight is
+   *  read at all. */
+  const heavyBoard = (level: number): Board =>
+    boardOf([
+      makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }, { x: 0, y: 2 }], {
+        teamID: 'red',
+        orientation: { dx: 1, dy: 0 },
+        ...(level === 0
+          ? {}
+          : { invulnerabilityLevel: level, invulnerabilityExpiryTurn: TURN + 5 }),
+      }),
+      makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }], {
+        teamID: 'blue',
+        orientation: { dx: -1, dy: 0 },
+      }),
+    ]);
+
+  test('a DEBUFFED unit declines the square it would otherwise take', () => {
+    const bare = totalAndParts(heavyBoard(0), { x: 2, y: 3 });
+    const debuffed = totalAndParts(heavyBoard(-1), { x: 2, y: 3 });
+    expect(bare.contest.est).toBe(0);
+    expect(debuffed.contest.est).toBeLessThan(0);
+    // And `tier` names the debuff as the REASON, which is the half `contest`
+    // cannot say on its own.
+    expect(debuffed.tier.est).toBeLessThan(0);
+    // The behavioural half is a DIFFERENCE IN DIFFERENCES rather than a bare
+    // comparison, and the honest reason is worth stating: on this board the
+    // quiet square already outscores the contested one for the undebuffed unit
+    // too, because approaching a claim costs it `reach` and buys it no banked
+    // material — a floor may not credit a capture of a unit whose move it does
+    // not know. What the debuff must do is move the CHOICE further from the
+    // square, and it does, by more than the whole of `contest` on one unit.
+    const bareGap = bare.total - totalAndParts(heavyBoard(0), { x: 1, y: 2 }).total;
+    const debuffedGap = debuffed.total - totalAndParts(heavyBoard(-1), { x: 1, y: 2 }).total;
+    expect(debuffedGap).toBeLessThan(bareGap);
+  });
+
+  test('a debuff over a square that was already lost costs nothing', () => {
+    // The other half of the rule, and the reason the term is not just "fear a
+    // debuff": at equal weight the square is lost at tier 0 too, so the −1
+    // changed nothing and is not charged for it.
+    expect(totalAndParts(evenBoard(-1), { x: 2, y: 3 }).tier.est).toBe(0);
+  });
+});
+
 /** Bits set in a 32-bit word. Local: the production one is not exported. */
 function popcount(x: number): number {
   let v = x - ((x >>> 1) & 0x55555555);

@@ -573,7 +573,25 @@ export interface TurnOutcome {
   readonly tierUps: ReadonlyArray<string>;
   /** Units whose tier FELL — the collector itself, and every lapsing buff. */
   readonly tierDowns: ReadonlyArray<string>;
+  /**
+   * WHO COLLECTED, not just how many. Read the way settlement reads it — a
+   * surviving unit whose head finished the turn on a cell that held a potion
+   * when the turn opened — so the runner never re-derives the collection rule.
+   */
+  readonly collectors: ReadonlyArray<string>;
+  /**
+   * Every unit named in a CONTEST-shaped clash this turn, survivors included.
+   * `Clash.playerIDs` is the engine's own participant list, so this is the
+   * rules' answer to "was this unit in a fight", not a reconstruction of it.
+   * `sever` is in the set because a strictly-higher tier is exactly what cuts a
+   * body, which is a tier window paying for itself as surely as a kill is.
+   */
+  readonly contestants: ReadonlyArray<string>;
 }
+
+/** Clash kinds a tier decides. `bodyBlock`, `wall`, `self` and the two
+ * exhaustions are terrain and geometry: no tier changes their outcome. */
+const TIER_DECIDED: ReadonlySet<string> = new Set(['contest', 'edge', 'sever']);
 
 export function stepGame(
   board: Board,
@@ -718,6 +736,20 @@ export function stepGame(
   if (board.invulnerabilityPotions !== undefined) next.invulnerabilityPotions = standing;
   if (hadSchedule || result.effects.length > 0) next.activeEffects = result.effects;
 
+  // WHO took a potion: settlement's own test, asked of the settled board — a
+  // survivor whose head rests on a cell the turn opened with a potion on.
+  const collectors: string[] = [];
+  if (marshalled.potionsEnabled) {
+    for (const [id, settled] of Object.entries(result.board)) {
+      if (marshalled.potions.includes(settled.occupancy[0] as number)) collectors.push(id);
+    }
+  }
+  const contestants: string[] = [];
+  for (const clash of result.clashes) {
+    if (!TIER_DECIDED.has(clash.kind)) continue;
+    for (const id of clash.playerIDs) if (!contestants.includes(id)) contestants.push(id);
+  }
+
   return {
     board: next,
     deaths,
@@ -725,6 +757,8 @@ export function stepGame(
     potionsTaken: marshalled.potions.length - result.potions.length,
     tierUps,
     tierDowns,
+    collectors,
+    contestants,
   };
 }
 
@@ -763,6 +797,19 @@ export interface GameMetrics {
   deathsByCause: Record<string, number>;
   /** Potions collected — settlement's own before/after count, not a re-derived rule. */
   potionPickups: number;
+  /**
+   * PICKUPS THAT PAID FOR THEMSELVES. A pickup is profitable when, inside the
+   * window it opens, an ALLY of the collector (never the collector, whose own
+   * tier went DOWN) was named in a tier-decided clash — a contest, an edge
+   * exchange or a sever. That is the only thing an invulnerability tier does
+   * under these rules (`strictMaximum` takes tier first), so it is the whole of
+   * "the pickup bought the team something", counted once per pickup.
+   *
+   * The window is the engine's own: settlement stamps `expiryTurn = turn +
+   * potionWindowTurns` and expires at the END of a turn, so the buff decides
+   * every clash from the turn after the pickup up to and including that turn.
+   */
+  profitablePickups: number;
   /** Unit-turns that ended on a HIGHER tier: an ally of a collector, mostly. */
   potionTierUps: number;
   /** Unit-turns that ended on a lower tier: the collector, and lapsing buffs. */
@@ -830,6 +877,7 @@ export async function runGame(
     otherDeaths: 0,
     deathsByCause: {},
     potionPickups: 0,
+    profitablePickups: 0,
     potionTierUps: 0,
     potionTierDowns: 0,
     deathsWhileDebuffed: 0,
@@ -843,6 +891,15 @@ export async function runGame(
     decisions: 0,
     crashed: null,
   };
+  /**
+   * OPEN POTION WINDOWS, one per pickup, retired when the buff lapses. The
+   * counter is a claim about what a pickup BOUGHT, so it cannot be settled on
+   * the turn of the pickup: the buff opens the turn after and runs to
+   * `endsTurn`, and the window is scored the first turn an ally is in a
+   * tier-decided clash inside it.
+   */
+  const windows: { collector: string; team: string; endsTurn: number; paid: boolean }[] = [];
+  const potionWindow = spec.potionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS;
   // wireId -> the cell it stood on BEFORE its last move.
   const previousCell = new Map<string, string>();
   /** wireId -> the destination it staged last turn, for the dither signature. */
@@ -917,12 +974,35 @@ export async function runGame(
     }
 
     const bodies = new Map<string, string>();
+    const teamOf = new Map<string, string>();
     for (const s of board.snakes ?? []) {
       bodies.set(s.id, s.body.map((c) => `(${c.x},${c.y})`).join(''));
+      teamOf.set(s.id, s.teamID as string);
     }
     const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule);
     metrics.foodEaten += outcome.ate.length;
     metrics.potionPickups += outcome.potionsTaken;
+    // Score the windows already open BEFORE opening this turn's: a buff is
+    // stamped at the end of the turn it is collected on and decides nothing
+    // during it, so a clash on the pickup turn is not the pickup's doing.
+    for (const w of windows) {
+      if (w.paid || turn > w.endsTurn) continue;
+      for (const id of outcome.contestants) {
+        if (id === w.collector) continue;
+        if (teamOf.get(id) !== w.team) continue;
+        w.paid = true;
+        metrics.profitablePickups++;
+        break;
+      }
+    }
+    for (let i = windows.length - 1; i >= 0; i--) {
+      if (turn >= (windows[i] as { endsTurn: number }).endsTurn) windows.splice(i, 1);
+    }
+    for (const id of outcome.collectors) {
+      const team = teamOf.get(id);
+      if (team === undefined) continue;
+      windows.push({ collector: id, team, endsTurn: turn + potionWindow, paid: false });
+    }
     metrics.potionTierUps += outcome.tierUps.length;
     metrics.potionTierDowns += outcome.tierDowns.length;
     for (const d of outcome.deaths) {
@@ -1125,6 +1205,7 @@ export interface RunSummary {
     readonly starvationDeaths: number;
     readonly otherDeaths: number;
     readonly potionPickups: number;
+    readonly profitablePickups: number;
     readonly potionTierUps: number;
     readonly potionTierDowns: number;
     readonly deathsWhileDebuffed: number;
@@ -1178,6 +1259,7 @@ export function summaryOf(
       starvationDeaths: metrics.starvationDeaths,
       otherDeaths: metrics.otherDeaths,
       potionPickups: metrics.potionPickups,
+      profitablePickups: metrics.profitablePickups,
       potionTierUps: metrics.potionTierUps,
       potionTierDowns: metrics.potionTierDowns,
       deathsWhileDebuffed: metrics.deathsWhileDebuffed,
@@ -1194,6 +1276,7 @@ export function summaryOf(
       seedKeptPer100: per(metrics.seedKept),
       deathsPer100: per(metrics.starvationDeaths + metrics.otherDeaths),
       potionPickupsPer100: per(metrics.potionPickups),
+      profitablePickupsPer100: per(metrics.profitablePickups),
       potionTierUpsPer100: per(metrics.potionTierUps),
     },
     deathsByCause: Object.fromEntries(
@@ -1235,6 +1318,7 @@ async function summarise(
     starvationDeaths: 0,
     otherDeaths: 0,
     potionPickups: 0,
+    profitablePickups: 0,
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
@@ -1274,7 +1358,8 @@ async function summarise(
       `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
       `causes=${JSON.stringify(causes)} ` +
       ((totals.potionPickups as number) > 0
-        ? `potions=${totals.potionPickups} tierUps=${totals.potionTierUps} ` +
+        ? `potions=${totals.potionPickups} profitable=${totals.profitablePickups} ` +
+          `tierUps=${totals.potionTierUps} ` +
           `deadDebuffed=${totals.deathsWhileDebuffed} deadBuffed=${totals.deathsWhileBuffed} `
         : '') +
       `nodes=${nodes} ` +
