@@ -114,6 +114,22 @@ nobody takes any more.
   and the board's ink. There is no live-versus-replay branch anywhere in the
   render path; what differs is whether determinations are legal, and that is a
   label on one affordance.
+- **Replay is the same rail, off the log.** Scrub the turn slider (or open a
+  finished game) and the page fetches that turn's recorded events and folds
+  them with the function live play folds with. `,` `.` and `[` `]` work
+  exactly as they do live; the badge says `replay`, and every determination
+  re-labels rather than greying out. Switching which unit you are inspecting
+  costs nothing and fetches nothing — one log covers every unit on the board,
+  so a change of perspective is a change of cursor.
+- **`Alt`+click asks about a square.** Who is standing here, what the moveset
+  under the cursor does with it, and — derived on demand, live or in replay —
+  which unit reaches it first and in how many turns. It is a question the
+  server answers when a human asks it, not a layer painted on every turn.
+- **An inspection you cannot afford is refused, in words.** Each turn carries a
+  small reserve declared *before* the search starts, so looking never shortens
+  the decision by more than a fixed, announced amount. Past it the rail says
+  *the reserve is spent* rather than going quiet, and a list whose cluster
+  moved underneath it says that instead of showing stale rows.
 - **One implementation, bundled.** The fold, the cursor machine and the
   renderer are TypeScript under `src/lens/`, and the page runs *that* module:
   `npm run build:lens` bundles it to `src/web/lens-view.js`, and
@@ -121,10 +137,15 @@ nobody takes any more.
   Run it after changing anything under `src/lens/`.
 
 Gone with it: the per-unit heuristic table, the Voronoi territory overlay and
-its switch, the grey recommendation hint arrow (the bot's recommendation *is*
-the rank-1 moveset's assignment now), per-candidate quality tints, and the two
-"no data" panels — replaced by one honest sentence that names what has happened
-and at which `seq`.
+its switch (the ownership question survives as the `Alt`+click read above), the
+grey recommendation hint arrow (the bot's recommendation *is* the rank-1
+moveset's assignment now), per-candidate quality tints, the per-turn snapshot
+of command state, and the two "no data" panels — replaced by one honest
+sentence that names what has happened and at which `seq`.
+
+What a turn costs, measured rather than estimated: 7–10 emissions, 24–45 stored
+events and 33–88 KB. `docs/design/decision-lens/07-MEASURED.md` has the run and
+what it settled.
 
 ## Chess pieces
 
@@ -219,9 +240,17 @@ npm run dev        # node --watch, serves the UI on PORT (default 5000)
 npm test           # jest
 npm run lint
 npm run build      # tsc → dist/
+npm run build:lens # bundle src/lens/ → src/web/lens-view.js (after any change there)
+npm run lens:check # the `movesets` projection: does it still fold from turn_events?
+npm run lens:rebuild  # regenerate it (DELETE then re-fold). Needs DATABASE_URL.
 ```
 
-`DATABASE_URL` (Postgres) is used for decision logs, game history and config
+`node scripts/lens-measure.js` replays the O1 instrumentation run — what a turn
+costs the lens, in emissions, clusters, retained rows, events and bytes. Add
+`--persist` to write the session so `lens:check` has real rows to check.
+
+`DATABASE_URL` (Postgres) is used for the lens store (boards, events, decision
+seeds, the moveset projection and per-unit outcomes), game history and config
 storage — see `replit.md` for the full architecture, including the
 never-destroy-data rule for that database.
 
