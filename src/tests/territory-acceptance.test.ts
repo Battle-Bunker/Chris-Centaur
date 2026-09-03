@@ -477,7 +477,7 @@ describe('E — the two-turn-stale guard', () => {
     }
   });
 
-  test('and turn 10 is the blunt one because a mover cannot be proved alive there', () => {
+  test('and turn 10 is provable again: the engine ledgers the pile contest a sever can become, so a lone sever proves survival', () => {
     const sample = boardAt(0, 10);
     const ourIds = (sample.board.snakes ?? [])
       .filter((s) => (s.teamID ?? s.id) === sample.team && s.health > 0 && s.body.length > 0)
@@ -516,7 +516,7 @@ describe('E — the two-turn-stale guard', () => {
           (overCell.get(d.cell) as Set<string>).add(d.heldId);
         }
         expect([...overCell.values()].some((ids) => ids.size > 1)).toBe(true);
-        expect(moverSurvival(resolution, 'r2')).toBe('maybe');
+        expect(moverSurvival(resolution, 'r2')).toBe('yes');
         return null;
       });
     } finally {
