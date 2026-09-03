@@ -1159,6 +1159,10 @@
       const view = lensView();
       const frame = lensFrame();
       if (!view || !frame || !lensCursor) return false;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showBannerNotice('not connected — nothing was staged');
+        return false;
+      }
       if (everyMember) {
         lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'lock.moveset' });
       }
@@ -1237,7 +1241,7 @@
             }
           } else if (binding.action === 'release') {
             if (lensCursor.unit) {
-              ws.send(JSON.stringify({ type: 'lens-cancel', unit: lensCursor.unit }));
+              lensSend({ type: 'lens-cancel', unit: lensCursor.unit });
               lensCursor = view.applyCursorEvent(lensCursor, frame, {
                 t: 'release', unit: lensCursor.unit,
               });
