@@ -278,6 +278,42 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
   });
 });
 
+/**
+ * D IS FAILING, DELIBERATELY AND WITH A REASON, AND IS NOT WEAKENED TO PASS.
+ *
+ * Measured on this branch: two of D's three assertions fail, and the cause is
+ * a soundness hole the one-engine cut CLOSED rather than one it opened.
+ *
+ * On `mid11` every one of our six units is MODELLED (nothing of ours is held),
+ * and every one of them comes back `worstAlive: false`. The whole chain is one
+ * unit long: our king r0 stages onto a square the blue queen's claim can hold
+ * and beat (`contest`, `couldBeat: true`, `assumedPresent: false`), and the
+ * re-vendored `settlePartial` then writes a `regicide` divergence for EVERY
+ * team-mate — `via: ["r0"]` — because losing the last king takes the team off
+ * the board. `moverSurvival` resolves those at the king, once, and answers
+ * `maybe`. So `ADMISSION.lo.ours = worstAlive && !held` admits nobody, plane 1
+ * has no trail unit of ours in the `lo` reading, `ours` is 0 of 121 and
+ * `reach.lo` is the same number for every candidate the harness prices.
+ *
+ * That reading is HONEST: in our worst world our king falls and regicide takes
+ * the rest with it, so there is no cell we own. The engine before the cut did
+ * not spread regicide to a modelled team at all, which is why this block was
+ * green when it was written — its floor was measured without our own king's
+ * fall priced into it.
+ *
+ * IT IS NOT A DEAD POSITION, EITHER, and that is the part worth keeping: the
+ * king HAS safe squares here (three of its nine options), and on those the
+ * partition reads `ours = 1 / theirs = 89` — the exact pair the pre-cut fold
+ * produced. The gradient D is looking for exists; what the harness prices is a
+ * plan set in which it cannot appear, because `ourPlans`' cap of 64 is spent by
+ * the queen's option list before the king's second option is ever extended, so
+ * all 64 plans carry the king's FIRST move.
+ *
+ * Two changes would each make it pass and both were refused: relaxing the
+ * admission rule (it is right — a unit that is gone in the worst world owns no
+ * cells in it) and re-sampling the candidate set (that is tuning the harness
+ * until the number comes out). Left failing, with the finding written down.
+ */
 describe('D — the slider guard (mid11 seed 101)', () => {
   const r = read(MID11);
 
