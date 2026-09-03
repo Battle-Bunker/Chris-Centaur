@@ -52,8 +52,11 @@ CREATE TABLE IF NOT EXISTS turn_events (
   turn        integer      NOT NULL,
   seq         integer      NOT NULL,
   kind        varchar(32)  NOT NULL,
-  at_wall     bigint       NOT NULL,
-  at_work_ms  integer,
+  at_wall     bigint       NOT NULL,   -- UTC ms, whole: the sink rounds
+  -- The KERNEL's clock, fractional by construction (nodes x NODE_COST +
+  -- reads x READ_COST under the node clock, a performance.now() difference
+  -- under the wall clock). An integer column truncated the axis that replays.
+  at_work_ms  double precision,
   actor_kind  varchar(16)  NOT NULL,
   actor_id    varchar(255),
   actor_name  varchar(255),

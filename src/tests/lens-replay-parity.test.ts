@@ -34,14 +34,17 @@
  * a scalar and `payload` is the whole event.
  *
  * BOTH HOPS ARE JSON, and that is load-bearing rather than incidental. The
- * websocket sends `JSON.stringify` and `turn_events.payload` is `jsonb`, so
- * the live client and the replay reader are handed the SAME lossy encoding of
- * the same object — which is why a non-finite bound (`hi: +∞`, the lattice
- * top before anything is proved above the incumbent) reaching both of them as
- * `null` does not break Law C. It is a real loss and the last test below
- * pins it as a SYMMETRIC one: no path may carry a value to one consumer and
- * not the other, because that asymmetry is precisely what would make replay
- * disagree with the operator's memory of the same turn.
+ * websocket sends and `turn_events.payload` is `jsonb`, so both consumers are
+ * handed an ENCODING of the object rather than the object. Plain JSON cannot
+ * carry a non-finite bound — `hi: +∞` is the lattice top, before anything is
+ * proved above the incumbent, and `JSON.stringify` turns it into `null` — so
+ * both hops use `lensStringify` / `reviveLens`, which name it and put it back.
+ * The last test below asserts the encoding is LOSSLESS in both directions and
+ * that a real decision actually produces such a value, so the assertion is
+ * testing something. It used not to be lossless, and the cost of that was not
+ * cosmetic: the `movesets` projection is derived from the stored event and its
+ * `hi` column is NOT NULL, so a rebuild read `null` back and failed outright —
+ * gate 8, refusing a real recorded session.
  */
 
 import { recordLensRun, unitKeyOf } from '../lens/kernel';
@@ -49,9 +52,11 @@ import {
   decodeEventRow,
   encodeEventRow,
   ingestLensEvents,
+  lensStringify,
   makeSeqWriter,
   projectMovesets,
   rebuildMovesets,
+  reviveLens,
   storeFromRows,
 } from '../lens/store';
 import { frameAtSeq, makeReplayDecisionSource } from '../lens/view';
@@ -102,11 +107,12 @@ interface Recorded {
   readonly projected: ReturnType<typeof projectMovesets>;
 }
 
-/** `jsonb`, in one line. Anything a column cannot carry dies here rather than
- *  in production: a `Map` becomes `{}`, an `undefined` key vanishes, and a
- *  `-Infinity` becomes null. */
+/** `jsonb` and the socket, in one line — the SHIPPED codec, so anything an
+ *  encoding cannot carry dies here rather than in production: a `Map` becomes
+ *  `{}` and an `undefined` key vanishes, while a non-finite bound is named and
+ *  restored rather than flattened to null. */
 function stored<T>(row: T): T {
-  return JSON.parse(JSON.stringify(row)) as T;
+  return reviveLens(JSON.parse(lensStringify(row)) as T);
 }
 
 /**
@@ -417,13 +423,11 @@ describe('G-L1 — a recorded session replays to identical frames', () => {
     expect(found).toContain('-12345');
   });
 
-  it('loses nothing to one consumer that it does not lose to the other', () => {
-    // THE SYMMETRY, asserted rather than assumed. Both hops are `JSON`, so a
-    // value JSON cannot carry — `+∞` on an unproved upper bound, `NaN` on an
-    // unmeasured channel — reaches the live client and the replay reader as
-    // the same `null`. What must never happen is one of them keeping it: a
-    // frame that is richer live than in replay is a frame the operator
-    // remembers and the audit cannot reproduce.
+  it('carries a non-finite bound through both encodings, losslessly', () => {
+    // `+∞` on an unproved upper bound and `NaN` on an unmeasured channel are
+    // ordinary readings on this bot's scale, and plain JSON turns both into
+    // `null` — which reads as "unmeasured" and erases the difference the whole
+    // bound vocabulary exists to keep. Both hops name them instead.
     const wire = session.envelopes.flatMap((e) => e.events);
     const rows = session.eventRows.map((row) => decodeEventRow(row));
     const bySeq = new Map(rows.map((e) => [e.seq, e]));
@@ -438,11 +442,10 @@ describe('G-L1 — a recorded session replays to identical frames', () => {
       expect(row).toBeDefined();
       expect(JSON.stringify(event.payload)).toBe(JSON.stringify((row as TurnEvent).payload));
     }
-    // And the pre-wire objects DO carry more than either consumer gets, so the
-    // check above is testing something: at least one non-finite number is
-    // produced by a real decision and erased by both encodings.
-    const raw = session.sent.flatMap((e) => e.events);
-    const nonFinite = raw.some((e) =>
+    // And a real decision DOES produce one, so the check above is testing
+    // something rather than passing vacuously — on the wire, after the round
+    // trip, not merely in the object the server built.
+    const nonFinite = wire.some((e) =>
       Object.values((e.payload ?? {}) as Record<string, unknown>).some(
         (v) => typeof v === 'number' && !Number.isFinite(v)
       )

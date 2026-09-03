@@ -20,7 +20,7 @@
  * and are re-exported here so the whole U surface has one import path.
  */
 
-import { applyEvent, emptyStore } from '../store';
+import { applyEvent, emptyStore, reviveLens } from '../store';
 import { makeLiveSource, makeReplaySource } from '../store/sources';
 import {
   clusterOf,
@@ -169,6 +169,19 @@ export function makeReplayDecisionSource(input: ReplaySourceInput): DecisionSour
  * The anchor is the turn's own `board.arrived`: a fold never crosses a turn
  * boundary, so there is nothing to seek past and no game-length fold to avoid.
  */
+/**
+ * THE EVENTS AS THE SERVER BUILT THEM, from the JSON that reached the browser.
+ *
+ * `+∞` on an unproved upper bound is an ordinary reading here and plain JSON
+ * cannot carry it, so the server names it and this restores it — same codec,
+ * both directions. Call it once on whatever the socket or `/api/logs` handed
+ * over; it is pure and total, so an event with nothing to restore comes back
+ * unchanged.
+ */
+export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<TurnEvent> {
+  return events.map((e) => reviveLens(e));
+}
+
 export function frameAtSeq(
   events: ReadonlyArray<TurnEvent>,
   seq: number,

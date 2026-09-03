@@ -578,13 +578,28 @@ export function ingestLensEvents(
   const base = context.t0AtWall ?? writer.written[0]?.atWall ?? 0;
   const actor = context.botActor ?? BOT;
   const out: TurnEvent[] = [];
-  let lastEmissionSeq = -1;
+  // THE TURN'S LAST EMISSION, read off the LOG rather than tracked in a local.
+  //
+  // Production calls this function once per event — the sink is handed one
+  // frame at a time — so a local counter was reset on every call and every
+  // stored `movesets` frame named emission `-1`, which is "no emission yet"
+  // and was false for all but the first. The writer spans the turn; the local
+  // did not. Read from the writer and the two cannot disagree.
+  let lastEmissionSeq = writer.written.reduce(
+    (seq, e) => (e.kind === 'emission' ? e.seq : seq),
+    -1
+  );
 
   for (const event of events) {
     const common = {
       gameId: writer.gameId,
       turn: writer.turn,
-      atWall: base + event.at,
+      // A WALL-CLOCK READING IS A WHOLE MILLISECOND. `event.at` is the
+      // kernel's clock and is fractional by construction, so the sum is
+      // rounded here rather than left to a column that cannot hold it —
+      // `at_wall` is `bigint`, and Postgres refuses a fraction outright
+      // rather than truncating it.
+      atWall: Math.round(base + event.at),
       atWorkMs: event.at,
       actor,
       unit: null as UnitKey | null,
@@ -744,6 +759,69 @@ export function storeFromRows(
 // ===========================================================================
 // Row codecs
 // ===========================================================================
+
+/**
+ * JSON THAT CAN CARRY A LATTICE BOUND.
+ *
+ * `Bound.hi` is `+∞` until something is proved above the incumbent and
+ * `Bound.lo` is `−∞` until something is proved below it. Both are ordinary
+ * readings on this bot's own scale — `-inf` is the bottom it proves floors
+ * against — and plain `JSON` cannot carry either: `JSON.stringify(Infinity)`
+ * is `null`, on the socket and in `jsonb` alike.
+ *
+ * That is not a display nicety. The `movesets` projection is derived FROM the
+ * stored event, its `hi` column is `NOT NULL`, and a rebuild reading `null`
+ * back out fails outright — which is how the O1 run found this, with gate 8
+ * refusing to rebuild a real recorded session. Erasing the difference between
+ * "unbounded above" and "unmeasured" would also erase the difference between
+ * "dead" and "unknown", which is the one distinction the whole bound vocabulary
+ * exists to keep.
+ *
+ * So a non-finite number is NAMED on the way out and restored on the way in.
+ * The wrapper is an object rather than a string because a string sentinel
+ * cannot be told from a real string on the way back, and a lens payload does
+ * carry strings that a user could choose.
+ */
+interface NamedNumber {
+  readonly $num: '+inf' | '-inf' | 'nan';
+}
+
+function nameOf(value: number): NamedNumber | null {
+  if (Number.isNaN(value)) return { $num: 'nan' };
+  if (value === Infinity) return { $num: '+inf' };
+  if (value === -Infinity) return { $num: '-inf' };
+  return null;
+}
+
+/** `JSON.stringify` for a lens payload. Use it wherever a payload leaves the
+ *  process — the socket and `turn_events.payload` are the two places. */
+export function lensStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, raw) =>
+    typeof raw === 'number' ? (nameOf(raw) ?? raw) : raw
+  );
+}
+
+/** The inverse, over a value that has already been parsed (jsonb comes back
+ *  as an object, not as text). Pure, and total: anything without a named
+ *  number passes through unchanged. */
+export function reviveLens<T>(value: T): T {
+  return revive(value) as T;
+}
+
+function revive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(revive);
+  if (value === null || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  const named = record.$num;
+  if (typeof named === 'string' && Object.keys(record).length === 1) {
+    if (named === '+inf') return Infinity;
+    if (named === '-inf') return -Infinity;
+    if (named === 'nan') return NaN;
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(record)) out[key] = revive(record[key]);
+  return out;
+}
 
 /**
  * `payload` holds the `TurnEvent` VERBATIM, so live and replay fold identical

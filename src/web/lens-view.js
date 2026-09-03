@@ -60,6 +60,7 @@ var LensView = (() => {
     requestConditional: () => requestConditional,
     resetGestureState: () => resetGestureState,
     resolveCursor: () => resolveCursor,
+    reviveEvents: () => reviveEvents,
     rowTrails: () => rowTrails,
     rowsFor: () => rowsFor,
     stagedCellOf: () => stagedCellOf,
@@ -335,6 +336,23 @@ var LensView = (() => {
       premise: null,
       kind: "observed"
     };
+  }
+  function reviveLens(value) {
+    return revive(value);
+  }
+  function revive(value) {
+    if (Array.isArray(value)) return value.map(revive);
+    if (value === null || typeof value !== "object") return value;
+    const record = value;
+    const named = record.$num;
+    if (typeof named === "string" && Object.keys(record).length === 1) {
+      if (named === "+inf") return Infinity;
+      if (named === "-inf") return -Infinity;
+      if (named === "nan") return NaN;
+    }
+    const out = {};
+    for (const key of Object.keys(record)) out[key] = revive(record[key]);
+    return out;
   }
 
   // src/lens/store/sources.ts
@@ -861,6 +879,9 @@ var LensView = (() => {
   }
   function makeReplayDecisionSource(input) {
     return withTransport(makeReplaySource({ store: input.store, at: input.at }), void 0);
+  }
+  function reviveEvents(events) {
+    return events.map((e) => reviveLens(e));
   }
   function frameAtSeq(events, seq, isHead) {
     const anchor = events.find((e) => e.kind === "board.arrived") ?? events[0];

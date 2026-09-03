@@ -1055,7 +1055,13 @@
         }
       }
       const seen = new Set(lensEvents.map((e) => e.seq));
-      for (const event of msg.events) {
+      // REVIVED ON ARRIVAL. The server names the numbers JSON cannot carry —
+      // `+∞` on an unproved upper bound is an ordinary reading on this scale —
+      // and this puts them back, so the frame the page folds is the frame the
+      // server built.
+      const view = lensView();
+      const arrived = view && view.reviveEvents ? view.reviveEvents(msg.events) : msg.events;
+      for (const event of arrived) {
         if (!seen.has(event.seq)) lensEvents.push(event);
       }
       lensEvents.sort((a, b) => a.seq - b.seq);
@@ -4084,9 +4090,11 @@
       const p = fetch(url)
         .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then((data) => {
-          const events = ((data && data.events) || [])
+          const view = lensView();
+          const raw = ((data && data.events) || [])
             .filter((e) => e && e.turn === turn)
             .sort((a, b) => a.seq - b.seq);
+          const events = view && view.reviveEvents ? view.reviveEvents(raw) : raw;
           historicEvents.set(turn, events);
           return events;
         })
