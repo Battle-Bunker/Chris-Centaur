@@ -47,6 +47,7 @@ import type {
   MovesetKey,
   Provenanced,
   RequestId,
+  RowTrail,
   SourceDelta,
   TurnEvent,
   TurnEventKind,
@@ -471,7 +472,8 @@ function candidateOps(frame: LensFrame, cursor: LensCursor): DrawCall[] {
 function movesetOps(
   frame: LensFrame,
   cursor: LensCursor,
-  selected: Moveset | null
+  selected: Moveset | null,
+  trails: ReadonlyArray<RowTrail>
 ): DrawCall[] {
   const rows = rowsFor(frame, cursor.unit, cursor.candidate);
   if (rows.length === 0) return [call('panel.movesets.empty', emptyStateLine(frame))];
@@ -493,6 +495,10 @@ function movesetOps(
 
   for (const row of rows) {
     const cell = depthCell(row);
+    // The rank trail — `#3 ▲was #1` — and the displaced badge on the row a
+    // re-resolution had to fall to. Both decay after two emissions: a trail
+    // that outlives the change it describes is furniture.
+    const trail = trails.find((t) => t.moveset === row.key) ?? null;
     ops.push(
       call(
         'panel.movesets.row',
@@ -504,7 +510,8 @@ function movesetOps(
         row.moves.map((m) => `${m.unit}→${m.to}`),
         row.complement,
         row.key === selected?.key,
-        row.staged
+        row.staged,
+        trail
       )
     );
   }
@@ -670,7 +677,11 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
  * live-versus-replay flag — which is what makes two sources produce one
  * picture.
  */
-export function renderFrame(frame: LensFrame, cursor: LensCursor = initialCursor()): DrawTranscript {
+export function renderFrame(
+  frame: LensFrame,
+  cursor: LensCursor = initialCursor(),
+  trails: ReadonlyArray<RowTrail> = []
+): DrawTranscript {
   const selected = selectedRow(frame, cursor);
   const ops: DrawCall[] = [call('frame', frame.at.turn, frame.at.seq, frame.at.tMono)];
 
@@ -700,7 +711,7 @@ export function renderFrame(frame: LensFrame, cursor: LensCursor = initialCursor
   }
 
   ops.push(...candidateOps(frame, cursor));
-  ops.push(...movesetOps(frame, cursor, selected));
+  ops.push(...movesetOps(frame, cursor, selected, trails));
   ops.push(...breakdownOps(frame, cursor, selected));
   ops.push(...renderTimeline(frame.events));
 

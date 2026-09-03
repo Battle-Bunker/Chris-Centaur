@@ -262,6 +262,12 @@
     .lens-empty { font-size: 12px; color: #888; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
+    .lens-trail { color: #B39DFF; font-size: 10px; margin-left: 6px; }
+    .lens-displaced { color: #FF8A65; font-size: 10px; margin-left: 6px; }
+    .lens-staged-flag { color: #9E9E9E; font-size: 10px; margin-left: 6px; }
+    /* While a widen is held the whole list is visibly superseded — struck, and
+       still there, which is the entire point of the policy. */
+    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #999; }
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {
@@ -899,6 +905,13 @@
     let lensLaneExpanded = false; // attention ticks are numerous and low-grade
     let lensCursor = null;        // LensCursor, owned by the view-model
     let lensTranscript = [];
+    let lensPrevFrame = null;     // the frame the operator is looking at
+    let lensTrails = [];          // rank trails, which decay after two emissions
+    // A WIDEN in hand: the notice, the transcript we are STILL drawing, and
+    // when the timer runs out. Additive uncertainty is staged.
+    let lensHeld = null;
+    let lensNarrowNote = null;
+    let lensBannerTimer = null;
     let lensRequestSeq = 0;
     const lensPending = new Map(); // requestId → what it was asked for
 
@@ -922,13 +935,23 @@
     function lensRender() {
       const view = lensView();
       const frame = lensFrame();
-      lensTranscript = frame && view ? view.renderFrame(frame, lensCursor || undefined) : [];
+      const fresh = frame && view ? view.renderFrame(frame, lensCursor || undefined, lensTrails) : [];
+      // WHILE A WIDEN IS HELD, the old list is what is drawn: struck through
+      // and headed stale, never blanked. An epoch change is the worst possible
+      // moment to take the display away from an operator deciding whether to
+      // lock.
+      lensTranscript = lensHeld ? lensHeld.transcript : fresh;
       const rail = document.getElementById('lensRail');
       if (rail) {
-        rail.innerHTML = lensTranscript.length
+        const banner = lensHeld
+          ? LensPanel.bannerHTML(lensHeld.notice, lensHeld.deadline - clientNow())
+          : LensPanel.narrowNoteHTML(lensNarrowNote);
+        const body = lensTranscript.length
           ? LensPanel.railHTML(lensTranscript)
           : `<section class="lens-panel"><div class="lens-empty">` +
             LensPanel.escapeHTML(lensEmptyLine()) + `</div></section>`;
+        rail.innerHTML = banner + body;
+        rail.classList.toggle('lens-held', !!lensHeld);
       }
       const lane = document.getElementById('lensLane');
       if (lane) {
@@ -1026,6 +1049,65 @@
       if (lensAtHead) lensSeq = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
       lensAtHead = lensAtHead && msg.head !== false;
       if (lensPendingFocus) lensFocus(lensPendingFocus);
+      lensReact();
+      lensRender();
+      repaintBoard();
+    }
+
+    /**
+     * The reactive policy, at the widget: ADDITIVE UNCERTAINTY IS STAGED,
+     * SUBTRACTIVE CERTAINTY IS APPLIED.
+     *
+     * A widen — a peer released a pin, so the cluster gained a variable — is
+     * held behind one gesture on a deadline-scaled timer, suspended while the
+     * drill panel is open and queued behind a lock in flight. A narrow removes
+     * a variable, so every surviving moveset is still a valid picture of a
+     * smaller problem: it applies at once with a footer note.
+     */
+    function lensReact() {
+      const view = lensView();
+      const next = lensFrame();
+      if (!view || !next) return;
+      const prev = lensPrevFrame;
+      if (!prev) { lensPrevFrame = next; return; }
+
+      lensTrails = lensCursor ? view.rowTrails(prev, next, lensCursor) : [];
+      const notice = view.reactiveNotice(prev, next);
+
+      if (notice && notice.gained) {
+        // Hold. The transcript already on screen is the one that stays on
+        // screen; only its header changes.
+        if (!lensHeld) {
+          lensHeld = {
+            notice,
+            transcript: lensTranscript,
+            deadline: clientNow() + notice.autoAcceptMs,
+            prev,
+          };
+          if (!notice.suspended && !notice.queuedBehindLock) {
+            lensBannerTimer = setTimeout(lensAcceptWiden, notice.autoAcceptMs);
+          }
+        }
+        return;
+      }
+
+      lensNarrowNote = notice && notice.lost ? notice : null;
+      if (lensCursor) lensCursor = view.resolveCursor(lensCursor, prev, next);
+      lensPrevFrame = next;
+    }
+
+    /** Accept the widen: the new list lands, and the cursor re-resolves against
+     *  the old assignment restricted to the members present in both. */
+    function lensAcceptWiden() {
+      if (lensBannerTimer) { clearTimeout(lensBannerTimer); lensBannerTimer = null; }
+      const view = lensView();
+      const next = lensFrame();
+      if (view && next && lensHeld) {
+        if (lensCursor) lensCursor = view.resolveCursor(lensCursor, lensHeld.prev, next);
+        lensTrails = lensCursor ? view.rowTrails(lensHeld.prev, next, lensCursor) : [];
+        lensPrevFrame = next;
+      }
+      lensHeld = null;
       lensRender();
       repaintBoard();
     }
@@ -1407,6 +1489,17 @@
     document.addEventListener('click', (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       clearCellSelection();
+    });
+
+    // The widen banner's Show control, delegated on the rail — which outlives
+    // its own contents, so a re-render between press and release cannot
+    // swallow the gesture.
+    document.getElementById('lensRail').addEventListener('pointerdown', (e) => {
+      if (!e.target || !e.target.closest) return;
+      if (!e.target.closest('[data-lens-accept]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      lensAcceptWiden();
     });
 
     // The clash panel's own close control. Delegated on the popup (which

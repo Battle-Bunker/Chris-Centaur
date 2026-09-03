@@ -144,6 +144,20 @@ const LensPanel = (() => {
     return `${escapeHTML(cell.label)} ${escapeHTML(marks)}${escapeHTML(delta)}`;
   }
 
+  /** `▲was #1`, and the displaced badge on a row the cursor had to fall to. */
+  function trailHTML(trail, staged) {
+    const badges = [];
+    if (staged) badges.push('<span class="lens-staged-flag">staged</span>');
+    if (trail && trail.displaced) {
+      badges.push('<span class="lens-displaced">your moveset is not in this list · [find it]</span>');
+    } else if (trail && trail.wasRank !== trail.rank) {
+      badges.push(
+        `<span class="lens-trail">${trail.wasRank > trail.rank ? '▲' : '▼'}was #${escapeHTML(trail.wasRank)}</span>`
+      );
+    }
+    return badges.length ? ` ${badges.join(' ')}` : '';
+  }
+
   function movesetsHTML(transcript) {
     const empty = firstOf(transcript, 'panel.movesets.empty');
     if (empty) return `<div class="lens-empty">${escapeHTML(ARGS(empty)[0])}</div>`;
@@ -153,7 +167,8 @@ const LensPanel = (() => {
 
     const rows = allOf(transcript, 'panel.movesets.row')
       .map((call) => {
-        const [rank, aggregate, width, cell, delta, assignment, complement, selected] = ARGS(call);
+        const [rank, aggregate, width, cell, delta, assignment, complement, selected, staged, trail] =
+          ARGS(call);
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound: struck through, kept, never dropped.
         const cls = [
@@ -168,7 +183,7 @@ const LensPanel = (() => {
           `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
-          `<td>${escapeHTML((assignment || []).join(' · '))}</td></tr>`
+          `<td>${escapeHTML((assignment || []).join(' · '))}${trailHTML(trail, staged)}</td></tr>`
         );
       })
       .join('');
@@ -242,6 +257,42 @@ const LensPanel = (() => {
       `<div class="lens-provenance">${escapeHTML(botId)} · ${escapeHTML(behaviourId)} · ` +
       `${escapeHTML(evalVersion)}${guidanceId ? ` · ${escapeHTML(guidanceId)}` : ''} · ` +
       `e${escapeHTML(emissionSeq)} · ${escapeHTML(quanta)}q</div>`
+    );
+  }
+
+  /**
+   * THE WIDEN BANNER. Additive uncertainty is STAGED: a peer unlocking a unit
+   * hands the operator a bigger problem than the one on their screen, and
+   * swapping the table out from under a reader is the specific failure the
+   * whole policy exists to prevent. The old list stays — struck through and
+   * headed `stale @ seq n`, NEVER blanked — and the new one lands on one
+   * gesture, or on a timer that is visible, pausable, suspended while the
+   * drill panel is open, and queued behind a lock in flight.
+   */
+  function bannerHTML(notice, remainingMs) {
+    if (!notice || !notice.gained) return '';
+    const who = notice.by ? `${escapeHTML(notice.by)} released` : 'released';
+    const timer = notice.suspended
+      ? 'paused — you are reading the breakdown'
+      : notice.queuedBehindLock
+        ? 'will apply after your lock settles'
+        : `auto ${Math.ceil((remainingMs == null ? notice.autoAcceptMs : remainingMs) / 1000)}s`;
+    return (
+      `<div class="lens-banner">⚑ ${who} ${escapeHTML(notice.gained.join(', '))} — ` +
+      `cluster is now ${escapeHTML(notice.gained.length + (notice.members || 0))} units. ` +
+      `<span class="lens-sub">${timer}</span>` +
+      `<button type="button" data-lens-accept="1">Show</button></div>`
+    );
+  }
+
+  /** A narrow is APPLIED and announced quietly: a footer note, no banner, no
+   *  timer — every surviving moveset is still a valid picture of a smaller
+   *  problem. */
+  function narrowNoteHTML(note) {
+    if (!note || !note.lost) return '';
+    return (
+      `<div class="lens-sub">${escapeHTML(note.lost.join(', '))} left the cluster — ` +
+      `${escapeHTML(note.why)}${note.by ? ` by ${escapeHTML(note.by)}` : ''}</div>`
     );
   }
 
@@ -351,6 +402,8 @@ const LensPanel = (() => {
   return {
     inkFromTranscript,
     railHTML,
+    bannerHTML,
+    narrowNoteHTML,
     focusHTML,
     candidatesHTML,
     movesetsHTML,
