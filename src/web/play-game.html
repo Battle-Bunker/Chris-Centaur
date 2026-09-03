@@ -1554,7 +1554,6 @@
     let connectedUsers = [];
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
-    let analyticsFrozen = false;
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
@@ -1917,7 +1916,6 @@
           }
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
 
           liveMaxTurn = Math.max(liveMaxTurn, msg.turn);
           if (viewMode === 'live') {
@@ -1993,7 +1991,6 @@
             // Candidate keys are strings; a piece's staged move arrives as a
             // numeric destination index, so normalize to the key space.
             userSelectedMove = msg.stagedMove != null ? String(msg.stagedMove) : null;
-            analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
             scheduleRender();
@@ -2042,7 +2039,6 @@
               moveState = null;
               moveSubmitted = false;
               userSelectedMove = null;
-              analyticsFrozen = false;
               hideSelectionUI();
             }
           }
@@ -2061,7 +2057,6 @@
             moveState = null;
             moveSubmitted = false;
             userSelectedMove = null;
-            analyticsFrozen = false;
             hideSelectionUI();
           }
           break;
@@ -2101,7 +2096,6 @@
             }
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
-              analyticsFrozen = true;
               // Re-root the candidate set at the projected head.
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
@@ -2313,10 +2307,8 @@
           moveState.selectedMove = String(csData.committedMove);
         }
         moveSubmitted = true;
-        analyticsFrozen = true;
       } else {
         moveSubmitted = false;
-        analyticsFrozen = false;
         if (userSelectedMove) {
           moveState.selectedMove = userSelectedMove;
         } else {
@@ -3810,7 +3802,6 @@
           moveState = null;
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
           hideSelectionUI();
           scheduleRender();
         }
