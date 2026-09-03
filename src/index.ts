@@ -223,7 +223,7 @@ httpServer.listen(port, '0.0.0.0', () => {
       }
     });
   // Idempotent: only creates games rows for logged games that don't have one.
-  void gameRegistry.backfillFromDecisionLogs();
+  void gameRegistry.backfillFromStoredBoards();
 });
 
 // ── Graceful shutdown: ordering owned by the ActivityController ─────────────

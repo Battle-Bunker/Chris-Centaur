@@ -413,33 +413,30 @@ export class TacticToesFirebaseInterface {
     enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
     onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
     pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
-    // REPLAY TELEMETRY, ATTACHED HERE AND NOWHERE INSIDE THE ENGINE. The
-    // DecisionLogger is a process-wide singleton with a database queue behind
-    // it; the lobster layer names a port and this file is what binds it, the
-    // same way the manager and the transport halves are bound above. The row
-    // arrives already shaped for the logger, so this is a forward and not a
-    // translation — `turn` is already in the decision-log domain (board turn
-    // + 1), which is what the submitted-move and server-move back-fills key on.
-    // THE PRODUCTION BOT BINDING SITE, bound here for the same reason the
-    // telemetry port is: the registry reads `config_store` over Postgres and
-    // the decision layer must stay one import away from no database at all.
+    // THE PRODUCTION BOT BINDING SITE. The registry reads `config_store` over
+    // Postgres and the decision layer must stay one import away from no
+    // database at all, so the binding is a port and this file is what binds
+    // it — the same way the manager and the transport halves are bound above.
     // Before this line the live process played ONE bot for every game and
     // every seat it held — see `TeamDecisionPorts.botBinding`.
     botBinding: (gameId, centaurId) => botRegistry().bindingFor(gameId, centaurId),
-    logDecision: (row) =>
-      DecisionLogger.getInstance().logDecision({
-        gameId: row.gameId,
-        snakeId: row.snakeId,
-        snakeName: row.snakeName,
-        turn: row.turn,
-        position: row.position,
-        health: row.health,
-        safeMoves: row.safeMoves,
-        botRecommendation: row.botRecommendation,
-        moveEvaluations: row.moveEvaluations,
-        decision: row.decision,
-        gameState: row.gameState,
-      }),
+    // THE ROW PATH IS GONE, AND THIS PORT IS DELIBERATELY UNCONSUMED.
+    //
+    // `UnitDecisionRow` is the old telemetry shape: one row per unit per turn
+    // carrying up to six explained candidates with full feature breakdowns,
+    // built on the premise that a joint plan's value decomposes onto its
+    // units. The evaluator itself measures that premise as false in both
+    // directions, so the rows were an expensive account of a question this bot
+    // does not ask, and `decision_logs` is dropped with them.
+    //
+    // What replaces the account is not smaller data about the same units, it
+    // is data about the right object: the `movesets` projection (a whole-board
+    // proved bracket per cluster restriction, with the joint residual NAMED)
+    // and `unit_outcomes` (what actually happened to each unit), both written
+    // from the one `turn_events` log the active game manager sequences. The
+    // port stays because the engine's contract names it; nothing on this side
+    // wants a row, so nothing on this side takes one.
+    logDecision: () => undefined,
   });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
@@ -1307,9 +1304,12 @@ export class TacticToesFirebaseInterface {
         }
         this.gameManager.applyResolvedMoves(watched.gameID, turnNumber - 1, ours);
       }
-      // The decision-log row for the prior board turn is keyed by this
-      // arriving turn (decision_logs.turn = boardTurn + 1).
-      DecisionLogger.getInstance().recordServerMoves(watched.gameID, turnNumber, lastMoves);
+      // The resolved moves are NOT recorded here any more. `applyResolvedMoves`
+      // above is the one place a turn resolves: it stamps `turn.resolved` into
+      // the sequenced event log and fills `unit_outcomes` from it, in the BOARD
+      // turn domain. Writing them from here as well would be two writers for
+      // one fact, which is the exact shape of defect the single `seq` writer
+      // exists to prevent.
     }
 
     // Final turn: close the game everywhere off the canonical final state.
@@ -1335,10 +1335,10 @@ export class TacticToesFirebaseInterface {
       // Persist the FINAL board too — the death positions were never
       // replayable before (no /move is made on the final turn, so no decision
       // row ever covered it).
-      DecisionLogger.getInstance().logTurnState({
+      DecisionLogger.getInstance().logTurnBoard({
         gameId: watched.gameID,
         turn: turnNumber,
-        gameState: canonical,
+        settlement: canonical,
       });
       this.gameLogger.endGame(canonical);
       GameRegistry.getInstance().recordGameEnd(canonical);
@@ -1349,10 +1349,11 @@ export class TacticToesFirebaseInterface {
 
     // Persist this turn's canonical board onto the turn-state row (the
     // decision pass upserts the territory half; either order works).
-    DecisionLogger.getInstance().logTurnState({
+    DecisionLogger.getInstance().logTurnBoard({
       gameId: watched.gameID,
       turn: turnNumber,
-      gameState: canonical,
+      settlement: canonical,
+      deadlineMs: canonical.game?.timeout ?? null,
     });
 
     const aliveOurs = ourSnakes.filter((id) => pt.alive(id));
