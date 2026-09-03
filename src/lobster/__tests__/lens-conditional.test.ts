@@ -160,8 +160,13 @@ describe('the head is conform, never improve (Law B, 04 §3 O4)', () => {
       });
       expect(answer.ok).toBe(true);
       if (!answer.ok) return;
+      // NOT `canonicalPins` on this side: it filters tentative pins OUT (it is
+      // the COMMITTED context's canonicaliser), so wrapping a tentative pin in
+      // it asks for `spec:[]` — a key naming no unit, which nothing could
+      // produce from a lock on one. The handle the advice layer already grips
+      // is `pinContextKey([...committed, lock], true)`, and that is this.
       expect(answer.contextKey).toBe(
-        pinContextKey(canonicalPins([{ unitId: first, to, tentative: true }]), true)
+        pinContextKey([{ unitId: first, to, tentative: true }], true)
       );
       expect(answer.source).toBe('speculative-context');
     } finally {
@@ -173,7 +178,10 @@ describe('the head is conform, never improve (Law B, 04 §3 O4)', () => {
 describe('[CHANGE 2] — a commit PROMOTES the entry a hover already searched', () => {
   it("promotes into the key the epoch's retarget obtains, not a parallel one", () => {
     const [unitId, to] = [1, 3 * 7 + 1];
-    const speculative = pinContextKey(canonicalPins([{ unitId, to, tentative: true }]), true);
+    // Tentative pins survive into the SPECULATIVE key and are filtered out of
+    // the committed one — which is `canonicalPins`'s whole job — so the two
+    // sides of this pair are built differently on purpose.
+    const speculative = pinContextKey([{ unitId, to, tentative: true }], true);
     const committed = pinContextKey(canonicalPins([{ unitId, to, tentative: false }]));
     // Today these are different keys BY CONSTRUCTION, which is why the
     // operator's hover is searched for four slices and then thrown away on
@@ -184,7 +192,10 @@ describe('[CHANGE 2] — a commit PROMOTES the entry a hover already searched', 
 
   it('carries the cursor and the witnesses, and does NOT carry the bounds', () => {
     const [unitId, to] = [1, 3 * 7 + 1];
-    const speculative = pinContextKey(canonicalPins([{ unitId, to, tentative: true }]), true);
+    // Tentative pins survive into the SPECULATIVE key and are filtered out of
+    // the committed one — which is `canonicalPins`'s whole job — so the two
+    // sides of this pair are built differently on purpose.
+    const speculative = pinContextKey([{ unitId, to, tentative: true }], true);
     // A floor proved in the OLD epoch may not gate the new one; witnesses
     // survive epochs by contract and bounds do not (04 §4.4).
     expect(promotedContextKey(speculative)).not.toContain('spec');
