@@ -1489,6 +1489,28 @@
       clearCellSelection();
     });
 
+    // The lane's own input, delegated on the strip: a tick moves the playhead
+    // to ITS seq — the scrubber snaps to events, never to pixels, so a click
+    // between two ticks lands on the earlier one — and the foot toggles the
+    // attention ticks, which are hidden by default because they are numerous
+    // and low-grade.
+    document.getElementById('lensLane').addEventListener('pointerdown', (e) => {
+      if (!e.target || !e.target.closest) return;
+      const tick = e.target.closest('[data-seq]');
+      if (tick) {
+        e.preventDefault();
+        lensSeekTo(parseInt(tick.getAttribute('data-seq'), 10));
+        lensRender();
+        repaintBoard();
+        return;
+      }
+      if (e.target.closest('.lens-lane-foot')) {
+        e.preventDefault();
+        lensLaneExpanded = !lensLaneExpanded;
+        lensRender();
+      }
+    });
+
     // The widen banner's Show control, delegated on the rail — which outlives
     // its own contents, so a re-render between press and release cannot
     // swallow the gesture.
