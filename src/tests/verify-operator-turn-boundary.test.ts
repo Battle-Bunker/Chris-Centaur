@@ -310,6 +310,10 @@ describe('the turn boundary discards the operator state, silently and completely
       invalidations: 0,
       evictions: 0,
       creates: 1,
+      // [CHANGE 2]'s counter, shipped with the change it defends: this turn
+      // had no epoch, so nothing went looking for a hover to promote.
+      promotionAttempts: 0,
+      promotions: 0,
     });
   }, 60_000);
 });

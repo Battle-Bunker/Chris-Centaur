@@ -39,6 +39,7 @@ import type { BotIdentity, BotSpec } from '../config/bot-identity';
 import { botIdentityOf } from '../config/bot-identity';
 import { behaviourId } from '../config/build-identity';
 import type { BotBinding } from '../config/bot-binding';
+import type { LensSink } from '../lens/types';
 import { defaultBotSpecFrom } from '../config/bot-binding';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
@@ -148,6 +149,21 @@ export interface TeamDecisionPorts {
    * correct stamp, rather than an unstamped decision.
    */
   botBinding?(gameId: string, centaurId: string): BotBinding;
+  /**
+   * THE LENS SINK, per decision [CHANGE 3].
+   *
+   * A PORT AND NOT AN IMPORT, for the third time and the same reason: the
+   * frames are written to Postgres and broadcast on a websocket, and a
+   * decision layer that imported either would put both inside every lobster
+   * test. The port is asked once per decision and may say no — returning null
+   * is what an unwatched game looks like, and an unwatched game must cost
+   * exactly what it cost before the lens existed (05 §(d) gate 7(ii)).
+   *
+   * OPTIONAL, and its absence is not silence in the way `logDecision`'s would
+   * be: nobody is looking. The frames a nobody would have read are not worth
+   * the null checks it takes to build them.
+   */
+  lensSink?(gameId: string, turn: number): LensSink | null;
   /** Wall clock (Date.now scale). Injectable for tests. */
   now?(): number;
   /** The kernel's monotonic clock. Injectable for tests. */
@@ -513,6 +529,9 @@ export class TeamDecisionEngine {
     }
 
     const initialPins = game.ledger.pinsFor(sub);
+    // Asked ONCE per decision. A port that says null leaves `KernelInput.lens`
+    // undefined, which is the state the cost gate measures.
+    const lens = this.ports.lensSink?.(input.gameId, input.turn) ?? null;
     const kin: KernelInput = {
       sub,
       gen,
@@ -525,6 +544,7 @@ export class TeamDecisionEngine {
       now: this.monotonic,
       initialStepCostMs: game.stepCostMs,
       abandoned: () => game.latestTurn > input.turn,
+      ...(lens === null ? {} : { lens }),
     };
 
     const views = new Map(input.units.map((u) => [u.snakeId, u.view]));
