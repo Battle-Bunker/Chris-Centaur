@@ -1,59 +1,74 @@
 # SUCCESSION — orchestrator handoff (written 2026-09-02, end of design session)
 
-## Addendum, 2026-09-02 pickup session (read this block first)
+## Addendum, 2026-09-03 (read this block first; it supersedes the one below where they differ)
 
-Avenues 1-3 below LANDED on `develop` (head 29f1a0c), each gated by tsc,
-eslint, full jest (98 suites) and watched games; the owner is testing it.
+Branch `claude/succession-doc-subagent-orchestration-n41iua` on BOTH repos is
+the working branch; draft PRs Chris-Centaur#17 and TacticToes#24 target
+`develop` (the default). Nothing goes to `develop` or `main` directly.
 
-- Contest avoidance: `src/lobster/evaluate/contest.ts`, weight `contest: 3`.
-  Prices a destination an equal-or-heavier enemy head can also reach this
-  turn (rules: strictMaximum on tier then weight, unique winner). Measured
-  10 seeds x 100 turns @150ms: contest deaths -39%/unit-turn mixed, -56%
-  snake-only; meals inside band; dither down. Not priced: edge-exchange
-  (head-swap) contests; own-team coordination. Weight 3 argued from the
-  food gate; 2 and 5 watched, neither better.
-- Weight-aware captures: `captureValue` (victim weight x certainty) in
-  `candidates.ts` drives orderKey and gainOrderKey. Evaluator material term
-  verified already weight-aware (features.ts materialBounds). Unpriced
-  captures (cloud defeats, mutual kills) keep the old certainty order.
-- Engine re-cut E1+E2 landed in TacticToes (PR #23, branch
-  claude/succession-doc-subagent-orchestration-n41iua): `settleTurn` in
-  engine/ settles effects, tiers, potions; golden replay byte-identical;
-  `invulnerabilityPotionWindowTurns` on GameSetup. Vendored here; the bot's
-  forward step (`turn-oracle.ts::resolvePartialTurn`, `simulator.ts`) reads
-  Settlement.tiers/effects/potions; `tier-window.ts` asks settlement what a
-  pickup does (ally +1 now modelled). NOT DONE: `local-game.ts::stepGame`
-  still calls resolveTurn and plays potion-free (so the merge bar cannot
-  watch a potion game yet — do this first); `marshalBoard` still reads a
-  unit's tier from the earliest expiry (buff+debuff with different expiries
-  reads 0; the schedule is on the board now); partial-engine cloud/field
-  tier bounds kept (dead on default; hash-manifested tree).
-- Vendored rules re-synced (maxTurns may be null); sync script lists
-  settleTurn.ts.
+WHAT IS TRUE NOW
+- ONE engine. `functions/src/gameprocessors/engine/` in TacticToes runs the
+  whole turn (settleTurn: grammar, traversal, contests, food, effects, tiers,
+  orientation, promotion, adjudication, spawning behind an injected Spawner)
+  and partial advance as a MODE (computeClaims + settlePartial with a typed
+  Divergence ledger: heldId always a held unit, `via` chain, kinds incl.
+  regicide keyed to the king, contest-after-sever, grammar for a vacated
+  square; ResolveTurnInput.presence for staging legality). Soundness by
+  enumeration (~219k worlds). Vendored byte-for-byte into
+  `src/engine-vendor/` by `scripts/sync-engine.js`; VENDOR.md's exclusion
+  list is board-building before turn 1, ranking policy, the wire.
+- The bot has NO rules mirror: `src/partial-engine/` (orphaned second
+  engine), the legacy decision path (decision-engine, voronoi-strategy,
+  simulator, board-graph, piece-moves, piece-threats, ...) and the
+  CENTAUR_ENGINE switch are deleted. One seam: `src/lobster/substrate.ts`
+  (EngineSubstrate) + `pathrisk.ts` + `bounds/{material,ledger}.ts`.
+  Plan: docs/design/ONE-ENGINE-PLAN.md.
+- Health is ENERGY everywhere (wire: playerEnergy, maxEnergyPerUnit,
+  foodEnergy; a meal adds foodEnergy, growth only on a full tank).
+- The DECISION LENS is built (docs/design/decision-lens/00-07): kernel lens
+  port (clusters = components of the occupancy-reach graph over free units;
+  reservoir at the better() call site; rankConditional == what a lock
+  stages; inspection reserve with typed refusals), storage (turn_boards,
+  turn_events, decisions, movesets projection with `npm run lens:rebuild`
+  / `lens:check`, unit_outcomes; owner runs `npm run db:push`; old
+  decision_logs/turn_states/command_* tables dropped), UI (one view-model
+  live and replay, cursor machine, panels, timeline lane; `npm run
+  build:lens`). Gates: lens-replay-parity, lens-inspection-cost, G1/G2.
+- Runner: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30
+  <seed> --nodes --json=F` is DETERMINISTIC (work clock); `scripts/
+  ab-compare.js A B` pairs by (scenario, seed), never pools across boards.
+  `CENTAUR_DEBUG_INVERSION=1` prints bound inversions (must be 0).
+  basic-intelligence.test.ts runs on a node budget now.
+- Members seated in the fold: material, reach, room, command (two boards
+  per reading), food, momentum, contest, tier, energy. Potion term measured
+  and DELETED (docs/design/potions.md); entrapment recorded not seated.
+- feature/decision-lens: design docs (merged onto the working branch).
+  feature/drives-preferences: design (docs/design/drives/00,01): the call is
+  to re-express goto/near/manual/hold/pins as drives under the same keys;
+  parked until the seam settles on develop. Known defect it found: under
+  lobster a snake's goto applies weight 300 through absent breakdown keys.
 
-Measurement caveat found twice this session: the 150ms runner is NOT
-reproducible at a fixed seed (same build, unitTurns 1501 vs 1329). At 20ms
-it is deterministic but the seed plan plays ~98% of the time, so evaluator
-terms barely reach the staged move there. A deterministic replay harness
-(fixed node budget, not ms) is the missing instrument for any A/B on
-counters; build it before tuning weights.
+NEXT, IN ORDER
+1. Owner reads the two 30-turn transcripts and PR#17; land TacticToes#24
+   first (the bot's vendored engine is at its head), then #17, run db:push.
+2. Depth: horizon is 1 in 100% of decisions (06-LOOKAHEAD.md findings F-1..
+   F-9): the search core is not a Refiner, DEFAULT_SWITCH_MARGIN expires with
+   depth, est compared across horizons unguarded, no turn cap, terminal
+   member half-seated. Fix in that order before turning depth on; the lens
+   rows already carry the depth fields.
+3. Entrapment: needs a horizon (room's shells go permissive after turn 1).
+4. Potions: the profitable-pickups instrument exists; the member must change
+   WHICH pickups, not how many.
+5. Drives: rebase feature/drives-preferences onto develop after #17 lands;
+   fold the goto fix in first.
 
-Next, in order: (1) potions in the local runner + a tier-value term in the
-fold + botId on reports (M1/M2); (2) engage horizon 2-3 for pieces with
-DEFAULT_SWITCH_MARGIN revisited, gated on watched games; (3) the queued
-fat-account potion re-test, which decides whether potions pay at all;
-(4) E3-E7.
-
-Process this session: one orchestrator, four opus subagents (three in git
-worktrees, merged by the orchestrator; one directly on TacticToes),
-~200k tokens each, final report only. Worktrees were created from a stale
-base and each agent had to fast-forward to the work branch first — brief
-successors to check `git log -1` before starting.
-
-
-Read this first. It replaces reading any transcript. The durable memory of
-the whole session is `continuous/synthesis-pins.md` on `origin/coordination`
-(rulings 0-52, every landing and verdict); this file is the shorter map.
+PROCESS THAT HELD
+- Opus subagents in git worktrees, one owner per file set, final report
+  only; orchestrator merges and gates. Container restarts kill workers:
+  every worker commits checkpoints and pushes its sub-branch after each
+  commit. Monthly spend limit can kill a wave; checkpoint WIP before
+  relaunching. Reports are honest by instruction: regressions are reported,
+  never tuned away; a member that does not earn its place is deleted.
 
 ## What `develop` is
 
