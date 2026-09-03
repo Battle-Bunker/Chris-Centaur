@@ -34,6 +34,7 @@ import {
 } from '../lobster/evaluate';
 import type { Partition, Standing } from '../lobster/evaluate';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
+import { moverSurvival } from '../lobster/bounds/material';
 import fixture from './fixtures/territory-acceptance.json';
 
 interface Sample {
@@ -438,9 +439,88 @@ describe('D — the slider guard (mid11 seed 101)', () => {
 describe('E — the two-turn-stale guard', () => {
   const stale = [2, 6, 10, 14].map((turn) => ({ turn, r: read(boardAt(0, turn), 2) }));
 
+  /**
+   * TURN 10 IS NOT SHARP ANY MORE, AND THE REASON IS A PROOF THAT WAS NEVER
+   * THERE.
+   *
+   * This test used to read `separation > 0.5` at all four stale turns. Turn 10
+   * cleared it at 0.619 — the weakest of the four — on the strength of our
+   * third snake being scored ALIVE, and that reading came from the engine's
+   * body-rule ledger entries, which carry `couldBeat: false` unconditionally
+   * (`bounds/material.ts`, and the defect report in
+   * `src/tests/settle-partial-sever-pile.test.ts`). It is a proof for one
+   * arrival and not for two, and this board has two: `b1` and `b2` can both
+   * stand on `r2`'s trail cells 32 and 45. Equal tier means the first to
+   * arrive DIES on the segment, which registers `r2` itself into that cell's
+   * durable pile, and `b2` — weight 5 against `b1`'s 4 and `r2`'s 3 — then
+   * arrives as the pile's unique strict maximum and takes both of the others.
+   * `r2` is a victim of a contest it never stood in.
+   *
+   * So the floor stopped ordering four candidates it had no world for:
+   * `separation` on `reachLo` went 0.619 -> 0.381 and the distinct readings
+   * went 4 -> 2, at turn 10 alone (2, 6 and 14 are unchanged to the digit).
+   * The bar is kept at 0.5 exactly where a sharp floor is still available, and
+   * turn 10 is re-pinned to the property that actually survives — the floor is
+   * not FLAT there — plus the mechanism, so that a later change which
+   * re-sharpens this board without the engine having been fixed fails here
+   * rather than passing quietly.
+   */
+  const SHARP = [2, 6, 14];
+
   test('the floor still orders candidates under stale clouds', () => {
     for (const { turn, r } of stale) {
+      // Never vacuous, at any staleness: this is what E is for.
+      expect([turn, separation(r.reachLo) > 0]).toEqual([turn, true]);
+    }
+    for (const { turn, r } of stale.filter((s) => SHARP.includes(s.turn))) {
       expect([turn, separation(r.reachLo) > 0.5]).toEqual([turn, true]);
+    }
+  });
+
+  test('and turn 10 is the blunt one because a mover cannot be proved alive there', () => {
+    const sample = boardAt(0, 10);
+    const ourIds = (sample.board.snakes ?? [])
+      .filter((s) => (s.teamID ?? s.id) === sample.team && s.health > 0 && s.body.length > 0)
+      .map((s) => s.id);
+    const observedTurns = new Map(
+      (sample.board.snakes ?? [])
+        .filter((s) => !ourIds.includes(s.id))
+        .map((s) => [s.id, sample.turn - 2] as [string, number])
+    );
+    const sub = makeSubstrate({
+      board: sample.board,
+      turn: sample.turn,
+      asTeam: sample.team,
+      modeled: ourIds,
+      observedTurns,
+    });
+    try {
+      const asTeam = sub.teamNumber(sample.team);
+      const plan = new Map<UnitId, Candidate>();
+      for (const u of sub.roster()) {
+        if (u.team !== asTeam) continue;
+        const a = sub.actionsOf(u.unitId)[0] as Candidate;
+        plan.set(u.unitId, { unitId: u.unitId, from: a.from, to: a.to, path: a.path });
+      }
+      sub.withResolution(plan as JointPlan, asTeam, ({ resolution }) => {
+        const mine = resolution.ledger.filter((d) => d.unitId === 'r2');
+        // Every contact naming it is the body rule's other half, and every one
+        // of them says it cannot lose — which is the entry this fold no longer
+        // reads as a proof.
+        expect([...new Set(mine.map((d) => d.kind))]).toEqual(['sever']);
+        expect(mine.some((d) => d.couldBeat)).toBe(false);
+        // Two distinct claims over the same segment cell: the pile.
+        const overCell = new Map<number, Set<string>>();
+        for (const d of mine) {
+          if (!overCell.has(d.cell)) overCell.set(d.cell, new Set());
+          (overCell.get(d.cell) as Set<string>).add(d.heldId);
+        }
+        expect([...overCell.values()].some((ids) => ids.size > 1)).toBe(true);
+        expect(moverSurvival(resolution, 'r2')).toBe('maybe');
+        return null;
+      });
+    } finally {
+      sub.release();
     }
   });
 
