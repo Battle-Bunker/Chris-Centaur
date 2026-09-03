@@ -50,7 +50,7 @@ import type { BoardShape, GrammarUnit } from '../engine-vendor/engine/queries';
 import { coverOf, legalTargets, pathOf as pathOfQuery } from '../engine-vendor/engine/queries';
 import { settleTurn } from '../engine-vendor/engine/settleTurn';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
-import { computeClaims } from '../engine-vendor/engine/claims';
+import { computeClaims, NEVER } from '../engine-vendor/engine/claims';
 import type { Claim, HeldUnit, PartialSettleInput } from '../engine-vendor/engine/claims';
 import { settlePartial } from '../engine-vendor/engine/settlePartial';
 import type { PartialSettlement } from '../engine-vendor/engine/settlePartial';
@@ -1116,6 +1116,18 @@ export class EngineSubstrate implements Substrate {
    *
    * Everything ABSENT from the answer is proved irrelevant to those cells, so
    * its bound is tight rather than merely sound.
+   *
+   * THE `NEVER` SENTINEL IS NOT A SUB-STEP. `Claim.earliestSubStep` is a DENSE
+   * `Int32Array` over every cell of the board, and a cell no world's head ever
+   * reaches carries `NEVER = 0x7fffffff` rather than being absent. The
+   * arithmetic test alone therefore admits it: `NEVER <= Number.MAX_SAFE_INTEGER`
+   * is true, so a rest cell — every plan has one per unit — matched EVERY claim
+   * on the board and the gate degenerated to "every uncontrolled unit". Measured
+   * on `snakes`: 99.6% of admissions were the sentinel and nothing else, the gate
+   * equalled the held set on 100% of prices, and B3 then swept a 4^4 product on
+   * every plan the search touched. Excluding the sentinel removes only units the
+   * claim itself proves cannot reach the cell in ANY world, so the answer stays a
+   * superset of the truth.
    */
   entangled(
     cells: ReadonlyArray<{ cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }>
@@ -1131,7 +1143,7 @@ export class EngineSubstrate implements Substrate {
           break;
         }
         const earliest = claim.earliestSubStep[probe.cell];
-        if (earliest !== undefined && earliest <= probe.toSubStep) {
+        if (earliest !== undefined && earliest < NEVER && earliest <= probe.toSubStep) {
           out.add(unit.unitId);
           break;
         }
