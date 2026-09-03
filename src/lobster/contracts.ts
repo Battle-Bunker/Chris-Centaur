@@ -36,7 +36,7 @@ import type { MaterialBounds } from "./bounds/material"
 // lens's own sink type rather than re-declaring its shape here: two
 // declarations of one function type is exactly the drift the lens exists to
 // stop. `import type` is erased, so no runtime cycle exists.
-import type { LensSink } from "../lens/types"
+import type { LensSink, MovesetRung, VerdictReason } from "../lens/types"
 
 export type { Claim, Divergence, Fate, PartialSettlement, MaterialBounds }
 
@@ -647,6 +647,35 @@ export interface SearchCore {
   release?(): void
 }
 
+/**
+ * ONE PRICED TRIAL, at the `better()` call site — the lens's whole input.
+ *
+ * The set-valued reduction is already computed and discarded at the first
+ * comparison; this is where it is handed over instead. It costs the search
+ * `O(k)` numeric comparisons per trial and ZERO evaluations, and it is
+ * present only when a consumer asked for it: `SearchContext.trials` absent ⇒
+ * the search does not build one of these at all.
+ */
+export interface TrialObservation {
+  /** The whole plan that was priced. A trial is never a partial assignment. */
+  readonly plan: JointPlan
+  /** What it was compared AGAINST — the incumbent at that instant. */
+  readonly incumbentPlan: JointPlan
+  readonly bounds: ScoreBounds
+  /** The ordering channel. Never adjudicates. */
+  readonly est: number
+  /** `planTieKey(plan, seed)` — an indifferent order, reproducibly. */
+  readonly tie: number
+  readonly rung: MovesetRung
+  readonly accepted: boolean
+  /** Which branch of `better()` refused it. Null until [CHANGE 1]. */
+  readonly because: VerdictReason | null
+  /** The certificate, when the branch that refused was the witness veto. */
+  readonly witness: Witness | null
+}
+
+export type TrialSink = (trial: TrialObservation) => void
+
 export interface SearchContext {
   readonly sub: Substrate
   readonly gen: CandidateGenerator
@@ -661,6 +690,15 @@ export interface SearchContext {
   readonly incumbent: PlanScore | null
   readonly witnesses: ReadonlyArray<Witness>
   readonly budget: BudgetHandle
+  /**
+   * Optional: every priced trial, as it is compared. The retention seam.
+   *
+   * ABSENT ⇒ THE SEARCH BUILDS NOTHING. The core checks one null before each
+   * comparison and does not compute a tie key, a plan key or an observation
+   * object for a trial nobody is watching, which is what keeps 05 §(d) gate
+   * 7(ii) — "the sink is free when absent" — a fact rather than a hope.
+   */
+  readonly trials?: TrialSink
 }
 
 /** B3 owns: clock + emission. All cost estimators are per-decision state —

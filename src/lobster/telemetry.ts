@@ -210,7 +210,10 @@ export interface TelemetryKernel {
   readonly refineCalls: number;
   readonly conformCalls: number;
   readonly boundViolations: number;
-  readonly leverOrderBinding: boolean;
+  // `leverOrderBinding` is gone with the report field it copied (04 §5.2 #11):
+  // `makeSearchCore` exposes no lever surface, so it was `false` on every row
+  // this bot has ever written. A column that is structurally constant is not
+  // telemetry, it is furniture.
   readonly crossfade: KernelReport['crossfade'];
 }
 
@@ -841,7 +844,6 @@ function summarizeKernel(report: KernelReport): TelemetryKernel {
     refineCalls: report.refineCalls,
     conformCalls: report.conformCalls,
     boundViolations: report.boundViolations,
-    leverOrderBinding: report.leverOrderBinding,
     crossfade: { ...report.crossfade },
   };
 }

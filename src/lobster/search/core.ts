@@ -37,8 +37,10 @@ import type {
   PlanScore,
   SearchContext,
   SearchCore,
+  TrialSink,
   UnitId,
 } from "../contracts";
+import type { MovesetRung } from "../../lens/types";
 import {
   BoundBank,
   DEFAULT_BANK_CONFIG,
@@ -407,6 +409,37 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * number is exactly the laundering the whole bounds layer exists to prevent.
    * The incumbent keeps its place.
    */
+  /**
+   * THE RETENTION SEAM (03 §2.2).
+   *
+   * `better()` is the collapse point: it takes two priced results and returns
+   * a boolean, and the loser is dropped on the floor. Everything the lens
+   * shows about a decision is a trial that reached here. So the trials are
+   * OFFERED, at the one call site that already sees every priced one, and the
+   * cost when nobody is watching is the null check on the next line.
+   *
+   * The rung is ambient rather than a parameter because `better` is called
+   * from five places and the rung is a property of WHERE the search is, not
+   * of the comparison. It is set on entry to each move and restored after,
+   * which is the only discipline a single-threaded recursion needs.
+   */
+  let trials: TrialSink | null = null;
+  let rung: MovesetRung = "seed";
+  const observe = (trial: BankResult, incumbent: BankResult, accepted: boolean): void => {
+    if (trials === null) return;
+    trials({
+      plan: trial.plan,
+      incumbentPlan: incumbent.plan,
+      bounds: trial.bounds,
+      est: trial.est,
+      tie: planTieKey(trial.plan, cfg.seed),
+      rung,
+      accepted,
+      because: null,
+      witness: null,
+    });
+  };
+
   const better = (trial: BankResult, incumbent: BankResult): boolean => {
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
@@ -423,6 +456,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   // ------------------------------------------------------------------ moves
 
   const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
+    rung = "sweep";
     let best = start;
     for (const unitId of dangerOrder(s.sub, s.ours, best.worstResolution, s.pinned)) {
       if (budget.shouldStop()) break;
@@ -432,7 +466,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         if (candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = s.bank.price(withMove(best.plan, candidate));
-        if (better(trial, best)) best = trial;
+        const accepted = better(trial, best);
+        observe(trial, best, accepted);
+        if (accepted) best = trial;
       }
     }
     return best;
@@ -450,6 +486,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     budget: SearchContext["budget"],
     start: BankResult,
   ): BankResult => {
+    rung = "pair";
     let best = start;
     const pairs = selfInflictedPairs(s.sub, best.worstResolution, s.ourSet, best.plan);
     for (const [a, b] of pairs) {
@@ -466,7 +503,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
           const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
-          if (better(trial, best)) best = trial;
+          const accepted = better(trial, best);
+          observe(trial, best, accepted);
+          if (accepted) best = trial;
         }
       }
     }
@@ -484,6 +523,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     budget: SearchContext["budget"],
     start: BankResult,
   ): BankResult => {
+    rung = "polish";
     let best = start;
     const units = contestedUnits(s.sub, s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
     if (units.length === 0) return best;
@@ -495,7 +535,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const list = lists[i];
       if (list === undefined) {
         const trial = s.bank.price(withMoves(best.plan, acc));
-        if (better(trial, best)) best = trial;
+        const accepted = better(trial, best);
+        observe(trial, best, accepted);
+        if (accepted) best = trial;
         return;
       }
       for (const candidate of list) {
@@ -525,8 +567,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
-    {
+    trials = ctx.trials ?? null;
+    try {
+      rung = "seed";
       let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
+      // whole slice never touched would have no row at all, and the operator
+      // would read an empty table for the units the search is happiest about.
+      observe(best, best, true);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -549,7 +597,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             let local = s.bank.price(seed);
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
-            if (better(local, best)) {
+            rung = "restart";
+            const accepted = better(local, best);
+            observe(local, best, accepted);
+            if (accepted) {
               best = local;
               restarted = true;
               break;
@@ -559,6 +610,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         }
       }
       return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
+    } finally {
+      trials = null;
     }
   };
 
@@ -593,7 +646,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
     const s = sessionFor(ctx);
-    {
+    trials = ctx.trials ?? null;
+    rung = "conform";
+    try {
       if (incumbent.size === 0) {
         const seed = seedPlan(s, null);
         // One resolution set — and the SEED IS RETURNED WHATEVER IT SAYS.
@@ -618,6 +673,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         const repairing =
           cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
         if (scored === null || !repairing) return seed;
+        observe(scored, scored, true);
         return repairSelfHarm(s, ctx, scored).plan;
       }
 
@@ -628,13 +684,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
         let scored = s.bank.price(plan);
+        observe(scored, scored, true);
         for (const unitId of disturbed) {
           if (ctx.budget.shouldStop()) break;
           const set = s.sets.get(unitId) as CandidateSet;
           for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
             if (ctx.budget.shouldStop()) break;
             const trial = s.bank.price(withMove(scored.plan, candidate));
-            if (better(trial, scored)) scored = trial;
+            const accepted = better(trial, scored);
+            observe(trial, scored, accepted);
+            if (accepted) scored = trial;
           }
         }
         plan = scored.plan;
@@ -642,9 +701,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        plan = pairRepair(s, ctx.budget, s.bank.price(plan)).plan;
+        const scored = s.bank.price(plan);
+        observe(scored, scored, true);
+        plan = pairRepair(s, ctx.budget, scored).plan;
       }
       return plan;
+    } finally {
+      trials = null;
+      rung = "seed";
     }
   };
 
@@ -672,6 +736,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * an operator who pinned a unit into a fatal cell has said so on purpose.
    */
   const repairSelfHarm = (s: Session, ctx: SearchContext, seed: BankResult): BankResult => {
+    rung = "conform";
     const victims = ourCasualties(s, seed);
     if (victims.length === 0) return seed;
     let best = seed;
@@ -682,7 +747,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
         if (ctx.budget.shouldStop()) break;
         const trial = s.bank.price(withMove(best.plan, candidate));
-        if (better(trial, best)) best = trial;
+        const accepted = better(trial, best);
+        observe(trial, best, accepted);
+        if (accepted) best = trial;
       }
     }
     // The 2-opt the coordinate step above structurally cannot make: a pair
