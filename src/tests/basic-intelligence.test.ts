@@ -269,12 +269,42 @@ describe('a criterion profile must name every feature it folds, and nothing else
 
 describe('the bot does the obvious things', () => {
   /**
-   * One short game. The budget has to clear the kernel's 40 ms flush reserve
-   * with room to search in — below about 60 ms the decision IS the seed, every
-   * turn, and this file would be measuring `seedPlan` rather than the bot.
+   * ONE SHORT GAME, ON A WORK CLOCK RATHER THAN A WALL CLOCK.
+   *
+   * These counters are all downstream of how much search the box afforded, so
+   * budgeting them in milliseconds made the gate a measurement of the machine:
+   * `pieces act` failed about one run in three under full-suite load and
+   * passed every time in isolation, which is jest's own parallelism showing up
+   * as a claim about the bot. Nothing about the thresholds was wrong — the
+   * clock was.
+   *
+   * THE CALIBRATION, and it is the only thing 120 ms is allowed to mean here.
+   * `local-game.ts` fixes `DEFAULT_NODE_BUDGET = 550` as "what 150 ms buys",
+   * measured on its own reference machine. The ms mode hands the kernel a
+   * 40 ms flush reserve, so a 150 ms budget is 110 ms of search and the 120 ms
+   * this block used is 80 ms of it: 550 x 80/110 = 400.
+   *
+   * Cross-checked against this box with the ms mode's own instrument (the same
+   * clock, reporting instead of deciding), `mixed`, seeds 1-2, 40 turns,
+   * 120 decisions a run, three runs each:
+   *
+   *     nodes per decision @120 ms   239 241 248 250 264 284   (median 249)
+   *     nodes per decision @150 ms   344 359 374 377 397 430   (median 375)
+   *
+   * so this machine is 375/550 = 0.68 of the reference one, and its own 120 ms
+   * reading scales back to 249/0.68 = 366 — the same number to within the
+   * spread of the wall-clock mode it replaces.
+   *
+   * NOT A THRESHOLD IN DISGUISE. Every assertion in this block holds at 350,
+   * 400 and 450 alike (`stationary` 6.4/7.2/2.9 against a bar of 12, `dithers`
+   * 1.9/2.1/0.4 against 3, `reversals` 0.3/1.8/2.4 against 6, meals and wall
+   * deaths flat), so the budget was picked by the calibration and not by what
+   * it makes pass.
    */
+  const PLAY_NODES = 400;
+
   const play = (spec: typeof SNAKE_SCENARIO, seed: number) =>
-    runGame({ ...spec, maxTurns: 40, seed, budgetMs: 120 }, { scores: false });
+    runGame({ ...spec, maxTurns: 40, seed, nodeBudget: PLAY_NODES }, { scores: false });
 
   test('snakes eat, and nothing starves while there is food to reach', async () => {
     const { metrics } = await play(SNAKE_SCENARIO, 1);
@@ -296,9 +326,12 @@ describe('the bot does the obvious things', () => {
   /**
    * THE SAME CLAIM ABOUT THE SEED ITSELF.
    *
-   * `play` above budgets 120 ms, which is enough to search; this budget is
-   * below the kernel's 40 ms flush reserve, so the decision IS `seedPlan`'s
-   * ordered-first option and nothing refines it. That is the cell where the
+   * `play` above budgets work, which is enough to search; this budget is a
+   * WALL-CLOCK one below the kernel's 40 ms flush reserve, so the decision IS
+   * `seedPlan`'s ordered-first option and nothing refines it — and it is
+   * reproducible for that reason rather than in spite of being wall-clock: no
+   * box is slow enough to make 20 ms clear a 40 ms reserve. It is also the
+   * suite's last exercise of the runner's ms path. That is the cell where the
    * staging guard is not a wash — `auto` resolves to `guard` on a snake-only
    * board (`resolveStagingSafety`, re-measured; see docs/BASIC-INTELLIGENCE.md)
    * and the seed is what the level changes.
@@ -336,19 +369,55 @@ describe('the bot does the obvious things', () => {
     expect((100 * metrics.reversals) / metrics.unitTurns).toBeLessThan(6);
   });
 
-  test('a full game at three teams completes without crashing or overrunning', async () => {
+  /**
+   * THE LONG GAME: three teams, a hundred turns, nothing but liveness asserted.
+   *
+   * THE WALL-CLOCK ASSERTION THAT USED TO LIVE HERE IS GONE, and this is why.
+   * It read `worstDecisionMs < 8 * 50` on a 50 ms budget, described as an
+   * order of magnitude of slack around a quiet machine's 137 ms against
+   * 150 ms. What it actually prices is ONE indivisible search slice in
+   * milliseconds, which is a property of the box: re-measured here on an IDLE
+   * machine — nothing else running, no jest parallelism — the same game
+   * reported 336 ms, 397 ms and 163 ms against that 400 ms bar. A gate that
+   * lands a coin-flip from its threshold with the box to itself is not
+   * measuring the bot, and raising the multiplier to keep it green would only
+   * move the coin flip.
+   *
+   * Nothing is lost by deleting it, because the property it was reaching for —
+   * a decision stops at its deadline instead of searching to exhaustion — is
+   * pinned where it can be pinned honestly, on a CONTROLLED clock with scripted
+   * step costs: `lobster-kernel.test.ts` asserts the slice/reserve discipline
+   * directly, including that a contention spike does not latch the estimator
+   * into early returns for the rest of the process. That is the same claim
+   * without the stopwatch.
+   *
+   * What remains here is the part a long game is uniquely good for: the search,
+   * the runner and the engine survive a hundred turns of a three-team board
+   * together, deterministically.
+   *
+   * THE BUDGET IS THE OLD ONE, TRANSLATED, not the block's. 50 ms leaves 10 ms
+   * of search after the flush reserve, so by the same arithmetic as `play` it
+   * is 550 x 10/110 = 50 work units — and the point is that this was always a
+   * STARVED game: at 50 ms this box spent 21 nodes a decision and kept the
+   * generator's seed on 79% of them. At 50 units it spends 45 and keeps the
+   * seed on 58%, so the re-pinning is if anything a little less starved than
+   * what it replaces. Liveness under a search that barely runs is the property;
+   * giving it the behavioural block's budget would be a different test wearing
+   * this one's name, and three times the suite time.
+   */
+  const LONG_GAME_NODES = 50;
+
+  test('a full game at three teams completes without crashing', async () => {
     const { metrics } = await runGame(
-      { ...MIXED_SCENARIO, maxTurns: 100, seed: 3, budgetMs: 50 },
+      { ...MIXED_SCENARIO, maxTurns: 100, seed: 3, nodeBudget: LONG_GAME_NODES },
       { scores: false }
     );
     expect(metrics.crashed).toBeNull();
     expect(metrics.turns).toBeGreaterThan(20);
-    // A DEADLINE CHECK, NOT A BENCHMARK. Jest runs suites in parallel and a
-    // loaded box stretches every wall-clock reading, so this is deliberately an
-    // order of magnitude of slack: what it catches is a decision that ignores
-    // the deadline and searches to exhaustion, which runs for seconds. The real
-    // timing numbers are in docs/BASIC-INTELLIGENCE.md, measured on a quiet
-    // machine — worst single decision 137 ms against a 150 ms budget.
-    expect(metrics.worstDecisionMs).toBeLessThan(8 * 50);
+    // Deliberately NOT a budget-conformance assertion. The work clock is read
+    // between nodes, so at a budget this small one node is 2% of it and a
+    // decision here was measured spending 51 units of 50 — granularity, not an
+    // overrun. That property is pinned in `local-game-determinism.test.ts`, at
+    // 300 units, where a single node is not the measurement.
   });
 });
