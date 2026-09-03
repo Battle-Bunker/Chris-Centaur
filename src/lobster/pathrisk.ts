@@ -74,6 +74,9 @@ const ROLE: Readonly<Record<Divergence['kind'], RiskCause['role']>> = {
   // A regicide divergence is keyed to the king whose fall would take the
   // team; the unknown unit's role at that cell is the one it plays in the shot.
   regicide: 'head',
+  // A held unit observed earlier than this board may have vacated the square
+  // a staged action's legality reads; the engine ledgers that as grammar.
+  grammar: 'body',
 };
 
 /** Divergence kinds that can END a mover's movement at the cell they name. */
