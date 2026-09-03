@@ -31,6 +31,7 @@ import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
+import type { LensSink } from '../lens/types';
 
 // ---------------------------------------------------------------------------
 // Board construction
@@ -373,7 +374,22 @@ export async function decideTeam(
   /** Score every option of every unit. Exact, and slow: it prices each option
    * through a bound bank of its own. Off for the multi-seed counters, on when
    * a human is going to read the trace. */
-  scores = true
+  scores = true,
+  /**
+   * THE LENS, WATCHING — `KernelInput.lens` [CHANGE 3].
+   *
+   * Optional, and its absence is the state the cost gate measures: without it
+   * the decision is byte-identical to what it was before the lens existed. It
+   * is here rather than in a second runner because the O1 measurement and the
+   * determinism check are both claims about THIS decision — the one the
+   * deterministic runner makes — and a second assembly could only prove
+   * something about itself.
+   *
+   * The sink translates the substrate's unit numbers at the boundary, so what
+   * arrives is already in the wire's vocabulary; `sub` rides along because the
+   * caller's writer needs the same translation for `EmitRecord.plan`.
+   */
+  lens?: { sink: LensSink; attach?: (sub: EngineSubstrate) => void }
 ): Promise<TeamDecision> {
   const ourIds = (board.snakes ?? [])
     .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
@@ -448,7 +464,9 @@ export async function decideTeam(
       initialPins: [],
       assumptions: [],
       now: clock.now,
+      ...(lens === undefined ? {} : { lens: lens.sink }),
     };
+    lens?.attach?.(sub);
     let plan: JointPlan | null = null;
     let horizon = 0;
     for await (const rec of kernel.decide(kin)) {
@@ -843,7 +861,15 @@ export interface GameResult {
 
 export async function runGame(
   spec: GameSpec,
-  opts: { evaluate?: Evaluator; scores?: boolean; onTurn?: (line: string) => void } = {}
+  opts: {
+    evaluate?: Evaluator;
+    scores?: boolean;
+    onTurn?: (line: string) => void;
+    /** Asked once per (turn, team). Returning undefined leaves
+     *  `KernelInput.lens` unset, which is the unwatched decision the cost gate
+     *  compares against. */
+    lensFor?: (turn: number, teamId: string) => { sink: LensSink; attach?: (sub: EngineSubstrate) => void } | undefined;
+  } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
   const budget: DecisionBudget =
@@ -922,7 +948,8 @@ export async function runGame(
           teamId,
           budget,
           opts.evaluate ?? defaultEvaluator,
-          opts.scores ?? true
+          opts.scores ?? true,
+          opts.lensFor?.(turn, teamId)
         );
         metrics.worstDecisionMs = Math.max(metrics.worstDecisionMs, monotonic() - t0);
         metrics.nodes += decision.nodes;

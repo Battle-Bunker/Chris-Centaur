@@ -41,7 +41,7 @@ import { GrammarCandidateGenerator, knobsForSafety } from '../lobster/candidates
 import { defaultEvaluator } from '../lobster/evaluate';
 import { makeSearchCore } from '../lobster/search';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
-import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
+import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { Evaluator, KernelInput } from '../lobster/contracts';
 import type {
   ConditionalRequest,
@@ -51,7 +51,15 @@ import type {
   TurnEventRow,
   UnitKey,
 } from '../lens/types';
-import { DecisionClock, MIXED_SCENARIO, buildBoard, meteredEvaluator } from './local-game';
+import {
+  DecisionClock,
+  MIXED_SCENARIO,
+  SNAKE_SCENARIO,
+  buildBoard,
+  meteredEvaluator,
+  runGame,
+  summaryOf,
+} from './local-game';
 
 jest.setTimeout(300_000);
 
@@ -234,6 +242,109 @@ async function decide(watched: boolean): Promise<Run> {
     clearGeometryCache();
   }
 }
+
+/**
+ * THE SINK MUST NOT MOVE A DECISION.
+ *
+ * 7(ii) says an ABSENT sink costs nothing; this says a PRESENT one changes
+ * nothing the operator can see. They are different claims and the second is
+ * the one that matters at merge: a lens that shifted the bot's play would make
+ * every recorded game a recording of a bot nobody runs unwatched, and would
+ * quietly invalidate the merge bar, which is measured with the lens off.
+ *
+ * THE PLAY is byte-identical — every move, every meal, every death, every
+ * seed kept — compared as a STRING over the whole summary so a counter added
+ * later is covered without anybody remembering, the same strictness
+ * `local-game-determinism.test.ts` uses.
+ *
+ * THE WORK IS NOT, and must not be: the reserve is DECLARED, not taken (04
+ * §3.3 Q5), so a watched decision searches for exactly `LENS_INSPECTION_MS`
+ * less than an unwatched one whether or not anybody inspects. That is the
+ * whole cost of the lens and it is visible before the turn starts. So the
+ * `work` block is compared as a BOUND rather than for equality: the same
+ * number of decisions, never longer than the unwatched run, and never shorter
+ * than the reserve could account for. A watched run that searched LONGER, or
+ * one that lost more than the reserve, would both fail here — and either would
+ * mean the carve is not what it says it is.
+ */
+describe('the sink does not move a decision', () => {
+  const SEEDS = [1, 2, 3] as const;
+  const TURNS = 6;
+  const NODES = 300;
+
+  async function play(
+    spec: typeof MIXED_SCENARIO,
+    scenario: string,
+    seed: number,
+    watched: boolean
+  ): Promise<string> {
+    // The sink DOES REAL WORK when attached — the writer, the ingest, the
+    // translation, the projection — because a sink that only counted would
+    // prove nothing about the one production runs.
+    const writers = new Map<string, ReturnType<typeof makeSeqWriter>>();
+    const result = await runGame(
+      { ...spec, maxTurns: TURNS, seed, nodeBudget: NODES },
+      {
+        scores: false,
+        ...(watched
+          ? {
+              lensFor: (turn: number, teamId: string) => {
+                const key = `${teamId}:${turn}`;
+                const writer = makeSeqWriter(key, turn);
+                writers.set(key, writer);
+                let sub: EngineSubstrate | null = null;
+                return {
+                  attach: (s) => {
+                    sub = s;
+                  },
+                  sink: (event: LensEvent) => {
+                    ingestLensEvents(writer, [event], {
+                      t0AtWall: 0,
+                      unitKeyOf: (unitId) => sub?.unitOf(unitId)?.wireId ?? null,
+                    });
+                    projectMovesets(key, writer.written);
+                  },
+                };
+              },
+            }
+          : {}),
+      }
+    );
+    clearGeometryCache();
+    if (watched) expect(writers.size).toBeGreaterThan(0);
+    return JSON.stringify(
+      summaryOf(
+        result.metrics,
+        { label: 'lens', scenario, seed, turnsRequested: TURNS },
+        { kind: 'nodes', nodes: NODES }
+      )
+    );
+  }
+
+  for (const scenario of [
+    ['mixed', MIXED_SCENARIO],
+    ['snakes', SNAKE_SCENARIO],
+  ] as const) {
+    for (const seed of SEEDS) {
+      it(`plays identically with the sink attached and absent — ${scenario[0]} seed ${seed}`, async () => {
+        const open = JSON.parse(await play(scenario[1], scenario[0], seed, false));
+        const watched = JSON.parse(await play(scenario[1], scenario[0], seed, true));
+        const { work: openWork, ...openPlay } = open;
+        const { work: watchedWork, ...watchedPlay } = watched;
+        expect(JSON.stringify(watchedPlay)).toBe(JSON.stringify(openPlay));
+        // The counters are not vacuously equal: the bot really played.
+        expect(openPlay.counters.unitTurns).toBeGreaterThan(0);
+        expect(openPlay.counters.movesWithChoice).toBeGreaterThan(0);
+
+        // And the work differs by the declared reserve, and by nothing else.
+        expect(watchedWork.decisions).toBe(openWork.decisions);
+        const lost = openWork.nodes - watchedWork.nodes;
+        expect(lost).toBeGreaterThanOrEqual(0);
+        expect(lost).toBeLessThanOrEqual(openWork.decisions * LENS_INSPECTION_MS);
+      }, 300_000);
+    }
+  }
+});
 
 describe('G-L2 — inspection cost is bounded with the server side attached', () => {
   let open: Run;
