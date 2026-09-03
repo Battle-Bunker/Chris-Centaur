@@ -36,6 +36,15 @@ import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
+import { ingestLensEvents, makeSeqWriter, projectMovesets, type SeqWriter } from '../lens/store';
+import type {
+  Actor,
+  CellIndex,
+  LensEvent,
+  LensSink,
+  TurnEvent,
+  UnitKey,
+} from '../lens/types';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 import { colorForArrivalIndex } from '../shared/player-palette';
@@ -519,6 +528,9 @@ export type FatalConfirmationCallback = (gameId: string, snakeId: string, move: 
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
   private games: Map<string, ActiveGame> = new Map();
+  // ONE `seq` writer per (gameId, turn) — see the lens event log section. The
+  // map holds the CURRENT turn's writer per game; a new board rolls it.
+  private lensWriters: Map<string, SeqWriter> = new Map();
   private turnUpdateCallbacks: TurnUpdateCallback[] = [];
   private boardUpdateCallbacks: BoardUpdateCallback[] = [];
   private moveCommittedCallbacks: MoveCommittedCallback[] = [];
@@ -974,6 +986,7 @@ export class ActiveGameManager {
       // events that would bounce the UI; just drop the empty shell.
       console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
       this.games.delete(gameId);
+      this.lensWriters.delete(gameId);
       this.enableTeamStaging(gameId, false);
       this.logIfFullyIdle();
       ActivityController.getInstance().poke();
@@ -1014,6 +1027,7 @@ export class ActiveGameManager {
 
     console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
     this.games.delete(gameId);
+    this.lensWriters.delete(gameId);
     this.enableTeamStaging(gameId, false);
     this.logIfFullyIdle();
     // Game gone — the awake rule may flip (no game branch left to hold it).
@@ -2117,8 +2131,218 @@ export class ActiveGameManager {
     return { userId, name: 'Operator', color: '#4CAF50' };
   }
 
-  // Append one row to the command-event log. Never throws into the game path
-  // (the CommandLogger enqueue is synchronous and exception-free).
+  // ── THE LENS EVENT LOG ────────────────────────────────────────────────
+  //
+  // ONE WRITER PER (gameId, turn), AND IT IS THIS CLASS. `seq` is the total
+  // order within a turn and the only thing the UI sorts on, so it has exactly
+  // one author. The manager is that author not because the log is a UI concern
+  // but because it is the one component every producer already passes through:
+  // the kernel's lens sink, the operator's commands, Firebase's confirmations
+  // and the turn resolution all arrive here, and this class already serialises
+  // per game. Two writers is the failure the design names by name, and the
+  // out-of-process case that would have caused it is deleted.
+  //
+  // Nothing below changes any operator command's SEMANTICS. `logCommandEvent`
+  // keeps its signature, its call sites and its payloads; what changed is that
+  // the row it writes now carries a `seq`, an actor and a causal slot instead
+  // of sitting in a table beside a denormalised snapshot of the state it
+  // produced.
+
+  /** The writer for a game's CURRENT board turn, rolling on a turn change and
+   *  opening each turn with its `board.arrived` anchor at `seq` 0. Lazy rather
+   *  than hooked to the four places `boardStateTurn` is assigned: one place
+   *  that notices is more robust than four that must all remember. */
+  private lensWriterFor(gameId: string): SeqWriter | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn < 0) return null;
+    const held = this.lensWriters.get(gameId);
+    if (held && held.turn === game.boardStateTurn) return held;
+
+    const writer = makeSeqWriter(gameId, game.boardStateTurn);
+    this.lensWriters.set(gameId, writer);
+
+    const board = game.boardState?.board;
+    const roster = (board?.snakes ?? []).map(s => s.id);
+    // The anchor carries the settlement in memory so a live fold has a board
+    // to draw; the STORED row does not — `turn_boards` holds the settlement
+    // under its own key, and a board stored twice is two boards waiting to
+    // disagree. `logStoredEvent` is what drops it on the way to Postgres.
+    this.emitTurnEvent(gameId, {
+      kind: 'board.arrived',
+      actor: { kind: 'server', id: null, name: null, color: null },
+      payload: {
+        boardHash: '',
+        deadlineMs: game.gameTimeout,
+        turnExpiryTime: game.turnExpiryTime ?? 0,
+        roster,
+        alive: roster,
+        settlement: game.boardState,
+      },
+    });
+    return writer;
+  }
+
+  /** The one place an event enters the log. Stamps `seq`, hands the row to the
+   *  persister, and never throws into the game path — a lens that cannot
+   *  record must not be able to stop a turn. */
+  private emitTurnEvent(
+    gameId: string,
+    draft: {
+      kind: TurnEvent['kind'];
+      actor: Actor;
+      unit?: UnitKey | null;
+      atWorkMs?: number | null;
+      causedBy?: string | null;
+      answers?: string | null;
+      payload: unknown;
+    }
+  ): TurnEvent | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn < 0) return null;
+    const writer =
+      draft.kind === 'board.arrived'
+        ? this.lensWriters.get(gameId)
+        : this.lensWriterFor(gameId);
+    if (!writer) return null;
+    try {
+      const event = writer.write({
+        gameId,
+        turn: writer.turn,
+        atWall: Date.now(),
+        atWorkMs: draft.atWorkMs ?? null,
+        kind: draft.kind,
+        actor: draft.actor,
+        unit: draft.unit ?? null,
+        causedBy: draft.causedBy ?? null,
+        answers: draft.answers ?? null,
+        payload: draft.payload,
+      });
+      this.logStoredEvent(event);
+      return event;
+    } catch (e) {
+      console.error(`[ActiveGameManager] Lens event refused for ${gameId} (${draft.kind}):`, e);
+      return null;
+    }
+  }
+
+  /** Persist an event, less the anchor's in-memory settlement. */
+  private logStoredEvent(event: TurnEvent): void {
+    if (event.kind !== 'board.arrived') {
+      CommandLogger.getInstance().logEvent(event);
+      return;
+    }
+    const payload = { ...(event.payload as Record<string, unknown>) };
+    delete payload.settlement;
+    CommandLogger.getInstance().logEvent({ ...event, payload });
+  }
+
+  /**
+   * The sink `KernelInput.lens` is handed, per game. Every kernel emission,
+   * partition, moveset frame, posture flip and refusal arrives through here
+   * and is stamped by the SAME writer the operator's commands are — which is
+   * what makes `seq` a single order over both producers rather than two
+   * sequences that have to be merged later and cannot be.
+   *
+   * Wrapped so a lens consumer that throws cannot take a decision down.
+   */
+  public lensSinkFor(gameId: string, unitKeyOf?: (unitId: number) => UnitKey | null): LensSink {
+    return (event: LensEvent): void => {
+      const writer = this.lensWriterFor(gameId);
+      if (!writer) return;
+      try {
+        const written = ingestLensEvents(
+          writer,
+          [event],
+          unitKeyOf ? { unitKeyOf } : {}
+        );
+        for (const row of written) this.logStoredEvent(row);
+        // A reservoir frame moves the projection. Re-project the WHOLE turn
+        // rather than appending the frame's rows: the projection is a fold, and
+        // a fold recomputed is a fold that cannot have drifted. It is ≤24 rows
+        // per decision, and it is the same call `scripts/lens-rebuild.js`
+        // makes, so the live table and a rebuilt one are the same bytes by
+        // construction rather than by agreement.
+        if (written.some(row => row.kind === 'movesets')) {
+          const decisionId = `${gameId}:${writer.turn}`;
+          DecisionLogger.getInstance().logMovesets(
+            decisionId,
+            projectMovesets(decisionId, writer.written)
+          );
+        }
+      } catch (e) {
+        console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
+      }
+    };
+  }
+
+  /**
+   * A staging request, as an event. `fallback` is the FAST PASS — the stage
+   * the manager makes before any decision has spoken — and it gets its own
+   * kind so a reader can tell "nothing had been decided yet" from "the
+   * decision decided this", which is exactly the distinction a panel reading
+   * *"fast-pass only — no kernel emission yet"* needs.
+   */
+  private emitStageEvent(
+    gameId: string,
+    snakeId: string,
+    turn: number,
+    move: CentaurMove,
+    source: IntendedMoveSource
+  ): void {
+    const to = this.cellOfMove(gameId, snakeId, move);
+    this.emitTurnEvent(gameId, {
+      kind: source === 'fallback' ? 'stage.fastpass' : 'stage.requested',
+      actor: { kind: 'bot', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: { unit: snakeId, to: to ?? -1, source },
+    });
+    if (to !== null) {
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn,
+        unitKey: snakeId,
+        stagedMove: to,
+        stagedSource: source,
+      });
+    }
+  }
+
+  /** The operator identity, as an event actor. */
+  private static actorOf(operator: OperatorRef | null): Actor {
+    if (!operator) return { kind: 'server', id: null, name: null, color: null };
+    return { kind: 'operator', id: operator.userId, name: operator.name, color: operator.color };
+  }
+
+  /**
+   * A wire move as a CELL, which is the vocabulary every other number in the
+   * lens is in. A piece's move is already a full-board destination index; a
+   * snake's is a direction, and the head it is a direction FROM is on the
+   * board this manager holds. Doing the translation here is what keeps
+   * `unit_outcomes` and `turn.resolved` in one numbering instead of storing
+   * two and asking every reader which it has.
+   */
+  private cellOfMove(gameId: string, snakeId: string, move: CentaurMove): CellIndex | null {
+    if (typeof move === 'number') return move;
+    const board = this.games.get(gameId)?.boardState?.board;
+    const snake = board?.snakes?.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!board || !head) return null;
+    return apiCoordToIndex(
+      ActiveGameManager.destinationOf(head, move),
+      board.width + 2,
+      board.height + 2
+    );
+  }
+
+  /**
+   * Append one operator command to the event log.
+   *
+   * SEMANTICS UNCHANGED. Same verbs, same payloads, same call sites, same
+   * "system events carry no operator" rule. A pin, an unpin and a commit get
+   * their own kinds because the reducer and the kernel both key on them; every
+   * other verb rides `operator.command` with its verb named, exactly as the
+   * command log carried it. Never throws into the game path.
+   */
   private logCommandEvent(
     gameId: string,
     snakeId: string | null,
@@ -2126,17 +2350,29 @@ export class ActiveGameManager {
     operator: OperatorRef | null,
     payload: unknown
   ): void {
-    const game = this.games.get(gameId);
-    CommandLogger.getInstance().logEvent({
-      gameId,
-      snakeId,
-      // -1 marks "turn unknown" when the game is already gone at log time
-      // (e.g. a command racing teardown). Never default to 0: that would
-      // misattribute the event to the real first turn in the audit log.
-      turn: game?.boardStateTurn ?? -1,
-      eventType,
-      operator,
-      payload,
+    const actor = ActiveGameManager.actorOf(operator);
+    const detail = (payload ?? {}) as Record<string, unknown>;
+
+    if (eventType === 'commit' && snakeId) {
+      const move = detail.move as CentaurMove | undefined;
+      this.emitTurnEvent(gameId, {
+        kind: 'commit',
+        actor,
+        unit: snakeId,
+        payload: {
+          unit: snakeId,
+          to: move === undefined ? -1 : (this.cellOfMove(gameId, snakeId, move) ?? -1),
+          tentative: false,
+        },
+      });
+      return;
+    }
+
+    this.emitTurnEvent(gameId, {
+      kind: 'operator.command',
+      actor,
+      unit: snakeId,
+      payload: { verb: eventType, target: snakeId, detail },
     });
   }
 
@@ -2853,6 +3089,10 @@ export class ActiveGameManager {
     if (!alreadySubmitted) {
       controlled.lastSubmittedTurn = requested.turn;
       controlled.lastSubmittedMove = requested.move;
+      // The request leaves here; its confirmation and its commit are separate
+      // events with their own `seq`, so the lifecycle is three linked rows
+      // rather than three independent log lines nobody can pair up.
+      this.emitStageEvent(gameId, snakeId, requested.turn, requested.move, requested.source);
       if (this.moveSubmitter) {
         this.moveSubmitter(gameId, snakeId, requested.turn, requested.move, requested.source).catch((err) => {
           console.error(`[ActiveGameManager] Failed to publish staged move for ${gameId}:${snakeId} turn ${requested.turn}:`, err);
@@ -2881,6 +3121,18 @@ export class ActiveGameManager {
       if (!req) return;
       if (cs.confirmedStaged?.turn === req.turn && cs.confirmedStaged.move === req.move) return;
       console.warn(`[ActiveGameManager] Staged move for ${gameId}:${snakeId} turn ${req.turn} (${req.move}) still unconfirmed — republishing`);
+      const retryTo = this.cellOfMove(gameId, snakeId, req.move);
+      this.emitTurnEvent(gameId, {
+        kind: 'stage.retry',
+        actor: { kind: 'server', id: null, name: null, color: null },
+        unit: snakeId,
+        payload: {
+          unit: snakeId,
+          to: retryTo ?? -1,
+          source: req.source,
+          why: 'unconfirmed-at-backstop',
+        },
+      });
       cs.lastSubmittedTurn = null;
       cs.lastSubmittedMove = null;
       this.ensureStagedPublished(gameId, snakeId);
@@ -2911,6 +3163,26 @@ export class ActiveGameManager {
     if (!controlled) return;
     if (controlled.confirmedStaged?.turn === turn && controlled.confirmedStaged.move === move) return;
     controlled.confirmedStaged = { turn, move };
+    const confirmedTo = this.cellOfMove(gameId, snakeId, move);
+    this.emitTurnEvent(gameId, {
+      kind: 'stage.confirmed',
+      actor: { kind: 'wire', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: {
+        unit: snakeId,
+        to: confirmedTo ?? -1,
+        source: controlled.staged?.source ?? 'unknown',
+        serverTs: Date.now(),
+      },
+    });
+    if (confirmedTo !== null) {
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn,
+        unitKey: snakeId,
+        confirmedMove: confirmedTo,
+      });
+    }
     this.ensureStagedPublished(gameId, snakeId);
 
     // A deferred Submit All fires the moment the requested move is the
@@ -2942,6 +3214,21 @@ export class ActiveGameManager {
       controlled.stagingRetryTimer = null;
     }
     controlled.finalMove = { turn, move };
+    // A REPORT OF OBSERVED FIREBASE STATE, nothing else — never inferred from
+    // a timer or the turn expiry, which is why it is its own event kind and
+    // not a flag on the request.
+    this.emitTurnEvent(gameId, {
+      kind: 'commit.observed',
+      actor: { kind: 'wire', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: { unit: snakeId },
+    });
+    DecisionLogger.getInstance().recordUnitOutcome({
+      gameId,
+      turn,
+      unitKey: snakeId,
+      committed: true,
+    });
     this.notifyMoveCommitted(gameId, snakeId, move, 'firebase-final');
     this.notifyStagedChange(gameId);
   }
@@ -3049,7 +3336,11 @@ export class ActiveGameManager {
   }
 
   // The command-state snapshot for a game, in exactly the live broadcast
-  // shape (see CommandTurnState). Persisted per turn by applyResolvedMoves.
+  // shape (see CommandTurnState). NO LONGER PERSISTED: the per-turn snapshot
+  // it used to be written into was a second representation of state the event
+  // log already determines, and a reader that wants the state at a moment
+  // folds `turn_events` to that `seq` through the same reducer the live client
+  // runs. This is the LIVE broadcast builder and nothing else.
   getCommandStateForGame(gameId: string): CommandTurnState | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -3537,32 +3828,51 @@ export class ActiveGameManager {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    // Snapshot every snake's command state AS IT STOOD WHEN THIS TURN ENDED.
-    // We run before the new board is fed in, so goto queues are un-shifted,
-    // staged records still bind to resolvedTurn, and operator attribution is
-    // exactly what was in force at the deadline. The history viewer replays
-    // this snapshot through the same render paths the live client uses.
+    // ONE EVENT, NOT A SNAPSHOT. The turn ending used to be recorded as a
+    // per-turn copy of the live broadcast shape, so the history viewer could
+    // feed it straight into the live render paths. The intent was right and it
+    // survives; the mechanism was a second representation of state the event
+    // log already determines, and two representations of one state disagree —
+    // that is not a risk, it is a schedule. A reader that wants the state at
+    // the deadline folds the events to that `seq`, through the same reducer
+    // the live client runs, so the two paths cannot drift.
+    const resolved: Array<{ unit: UnitKey; to: CellIndex }> = [];
+    for (const [snakeId, move] of Object.entries(moves)) {
+      if (!game.controlledSnakes.has(snakeId)) continue;
+      const to = this.cellOfMove(gameId, snakeId, move);
+      if (to !== null) resolved.push({ unit: snakeId, to });
+    }
     if (game.boardStateTurn === resolvedTurn) {
-      const state = this.getCommandStateForGame(gameId);
-      if (state) {
-        CommandLogger.getInstance().logTurnState(gameId, resolvedTurn, state);
-      }
+      this.emitTurnEvent(gameId, {
+        kind: 'turn.resolved',
+        actor: { kind: 'server', id: null, name: null, color: null },
+        payload: { moves: resolved, deaths: [], winners: [] },
+      });
     }
 
     for (const [snakeId, move] of Object.entries(moves)) {
       const controlled = game.controlledSnakes.get(snakeId);
       if (!controlled) continue;
 
-      // Persist the move the server applied onto this turn's decision row.
-      // The move resolved board turn `resolvedTurn`, whose decision was logged
-      // with decision_logs.turn = resolvedTurn + 1 (the logger records the turn
-      // the move executes INTO), so that +1 is the update key. The consent flag
-      // counts only when the staged record is bound to this exact turn and the
-      // applied move matches it (otherwise it's a bot/fallback move).
+      // The unit's outcome for the BOARD turn it resolved — one turn domain,
+      // so the row's key is `resolvedTurn` and not an offset from it. The
+      // consent flag counts only when the staged record is bound to this exact
+      // turn and the applied move matches it (otherwise it is a bot/fallback
+      // move, and consent was never asked for).
       const staged = controlled.staged;
       const fatalConsented = !!staged && staged.snakeId === snakeId &&
         staged.turn === resolvedTurn && staged.move === move && staged.fatalConsented;
-      DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, resolvedTurn + 1, move, fatalConsented);
+      const to = this.cellOfMove(gameId, snakeId, move);
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn: resolvedTurn,
+        unitKey: snakeId,
+        unitName: controlled.name ?? null,
+        resolvedMove: to,
+        confirmedMove: to,
+        committed: true,
+        fatalConsent: fatalConsented,
+      });
 
       // No move-committed notification here: the UI's double arrow is driven
       // by finalizeTurnMove, which fires when Firebase finalizes the turn —
@@ -3610,6 +3920,7 @@ export class ActiveGameManager {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);
+          this.lensWriters.delete(gameId);
           this.enableTeamStaging(gameId, false);
           this.logIfFullyIdle();
           removedAny = true;

@@ -35,7 +35,8 @@
  */
 
 import { ActiveGameManager, CommandTurnState } from '../server/active-game-manager';
-import { CommandLogger, CommandEventEntry } from '../logic/command-logger';
+import { CommandLogger } from '../logic/command-logger';
+import type { OperatorCommandPayload, TurnEvent } from '../lens/types';
 import {
   canHold,
   grammarUnitAt,
@@ -113,10 +114,26 @@ interface Published {
   source: string;
 }
 
-function eventsOfType(type: string): CommandEventEntry[] {
+// Operator commands now ride ONE event log with a `seq` on every row: the
+// verb that used to be the `event_type` column is `payload.verb`, and what was
+// the free-form `payload` column is `payload.detail`. The command SEMANTICS
+// are unchanged — same verbs, same details, same "system events carry no
+// operator" rule — so the assertions below are unchanged too, and only the
+// unwrapping moved.
+function eventsOfType(type: string) {
   return mockLogger.logEvent.mock.calls
-    .map(c => c[0] as CommandEventEntry)
-    .filter(e => e.eventType === type);
+    .map(c => c[0] as TurnEvent)
+    .filter(e => e.kind === 'operator.command' && (e.payload as OperatorCommandPayload).verb === type)
+    .map(e => ({
+      gameId: e.gameId,
+      snakeId: e.unit,
+      turn: e.turn,
+      operator:
+        e.actor.kind === 'operator'
+          ? { userId: e.actor.id, name: e.actor.name, color: e.actor.color }
+          : null,
+      payload: (e.payload as OperatorCommandPayload).detail,
+    }));
 }
 
 describe('canHold is the engine’s answer about a unit’s own square', () => {

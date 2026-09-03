@@ -3,6 +3,19 @@ import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger } from '../logic/command-logger';
 import { ActivityController } from '../server/activity-controller';
 
+/**
+ * The read side of the lens store.
+ *
+ * Every route here answers off the five tables. What changed under them is the
+ * SHAPE of the answer, not the questions: `/api/logs` used to serve one
+ * per-unit decision row carrying a `move_evaluations` blob, and now serves the
+ * event log the decision actually produced, in the one order there is.
+ * `/api/logs/commands` used to serve raw command rows PLUS a per-turn snapshot
+ * of the live broadcast shape; the snapshot is gone, because folding the
+ * events through the same reducer the live client runs is a stronger form of
+ * the same intent than a second representation of the same state.
+ */
+
 const router = express.Router();
 const logger = DecisionLogger.getInstance();
 
@@ -17,11 +30,10 @@ router.get('/api/logs/games', async (_req, res) => {
   }
 });
 
-// The per-game board timeline: one canonical you-less state per turn, plus
-// the shared territory/ownership grids. Native turn_states rows are merged
-// per turn with boards synthesized from old-format decision rows, so old,
-// new, and mid-deploy hybrid games all serve one contiguous timeline.
-// ?sinceTurn= (board domain) makes the fetch incremental.
+// The per-game board timeline: one canonical settlement per BOARD turn,
+// straight out of `turn_boards`. There is no merge and no synthesis — one
+// board per turn, stored once, in one turn domain.
+// ?sinceTurn= makes the fetch incremental.
 router.get('/api/games/:gameId/turns', async (req, res) => {
   try {
     const sinceTurn = req.query.sinceTurn != null
@@ -38,53 +50,34 @@ router.get('/api/games/:gameId/turns', async (req, res) => {
   }
 });
 
-// Query logs with filters
+// The intra-turn event log, filtered. The payload of each row is the
+// `TurnEvent` verbatim — the same bytes the live client folded — so a client
+// reading this and a client reading the websocket run the same reducer over
+// the same objects.
 router.get('/api/logs', async (req, res) => {
   try {
-    const filters = {
-      gameId: req.query.game_id as string || req.query.gameId as string,
-      snakeId: req.query.snake_id as string || req.query.snakeId as string,
-      startTurn: req.query.startTurn ? parseInt(req.query.startTurn as string, 10) : undefined,
-      endTurn: req.query.endTurn ? parseInt(req.query.endTurn as string, 10) : undefined,
+    const startTurn = req.query.startTurn ? parseInt(req.query.startTurn as string, 10) : undefined;
+    const endTurn = req.query.endTurn ? parseInt(req.query.endTurn as string, 10) : undefined;
+    const events = await logger.queryLogs({
+      gameId: (req.query.game_id as string) || (req.query.gameId as string),
+      unitKey: (req.query.unit_key as string) || (req.query.unitKey as string),
+      kind: req.query.kind as string,
+      startTurn,
+      endTurn,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
-      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0
-    };
-    
-    const logs = await logger.queryLogs(filters);
-    
-    // Format response with decision data
-    res.json({
-      decisions: logs.map(log => ({
-        turn: log.turn,
-        snake_id: log.snake_id,
-        snake_name: log.snake_name,
-        position_x: log.position_x,
-        position_y: log.position_y,
-        health: log.health,
-        safe_moves: log.safe_moves,
-        bot_recommendation: log.bot_recommendation,
-        submitted_move: log.submitted_move ?? null,
-        fatal_consent: log.fatal_consent ?? null,
-        server_move: log.server_move ?? null,
-        move_evaluations: typeof log.move_evaluations === 'string' 
-          ? JSON.parse(log.move_evaluations)
-          : log.move_evaluations,
-        game_state: typeof log.game_state === 'string'
-          ? JSON.parse(log.game_state)
-          : log.game_state,
-        timestamp: log.timestamp
-      }))
+      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0,
     });
+    res.json({ events });
   } catch (error) {
     console.error('Error querying logs:', error);
     res.status(500).json({ error: 'Failed to query logs' });
   }
 });
 
-// Command history for one game: the raw operator command events (goto/near/
-// manual/…, with operator attribution) plus the per-turn command-state
-// snapshots keyed by the board turn whose END they describe. The history
-// viewer feeds the snapshots straight into the live render paths.
+// Command history for one game: every event an operator authored, in
+// (turn, seq) order, with the identity that authored it. The per-turn
+// command-state snapshot is gone with `command_turn_states` — a client that
+// wants the state at a moment folds the events to that `seq`.
 router.get('/api/logs/commands', async (req, res) => {
   try {
     const gameId = (req.query.game_id as string) || (req.query.gameId as string);
@@ -100,15 +93,19 @@ router.get('/api/logs/commands', async (req, res) => {
   }
 });
 
-// Clear old logs (admin endpoint)
+// Clear old logs (admin endpoint). Deletes the two HOT classes only: the
+// event log and the moveset projection. `turn_boards` and `decisions` are
+// retained for the life of the game — they are the re-run input and the
+// basis, and a turn whose events have aged out is still inspectable because
+// of them. Retention is a latency decision, not a loss.
 router.delete('/api/logs/old', async (req, res) => {
   // Mutating admin call → verifiable human action for the awake rule.
   ActivityController.getInstance().recordHumanAction();
   try {
     const daysToKeep = req.query.days ? parseInt(req.query.days as string, 10) : 7;
     await logger.clearOldLogs(daysToKeep);
-    await CommandLogger.getInstance().clearOldCommands(daysToKeep);
-    res.json({ message: `Cleared logs older than ${daysToKeep} days` });
+    await CommandLogger.getInstance().clearOldEvents(daysToKeep);
+    res.json({ message: `Cleared hot logs older than ${daysToKeep} days` });
   } catch (error) {
     console.error('Error clearing old logs:', error);
     res.status(500).json({ error: 'Failed to clear old logs' });

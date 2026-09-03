@@ -14,7 +14,9 @@
     "lint": "eslint \"src/**/*.ts\"",
     "sync-engine": "node scripts/sync-engine.js",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "lens:rebuild": "node scripts/lens-rebuild.js",
+    "lens:check": "node scripts/lens-rebuild.js --check"
   },
   "keywords": [
     "battlesnake",
