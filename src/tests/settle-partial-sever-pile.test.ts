@@ -3,10 +3,13 @@
  * survivable that its own resolver can make fatal.
  *
  * THIS IS NOT OUR CODE TO FIX. `src/engine-vendor/` is a byte-for-byte copy of
- * the game engine and is never edited here, so the finding is written down as
+ * the game engine and is never edited here, so the finding was written down as
  * an executable case against the vendored copy and reported for the engine
- * branch. The bot's own fold stops trusting the entry meanwhile — see
- * `pileCellsOf` in `src/lobster/bounds/material.ts`.
+ * branch — and the engine branch took it: `entangle`'s trail branch now adds a
+ * `contest` with `couldBeat: true` at the same cell and sub-step whenever the
+ * pile can form. The bot-side refusal that stood in for it while the gap was
+ * open is gone; the fold reads the engine's own entry
+ * (`moverSurvivalVia` in `src/lobster/bounds/material.ts`).
  *
  * ── THE CONTRACT ───────────────────────────────────────────────────────────
  *
@@ -79,11 +82,13 @@
  *      "playerIDs":["br","rq","rs"],"victimIDs":["br","rs"],
  *      "reason":"Deadlock: no unique survivor"}
  *
- * RETIREMENT INSTRUCTION. This block asserts the DEFECTIVE reading on purpose,
- * so that the fix upstream shows up here as a failure rather than as silence.
- * When `deadly` comes back empty, or when the entries naming `rs` at cell 21
- * start carrying `couldBeat: true`, the gap has been closed upstream: delete
- * this file and `pileCellsOf` with it, and re-measure the floor.
+ * WHAT IS STILL PINNED HERE. The worlds are the point: sixteen of four hundred
+ * kill `rs` in the deadlock, so the fold may never prove survival on this
+ * board. The engine's `contest` entry is what proves it may not, and this file
+ * holds BOTH ends of that — the entry, and the worlds it stands for — so a
+ * regression at either end is a failure rather than a silence. `deadly` coming
+ * back empty would mean the resolver itself changed, and the board would then
+ * need re-measuring before anything here is believed again.
  */
 
 import type { Board, Coord, Snake } from '../types/battlesnake';
