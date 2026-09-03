@@ -283,6 +283,46 @@ const LAW_CASES: LawCase[] = [
       orders: new Map([['q', NO_ORDER_MOVE]]),
     };
   })(),
+  (() => {
+    // A MOVER WALKING OFF ITS OWN BODY, with two held units that can both
+    // reach the segment it leaves behind. The engine ledgers every contact
+    // naming our snake as a `sever` with `couldBeat: false` — the body rule's
+    // other half, "a cut is a weight loss rather than a death" — which is a
+    // proof of survival for ONE arrival and not for two: the first dies on the
+    // segment and registers the segment's OWNER into that cell's durable pile
+    // (`turnEngine.ts` c5), and the second arrival then contests the whole
+    // pile and takes everyone that is not its unique strict maximum (c4).
+    //
+    // Sixteen of the four hundred worlds enumerated here end
+    // `contest ... victimIDs ["br","rs"] Deadlock: no unique survivor`, and
+    // before `bounds/material.ts` refused the proof they were sixteen R1 floor
+    // violations against a finite floor — in the material profile too, where
+    // the floor read -50 for a world that is a wipe. The engine side of it is
+    // pinned as an executable defect report in
+    // `src/tests/settle-partial-sever-pile.test.ts`.
+    const board = boardOf([
+      makeSnake('rs', [
+        { x: 2, y: 5 },
+        { x: 3, y: 5 },
+        { x: 4, y: 5 },
+      ], { teamID: 'red', health: 80 }),
+      piece('rq', { x: 3, y: 4 }, 'queen', 3, { teamID: 'red', health: 60 }),
+      makeSnake('bs', [
+        { x: 3, y: 1 },
+        { x: 4, y: 1 },
+        { x: 5, y: 1 },
+      ], { teamID: 'blue', health: 80 }),
+      piece('br', { x: 2, y: 1 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+    ]);
+    return {
+      name: 'a snake stepping off its own body, under two claims that can pile on it',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['rs'],
+      orders: new Map([['rs', at(board, { x: 1, y: 5 })]]),
+    };
+  })(),
 ];
 
 describe('the admission laws, over the real world set', () => {

@@ -221,6 +221,7 @@ function moverSurvivalVia(
 ): Trit {
   if (settlement.board[wireId] === undefined || settlement.deaths[wireId] !== undefined) return 'no';
   let kings: string[] | null = null;
+  let headAt: ((subStep: number) => number) | null = null;
   for (const entry of settlement.ledger) {
     if (entry.unitId !== wireId) continue;
     if (entry.kind === 'regicide') {
@@ -230,6 +231,14 @@ function moverSurvivalVia(
       continue;
     }
     if (entry.couldBeat) return 'maybe';
+    if (entry.kind === 'sever') {
+      // Only the entries about OUR OWN trail: the cell is one of our body
+      // segments rather than our head, which is `moverSeverLoss`'s exact
+      // discriminator (`trackOf` deletes `head[k]` from `body[k]`).
+      if (headAt === null) headAt = headAtOf(settlement, wireId);
+      if (entry.cell === headAt(entry.subStep)) continue;
+      if (pileCellsOf(settlement).has(entry.cell)) return 'maybe';
+    }
   }
   if (kings === null) return 'yes';
   const visited = seen ?? new Set<string>();
@@ -240,6 +249,132 @@ function moverSurvivalVia(
     if (moverSurvivalVia(settlement, king, visited) !== 'yes') return 'maybe';
   }
   return 'yes';
+}
+
+/**
+ * A SEVER ENTRY IS NOT A PROOF OF SURVIVAL WHEN THE CELL CAN HOLD A PILE.
+ *
+ * `settlePartial` emits the other half of the body rule — "this unit's own
+ * trail is what the claim could be arriving on" — with `couldBeat: false`
+ * HARD-CODED, on the reasoning that a cut is a weight loss rather than a death.
+ * That reasoning holds for ONE arrival: a head landing on a body segment either
+ * dies on it (equal or lower tier) or severs it and capture-stops (strictly
+ * higher), and the segment's owner lives either way. It does not hold for TWO,
+ * and the mechanism is the engine's own wrestling rule read one step further:
+ *
+ *   · `turnEngine.ts` c5, the arrival that DIES on our segment, registers
+ *     `{ op: "durable", cell, unitIDs: [m.id, ...owners] }` — the body's OWNER
+ *     is put into that cell's pile by its own body block;
+ *   · c4, a later arrival at a durable cell contests "all the head-class units
+ *     standing there plus everything the cell's pile holds", and every
+ *     participant that is not the unique strict maximum is condemned.
+ *
+ * So a second arrival at a cell where a first one died turns our own trail
+ * segment into a losing party in a contest we are not even present at, and
+ * `victimIDs` names us.
+ *
+ * Measured, 7x7, our snake staged 21→20 with its body still on 21 and 22, our
+ * own queen held at 31 and a blue rook held at 57: EVERY ledger entry naming
+ * the snake is a `sever` with `couldBeat: false`, so the fold read it certainly
+ * alive and published a finite floor — while 16 of 400 enumerated worlds end
+ * `{"index":21,"subStep":4,"kind":"contest","playerIDs":["br","rq","rs"],
+ * "victimIDs":["br","rs"],"reason":"Deadlock: no unique survivor"}` and the
+ * true value is a wipe. Sixteen R1 floor violations, in the material profile
+ * too — see `__tests__/evaluate.test.ts`'s law case and
+ * `src/tests/settle-partial-sever-pile.test.ts`, which pins the enumeration
+ * against the vendored engine for the engine branch to fix.
+ *
+ * THE ENGINE IS THE SIDE THAT IS WRONG, and it is not ours to edit. Until it
+ * is fixed there, the fold refuses the PROOF rather than the pricing: a
+ * segment cell two unknown presences could stand on is a contact the ledger
+ * has not settled for us, and the mover is `maybe`. ONE presence still proves
+ * survival — the common case, and the one the engine's reasoning covers.
+ *
+ * The head-cell half of the sever kind is untouched by any of this, and that
+ * asymmetry is the whole point: at our HEAD we are a contestant, so beating
+ * every claim in the pile pairwise makes us the unique strict maximum of it
+ * and `couldBeat: false` on each contact really is a proof. At a body segment
+ * we are not a contestant at all — we are a pile member the tie rule collects,
+ * and no amount of strength saves a segment from a deadlock between others.
+ */
+
+/**
+ * The cells of one settlement that TWO unknown presences could stand on.
+ *
+ * A "presence" is one ghost: one held unit's claim, or one contingent modelled
+ * unit reached from it, which the ledger names as `heldId` plus the `via`
+ * chain — `settlePartial` builds exactly one ghost per (root, chain) pair, and
+ * two entries with the same pair are the same unknown thing seen twice. A
+ * corpse this timeline already stands on the cell counts as one presence of
+ * its own: it is a durable collision object for the rest of the turn.
+ *
+ * Only the CONTACT kinds count. `regicide`, `potion` and `food` entries carry
+ * a cell that is a bookkeeping location — the unit's own final square, or the
+ * meal — rather than a square the unknown thing could be standing on, and
+ * counting those would refuse proofs for no world.
+ *
+ * Cached per settlement: one ledger pass, shared by every unit the fold asks
+ * about, on the same `WeakMap` discipline as the two derivations above.
+ */
+const PRESENCE_KINDS: ReadonlySet<string> = new Set([
+  'contest',
+  'edge',
+  'bodyBlock',
+  'durable',
+  'sever',
+]);
+
+const pileCellsCache = new WeakMap<PartialSettlement, ReadonlySet<number>>();
+
+function pileCellsOf(settlement: PartialSettlement): ReadonlySet<number> {
+  const hit = pileCellsCache.get(settlement);
+  if (hit !== undefined) return hit;
+  const made = pileCellsOfUncached(settlement);
+  pileCellsCache.set(settlement, made);
+  return made;
+}
+
+/** A key no `heldId`/`via` pair can collide with. */
+const CORPSE = '\u0000corpse';
+
+function pileCellsOfUncached(settlement: PartialSettlement): ReadonlySet<number> {
+  const out = new Set<number>();
+  const firstSource = new Map<number, string>();
+  for (const id in settlement.deaths) {
+    const death = settlement.deaths[id] as { cell: number } | undefined;
+    if (death !== undefined) firstSource.set(death.cell, CORPSE);
+  }
+  for (const entry of settlement.ledger) {
+    if (!PRESENCE_KINDS.has(entry.kind)) continue;
+    if (out.has(entry.cell)) continue;
+    const source = entry.via.length === 0 ? entry.heldId : `${entry.heldId}/${entry.via.join('/')}`;
+    const first = firstSource.get(entry.cell);
+    if (first === undefined) firstSource.set(entry.cell, source);
+    else if (first !== source) out.add(entry.cell);
+  }
+  return out;
+}
+
+/**
+ * Where this unit's head stood at each sub-step, off the settlement alone.
+ *
+ * The same reconstruction `moverSeverLoss` documents — the cells the
+ * settlement says the unit entered, and the last of those once it has stopped
+ * — with the turn-start head read from the settled occupancy rather than
+ * passed in, because `claimSurvivals` asks about a modelled king by wire id
+ * with no roster in hand. The two agree wherever both apply: a unit that
+ * entered nothing never moved, so its settled head IS its turn-start head, and
+ * a unit that entered something never reads the fallback at sub-step 1 or
+ * later. Every ledger entry carries `subStep >= 1`.
+ */
+function headAtOf(settlement: PartialSettlement, wireId: string): (subStep: number) => number {
+  const traversed = settlement.traversed[wireId] ?? [];
+  const settled = settlement.board[wireId];
+  const start = settled?.occupancy[0] ?? -1;
+  return (subStep: number): number => {
+    if (subStep <= 0 || traversed.length === 0) return start;
+    return traversed[Math.min(subStep, traversed.length) - 1] ?? start;
+  };
 }
 
 /**
