@@ -35,6 +35,8 @@ import type {
   MovesetBreakdown,
   MovesetKey,
   Provenanced,
+  RankConditionalResult,
+  UnitKey,
   SourceDelta,
   TurnEvent,
 } from '../types';
@@ -59,6 +61,9 @@ function refuse(reason: LensRefusal['refusal'], detail: string): LensRefusal {
   return { ok: false, refusal: reason, detail };
 }
 
+/** The one legitimate difference between the two live readings, as data. */
+const LIVE_MODE = { true: 'live-head', false: 'live-scrub' } as const;
+
 const NO_PORT =
   'no running kernel is attached to this source, so nothing can be searched for the ask; ' +
   'the recorded frames answer, the reserve does not';
@@ -69,10 +74,19 @@ const NO_PORT =
  * implementation can grow a behaviour the other lacks: there is exactly one
  * place below where a frame is built, and it is this one.
  */
+/** The highest `seq` the store holds. A live cursor at or past it is AT THE
+ *  HEAD; one dragged behind it is scrubbing, which is loud and where every
+ *  determination affordance is replaced by *return to now*. It is a fact about
+ *  the fold and the cursor, so it is computed here rather than asserted by
+ *  whichever caller happened to build the source. */
+function headSeqOf(store: FrameStore): number {
+  return store.events.reduce((max, e) => Math.max(max, e.seq), store.anchor.seq);
+}
+
 function makeSource(
   kind: DecisionSourceKind,
   input: SourceInput,
-  stamp: (frame: LensFrame) => LensFrame
+  stamp: (frame: LensFrame, at: Cursor, store: FrameStore) => LensFrame
 ): DecisionSource & { ingest(event: TurnEvent): void } {
   let store = input.store;
   let at = input.at;
@@ -92,12 +106,21 @@ function makeSource(
       announce({ kind: 'cursor', at: to });
     },
     frame(): LensFrame {
-      return stamp(frameAt(store, at.seq));
+      return stamp(frameAt(store, at.seq), at, store);
     },
     timeline(): ReadonlyArray<TurnEvent> {
       return frameAt(store, at.seq).events;
     },
     async breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
+      // THE RETAINED BREAKDOWN FIRST, for both sources and for the same
+      // reason: a breakdown the decision already produced is a recorded fact,
+      // and re-asking a running kernel for it would spend the reserve to be
+      // told what the fold already holds. It is also what makes a drilled row
+      // in replay the row the operator drilled live (Law C).
+      const stored = frameAt(store, at.seq).breakdown[moveset];
+      if (stored !== undefined) {
+        return { value: stored, basis: stored.basis, provenance: { kind: 'observed', at } };
+      }
       if (!input.port) return refuse('off-head', NO_PORT);
       const answer = await input.port.explainMoveset(moveset);
       if ('ok' in answer) return answer;
@@ -109,15 +132,8 @@ function makeSource(
     },
     async conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
       if (!input.port) return refuse('off-head', NO_PORT);
-      const answer = input.port.rankConditional(req.cluster, [req.lock]);
+      const answer = askConditional(input.port, req);
       if (!answer.ok) return answer;
-      if (answer.clusterAfter.generation !== req.clusterGeneration) {
-        return refuse(
-          'generation-superseded',
-          `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, ` +
-            `the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
-        );
-      }
       return {
         requestId: answer.contextKey,
         ranking: answer.rows,
@@ -147,18 +163,107 @@ function makeSource(
   };
 }
 
+/**
+ * ONE ASK, wherever it arrives from — an in-process source or a socket.
+ *
+ * The generation guard is the whole reason this is a function rather than two
+ * call sites: rows from two generations are never in one list (Law E), and a
+ * wire handler that forwarded the request without the check would serve
+ * exactly the stale list the law forbids, on the one path where the operator
+ * cannot see that the cluster moved underneath them.
+ *
+ * IT IS CHECKED BEFORE THE ASK IS PRICED, against the cluster the request
+ * NAMED as it stands NOW, and not against `clusterAfter`. `clusterAfter` is
+ * the cluster with the lock applied — locking narrows, so the locked units
+ * have moved to `boundedBy` and its generation has moved on BY CONSTRUCTION.
+ * Comparing the ask's generation against it refuses every well-formed request
+ * ever made, and does so after spending the reserve on it: the operator pays
+ * for an answer and is then handed a refusal. Superseded means the cluster the
+ * operator was LOOKING AT is gone, which is a fact about the live partition.
+ */
+export function askConditional(
+  port: KernelLensPort,
+  req: ConditionalRequest
+): RankConditionalResult {
+  const live = port.partition().find((c) => c.id === req.cluster);
+  if (live !== undefined && live.generation !== req.clusterGeneration) {
+    return refuse(
+      'generation-superseded',
+      `cluster ${req.cluster} is at generation ${live.generation}, ` +
+        `the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
+    );
+  }
+  return port.rankConditional(req.cluster, [req.lock]);
+}
+
+/**
+ * THE INSPECTION PORT, per game — the object the websocket server holds and
+ * serves `lens-conditional` and `lens-breakdown` out of.
+ *
+ * It lives here, beside `askConditional`, because the two rules it enforces
+ * are the source's rules and must not be re-stated on the wire: an ask with no
+ * running decision is a TYPED REFUSAL and never a silence, and rows from a
+ * superseded generation are never served. A handler that reached for the
+ * kernel port directly would be a second implementation of both, on the one
+ * path where the operator cannot see the cluster move underneath them.
+ *
+ * `portFor` says which decision is running on a game, and `cursorFor` says
+ * where its log is — a served breakdown is a number, and a number without the
+ * coordinate it was read at is a number a reader cannot place.
+ */
+export interface InspectionSources {
+  portFor(gameId: string): KernelLensPort | null;
+  cursorFor(gameId: string): Cursor | null;
+}
+
+export interface InspectionPort {
+  rankConditional(gameId: string, req: ConditionalRequest): RankConditionalResult;
+  explainMoveset(
+    gameId: string,
+    moveset: MovesetKey,
+    members?: ReadonlyArray<UnitKey>
+  ): Promise<Provenanced<MovesetBreakdown> | LensRefusal>;
+}
+
+const NO_DECISION: LensRefusal = {
+  ok: false,
+  refusal: 'unknown-cluster',
+  detail: 'no decision is inspectable on this game right now',
+};
+
+export function makeInspectionPort(sources: InspectionSources): InspectionPort {
+  return {
+    rankConditional(gameId, req): RankConditionalResult {
+      const port = sources.portFor(gameId);
+      return port === null ? NO_DECISION : askConditional(port, req);
+    },
+    async explainMoveset(
+      gameId,
+      moveset,
+      members
+    ): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
+      const port = sources.portFor(gameId);
+      if (port === null) return NO_DECISION;
+      const answer = await port.explainMoveset(moveset, members);
+      if ('ok' in answer) return answer;
+      const at = sources.cursorFor(gameId) ?? { gameId, turn: 0, seq: 0 };
+      return { value: answer, basis: answer.basis, provenance: { kind: 'observed', at } };
+    },
+  };
+}
+
 /** Live: the events arrive; `isHead` says whether determinations are legal. */
 export function makeLiveSource(input: LiveSourceInput): DecisionSource & {
   ingest(event: TurnEvent): void;
 } {
-  return makeSource('live', input, (frame) => ({
-    ...frame,
-    at: {
-      ...frame.at,
-      mode: input.isHead ? 'live-head' : 'live-scrub',
-      isHead: input.isHead,
-    },
-  }));
+  return makeSource('live', input, (frame, at, store) => {
+    // `isHead` is the CONNECTION's claim — this socket is following a running
+    // turn — and the cursor is where it is actually looking. Both must hold:
+    // an operator who scrubs back is on a live turn and off its head, which is
+    // `live-scrub` and not `replay`.
+    const head = input.isHead && at.seq >= headSeqOf(store);
+    return { ...frame, at: { ...frame.at, mode: LIVE_MODE[`${head}`], isHead: head } };
+  });
 }
 
 /** Replay: the events were read from `turn_events`. Closed at the head, so no

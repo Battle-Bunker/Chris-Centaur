@@ -8,6 +8,7 @@ import { ConfigStore } from './configStore';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
+import { lensStringify } from '../lens/store';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import type {
   ClusterId,
@@ -1091,7 +1092,7 @@ export class GameWebSocketServer {
   }
 
   private sendToUser(gameId: string, userId: string, msg: any): void {
-    const data = JSON.stringify(msg);
+    const data = lensStringify(msg);
     for (const client of this.clients) {
       if (client.gameId === gameId && client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
         this.sendRaw(client, data, msg.type);
@@ -1133,7 +1134,12 @@ export class GameWebSocketServer {
   }
 
   private broadcastToGame(gameId: string, msg: any): void {
-    const data = JSON.stringify(msg);
+    // `lensStringify`, not `JSON.stringify`. A bound of `+∞` is an ordinary
+    // reading on this bot's scale — the lattice top, before anything is proved
+    // above the incumbent — and plain JSON turns it into `null`, which reads
+    // as "unmeasured". The client revives it with the same codec, so the frame
+    // it folds is the frame the server built.
+    const data = lensStringify(msg);
     for (const client of this.clients) {
       if (client.gameId !== gameId || client.isLobby || client.ws.readyState !== WebSocket.OPEN) {
         continue;
@@ -1162,7 +1168,7 @@ export class GameWebSocketServer {
       try { ws.terminate(); } catch {}
       return;
     }
-    ws.send(JSON.stringify(msg));
+    ws.send(lensStringify(msg));
   }
 
   /**

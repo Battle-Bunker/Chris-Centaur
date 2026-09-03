@@ -35,7 +35,7 @@
  */
 
 import type { Board } from '../../types/battlesnake';
-import type { JointPlan, KernelInput, UnitId } from '../../lobster/contracts';
+import type { JointPlan, KernelInput, PinEvent, UnitId } from '../../lobster/contracts';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../../lobster/kernel';
 import { GrammarCandidateGenerator, knobsForSafety } from '../../lobster/candidates';
 import { defaultEvaluator } from '../../lobster/evaluate';
@@ -53,7 +53,7 @@ import {
   stepGame,
   type GameSpec,
 } from '../../tests/local-game';
-import type { LensEvent } from '../types';
+import type { EventId, LensEvent } from '../types';
 
 /** One fixture decision, run with the `lens` sink attached, under the node
  *  clock. G1 byte-compares two runs at the same seed and budget; G2 asserts a
@@ -63,6 +63,30 @@ export interface LensRunSpec {
   readonly seed: number;
   readonly nodes: number;
   readonly turns: number;
+  /**
+   * THE TURN'S LOG, when the run is being recorded into one.
+   *
+   * The scripted operator's command is written HERE FIRST and the id the
+   * writer stamped is what the kernel is handed, so the `operator` frame that
+   * comes back answers an event that exists — which is the whole content of
+   * `answers`, and the reason the one writer refuses an answer whose question
+   * it has never seen. Production wires the same way round: the active game
+   * manager writes the `pin`, then hands its id to `onPinEvent`.
+   *
+   * Absent ⇒ the command is queued with a NULL id. A recorded run with
+   * nowhere to write the question must not invent an answer to it, and a
+   * fabricated id would be the one kind of lie the total order cannot survive.
+   */
+  readonly command?: (event: PinEvent, atWorkMs: number) => EventId | null;
+  /**
+   * A SECOND consumer of the same frames, called synchronously as each one is
+   * produced — the server-side sink, when the run is being recorded through
+   * one. It sees the events in the order the kernel emitted them and
+   * interleaved with the operator's commands above, which is the whole
+   * content of a total order and the thing a post-hoc replay of the returned
+   * array cannot reproduce.
+   */
+  readonly sink?: (event: LensEvent) => void;
 }
 
 const SCENARIOS: Readonly<Record<string, GameSpec>> = {
@@ -181,6 +205,7 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
       abandoned: () => clock.work() >= stop,
       lens: (event) => {
         frames.push(event);
+        if (spec.sink !== undefined) spec.sink(event);
       },
     };
     const port = kernel.lensPort();
@@ -200,11 +225,11 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
       if (subject !== undefined && emitted === 2) {
         const to = rec.plan.get(subject)?.to;
         if (to !== undefined) {
-          kernel.onPinEvent({ kind: 'pin', pin: { unitId: subject, to, tentative: false } }, 'ev:pin');
+          command(kernel, spec, clock, { kind: 'pin', pin: { unitId: subject, to, tentative: false } }, t0);
         }
       }
       if (subject !== undefined && emitted === 4) {
-        kernel.onPinEvent({ kind: 'unpin', unitId: subject }, 'ev:unpin');
+        command(kernel, spec, clock, { kind: 'unpin', unitId: subject }, t0);
       }
     }
   } finally {
@@ -212,6 +237,23 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
     clearGeometryCache();
   }
   return frames;
+}
+
+/**
+ * The operator acts: the command is written to the turn's log first, and the
+ * kernel is told about it with the id it was written under. The order is the
+ * causal one and not a convenience — an answer that precedes its question is
+ * unreadable in a total order, which is why the writer refuses one.
+ */
+function command(
+  kernel: LobsterKernel,
+  spec: LensRunSpec,
+  clock: DecisionClock,
+  event: PinEvent,
+  t0: number
+): void {
+  const id = spec.command === undefined ? null : spec.command(event, clock.now() - t0);
+  kernel.onPinEvent(event, id);
 }
 
 function lockFor(

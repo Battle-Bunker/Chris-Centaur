@@ -20,7 +20,8 @@
  * and are re-exported here so the whole U surface has one import path.
  */
 
-import { applyEvent, emptyStore, frameAt } from '../store';
+import { applyEvent, emptyStore, reviveLens } from '../store';
+import { makeLiveSource, makeReplaySource } from '../store/sources';
 import {
   clusterOf,
   incumbentCandidate,
@@ -41,7 +42,6 @@ import type {
   LensCursor,
   LensFrame,
   LensRefusal,
-  LensRefusalReason,
   Moveset,
   MovesetBreakdown,
   MovesetKey,
@@ -90,33 +90,48 @@ export interface ReplaySourceInput {
   readonly at: Cursor;
 }
 
-/** The one legitimate difference, as data. A live cursor dragged back off the
- *  head is SCRUBBING — loud, and with determinations disabled — which is a
- *  different thing from reading a finished game. */
-const LIVE_MODE = { true: 'live-head', false: 'live-scrub' } as const;
-
-function refuse(reason: LensRefusalReason, detail: string): LensRefusal {
-  return { ok: false, refusal: reason, detail };
-}
-
-function headSeqOf(store: FrameStore): number {
-  return store.events.reduce((max, e) => Math.max(max, e.seq), store.anchor.seq);
-}
-
-function subscribers(): {
-  add: (fn: (d: SourceDelta) => void) => () => void;
-  emit: (d: SourceDelta) => void;
-} {
-  const fns = new Set<(d: SourceDelta) => void>();
+/**
+ * THE TWO SOURCES, WHICH ARE ONE SOURCE.
+ *
+ * The fold, the cursor, the subscriber set and the three badge fields all live
+ * in `../store/sources` — a source is a cursor over an event array, and the
+ * array and the reducer both belong to the store. What the view adds is the
+ * TRANSPORT: in the browser the two questions a source can ask (the
+ * conditional ranking behind a candidate, the breakdown behind a row) go over
+ * a websocket rather than into an in-process kernel port, and that is the only
+ * difference there is between the page's source and the server's.
+ *
+ * So these are wrappers and not implementations. A second fold living up here
+ * is precisely the fork this module was written to delete, and it would drift
+ * the same way the old one did — quietly, in the empty states, where nobody
+ * looks.
+ */
+function withTransport(
+  base: DecisionSource,
+  transport: LensTransport | undefined
+): DecisionSource {
   return {
-    add: (fn) => {
-      fns.add(fn);
-      return () => {
-        fns.delete(fn);
-      };
+    kind: base.kind,
+    get at(): Cursor {
+      return base.at;
     },
-    emit: (d) => {
-      for (const fn of fns) fn(d);
+    seek(to: Cursor): void {
+      base.seek(to);
+    },
+    frame(): LensFrame {
+      return base.frame();
+    },
+    timeline(): ReadonlyArray<TurnEvent> {
+      return base.timeline();
+    },
+    breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
+      return transport === undefined ? base.breakdown(moveset) : transport.breakdown(moveset);
+    },
+    conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
+      return transport === undefined ? base.conditional(req) : transport.conditional(req);
+    },
+    subscribe(fn: (d: SourceDelta) => void): () => void {
+      return base.subscribe(fn);
     },
   };
 }
@@ -129,46 +144,10 @@ function subscribers(): {
  * move nobody else's playhead.
  */
 export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
-  const store = input.store;
-  let at: Cursor = input.at;
-  const listeners = subscribers();
-
-  return {
-    kind: 'live',
-    get at(): Cursor {
-      return at;
-    },
-    seek(to: Cursor): void {
-      at = to;
-      listeners.emit({ kind: 'cursor', at: to });
-    },
-    frame(): LensFrame {
-      const head = input.isHead && at.seq >= headSeqOf(store);
-      const base = frameAt(store, at.seq);
-      return {
-        ...base,
-        at: { ...base.at, ...at, mode: LIVE_MODE[`${head}`], isHead: head },
-      };
-    },
-    timeline(): ReadonlyArray<TurnEvent> {
-      return store.events.filter((e) => e.seq <= at.seq);
-    },
-    breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
-      const transport = input.transport;
-      return transport === undefined
-        ? Promise.resolve(refuse('unknown-cluster', 'no inspection transport is attached'))
-        : transport.breakdown(moveset);
-    },
-    conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
-      const transport = input.transport;
-      return transport === undefined
-        ? Promise.resolve(refuse('unknown-cluster', 'no inspection transport is attached'))
-        : transport.conditional(req);
-    },
-    subscribe(fn: (d: SourceDelta) => void): () => void {
-      return listeners.add(fn);
-    },
-  };
+  return withTransport(
+    makeLiveSource({ store: input.store, at: input.at, isHead: input.isHead }),
+    input.transport
+  );
 }
 
 /**
@@ -179,47 +158,7 @@ export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
  * so a drilled row in replay is the row the operator drilled live.
  */
 export function makeReplayDecisionSource(input: ReplaySourceInput): DecisionSource {
-  let at: Cursor = input.at;
-  const listeners = subscribers();
-
-  return {
-    kind: 'replay',
-    get at(): Cursor {
-      return at;
-    },
-    seek(to: Cursor): void {
-      at = to;
-      listeners.emit({ kind: 'cursor', at: to });
-    },
-    frame(): LensFrame {
-      const base = frameAt(input.store, at.seq);
-      return { ...base, at: { ...base.at, ...at, mode: 'replay', isHead: false } };
-    },
-    timeline(): ReadonlyArray<TurnEvent> {
-      return input.store.events.filter((e) => e.seq <= at.seq);
-    },
-    breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
-      const frame = frameAt(input.store, at.seq);
-      const stored = frame.breakdown[moveset];
-      return Promise.resolve(
-        stored === undefined
-          ? refuse('unknown-cluster', `no breakdown was retained for ${moveset}`)
-          : {
-              value: stored,
-              basis: stored.basis,
-              provenance: { kind: 'observed' as const, at },
-            }
-      );
-    },
-    conditional(_req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
-      return Promise.resolve(
-        refuse('off-head', 'a conditional ranking is a question for a running decision')
-      );
-    },
-    subscribe(fn: (d: SourceDelta) => void): () => void {
-      return listeners.add(fn);
-    },
-  };
+  return withTransport(makeReplaySource({ store: input.store, at: input.at }), undefined);
 }
 
 /**
@@ -230,6 +169,19 @@ export function makeReplayDecisionSource(input: ReplaySourceInput): DecisionSour
  * The anchor is the turn's own `board.arrived`: a fold never crosses a turn
  * boundary, so there is nothing to seek past and no game-length fold to avoid.
  */
+/**
+ * THE EVENTS AS THE SERVER BUILT THEM, from the JSON that reached the browser.
+ *
+ * `+∞` on an unproved upper bound is an ordinary reading here and plain JSON
+ * cannot carry it, so the server names it and this restores it — same codec,
+ * both directions. Call it once on whatever the socket or `/api/logs` handed
+ * over; it is pure and total, so an event with nothing to restore comes back
+ * unchanged.
+ */
+export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<TurnEvent> {
+  return events.map((e) => reviveLens(e));
+}
+
 export function frameAtSeq(
   events: ReadonlyArray<TurnEvent>,
   seq: number,

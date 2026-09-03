@@ -94,9 +94,20 @@ export const turnEvents = pgTable(
     // Total order within the turn, gapless and monotone. The only sort key.
     seq: integer('seq').notNull(),
     kind: varchar('kind', { length: 32 }).notNull(),
-    // UTC ms. `bigint` because a JS epoch overflows int4.
+    // UTC ms. `bigint` because a JS epoch overflows int4, and a WHOLE
+    // millisecond because that is what a wall-clock reading is — the sink
+    // rounds, so nothing fractional can reach a column that cannot hold one.
     atWall: bigint('at_wall', { mode: 'number' }).notNull(),
-    atWorkMs: integer('at_work_ms'),
+    // THE KERNEL'S CLOCK, and `double precision` rather than `integer`.
+    //
+    // It is not milliseconds rounded off: under the node clock it is
+    // `nodes × NODE_COST + reads × READ_COST`, which is fractional BY
+    // CONSTRUCTION, and under the wall clock it is a `performance.now()`
+    // difference, which is fractional too. An `integer` column truncated the
+    // axis that replays — the first three frames of a real decision are at
+    // 0.01, 2.04 and 2.05 — and Postgres refused the write outright rather
+    // than truncating, which is how the O1 run found it.
+    atWorkMs: doublePrecision('at_work_ms'),
     actorKind: varchar('actor_kind', { length: 16 }).notNull(),
     actorId: varchar('actor_id', { length: 255 }),
     actorName: varchar('actor_name', { length: 255 }),

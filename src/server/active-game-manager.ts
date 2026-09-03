@@ -36,12 +36,20 @@ import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
-import { ingestLensEvents, makeSeqWriter, projectMovesets, type SeqWriter } from '../lens/store';
+import {
+  boardHashOf,
+  ingestLensEvents,
+  makeSeqWriter,
+  projectMovesets,
+  type SeqWriter,
+} from '../lens/store';
 import type {
   Actor,
+  LensDecision,
+  LensDecisionPort,
+  LensDecisionSummary,
   CellIndex,
   LensEvent,
-  LensSink,
   TurnEvent,
   UnitKey,
 } from '../lens/types';
@@ -525,12 +533,35 @@ export type StagedChangeCallback = (gameId: string) => void;
 // gate — the client should show the confirmation dialog for (snakeId, move).
 export type FatalConfirmationCallback = (gameId: string, snakeId: string, move: Direction, turn: number) => void;
 
+/** S→C `lens-frames` (04 §4.5): the turn's new events, in `seq` order, and
+ *  whether the turn they belong to is the live head. EVENTS and not frames —
+ *  the client folds them with the reducer replay folds with. */
+export type LensEventsCallback = (
+  gameId: string,
+  turn: number,
+  events: ReadonlyArray<TurnEvent>,
+  head: boolean
+) => void;
+
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
   private games: Map<string, ActiveGame> = new Map();
   // ONE `seq` writer per (gameId, turn) — see the lens event log section. The
   // map holds the CURRENT turn's writer per game; a new board rolls it.
   private lensWriters: Map<string, SeqWriter> = new Map();
+  // The current turn's board hash per game, computed once when the writer
+  // rolls. Every consumer that needs to name the board this turn opened on
+  // reads it from here rather than hashing again: one board, one hash.
+  private lensBoardHashes: Map<string, string> = new Map();
+  // Written events not yet on the wire, per game. The lens sink is called
+  // several times at one emission barrier (partition, emission, then a
+  // movesets frame per cluster) and the wire envelope is a BATCH, so the
+  // events are coalesced to the end of the tick — which is exactly one
+  // barrier's worth, because the kernel calls the sink synchronously between
+  // slices and yields afterwards.
+  private lensOutbox: Map<string, TurnEvent[]> = new Map();
+  private lensFlushScheduled: boolean = false;
+  private lensEventCallbacks: LensEventsCallback[] = [];
   private turnUpdateCallbacks: TurnUpdateCallback[] = [];
   private boardUpdateCallbacks: BoardUpdateCallback[] = [];
   private moveCommittedCallbacks: MoveCommittedCallback[] = [];
@@ -780,6 +811,13 @@ export class ActiveGameManager {
 
   onFatalConfirmationNeeded(callback: FatalConfirmationCallback): void {
     this.fatalConfirmationCallbacks.push(callback);
+  }
+
+  /** Subscribe to the `seq` writer's output. The writer is the one producer of
+   *  the lens's total order, so it is also the one producer of what goes on
+   *  the wire — a second path to the client would be a second order. */
+  onLensEvents(callback: LensEventsCallback): void {
+    this.lensEventCallbacks.push(callback);
   }
 
   private notifyFatalConfirmationNeeded(gameId: string, snakeId: string, move: Direction, turn: number): void {
@@ -2163,6 +2201,12 @@ export class ActiveGameManager {
 
     const board = game.boardState?.board;
     const roster = (board?.snakes ?? []).map(s => s.id);
+    // The board's identity, computed ONCE per turn. Everything that names this
+    // board later — the `decisions` row's re-run seed, a re-derivation
+    // checking it is deriving from what the decision saw — reads this string
+    // rather than hashing the settlement again.
+    const boardHash = game.boardState ? boardHashOf(game.boardState) : '';
+    this.lensBoardHashes.set(gameId, boardHash);
     // The anchor carries the settlement in memory so a live fold has a board
     // to draw; the STORED row does not — `turn_boards` holds the settlement
     // under its own key, and a board stored twice is two boards waiting to
@@ -2171,7 +2215,7 @@ export class ActiveGameManager {
       kind: 'board.arrived',
       actor: { kind: 'server', id: null, name: null, color: null },
       payload: {
-        boardHash: '',
+        boardHash,
         deadlineMs: game.gameTimeout,
         turnExpiryTime: game.turnExpiryTime ?? 0,
         roster,
@@ -2225,8 +2269,48 @@ export class ActiveGameManager {
     }
   }
 
+  /**
+   * The wire's copy of a written event. Queued rather than sent: `lens-frames`
+   * is a BATCH envelope, and a barrier that produces a partition, an emission
+   * and four moveset frames should reach the client as one message and one
+   * fold, not six of each.
+   */
+  private queueLensBroadcast(gameId: string, event: TurnEvent): void {
+    let pending = this.lensOutbox.get(gameId);
+    if (!pending) {
+      pending = [];
+      this.lensOutbox.set(gameId, pending);
+    }
+    pending.push(event);
+    if (this.lensFlushScheduled) return;
+    this.lensFlushScheduled = true;
+    queueMicrotask(() => this.flushLensBroadcast());
+  }
+
+  private flushLensBroadcast(): void {
+    this.lensFlushScheduled = false;
+    const batches = [...this.lensOutbox.entries()];
+    this.lensOutbox.clear();
+    for (const [gameId, events] of batches) {
+      if (events.length === 0) continue;
+      const turn = (events[0] as TurnEvent).turn;
+      // OFF THE HEAD IS NOT A REFUSAL, it is a badge: a late-landing event for
+      // a turn the board has already moved past is still recorded and still
+      // shown, with `head` false so no determination is offered on it.
+      const head = this.games.get(gameId)?.boardStateTurn === turn;
+      for (const cb of this.lensEventCallbacks) {
+        try {
+          cb(gameId, turn, events, head);
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens broadcast callback failed for ${gameId}:`, e);
+        }
+      }
+    }
+  }
+
   /** Persist an event, less the anchor's in-memory settlement. */
   private logStoredEvent(event: TurnEvent): void {
+    this.queueLensBroadcast(event.gameId, event);
     if (event.kind !== 'board.arrived') {
       CommandLogger.getInstance().logEvent(event);
       return;
@@ -2236,42 +2320,142 @@ export class ActiveGameManager {
     CommandLogger.getInstance().logEvent({ ...event, payload });
   }
 
+  /** The board a game is CURRENTLY on, when that is the turn being asked
+   *  about. A turn still in play has not been flushed to `turn_boards`, and an
+   *  on-demand derivation about the board in front of an operator must not be
+   *  told the square does not exist yet. */
+  public settlementFor(gameId: string, turn: number): BoardSnapshot | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn !== turn) return null;
+    return game.boardState;
+  }
+
   /**
-   * The sink `KernelInput.lens` is handed, per game. Every kernel emission,
-   * partition, moveset frame, posture flip and refusal arrives through here
-   * and is stamped by the SAME writer the operator's commands are — which is
-   * what makes `seq` a single order over both producers rather than two
-   * sequences that have to be merged later and cannot be.
-   *
-   * Wrapped so a lens consumer that throws cannot take a decision down.
+   * WHERE THE LOG IS, for a game: the turn under the writer and the newest
+   * `seq` it has stamped. It is what a served inspection stamps its
+   * provenance with — a number without the coordinate it was read at is a
+   * number a reader cannot place.
    */
-  public lensSinkFor(gameId: string, unitKeyOf?: (unitId: number) => UnitKey | null): LensSink {
-    return (event: LensEvent): void => {
-      const writer = this.lensWriterFor(gameId);
-      if (!writer) return;
+  public lensCursorFor(gameId: string): { gameId: string; turn: number; seq: number } | null {
+    const writer = this.lensWriters.get(gameId);
+    if (!writer) return null;
+    return { gameId, turn: writer.turn, seq: Math.max(0, writer.written.length - 1) };
+  }
+
+  /**
+   * THE LENS, OPENED ON ONE DECISION — the seam between the kernel that
+   * produces frames and the writer that orders them.
+   *
+   * Asked once per decision, by the decision layer, at the moment it has
+   * finished building its basis. Three things happen here and each of them is
+   * a thing only this end can do:
+   *
+   *   1. `decision.begin` is written, carrying the real `DecisionInput`. The
+   *      storage track left `logDecisionRecord` with no caller rather than
+   *      assemble a basis out of whatever it could reach — a re-run seed
+   *      guessed by the module that stores it re-runs a different decision —
+   *      so the producer is here, where the decision declares it.
+   *   2. The `decisions` row is queued with that basis. Its `boardHash` is the
+   *      LOG's, taken from the anchor this turn opened on rather than hashed a
+   *      second time in the decision layer.
+   *   3. Every frame the kernel emits is stamped by the SAME writer the
+   *      operator's commands are, which is what makes `seq` a single order
+   *      over both producers rather than two sequences that would have to be
+   *      merged later and cannot be.
+   *
+   * Returns null when there is no board to anchor a turn on — an unwatched or
+   * not-yet-started game, where the decision must cost exactly what it cost
+   * before the lens existed (05 §(d) gate 7(ii)).
+   *
+   * Every path below is wrapped: a lens consumer that throws must not be able
+   * to take a decision down.
+   */
+  public lensDecision(gameId: string, turn: number, decision: LensDecision): LensDecisionPort | null {
+    const writer = this.lensWriterFor(gameId);
+    if (!writer || writer.turn !== turn) return null;
+    const decisionId = `${gameId}:${turn}`;
+    const startedAt = Date.now();
+    const input = { ...decision.input, boardHash: this.lensBoardHashes.get(gameId) ?? '' };
+
+    this.emitTurnEvent(gameId, {
+      kind: 'decision.begin',
+      actor: { kind: 'bot', id: null, name: decision.input.botId, color: null },
+      payload: { decisionId, input },
+    });
+    DecisionLogger.getInstance().logDecisionRecord({
+      id: decisionId,
+      gameId,
+      turn,
+      botId: decision.input.botId,
+      behaviourId: decision.input.behaviourId,
+      engine: decision.engine,
+      profile: decision.profile,
+      input,
+      summary: {},
+      startedAt,
+      endedAt: null,
+    });
+
+    const unitKeyOf = (unitId: number): UnitKey | null => {
       try {
-        const written = ingestLensEvents(
-          writer,
-          [event],
-          unitKeyOf ? { unitKeyOf } : {}
-        );
-        for (const row of written) this.logStoredEvent(row);
-        // A reservoir frame moves the projection. Re-project the WHOLE turn
-        // rather than appending the frame's rows: the projection is a fold, and
-        // a fold recomputed is a fold that cannot have drifted. It is ≤24 rows
-        // per decision, and it is the same call `scripts/lens-rebuild.js`
-        // makes, so the live table and a rebuilt one are the same bytes by
-        // construction rather than by agreement.
-        if (written.some(row => row.kind === 'movesets')) {
-          const decisionId = `${gameId}:${writer.turn}`;
-          DecisionLogger.getInstance().logMovesets(
-            decisionId,
-            projectMovesets(decisionId, writer.written)
-          );
-        }
-      } catch (e) {
-        console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
+        return decision.unitKeyOf(unitId);
+      } catch {
+        return null;
       }
+    };
+
+    return {
+      frame: (event: LensEvent): void => {
+        const live = this.lensWriterFor(gameId);
+        if (!live || live.turn !== turn) return;
+        try {
+          const written = ingestLensEvents(live, [event], { unitKeyOf });
+          for (const row of written) this.logStoredEvent(row);
+          // A reservoir frame moves the projection. Re-project the WHOLE turn
+          // rather than appending the frame's rows: the projection is a fold,
+          // and a fold recomputed is a fold that cannot have drifted. It is
+          // ≤24 rows per decision, and it is the same call
+          // `scripts/lens-rebuild.js` makes, so the live table and a rebuilt
+          // one are the same bytes by construction rather than by agreement.
+          if (written.some(row => row.kind === 'movesets')) {
+            DecisionLogger.getInstance().logMovesets(
+              decisionId,
+              projectMovesets(decisionId, live.written)
+            );
+          }
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
+        }
+      },
+      end: (summary: LensDecisionSummary): void => {
+        try {
+          this.emitTurnEvent(gameId, {
+            kind: 'decision.end',
+            actor: { kind: 'bot', id: null, name: decision.input.botId, color: null },
+            payload: {
+              decisionId,
+              abandoned: summary.abandoned,
+              stagedNothing: summary.stagedNothing,
+              summary: summary.counters,
+            },
+          });
+          DecisionLogger.getInstance().logDecisionRecord({
+            id: decisionId,
+            gameId,
+            turn,
+            botId: decision.input.botId,
+            behaviourId: decision.input.behaviourId,
+            engine: decision.engine,
+            profile: decision.profile,
+            input,
+            summary: summary.counters,
+            startedAt,
+            endedAt: Date.now(),
+          });
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens close failed for ${gameId}:`, e);
+        }
+      },
     };
   }
 

@@ -20,7 +20,13 @@ import {
   turnEvents,
   unitOutcomes,
 } from '../../database/schema';
-import { applyEvent, decodeDecisionInput, emptyStore, encodeDecisionInput } from './index';
+import {
+  decodeDecisionInput,
+  encodeDecisionInput,
+  lensStringify,
+  reviveLens,
+  storeFromRows,
+} from './index';
 import type {
   DecisionRow,
   FrameStore,
@@ -124,7 +130,11 @@ export async function writeEventRows(rows: ReadonlyArray<TurnEventRow>): Promise
         unitKey: r.unitKey,
         causedBy: r.causedBy,
         answers: r.answers,
-        payload: sql`${JSON.stringify(r.payload)}::jsonb`,
+        // `lensStringify`, not `JSON.stringify`: a bound of `+∞` is an
+        // ordinary reading on this scale and plain JSON turns it into `null`,
+        // which the `movesets` projection derived from this row then cannot
+        // satisfy — its `hi` column is NOT NULL.
+        payload: sql`${lensStringify(r.payload)}::jsonb`,
       }))
     )
     .onConflictDoNothing();
@@ -140,7 +150,7 @@ export async function readTurnEvents(
     .from(turnEvents)
     .where(and(eq(turnEvents.gameId, gameId), eq(turnEvents.turn, turn)))
     .orderBy(turnEvents.seq);
-  return rows.map((r) => r.payload as TurnEvent);
+  return rows.map((r) => reviveLens(r.payload as TurnEvent));
 }
 
 /** Every event of a game, for the timeline lane and the command history. */
@@ -150,7 +160,7 @@ export async function readGameEvents(gameId: GameId): Promise<ReadonlyArray<Turn
     .from(turnEvents)
     .where(eq(turnEvents.gameId, gameId))
     .orderBy(turnEvents.turn, turnEvents.seq);
-  return rows.map((r) => r.payload as TurnEvent);
+  return rows.map((r) => reviveLens(r.payload as TurnEvent));
 }
 
 // --------------------------------------------------------------- decisions
@@ -236,7 +246,7 @@ export async function writeMovesetRows(
         clusterGen: r.clusterGen,
         rank: r.rank,
         movesetKey: r.movesetKey,
-        moves: sql`${JSON.stringify(r.moves)}::jsonb`,
+        moves: sql`${lensStringify(r.moves)}::jsonb`,
         witnessPlanKey: r.witnessPlanKey,
         seenIn: r.seenIn,
         lo: r.lo,
@@ -248,18 +258,18 @@ export async function writeMovesetRows(
         vacuity: r.vacuity,
         complementKey: r.complementKey,
         complementStale: r.complementStale,
-        cited: sql`${JSON.stringify(r.cited)}::jsonb`,
+        cited: sql`${lensStringify(r.cited)}::jsonb`,
         basisKey: r.basisKey,
         staged: r.staged,
         dominanceKind: r.dominanceKind,
-        dominance: sql`${JSON.stringify(r.dominance)}::jsonb`,
+        dominance: sql`${lensStringify(r.dominance)}::jsonb`,
         h1Lo: r.h1Lo,
         h1Hi: r.h1Hi,
         deepHorizon: r.deepHorizon,
         deepLo: r.deepLo,
         deepHi: r.deepHi,
         derived: r.derived,
-        line: r.line === null ? sql`NULL` : sql`${JSON.stringify(r.line)}::jsonb`,
+        line: r.line === null ? sql`NULL` : sql`${lensStringify(r.line)}::jsonb`,
       }))
     )
     .onConflictDoNothing();
@@ -283,7 +293,7 @@ export async function readMovesetRows(
     clusterGen: r.clusterGen,
     rank: r.rank,
     movesetKey: r.movesetKey,
-    moves: r.moves as MovesetProjectionRow['moves'],
+    moves: reviveLens(r.moves as MovesetProjectionRow['moves']),
     witnessPlanKey: r.witnessPlanKey ?? '',
     seenIn: r.seenIn ?? 0,
     lo: r.lo,
@@ -295,18 +305,18 @@ export async function readMovesetRows(
     vacuity: r.vacuity as MovesetProjectionRow['vacuity'],
     complementKey: r.complementKey ?? '',
     complementStale: r.complementStale,
-    cited: (r.cited ?? []) as MovesetProjectionRow['cited'],
+    cited: reviveLens((r.cited ?? []) as MovesetProjectionRow['cited']),
     basisKey: (r.basisKey ?? '') as MovesetProjectionRow['basisKey'],
     staged: r.staged,
     dominanceKind: r.dominanceKind as MovesetProjectionRow['dominanceKind'],
-    dominance: r.dominance as MovesetProjectionRow['dominance'],
+    dominance: reviveLens(r.dominance as MovesetProjectionRow['dominance']),
     h1Lo: r.h1Lo,
     h1Hi: r.h1Hi,
     deepHorizon: r.deepHorizon,
     deepLo: r.deepLo,
     deepHi: r.deepHi,
     derived: r.derived,
-    line: r.line as MovesetProjectionRow['line'],
+    line: reviveLens(r.line as MovesetProjectionRow['line']),
   }));
 }
 
@@ -399,33 +409,5 @@ export async function loadTurnStore(gameId: GameId, turn: Turn): Promise<FrameSt
     readTurnEvents(gameId, turn),
   ]);
   if (!board) return null;
-
-  const stored = events.find((e) => e.kind === 'board.arrived');
-  const anchor: TurnEvent = stored
-    ? { ...stored, payload: { ...(stored.payload as object), settlement: board.settlement } }
-    : {
-        id: `${gameId}:${turn}:0`,
-        gameId,
-        turn,
-        seq: 0,
-        atWall: 0,
-        atWorkMs: null,
-        kind: 'board.arrived',
-        actor: { kind: 'server', id: null, name: null, color: null },
-        unit: null,
-        causedBy: null,
-        answers: null,
-        payload: {
-          boardHash: board.boardHash,
-          deadlineMs: board.deadlineMs,
-          turnExpiryTime: 0,
-          roster: board.roster,
-          alive: board.roster,
-          settlement: board.settlement,
-        },
-      };
-
-  return events
-    .filter((e) => e.seq !== anchor.seq)
-    .reduce<FrameStore>((store, event) => applyEvent(store, event), emptyStore(anchor));
+  return storeFromRows(board, events);
 }

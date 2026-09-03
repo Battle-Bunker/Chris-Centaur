@@ -114,6 +114,15 @@ app.get('/connection-debug', markHumanAction, (_req, res) => {
 const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
+// THE LENS ON THE WIRE, both directions.
+//
+// Outbound: the manager is the one `seq` writer, so what it writes is what
+// goes out — a second path to the client would be a second order. Inbound:
+// the inspection port is attached below, once the transport that owns the
+// running decisions exists.
+gameManager.onLensEvents((gameId, turn, events, head) =>
+  wsServer.broadcastLensFrames(gameId, turn, events, head)
+);
 gameManager.startStaleGameCleanup(300000, 600000);
 
 // The TacticToes Firebase interface is the SOLE game transport: it signs in
@@ -129,6 +138,11 @@ if (ttFirebase) {
   // Attach the status listener BEFORE start() so a failure during the initial
   // (async) connect is captured and pushed to the UI, not lost.
   ttFirebase.onStatusChange((status) => wsServer.broadcastFirebaseStatus(status));
+  // The inbound half: `lens-conditional` and `lens-breakdown` are questions
+  // for a RUNNING decision, and the transport is what holds one. With nothing
+  // attached every ask is refused as `unknown-cluster`, which is honest and
+  // is what a process serving the UI without a transport should say.
+  wsServer.attachLensPort(ttFirebase.lensInspectionPort());
   ttFirebase.start().catch((err) => {
     console.error('[tt-firebase] Failed to start Firebase interface:', err);
   });

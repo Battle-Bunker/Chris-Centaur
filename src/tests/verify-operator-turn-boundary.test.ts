@@ -92,7 +92,6 @@ function fakePorts(registry: ReadonlyArray<string>): FakePorts {
       };
     },
     pinSnakeIdOf: (_g, unitId) => registry[unitId] ?? null,
-    logDecision: () => undefined,
     now: () => WALL,
     monotonic: clock.now,
     log: () => undefined,

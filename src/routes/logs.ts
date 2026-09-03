@@ -2,6 +2,12 @@ import express from 'express';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger } from '../logic/command-logger';
 import { ActivityController } from '../server/activity-controller';
+import { ActiveGameManager } from '../server/active-game-manager';
+import {
+  OWNER_NEUTRAL,
+  OWNER_UNREACHED,
+  computeTerritoryView,
+} from '../logic/territory-view';
 
 /**
  * The read side of the lens store.
@@ -90,6 +96,65 @@ router.get('/api/logs/commands', async (req, res) => {
   } catch (error) {
     console.error('Error querying command logs:', error);
     res.status(500).json({ error: 'Failed to query command logs' });
+  }
+});
+
+/**
+ * ONE CELL'S TERRITORY, DERIVED ON DEMAND.
+ *
+ * The whole-board Voronoi ownership grid used to be computed every turn,
+ * stored on `turn_states`, shipped on every board update and painted as an
+ * overlay. It is deleted (04 §5.3 #14): it answers the PRE-CLUSTER question —
+ * which unit could reach this cell first — and it cannot show what a moveset
+ * trades between members, which is the only question the lens asks. The
+ * ORIENTATION it gave is worth keeping, so it comes back here: the Alt+click
+ * inspector asks about the one cell under the pointer, when a human points at
+ * it, and the answer is derived from the settlement the turn is stored under
+ * rather than shipped ahead of a question nobody asked.
+ *
+ * `sources`, `owner` and `distance` are the same three fields the deleted
+ * per-unit inspection test asserted, in the same units.
+ */
+router.get('/api/games/:gameId/turns/:turn/territory', async (req, res) => {
+  try {
+    const turn = parseInt(req.params.turn, 10);
+    const x = parseInt(String(req.query.x), 10);
+    const y = parseInt(String(req.query.y), 10);
+    if (!Number.isFinite(turn) || !Number.isFinite(x) || !Number.isFinite(y)) {
+      res.status(400).json({ error: 'turn, x and y are required' });
+      return;
+    }
+    // The LIVE board first: a turn still in play has not been flushed, and an
+    // inspector pointing at the board in front of them must not be told the
+    // square does not exist yet.
+    const live = ActiveGameManager.getInstance().settlementFor(req.params.gameId, turn);
+    const settlement = live ?? (await logger.getTurnSettlement(req.params.gameId, turn));
+    if (!settlement) {
+      res.status(404).json({ error: `no board stored for turn ${turn}` });
+      return;
+    }
+    const board = settlement.board;
+    if (x < 0 || x >= board.width || y < 0 || y >= board.height) {
+      res.status(400).json({ error: 'cell is off the board' });
+      return;
+    }
+    const ownership = computeTerritoryView(settlement);
+    const index = y * ownership.width + x;
+    const ownerIndex = ownership.owner[index] ?? OWNER_UNREACHED;
+    res.json({
+      turn,
+      x,
+      y,
+      owner: ownerIndex >= 0 ? (ownership.sources[ownerIndex] ?? null) : null,
+      neutral: ownerIndex === OWNER_NEUTRAL,
+      unreached: ownerIndex === OWNER_UNREACHED,
+      distance: ownership.distance[index] ?? -1,
+      vacatesAt: ownership.vacatesAt[index] ?? 0,
+      sources: ownership.sources,
+    });
+  } catch (error) {
+    console.error('Error deriving territory view:', error);
+    res.status(500).json({ error: 'Failed to derive the territory view' });
   }
 });
 

@@ -893,6 +893,20 @@ interface Run {
    * reservoir does not re-emit a frame every barrier. */
   readonly framed: Map<number, string>
   /**
+   * The refusal reasons already framed SINCE THE LAST EMISSION (gate 9).
+   *
+   * A refused write is a thing that happened at a time and the timeline should
+   * say so — but `refuse` is called on every rejected candidate inside the hot
+   * loop, and the O1 run measured what that costs: 18,586 refusal frames over
+   * twenty `snakes` turns, 98% of every event written, and 542 KB per turn
+   * against a design that says a turn's events are kilobytes and travel whole
+   * on the wire. The count was never the point — `KernelReport.refusals`
+   * already carries it exactly — the MOMENT was. So one moment per reason is
+   * kept between emissions and the repeats are dropped. Cleared at each
+   * emission barrier, which is the timeline lane's own unit.
+   */
+  readonly refusalsFramed: Set<string>
+  /**
    * THE INSPECTION RESERVE, carved BEFORE `searchDeadline` and by nothing else
    * (05 §(d) gate 7(i)). The search is unconditionally shorter by a fixed,
    * DECLARED amount; inspection is unconditionally affordable; and no exchange
@@ -1083,6 +1097,7 @@ export class LobsterKernel implements Kernel {
       stamp: 0,
       basisKey: "",
       framed: new Map<number, string>(),
+      refusalsFramed: new Set<string>(),
       pins,
       tentative: input.initialPins.filter((p) => p.tentative),
       wirePlan: null,
@@ -2326,6 +2341,11 @@ export class LobsterKernel implements Kernel {
     // it — sealed, so every row carries the branch that refused it.
     this.sealAt(run, rec.plan)
     this.emitLens(run, (at) => ({ kind: "emission", at, record: rec }))
+    // A NEW BARRIER IS A NEW MOMENT. The reasons framed before this emission
+    // are about the search that produced it; the next stretch gets its own
+    // tick per reason. Clearing here rather than per slice is what makes the
+    // cadence match the timeline's own: the lane's unit is the emission.
+    run.refusalsFramed.clear()
     this.frameMovesets(run, rec.plan)
   }
 
@@ -2658,9 +2678,23 @@ export class LobsterKernel implements Kernel {
     }
   }
 
-  /** A refused write is a thing that HAPPENED at a TIME, and the timeline
-   *  should say so — today these are only counters on the report. */
+  /**
+   * A refused write is a thing that HAPPENED at a TIME, and the timeline
+   * should say so — today these are only counters on the report.
+   *
+   * ONCE PER REASON PER EMISSION BARRIER. `Run.refusalsFramed` explains why,
+   * and the number that decided it is in `07-MEASURED.md`: unthrottled, the
+   * refusal frame was 98% of every row written and put a turn's event log two
+   * orders of magnitude over the budget the wire envelope is designed around.
+   * The counters stay exact on the report; what the lens adds is the MOMENT,
+   * and a moment repeated three hundred times between two emissions is one
+   * moment. The barrier is the cadence because the barrier is the timeline
+   * lane's own unit — a tick the operator can actually land the playhead on.
+   */
   private refuse(run: Run, refusal: EmitRefusal, key: string): null {
+    if (run.lens === null) return null
+    if (run.refusalsFramed.has(refusal)) return null
+    run.refusalsFramed.add(refusal)
     this.emitLens(run, (at) => ({ kind: "refusal", at, refusal, planKey: key }))
     return null
   }

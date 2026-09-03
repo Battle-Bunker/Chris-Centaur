@@ -31,6 +31,20 @@ import { recordLensRun, serialiseLensEvent, type LensRunSpec } from '../lens/ker
 import type { LensEvent } from '../lens/types';
 
 const BASE_NODES = 550;
+/**
+ * A budget the `mixed` decision does NOT finish inside, for the non-vacuity
+ * check below.
+ *
+ * At `BASE_NODES` the decision has converged: the search plateaus, the last
+ * emission is the staged plan, and doubling the budget buys nothing — the b
+ * and 2b runs produce the same 24 frames. That used not to be visible, because
+ * the refusal frame was emitted per refused candidate write and the extra
+ * budget bought extra REFUSALS, so the frame count grew on noise (gate 9's
+ * measurement, `07-MEASURED.md`, and the coalescing it forced). With the noise
+ * gone the non-vacuity check has to name a budget where the b run is genuinely
+ * truncated, and this is one: 16 frames at 200, 24 at 400.
+ */
+const TRUNCATED_NODES = 200;
 const SCENARIOS = ['snake', 'mixed'] as const;
 
 function specFor(scenario: string, nodes: number, seed = 1): LensRunSpec {
@@ -89,9 +103,13 @@ describe('G2 — a longer run EXTENDS the shorter one (the [CHANGE 1] gate)', ()
   }
 
   it('really does buy more frames at 2b — otherwise the prefix claim is trivial', async () => {
-    const short = prefixKinds(await recordLensRun(specFor('mixed', BASE_NODES)));
-    const long = prefixKinds(await recordLensRun(specFor('mixed', BASE_NODES * 2)));
+    const short = prefixKinds(await recordLensRun(specFor('mixed', TRUNCATED_NODES)));
+    const long = prefixKinds(await recordLensRun(specFor('mixed', TRUNCATED_NODES * 2)));
     expect(long.length).toBeGreaterThan(short.length);
+    // And the prefix property holds where the claim is NOT trivial, which is
+    // the only place it proves anything: the longer run's frames begin with
+    // the shorter run's, byte for byte, on a run the shorter one truncated.
+    expect(long.slice(0, short.length)).toEqual(short);
   }, 180_000);
 
   it('does NOT claim the prefix over conditional frames, and says why', async () => {

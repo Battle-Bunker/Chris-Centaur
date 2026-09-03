@@ -79,6 +79,8 @@ import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
+import { makeInspectionPort } from '../lens/store/sources';
+import type { LensInspectionPort } from '../server/websocket-server';
 import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -420,23 +422,16 @@ export class TacticToesFirebaseInterface {
     // Before this line the live process played ONE bot for every game and
     // every seat it held — see `TeamDecisionPorts.botBinding`.
     botBinding: (gameId, centaurId) => botRegistry().bindingFor(gameId, centaurId),
-    // THE ROW PATH IS GONE, AND THIS PORT IS DELIBERATELY UNCONSUMED.
-    //
-    // `UnitDecisionRow` is the old telemetry shape: one row per unit per turn
-    // carrying up to six explained candidates with full feature breakdowns,
-    // built on the premise that a joint plan's value decomposes onto its
-    // units. The evaluator itself measures that premise as false in both
-    // directions, so the rows were an expensive account of a question this bot
-    // does not ask, and `decision_logs` is dropped with them.
-    //
-    // What replaces the account is not smaller data about the same units, it
-    // is data about the right object: the `movesets` projection (a whole-board
-    // proved bracket per cluster restriction, with the joint residual NAMED)
-    // and `unit_outcomes` (what actually happened to each unit), both written
-    // from the one `turn_events` log the active game manager sequences. The
-    // port stays because the engine's contract names it; nothing on this side
-    // wants a row, so nothing on this side takes one.
-    logDecision: () => undefined,
+    // THE LENS, per decision [CHANGE 3]. The manager is the one `seq` writer,
+    // so the sink the kernel is handed is the manager's: every frame the
+    // decision emits is stamped by the same writer the operator's commands
+    // are, and `seq` is one order over both producers rather than two that
+    // would have to be merged later and cannot be. A game the manager has no
+    // board for gets null, which is the state the cost gate measures — an
+    // unwatched decision must cost exactly what it cost before the lens
+    // existed (05 §(d) gate 7(ii)).
+    lensSink: (gameId, turn, decision) =>
+      this.gameManager.lensDecision(gameId, turn, decision),
   });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
@@ -1119,6 +1114,28 @@ export class TacticToesFirebaseInterface {
       this.unitIds.set(gameID, registry);
     }
     return registry;
+  }
+
+  /**
+   * THE INSPECTION PORT, seen from the wire (04 §4.5).
+   *
+   * The websocket server serves `lens-conditional` and `lens-breakdown` out of
+   * the running decision's own reserve, and the running decision lives here —
+   * this interface owns the engine, and the engine holds the live kernel per
+   * game. Everything below either answers or REFUSES in the type of its own
+   * reply: with no decision running the answer is a typed refusal and never a
+   * silence, because a UI that cannot tell "nothing is running" from "nothing
+   * happened" draws the second when it means the first.
+   */
+  lensInspectionPort(): LensInspectionPort {
+    return makeInspectionPort({
+      // The RUNNING decision lives here — this interface owns the engine, and
+      // the engine holds the live kernel per game. Null is not a switch: it is
+      // the state "no decision is answering questions right now", which the
+      // port turns into a typed refusal.
+      portFor: (gameId) => this.teamEngine.lensPortFor(gameId),
+      cursorFor: (gameId) => this.gameManager.lensCursorFor(gameId),
+    });
   }
 
   /**

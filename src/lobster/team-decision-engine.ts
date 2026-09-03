@@ -39,7 +39,15 @@ import type { BotIdentity, BotSpec } from '../config/bot-identity';
 import { botIdentityOf } from '../config/bot-identity';
 import { behaviourId } from '../config/build-identity';
 import type { BotBinding } from '../config/bot-binding';
-import type { LensSink } from '../lens/types';
+import type {
+  KernelLensPort,
+  KernelOptionsDigest,
+  LensDecision,
+  LensDecisionPort,
+  StoredAssumption,
+  StoredPin,
+} from '../lens/types';
+import { unitKeyOf as wireKeyOf } from '../lens/kernel/keys';
 import { defaultBotSpecFrom } from '../config/bot-binding';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
@@ -110,24 +118,6 @@ export interface TeamDecisionPorts {
   /** The transport registry's reverse lookup for pin-event unit numbers. */
   pinSnakeIdOf(gameId: string, unitId: UnitId): string | null;
   /**
-   * REPLAY TELEMETRY OUT. One completed row per unit per turn, handed over
-   * after the decision has settled — see `./telemetry.ts` for what a row says
-   * and why it costs nothing inside the budget.
-   *
-   * A PORT AND NOT AN IMPORT. The logger is a process-wide singleton with a
-   * database queue behind it; reaching for it from in here would put a
-   * Postgres dependency inside the decision layer, and every lobster test
-   * would then be one import away from a live connection attempt. The wire
-   * layer owns persistence, so the wire layer supplies the sink and a test
-   * supplies a list.
-   *
-   * Required rather than optional, deliberately: an optional telemetry port is
-   * an unwired one, and an unwired one is exactly the silence this exists to
-   * end. A caller with nowhere to put rows passes `() => undefined` and has
-   * said so.
-   */
-  logDecision(row: UnitDecisionRow): void;
-  /**
    * WHICH BOT THIS GAME PLAYS — the production binding site.
    *
    * Before this port existed there was none. The engine reached for its own
@@ -163,7 +153,7 @@ export interface TeamDecisionPorts {
    * be: nobody is looking. The frames a nobody would have read are not worth
    * the null checks it takes to build them.
    */
-  lensSink?(gameId: string, turn: number): LensSink | null;
+  lensSink?(gameId: string, turn: number, decision: LensDecision): LensDecisionPort | null;
   /** Wall clock (Date.now scale). Injectable for tests. */
   now?(): number;
   /** The kernel's monotonic clock. Injectable for tests. */
@@ -226,6 +216,25 @@ export interface TeamDecisionOptions {
    * measures nothing.
    */
   readonly stagingSafety?: StagingSafety;
+}
+
+/**
+ * The kernel's options as PLAIN VALUES — every number, string and boolean it
+ * was configured with, and nothing else. The two function-valued options (the
+ * crossfade certificate and the wire's chunk partition) are bound to one
+ * decision's substrate and cannot be stored, re-read or compared; a digest
+ * that carried "[Function]" for them would be a field that looks like a fact
+ * and is not one.
+ */
+function digestOf(options: KernelOptions): KernelOptionsDigest {
+  const out: Record<string, number | string | boolean> = {};
+  for (const [key, value] of Object.entries(options)) {
+    const t = typeof value;
+    if (t === 'number' || t === 'string' || t === 'boolean') {
+      out[key] = value as number | string | boolean;
+    }
+  }
+  return out;
 }
 
 export interface TeamTurnInput {
@@ -529,9 +538,39 @@ export class TeamDecisionEngine {
     }
 
     const initialPins = game.ledger.pinsFor(sub);
-    // Asked ONCE per decision. A port that says null leaves `KernelInput.lens`
-    // undefined, which is the state the cost gate measures.
-    const lens = this.ports.lensSink?.(input.gameId, input.turn) ?? null;
+    // Asked ONCE per decision, and asked with the BASIS: everything the
+    // decision knows about itself that a re-run would need, declared at the
+    // moment it was built rather than reconstructed later by the module that
+    // stores it. A port that says null leaves `KernelInput.lens` undefined,
+    // which is the state the cost gate measures.
+    const lens =
+      this.ports.lensSink?.(input.gameId, input.turn, {
+        input: {
+          asTeam,
+          seed: this.options.search?.seed ?? 0,
+          assumptions: assumptions.map((a) => this.storedAssumption(sub, a)),
+          initialPins: initialPins.map(
+            (p): StoredPin => ({ unit: wireKeyOf(sub, p.unitId), to: p.to })
+          ),
+          modelled: chosen,
+          botId: bot.botId,
+          behaviourId: bot.behaviourId,
+          // NO NODE BUDGET IN PRODUCTION. A live decision stops on the wall
+          // clock, and a re-run under the node clock picks its own budget —
+          // saying 0 says that, where any other number would be a budget
+          // nobody ran.
+          nodeBudget: 0,
+          liveBudgetMs: Math.max(0, input.deadlineMs - this.now()),
+          kernelOptions: digestOf(this.kernelOptions()),
+        },
+        engine: 'lobster',
+        // The profile's NAME, which is what a reader can compare. The
+        // evaluator carries the profile itself — name, weights and horizons —
+        // and the weights are already inside `botId`'s digest, so putting the
+        // object here would store the same fact twice in two shapes.
+        profile: (evaluate as { profile?: CriterionProfile }).profile?.name ?? '',
+        unitKeyOf: (unitId) => sub.unitOf(unitId as UnitId)?.wireId ?? null,
+      }) ?? null;
     const kin: KernelInput = {
       sub,
       gen,
@@ -544,7 +583,7 @@ export class TeamDecisionEngine {
       now: this.monotonic,
       initialStepCostMs: game.stepCostMs,
       abandoned: () => game.latestTurn > input.turn,
-      ...(lens === null ? {} : { lens }),
+      ...(lens === null ? {} : { lens: lens.frame }),
     };
 
     const views = new Map(input.units.map((u) => [u.snakeId, u.view]));
@@ -589,18 +628,38 @@ export class TeamDecisionEngine {
         game.stepCostMs = report.finalStepCostMs;
         game.stepCostTurn = input.turn;
       }
-      // TELEMETRY, IN THE FINALLY AND BEFORE THE RELEASE.
+      // THE LENS CLOSES IN THE FINALLY AND BEFORE THE RELEASE.
       //
       // In the `finally` because the two paths that most need explaining are
       // the ones that do not reach the end of the loop: a decision ABANDONED
-      // because the turn resolved early, and one that threw. Both of those are
-      // turns a replay currently has nothing at all to say about, and a row
-      // written only on the happy path would leave exactly those holes.
+      // because the turn resolved early, and one that threw. Both are turns a
+      // replay would otherwise have nothing at all to say about, and a record
+      // closed only on the happy path would leave exactly those holes.
+      // `emitted === 0` is `stagedNothing` — an outcome a reader must never
+      // have to infer from an absence, because an absence is also what a lost
+      // log looks like.
       //
-      // Before `sub.release()` because every candidate assessment and every
-      // counterfactual evaluation reads the substrate; after it there is
-      // nothing left to read. Its own try/catch, because a decision must never
-      // be able to fail on account of its own logging.
+      // Before `sub.release()` because the candidate republish below reads the
+      // substrate; after it there is nothing left to read. Its own try/catch,
+      // because a decision must never be able to fail on account of its own
+      // record.
+      try {
+        lens?.end({
+          abandoned: game.latestTurn > input.turn,
+          stagedNothing: emitted === 0,
+          counters: {
+            emissions: emitted,
+            forwarded,
+            slices: report?.slices ?? 0,
+            ...refusals,
+          },
+        });
+      } catch (err) {
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: lens close threw — ` +
+            `${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       this.emitTelemetry({
         input,
         sub,
@@ -760,6 +819,35 @@ export class TeamDecisionEngine {
       stagingSafety: this.options.stagingSafety ?? binding.spec.stagingSafety,
     };
     return botIdentityOf(spec, binding.identity.behaviourId);
+  }
+
+  /**
+   * THE RUNNING DECISION'S INSPECTION PORT for one game, or null when nothing
+   * is running there.
+   *
+   * The port reads the LIVE kernel — `lastReport` only exists once a decision
+   * has ended, which is when the turn is about to resolve and the operator has
+   * stopped looking. Null is not a switch: it is the state "no decision is
+   * answering questions right now", and the wire turns it into a typed
+   * refusal rather than a silence.
+   */
+  lensPortFor(gameId: string): KernelLensPort | null {
+    const live = this.games.get(gameId)?.live ?? null;
+    return live === null ? null : live.kernel.lensPort();
+  }
+
+  /**
+   * An assumption in the WIRE's numbering. The stored basis must be readable
+   * one turn later, and a substrate unit number is not — it is private to the
+   * decision that minted it (04 §2.2). A unit the substrate cannot name is
+   * carried as `#<id>`, which is visibly not a wire id.
+   */
+  private storedAssumption(sub: EngineSubstrate, a: Assumption): StoredAssumption {
+    if (a.kind === 'posture') return { kind: 'posture', posture: a.posture };
+    if (a.kind === 'narrowing') {
+      return { kind: 'narrowing', unit: wireKeyOf(sub, a.unitId), note: a.note };
+    }
+    return { kind: a.kind, unit: wireKeyOf(sub, a.unitId), to: a.to };
   }
 
   // ---------------------------------------------------------------- internals
@@ -1116,14 +1204,6 @@ export class TeamDecisionEngine {
     }
 
     for (const row of rows) {
-      try {
-        this.ports.logDecision(row);
-      } catch (err) {
-        this.log(
-          `[team-engine] ${input.gameId} turn ${input.turn}: logDecision port threw for ` +
-            `${row.snakeId} — ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
       const unit = sub.unitOfWireId(row.snakeId);
       const move = lastForwarded.get(row.snakeId);
       if (unit === undefined || unit.type !== 'snake' || move === undefined) continue;
