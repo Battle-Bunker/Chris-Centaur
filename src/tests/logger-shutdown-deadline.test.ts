@@ -26,6 +26,7 @@ jest.mock('../database/db', () => {
   return {
     db: {
       insert: () => chain,
+      delete: () => chain,
       execute: () => never,
     },
     pool: { end: async () => {} },
@@ -35,14 +36,19 @@ jest.mock('../database/db', () => {
 
 import { CommandLogger } from '../logic/command-logger';
 import { DecisionLogger } from '../logic/decision-logger';
+import { turnEvent } from './lens-fixtures';
 
-const gs = { game: { id: 'g' }, turn: 1, board: { width: 3, height: 3, food: [], hazards: [], snakes: [] } };
+const settlement: any = {
+  game: { id: 'g' },
+  turn: 1,
+  board: { width: 3, height: 3, food: [], hazards: [], snakes: [] },
+};
 
 describe('shutdown flush deadline against a dead database', () => {
   test('DecisionLogger.shutdown returns within the cap and drops the remainder', async () => {
     const logger: any = new (DecisionLogger as any)();
     for (let turn = 0; turn < 25; turn++) {
-      logger.logTurnState({ gameId: 'g', turn, gameState: gs });
+      logger.logTurnBoard({ gameId: 'g', turn, settlement });
     }
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -60,7 +66,7 @@ describe('shutdown flush deadline against a dead database', () => {
   test('CommandLogger.shutdown returns within the cap and drops the remainder', async () => {
     const logger: any = new (CommandLogger as any)();
     for (let turn = 0; turn < 25; turn++) {
-      logger.logTurnState('g', turn, { s: turn });
+      logger.logEvent(turnEvent({ kind: 'pin', seq: turn, unit: 'A-A', payload: { unit: 'A-A', to: 20, tentative: false } }));
     }
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
