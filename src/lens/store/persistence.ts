@@ -265,6 +265,51 @@ export async function writeMovesetRows(
     .onConflictDoNothing();
 }
 
+/** The stored projection for one decision, in the table's own index order.
+ *  Read back so the rebuild can COMPARE rather than assert. */
+export async function readMovesetRows(
+  decisionId: string
+): Promise<ReadonlyArray<MovesetProjectionRow>> {
+  const rows = await db
+    .select()
+    .from(movesetsTable)
+    .where(eq(movesetsTable.decisionId, decisionId))
+    .orderBy(movesetsTable.emissionSeq, movesetsTable.clusterId, movesetsTable.rank);
+  return rows.map((r) => ({
+    decisionId: r.decisionId,
+    emissionSeq: r.emissionSeq,
+    clusterId: r.clusterId,
+    clusterKey: r.clusterKey,
+    clusterGen: r.clusterGen,
+    rank: r.rank,
+    movesetKey: r.movesetKey,
+    moves: r.moves as MovesetProjectionRow['moves'],
+    witnessPlanKey: r.witnessPlanKey ?? '',
+    seenIn: r.seenIn ?? 0,
+    lo: r.lo,
+    est: r.est,
+    hi: r.hi,
+    channel: r.channel as MovesetProjectionRow['channel'],
+    exact: r.exact,
+    ledgerSize: r.ledgerSize ?? 0,
+    vacuity: r.vacuity as MovesetProjectionRow['vacuity'],
+    complementKey: r.complementKey ?? '',
+    complementStale: r.complementStale,
+    cited: (r.cited ?? []) as MovesetProjectionRow['cited'],
+    basisKey: (r.basisKey ?? '') as MovesetProjectionRow['basisKey'],
+    staged: r.staged,
+    dominanceKind: r.dominanceKind as MovesetProjectionRow['dominanceKind'],
+    dominance: r.dominance as MovesetProjectionRow['dominance'],
+    h1Lo: r.h1Lo,
+    h1Hi: r.h1Hi,
+    deepHorizon: r.deepHorizon,
+    deepLo: r.deepLo,
+    deepHi: r.deepHi,
+    derived: r.derived,
+    line: r.line as MovesetProjectionRow['line'],
+  }));
+}
+
 export async function deleteMovesetsFor(decisionId: string): Promise<void> {
   await db.delete(movesetsTable).where(eq(movesetsTable.decisionId, decisionId));
 }
