@@ -20,7 +20,7 @@ import {
   turnEvents,
   unitOutcomes,
 } from '../../database/schema';
-import { applyEvent, decodeDecisionInput, emptyStore, encodeDecisionInput } from './index';
+import { decodeDecisionInput, encodeDecisionInput, storeFromRows } from './index';
 import type {
   DecisionRow,
   FrameStore,
@@ -399,33 +399,5 @@ export async function loadTurnStore(gameId: GameId, turn: Turn): Promise<FrameSt
     readTurnEvents(gameId, turn),
   ]);
   if (!board) return null;
-
-  const stored = events.find((e) => e.kind === 'board.arrived');
-  const anchor: TurnEvent = stored
-    ? { ...stored, payload: { ...(stored.payload as object), settlement: board.settlement } }
-    : {
-        id: `${gameId}:${turn}:0`,
-        gameId,
-        turn,
-        seq: 0,
-        atWall: 0,
-        atWorkMs: null,
-        kind: 'board.arrived',
-        actor: { kind: 'server', id: null, name: null, color: null },
-        unit: null,
-        causedBy: null,
-        answers: null,
-        payload: {
-          boardHash: board.boardHash,
-          deadlineMs: board.deadlineMs,
-          turnExpiryTime: 0,
-          roster: board.roster,
-          alive: board.roster,
-          settlement: board.settlement,
-        },
-      };
-
-  return events
-    .filter((e) => e.seq !== anchor.seq)
-    .reduce<FrameStore>((store, event) => applyEvent(store, event), emptyStore(anchor));
+  return storeFromRows(board, events);
 }

@@ -78,6 +78,15 @@ export interface LensRunSpec {
    * fabricated id would be the one kind of lie the total order cannot survive.
    */
   readonly command?: (event: PinEvent, atWorkMs: number) => EventId | null;
+  /**
+   * A SECOND consumer of the same frames, called synchronously as each one is
+   * produced — the server-side sink, when the run is being recorded through
+   * one. It sees the events in the order the kernel emitted them and
+   * interleaved with the operator's commands above, which is the whole
+   * content of a total order and the thing a post-hoc replay of the returned
+   * array cannot reproduce.
+   */
+  readonly sink?: (event: LensEvent) => void;
 }
 
 const SCENARIOS: Readonly<Record<string, GameSpec>> = {
@@ -196,6 +205,7 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
       abandoned: () => clock.work() >= stop,
       lens: (event) => {
         frames.push(event);
+        if (spec.sink !== undefined) spec.sink(event);
       },
     };
     const port = kernel.lensPort();

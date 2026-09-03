@@ -63,6 +63,7 @@ import type {
   StageConfirmedPayload,
   StoredAssumption,
   StoredPin,
+  TurnBoardRow,
   Turn,
   TurnEvent,
   TurnEventKind,
@@ -693,6 +694,51 @@ export function ingestLensEvents(
   }
 
   return out;
+}
+
+/**
+ * THE REPLAY SOURCE'S STORE, from stored rows — the reader half of Law C, and
+ * PURE, so the gate that folds a recorded session back to its live frames runs
+ * the same function production runs.
+ *
+ * The anchor is RECONSTRUCTED rather than read out of the log: the settlement
+ * lives in one place (`turn_boards`), because a board stored twice is two
+ * boards waiting to disagree. The log's own `board.arrived` supplies
+ * everything else about the turn's opening — the roster, the deadline, the
+ * expiry — and when even that is missing the anchor is rebuilt from the board
+ * row alone, which is honest emptiness rather than a throw.
+ */
+export function storeFromRows(
+  board: TurnBoardRow,
+  events: ReadonlyArray<TurnEvent>
+): FrameStore {
+  const stored = events.find((e) => e.kind === 'board.arrived');
+  const anchor: TurnEvent = stored
+    ? { ...stored, payload: { ...(stored.payload as object), settlement: board.settlement } }
+    : {
+        id: `${board.gameId}:${board.turn}:0`,
+        gameId: board.gameId,
+        turn: board.turn,
+        seq: 0,
+        atWall: 0,
+        atWorkMs: null,
+        kind: 'board.arrived',
+        actor: { kind: 'server', id: null, name: null, color: null },
+        unit: null,
+        causedBy: null,
+        answers: null,
+        payload: {
+          boardHash: board.boardHash,
+          deadlineMs: board.deadlineMs,
+          turnExpiryTime: 0,
+          roster: board.roster,
+          alive: board.roster,
+          settlement: board.settlement,
+        },
+      };
+  return events
+    .filter((e) => e.seq !== anchor.seq)
+    .reduce<FrameStore>((store, event) => applyEvent(store, event), emptyStore(anchor));
 }
 
 // ===========================================================================
