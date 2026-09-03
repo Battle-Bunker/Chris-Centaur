@@ -854,18 +854,16 @@
     let gameEndedSnakes = {};
     let selectedSnakeId = null;
 
-    // ── Cell inspection (Voronoi ownership popup) ───────────────────────────
-    // ALT+LEFT-clicking any board cell selects it and shows which snake's
-    // Voronoi territory owns it and at what BFS distance. (The right button is
-    // a board control now — it sets goto targets.) While a candidate move is
-    // selected (and the board shows that move's projected territory), the popup
-    // reports the same HYPOTHETICAL board. An unmodified left click, like
-    // Escape, clears the inspection.
-    // Sentinels mirror OWNER_NEUTRAL / OWNER_UNREACHED in logic/territory-view.ts.
+    // ── Cell inspection ─────────────────────────────────────────────────────
+    // ALT+LEFT-clicking any board cell selects it and describes it: what is
+    // standing there, and what the lens has to say about that unit — whether
+    // the bot is still choosing its move, or it is fixed and by whom. (The
+    // right button is a board control now — it sets goto targets.) An
+    // unmodified left click, like Escape, clears the inspection.
     let selectedCell = null;          // {x, y} | null
     // The cell whose CLASH the inspector is explaining, or null. Independent
-    // of `selectedCell` on purpose: cell inspection answers "whose territory
-    // is this", clash inspection answers "what happened here", and the two are
+    // of `selectedCell` on purpose: cell inspection answers "what is this
+    // square", clash inspection answers "what happened here", and the two are
     // opened by different gestures and cleared by different things.
     let clashInspectCell = null;      // {x, y} | null
     function repaintBoard() {
@@ -1653,9 +1651,10 @@
     // Selection vs. staging vs. commit (three distinct concepts):
     //   - SELECTION (the purple box) is a purely local inspection cursor.
     //     Clicking a candidate cell or pressing arrows/WASD moves the box and
-    //     updates the breakdown table + projected-territory overlay ONLY. It
-    //     sends nothing to the server, stages nothing, and never clears the
-    //     queue. See `selectMove`.
+    //     re-opens the cluster's conditional ranking under that candidate. It
+    //     stages nothing and never clears the queue; the one thing it does
+    //     send is the ask that funds the ranking, which is a look and not a
+    //     command. See `selectMove`.
     //   - STAGING is a three-stage pipeline, all broadcast via the
     //     stagedMoves map (grey = bot-seeded, user color = human):
     //       requestedMove — the last move the user/bot asked for. Painted
@@ -2845,10 +2844,10 @@
       // resizes the board, it does not click a cell.
       if (event.target && event.target.closest &&
           event.target.closest('#boardResizeHandle')) return;
-      // History mode: Alt+Left inspects (the popup reads the historic ownership
-      // snapshot), and a plain left click keeps the replay's own meanings —
-      // pick a candidate move, else switch inspected snake / toggle a territory
-      // highlight. Nothing else applies, since there is no live snake to steer.
+      // History mode: Alt+Left inspects the cell, and a plain left click keeps
+      // the replay's own meanings — pick a candidate move, else switch the
+      // inspected unit. Nothing else applies, since there is no live unit to
+      // steer.
       if (viewMode === 'historic') {
         if (event.button !== 0) return;
         if (event.ctrlKey || event.metaKey || event.shiftKey) return;
