@@ -163,7 +163,7 @@ describe('settlePartial: a sever entry claims a survival the resolver does not d
     }
   });
 
-  test('every entry naming the mover is a sever, and every one says it cannot lose', () => {
+  test('the sever is ledgered with the contest it can become: a couldBeat entry at the pile cell', () => {
     const sub = makeSubstrate({ board: BOARD, turn: TURN, asTeam: 'red', modeled: ['rs'] });
     try {
       const rs = sub.unitOfWireId('rs')?.unitId as UnitId;
@@ -172,10 +172,13 @@ describe('settlePartial: a sever entry claims a survival the resolver does not d
       sub.withResolution(plan, sub.teamNumber('red'), ({ resolution }) => {
         const mine = resolution.ledger.filter((d) => d.unitId === 'rs');
         expect(mine.length).toBeGreaterThan(0);
-        expect([...new Set(mine.map((d) => d.kind))]).toEqual(['sever']);
-        expect(mine.some((d) => d.couldBeat)).toBe(false);
-        // Both claims can be on the pile cell, which is what the entry set
-        // cannot express and what makes the deadlock reachable.
+        // The engine used to ledger this cell as severs only, every one
+        // claiming the held unit could not beat the mover, while 16/400 worlds
+        // ended with the mover dead in the pile the sever formed. It now adds
+        // a contest entry with couldBeat at the same cell and sub-step, which
+        // is what lets the floor refuse to prove survival there.
+        expect(new Set(mine.map((d) => d.kind))).toEqual(new Set(['sever', 'contest']));
+        expect(mine.some((d) => d.cell === PILE && d.kind === 'contest' && d.couldBeat)).toBe(true);
         expect([...new Set(mine.filter((d) => d.cell === PILE).map((d) => d.heldId))].sort()).toEqual(
           ['br', 'rq']
         );
