@@ -245,9 +245,18 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
     // (survive, or lose one of a few units), territory takes dozens.
     const distinct = (xs: number[]): number => new Set(xs.map((x) => x.toFixed(9))).size;
     for (const { turn, r } of arc) {
-      // Material's only distinct floors here are cliff levels — how many of
-      // ours die — never anything about the position itself.
-      expect([turn, distinct(r.materialLo) <= 4]).toEqual([turn, true]);
+      // Material's distinct floors here are LEVELS — whole units of weight,
+      // every one of them a multiple of `CLIFF_MATERIAL_WEIGHT` — and never
+      // anything about the position itself. Four of them were how many of ours
+      // could die; six are how many of ours could die OR BE CUT, since the
+      // fold started reading the ledger's `sever` entries against a mover
+      // (`bounds/material.ts::moverSeverLoss`, and the floor was not a floor
+      // without it). A partial loss is still a level, so the claim this test
+      // makes — that material grades in whole units of material and territory
+      // grades in the position — is the same claim at the same coarseness; the
+      // comparison against `reachLo` two lines down is the load-bearing half
+      // and it is untouched.
+      expect([turn, distinct(r.materialLo) <= 6]).toEqual([turn, true]);
       expect([turn, distinct(r.reachLo) >= 2 * distinct(r.materialLo)]).toEqual([turn, true]);
       expect([turn, span(r.reachLo) > 0.3]).toEqual([turn, true]);
     }

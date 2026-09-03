@@ -66,6 +66,7 @@
  * budget is the caller's job, done up front, worst-first inside.
  */
 
+import { COST_PER_CELL } from '../engine-vendor/engine/turnEngine';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
 import { TIER_DEFENSE } from './postures';
@@ -1137,6 +1138,40 @@ function restoreLeastBad(
  * more per millisecond), and finally the destination, so the order is total and
  * reproducible.
  */
+/**
+ * THE SPEND THE ORDER COMPARES, WHICH IS NOT THE SPEND THE RULES CHARGE.
+ *
+ * `turnEngine.ts` charges `COST_PER_CELL` per cell ENTERED and nothing at all
+ * for standing still, and `energySpent` reports exactly that — correctly, and
+ * every reader of the field outside this comparator wants it that way. But an
+ * ordering term that reads it literally is not asking "which move is cheaper",
+ * it is asking "why move": a hold's zero is not thrift, it is abstention, and
+ * it beats every step on the board by exactly one, forever.
+ *
+ * THAT TERM USED TO BE INERT HERE AND THE SEAM MADE IT DECISIVE. The assessor
+ * this file replaced reported a piece's step as spending nothing, so hold and
+ * step tied at zero and the order fell through to the terms that actually
+ * discriminate. Measured on `MIXED_SCENARIO` seed 1 at the budget where the
+ * decision IS the seed: before the cut, 176 of 492 hold-versus-step pairs were
+ * decided below this term and the generator's ordered-first option was a stay
+ * 21.5% of the time; after it, 188 of 418 pairs were decided BY this term,
+ * always for the stay, the ordered-first option was a stay 43.8% of the time,
+ * and the seed spent 43.8% of its unit-turns standing still against 22.7%
+ * before — which is the whole of `basic-intelligence.test.ts`'s "pieces act".
+ *
+ * So a hold is ranked at the price of the cheapest thing it could have done
+ * instead. It ties with a one-cell step and the decision passes to
+ * `contingencies` and the destination, which is where it sat before. The
+ * hazard reading is NOT given back: a stationary dose is a real charge the
+ * rules make and it is larger than a cell, so `max` keeps a hold on a hazard
+ * dominated by any safe step — which was the defect the charge was added for.
+ * Ordering only; `energySpent` itself is untouched and stays the rules'.
+ */
+function spendRank(a: AssessedCandidate): number {
+  if (a.candidate.path.length > 0) return a.energySpent.hi;
+  return Math.max(COST_PER_CELL, a.energySpent.hi);
+}
+
 function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
   if (tier !== 0) return tier;
@@ -1150,7 +1185,8 @@ function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   const capture = captureOrder(a, b);
   if (capture !== 0) return capture;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  if (a.energySpent.hi !== b.energySpent.hi) return a.energySpent.hi - b.energySpent.hi;
+  const spend = spendRank(a) - spendRank(b);
+  if (spend !== 0) return spend;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
 }
@@ -1237,8 +1273,8 @@ function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
   if (capture !== 0) return capture;
   if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
   if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const ha = a.foodGain === 1 ? 0 : a.energySpent.hi;
-  const hb = b.foodGain === 1 ? 0 : b.energySpent.hi;
+  const ha = a.foodGain === 1 ? 0 : spendRank(a);
+  const hb = b.foodGain === 1 ? 0 : spendRank(b);
   if (ha !== hb) return ha - hb;
   if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
   return a.candidate.to - b.candidate.to;
