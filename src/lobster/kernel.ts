@@ -3095,7 +3095,22 @@ function basisSnapshot(b: RatchetBasis): BasisSnapshot {
  *  fold is over one joint resolution, and a per-unit quantity may order work
  *  and may never compose into a value. */
 function minus(a: Bound, b: Bound): Bound {
-  return { lo: a.lo - b.lo, est: a.est - b.est, hi: a.hi - b.hi }
+  return { lo: gap(a.lo, b.lo), est: gap(a.est, b.est), hi: gap(a.hi, b.hi) }
+}
+
+/**
+ * `a − b`, with the lattice bottom handled rather than propagated.
+ *
+ * DEAD is `−∞`, and `−∞ − (−∞)` is `NaN` — a number that would travel down
+ * into a stored row and out onto a display as a blank. Two plans that are both
+ * dead differ by NOTHING on that endpoint, which is exactly what this member's
+ * move bought there, so the equal case is 0. A MIXED case stays infinite,
+ * because "swapping this unit turns a living plan into a dead one" is not a
+ * large delta, it is an unbounded one, and rounding it into a number would be
+ * the lie the cliff exists to prevent.
+ */
+function gap(a: number, b: number): number {
+  return a === b ? 0 : a - b
 }
 
 function deltaFeatures(
