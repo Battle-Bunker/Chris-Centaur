@@ -133,6 +133,37 @@ function boardOf(anchor: TurnEvent): BoardSnapshot {
   };
 }
 
+/**
+ * THE BOARD'S IDENTITY, as one string — the `boardHash` on `board.arrived`
+ * and on every `decisions` row that turn.
+ *
+ * It exists so a re-derivation can prove it is re-deriving from the board the
+ * decision actually saw. So it hashes everything that changes a move and
+ * nothing that does not: the dimensions, the food and hazards, and each unit's
+ * id, health and body IN ORDER. Rendering, names and colours are absent
+ * deliberately — a repaint must not read as a different board.
+ *
+ * FNV-1a, not a cryptographic digest: this is an equality check between two
+ * readings of the same game, not a defence against someone constructing a
+ * collision, and a 32-bit hash written as hex keeps the row narrow.
+ */
+export function boardHashOf(settlement: BoardSnapshot): string {
+  const b = settlement.board;
+  const parts: string[] = [`${b.width}x${b.height}`, `t${settlement.turn}`];
+  for (const c of b.food ?? []) parts.push(`f${c.x},${c.y}`);
+  for (const c of b.hazards ?? []) parts.push(`z${c.x},${c.y}`);
+  for (const s of b.snakes ?? []) {
+    parts.push(`u${s.id}:${s.health}:${(s.body ?? []).map((c) => `${c.x},${c.y}`).join('|')}`);
+  }
+  let hash = 0x811c9dc5;
+  const text = parts.join(';');
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
 interface UnitFixity {
   readonly fixity: Fixity;
   readonly owner: OperatorId | null;

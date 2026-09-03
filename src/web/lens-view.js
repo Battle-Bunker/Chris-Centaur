@@ -384,14 +384,8 @@ var LensView = (() => {
       },
       async conditional(req) {
         if (!input.port) return refuse("off-head", NO_PORT);
-        const answer = input.port.rankConditional(req.cluster, [req.lock]);
+        const answer = askConditional(input.port, req);
         if (!answer.ok) return answer;
-        if (answer.clusterAfter.generation !== req.clusterGeneration) {
-          return refuse(
-            "generation-superseded",
-            `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
-          );
-        }
         return {
           requestId: answer.contextKey,
           ranking: answer.rows,
@@ -417,6 +411,17 @@ var LensView = (() => {
         announce({ kind: "event", event });
       }
     };
+  }
+  function askConditional(port, req) {
+    const answer = port.rankConditional(req.cluster, [req.lock]);
+    if (!answer.ok) return answer;
+    if (answer.clusterAfter.generation !== req.clusterGeneration) {
+      return refuse(
+        "generation-superseded",
+        `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
+      );
+    }
+    return answer;
   }
   function makeLiveSource(input) {
     return makeSource("live", input, (frame, at, store) => {

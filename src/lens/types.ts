@@ -530,6 +530,57 @@ export type LensEvent =
 
 export type LensSink = (event: LensEvent) => void;
 
+/**
+ * WHAT A DECISION DECLARES ABOUT ITSELF when it opens the lens — the producer
+ * side of the `decisions` row and of the `decision.begin` event.
+ *
+ * The storage track deliberately left `logDecisionRecord` with no caller
+ * rather than fabricate a basis: a re-run seed assembled by the module that
+ * stores it, out of whatever it could reach, is a seed that re-runs a
+ * different decision. This is the decision layer saying what it actually
+ * built, once, at the moment it built it.
+ */
+export interface LensDecision {
+  /**
+   * The audit seed, LESS `boardHash`. The board is the LOG's: the writer that
+   * recorded `board.arrived` hashed the settlement it anchored the turn on,
+   * and a second hash taken in the decision layer would be a second answer to
+   * a question that has one.
+   */
+  readonly input: Omit<DecisionInput, 'boardHash'>;
+  /** The engine and evaluator profile that RAN — the stamp, not the binding. */
+  readonly engine: string;
+  readonly profile: string;
+  /**
+   * SUBSTRATE number → WIRE id, the one translation the sink still owed.
+   * `EmitRecord.plan` is keyed by substrate unit number, which is private to
+   * one decision and meaningless one turn later (04 §2.2); without this the
+   * emission's `moves` are honestly empty rather than a number nobody can
+   * resolve.
+   */
+  unitKeyOf(unitId: number): UnitKey | null;
+}
+
+/** How a decision ENDED. `abandoned` is a newer turn arriving, not a failure;
+ *  `stagedNothing` is the one outcome a reader must never have to infer from
+ *  an absence, because an absence is also what a lost log looks like. */
+export interface LensDecisionSummary {
+  readonly abandoned: boolean;
+  readonly stagedNothing: boolean;
+  readonly counters: Readonly<Record<string, number>>;
+}
+
+/**
+ * The lens, open on ONE decision. `frame` is what `KernelInput.lens` is given;
+ * `end` is called exactly once, in the decision's `finally`, so a decision
+ * that threw or was abandoned still closes its own record — those are the two
+ * turns a replay would otherwise have nothing to say about.
+ */
+export interface LensDecisionPort {
+  readonly frame: LensSink;
+  end(summary: LensDecisionSummary): void;
+}
+
 // ------------------------------------------------------------------- events
 
 export type ActorKind = 'operator' | 'bot' | 'server' | 'wire';

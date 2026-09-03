@@ -35,6 +35,7 @@ import type {
   MovesetBreakdown,
   MovesetKey,
   Provenanced,
+  RankConditionalResult,
   SourceDelta,
   TurnEvent,
 } from '../types';
@@ -130,15 +131,8 @@ function makeSource(
     },
     async conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
       if (!input.port) return refuse('off-head', NO_PORT);
-      const answer = input.port.rankConditional(req.cluster, [req.lock]);
+      const answer = askConditional(input.port, req);
       if (!answer.ok) return answer;
-      if (answer.clusterAfter.generation !== req.clusterGeneration) {
-        return refuse(
-          'generation-superseded',
-          `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, ` +
-            `the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
-        );
-      }
       return {
         requestId: answer.contextKey,
         ranking: answer.rows,
@@ -166,6 +160,31 @@ function makeSource(
       announce({ kind: 'event', event });
     },
   };
+}
+
+/**
+ * ONE ASK, wherever it arrives from — an in-process source or a socket.
+ *
+ * The generation guard is the whole reason this is a function rather than two
+ * call sites: rows from two generations are never in one list (Law E), and a
+ * wire handler that forwarded the request without the check would serve
+ * exactly the stale list the law forbids, on the one path where the operator
+ * cannot see that the cluster moved underneath them.
+ */
+export function askConditional(
+  port: KernelLensPort,
+  req: ConditionalRequest
+): RankConditionalResult {
+  const answer = port.rankConditional(req.cluster, [req.lock]);
+  if (!answer.ok) return answer;
+  if (answer.clusterAfter.generation !== req.clusterGeneration) {
+    return refuse(
+      'generation-superseded',
+      `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, ` +
+        `the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
+    );
+  }
+  return answer;
 }
 
 /** Live: the events arrive; `isHead` says whether determinations are legal. */

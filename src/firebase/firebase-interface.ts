@@ -79,6 +79,22 @@ import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
+import { askConditional } from '../lens/store/sources';
+import type { LensInspectionPort } from '../server/websocket-server';
+import type {
+  LensRefusal,
+  MovesetBreakdown,
+  Provenanced,
+  RankConditionalResult,
+} from '../lens/types';
+
+/** No decision is running on that game — the honest answer, typed, on the
+ *  channel the ask came in on. */
+const LENS_NO_DECISION: LensRefusal = {
+  ok: false,
+  refusal: 'unknown-cluster',
+  detail: 'no decision is inspectable on this game right now',
+};
 import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -420,6 +436,16 @@ export class TacticToesFirebaseInterface {
     // Before this line the live process played ONE bot for every game and
     // every seat it held — see `TeamDecisionPorts.botBinding`.
     botBinding: (gameId, centaurId) => botRegistry().bindingFor(gameId, centaurId),
+    // THE LENS, per decision [CHANGE 3]. The manager is the one `seq` writer,
+    // so the sink the kernel is handed is the manager's: every frame the
+    // decision emits is stamped by the same writer the operator's commands
+    // are, and `seq` is one order over both producers rather than two that
+    // would have to be merged later and cannot be. A game the manager has no
+    // board for gets null, which is the state the cost gate measures — an
+    // unwatched decision must cost exactly what it cost before the lens
+    // existed (05 §(d) gate 7(ii)).
+    lensSink: (gameId, turn, decision) =>
+      this.gameManager.lensDecision(gameId, turn, decision),
     // THE ROW PATH IS GONE, AND THIS PORT IS DELIBERATELY UNCONSUMED.
     //
     // `UnitDecisionRow` is the old telemetry shape: one row per unit per turn
@@ -1119,6 +1145,44 @@ export class TacticToesFirebaseInterface {
       this.unitIds.set(gameID, registry);
     }
     return registry;
+  }
+
+  /**
+   * THE INSPECTION PORT, seen from the wire (04 §4.5).
+   *
+   * The websocket server serves `lens-conditional` and `lens-breakdown` out of
+   * the running decision's own reserve, and the running decision lives here —
+   * this interface owns the engine, and the engine holds the live kernel per
+   * game. Everything below either answers or REFUSES in the type of its own
+   * reply: with no decision running the answer is a typed refusal and never a
+   * silence, because a UI that cannot tell "nothing is running" from "nothing
+   * happened" draws the second when it means the first.
+   */
+  lensInspectionPort(): LensInspectionPort {
+    return {
+      rankConditional: (gameId, req): RankConditionalResult => {
+        const port = this.teamEngine.lensPortFor(gameId);
+        if (port === null) return LENS_NO_DECISION;
+        // Through the SAME ask the in-process source uses, generation guard
+        // and all: rows from two generations are never in one list, and a
+        // handler that forwarded the request raw would serve exactly the
+        // stale list on the one path where the operator cannot see the
+        // cluster move underneath them.
+        return askConditional(port, req);
+      },
+      explainMoveset: async (
+        gameId,
+        moveset,
+        members
+      ): Promise<Provenanced<MovesetBreakdown> | LensRefusal> => {
+        const port = this.teamEngine.lensPortFor(gameId);
+        if (port === null) return LENS_NO_DECISION;
+        const answer = await port.explainMoveset(moveset, members);
+        if ('ok' in answer) return answer;
+        const at = this.gameManager.lensCursorFor(gameId) ?? { gameId, turn: 0, seq: 0 };
+        return { value: answer, basis: answer.basis, provenance: { kind: 'observed', at } };
+      },
+    };
   }
 
   /**
