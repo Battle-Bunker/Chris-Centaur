@@ -54,15 +54,28 @@ const boardAt = (swap: number, turn: number): Sample => {
 };
 
 /** Every joint plan over our own units, capped — the candidate set a decision
- * would order. Deterministic: roster order, then the engine's enumeration. */
+ * would order. Deterministic: roster order, then the engine's enumeration.
+ *
+ * THE CAP IS SPENT IN LEVEL ORDER, and that is a COVERAGE property rather than
+ * a taste. Extending the cross product depth-first means the first prefix's
+ * whole option list is consumed before the second prefix is extended once, so
+ * with six units and a cap of 64 every plan priced carries the FIRST unit's
+ * FIRST move — the harness reports a constant and the reader blames the
+ * feature. Taking option index k across every carried plan before moving to
+ * k+1 keeps each unit's options represented for as long as the cap allows. */
 function ourPlans(sub: EngineSubstrate, asTeam: number, cap: number): JointPlan[] {
   let plans: Array<Map<UnitId, Candidate>> = [new Map()];
   for (const u of sub.roster()) {
     if (u.team !== asTeam) continue;
+    const acts = sub.actionsOf(u.unitId);
     const next: Array<Map<UnitId, Candidate>> = [];
-    for (const p of plans) {
-      for (const a of sub.actionsOf(u.unitId)) {
+    // LEVEL ORDER, NOT DEPTH FIRST. The cap is spent one option-index at a
+    // time across every plan carried in, so a prefix never loses its whole
+    // option list to the plan before it.
+    for (let k = 0; k < acts.length && next.length < cap; k++) {
+      for (const p of plans) {
         if (next.length >= cap) break;
+        const a = acts[k] as Candidate;
         const m = new Map(p);
         m.set(u.unitId, {
           unitId: u.unitId,
@@ -72,7 +85,6 @@ function ourPlans(sub: EngineSubstrate, asTeam: number, cap: number): JointPlan[
         });
         next.push(m);
       }
-      if (next.length >= cap) break;
     }
     plans = next;
   }
@@ -142,6 +154,65 @@ function read(sample: Sample, staleness = 0): Reading {
       }
     });
     return out;
+  } finally {
+    sub.release();
+  }
+}
+
+interface KingOption {
+  /** The cell our king stages onto. */
+  readonly to: number;
+  readonly reachLo: number;
+  readonly reachHi: number;
+  readonly fullLo: number;
+  readonly partition: Partition<Standing>;
+}
+
+/**
+ * ONE PLAN PER OPTION OF OUR KING, every other unit of ours frozen on its
+ * first action — a COVERAGE reading, not a sample.
+ *
+ * The cross-product harness above can only ever price `cap` plans, and on a
+ * board where one unit's fate decides the whole team's admission that cap has
+ * to be spent so the fate is represented. This says it by construction: the
+ * king walks its own option list, nothing else varies, so every king fate the
+ * position contains is priced exactly once and the floor's response to it is
+ * the only thing that can differ between the rows.
+ *
+ * The siblings are frozen rather than DROPPED from the plan, because a unit a
+ * plan does not name is HELD, and `ADMISSION.lo.ours` excludes a held unit of
+ * ours — dropping them would zero `ours` for a reason that has nothing to do
+ * with the king and would make the reading vacuous.
+ */
+function kingOptions(sample: Sample): KingOption[] {
+  const { board, turn, team } = sample;
+  const ourIds = (board.snakes ?? [])
+    .filter((s) => (s.teamID ?? s.id) === team && s.health > 0 && s.body.length > 0)
+    .map((s) => s.id);
+  const sub = makeSubstrate({ board, turn, asTeam: team, modeled: ourIds });
+  try {
+    const asTeam = sub.teamNumber(team);
+    const ours = sub.roster().filter((u) => u.team === asTeam);
+    const king = ours.find((u) => u.isKing);
+    if (king === undefined) throw new Error('no king of ours on this board');
+    return sub.actionsOf(king.unitId).map((a) => {
+      const plan = new Map<UnitId, Candidate>();
+      for (const u of ours) {
+        const act = u.unitId === king.unitId ? a : (sub.actionsOf(u.unitId)[0] as Candidate);
+        plan.set(u.unitId, { unitId: u.unitId, from: act.from, to: act.to, path: act.path });
+      }
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, asTeam);
+      const partition = sub.withResolution(plan, asTeam, ({ resolution, bounds }) =>
+        makeContext(sub, resolution, bounds, asTeam, 4).partition('lo')
+      );
+      return {
+        to: a.to as number,
+        reachLo: ev.parts['reach']?.lo ?? 0,
+        reachHi: ev.parts['reach']?.hi ?? 0,
+        fullLo: ev.bound.lo,
+        partition,
+      };
+    });
   } finally {
     sub.release();
   }
@@ -279,65 +350,88 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
 });
 
 /**
- * D IS FAILING, DELIBERATELY AND WITH A REASON, AND IS NOT WEAKENED TO PASS.
+ * D — RE-PINNED, AND WHY.
  *
- * Measured on this branch: two of D's three assertions fail, and the cause is
- * a soundness hole the one-engine cut CLOSED rather than one it opened.
+ * D was written against a floor that did not price OUR OWN KING'S FALL. The
+ * one-engine cut closed that hole: on `mid11` our king r0 can stage onto a
+ * square the blue queen's claim holds and beats, and the re-vendored
+ * `settlePartial` writes a `regicide` divergence for every team-mate —
+ * `via: ["r0"]` — because losing the last king takes the team off the board.
+ * `moverSurvival` resolves those at the king and answers `maybe`, so
+ * `ADMISSION.lo.ours = worstAlive && !held` admits NOBODY of ours and the
+ * floor reads `ours = 0 / theirs = 62` of 121. That is honest: in that world
+ * we own no cell because we are not on the board.
  *
- * On `mid11` every one of our six units is MODELLED (nothing of ours is held),
- * and every one of them comes back `worstAlive: false`. The whole chain is one
- * unit long: our king r0 stages onto a square the blue queen's claim can hold
- * and beat (`contest`, `couldBeat: true`, `assumedPresent: false`), and the
- * re-vendored `settlePartial` then writes a `regicide` divergence for EVERY
- * team-mate — `via: ["r0"]` — because losing the last king takes the team off
- * the board. `moverSurvival` resolves those at the king, once, and answers
- * `maybe`. So `ADMISSION.lo.ours = worstAlive && !held` admits nobody, plane 1
- * has no trail unit of ours in the `lo` reading, `ours` is 0 of 121 and
- * `reach.lo` is the same number for every candidate the harness prices.
+ * The gradient D was asking for is real, and the reason the old harness could
+ * not see it was COVERAGE, not the floor. The king has three safe squares of
+ * its nine (72, 97, 98), and on those the partition reads `ours = 1 /
+ * theirs = 89` — the exact pair the pre-cut fold produced. The old harness
+ * spent its cap of 64 depth-first, so every plan it priced carried the king's
+ * FIRST move; `ourPlans` now spends the cap in level order, and D additionally
+ * prices ONE PLAN PER KING OPTION below so the king's safe squares are covered
+ * BY CONSTRUCTION rather than by where a cap happened to fall.
  *
- * That reading is HONEST: in our worst world our king falls and regicide takes
- * the rest with it, so there is no cell we own. The engine before the cut did
- * not spread regicide to a modelled team at all, which is why this block was
- * green when it was written — its floor was measured without our own king's
- * fall priced into it.
- *
- * IT IS NOT A DEAD POSITION, EITHER, and that is the part worth keeping: the
- * king HAS safe squares here (three of its nine options), and on those the
- * partition reads `ours = 1 / theirs = 89` — the exact pair the pre-cut fold
- * produced. The gradient D is looking for exists; what the harness prices is a
- * plan set in which it cannot appear, because `ourPlans`' cap of 64 is spent by
- * the queen's option list before the king's second option is ever extended, so
- * all 64 plans carry the king's FIRST move.
- *
- * Two changes would each make it pass and both were refused: relaxing the
- * admission rule (it is right — a unit that is gone in the worst world owns no
- * cells in it) and re-sampling the candidate set (that is tuning the harness
- * until the number comes out). Left failing, with the finding written down.
+ * What is asserted is therefore the honest property and not the old numbers:
+ * the floor is a gradient over the king's own options, and it is CONSTANT
+ * exactly across the options that leave the king exposed. The old block's
+ * `span > 0.2` and `separation > 0.5` are gone: over nine options the floor
+ * takes two values, one per king fate, and demanding it tell nearly every
+ * candidate apart was pinning the coarseness of a floor that had never priced
+ * the king. The ceiling's `span > 0.2` is gone for the same reason — the `hi`
+ * reading admits on BEST-case survival, which no choice of our king's square
+ * changes, so a span there measured nothing about this position.
  */
 describe('D — the slider guard (mid11 seed 101)', () => {
-  const r = read(MID11);
+  const rows = kingOptions(MID11);
+  const exposed = rows.filter((k) => k.partition.ours === 0);
+  const safe = rows.filter((k) => k.partition.ours > 0);
 
-  test('the floor is a gradient, not the pinned −1 the all-kinds fold produced', () => {
-    // Under the fold this replaced, this position read ours = 0.4 of 121 with
-    // reach.lo pinned in [−1.0000, −0.8595]: 0.14 of range and no ordering.
-    expect(Math.min(...r.reachLo)).toBeGreaterThan(-1);
-    expect(span(r.reachLo)).toBeGreaterThan(0.2);
-    expect(separation(r.reachLo)).toBeGreaterThan(0.5);
+  test('the king has both fates here, so the block is not vacuous', () => {
+    expect(rows.length).toBe(9);
+    expect(exposed.length).toBeGreaterThan(0);
+    expect(safe.length).toBeGreaterThan(0);
   });
 
-  test('the ceiling is not pinned at "we own everything" either', () => {
-    expect(Math.max(...r.reachHi)).toBeLessThan(1);
-    expect(span(r.reachHi)).toBeGreaterThan(0.2);
+  test('the floor is a gradient over the king\'s options, not the pinned −1 the all-kinds fold produced', () => {
+    // Under the fold this replaced, this position read ours = 0.4 of 121 with
+    // reach.lo pinned in [−1.0000, −0.8595]: 0.14 of range and no ordering.
+    const los = rows.map((k) => k.reachLo);
+    expect(Math.min(...los)).toBeGreaterThan(-1);
+    expect(span(los)).toBeGreaterThan(0);
+  });
+
+  test('and it is constant exactly across the options that leave the king exposed', () => {
+    // The sharp statement: a floor that has priced the king cannot tell two
+    // worlds apart in which we are equally off the board, and must tell those
+    // apart from the worlds in which we are not.
+    expect(span(exposed.map((k) => k.reachLo))).toBe(0);
+    const [pinned] = exposed.map((k) => k.reachLo) as [number];
+    for (const k of safe) expect([k.to, k.reachLo === pinned]).toEqual([k.to, false]);
+  });
+
+  test('the FULL floor puts the king\'s fall below every ordering term, not beside it', () => {
+    // The cliff, in the one place it decides: territory may order the squares
+    // the king survives on, and may never price a square it does not.
+    for (const k of exposed) expect([k.to, Number.isFinite(k.fullLo)]).toEqual([k.to, false]);
+    for (const k of safe) expect([k.to, Number.isFinite(k.fullLo)]).toEqual([k.to, true]);
+  });
+
+  test('the ceiling is not pinned at "we own everything"', () => {
+    for (const k of rows) {
+      expect([k.to, k.reachHi < 1]).toEqual([k.to, true]);
+      expect([k.to, k.reachHi > k.reachLo]).toEqual([k.to, true]);
+    }
   });
 
   test('the LEVEL stays low, and that is the honest reading rather than a bug', () => {
     // A held enemy is a turn behind us on the clock and its one-move cloud is
     // a whole slider line, so a SOUND floor on a slider board concedes most of
     // the board. What the two-plane rule buys is not a higher level — it is an
-    // ordering. Pinned so that a future change claiming to "fix the level" has
-    // to say what it did to soundness.
-    expect(r.first.ours / r.first.open).toBeLessThan(0.2);
-    expect(r.first.trails.some((t) => t.mine && t.owned > 20)).toBe(true);
+    // ordering. Read on a square the king SURVIVES, because on the others the
+    // level is zero for a reason material already states.
+    const p = (safe[0] as KingOption).partition;
+    expect(p.ours / p.open).toBeLessThan(0.2);
+    expect(p.trails.some((t) => t.mine && t.owned > 20)).toBe(true);
   });
 });
 
