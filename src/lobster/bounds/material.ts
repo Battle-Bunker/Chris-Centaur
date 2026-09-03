@@ -243,6 +243,73 @@ function moverSurvivalVia(
 }
 
 /**
+ * WHAT A SEVER COULD TAKE OFF ONE OF OUR MOVERS.
+ *
+ * A `sever` divergence is the ONE contact the engine calls non-fatal: the cut
+ * is recorded during the collision phase and applied afterwards, and the owner
+ * keeps `occupancy[0 .. cutIndex - 1]` (`turnEngine.ts`: `cutIndex =
+ * occupancy.indexOf(cell, 1)`, then `occupancy.length = min(severCuts)`). So a
+ * mover the ledger says a held unit could sever is SHORTER in that world, and
+ * the fold that reads its weight straight off the settled board is asserting a
+ * length it does not have in every world.
+ *
+ * That is not a hypothetical. Measured on `potions` seed 2, a snake staged
+ * 75→74 with its body still on 75 and a held knight one move from 75: `B0`
+ * priced the snake at its full weight 3 and published a floor of 31.68, while
+ * `B3` enumerated the knight's actual reply, settled the cut, and returned a
+ * complete world worth 12.07 — a floor above a ceiling, 287 times in one game.
+ * The floor was the wrong one.
+ *
+ * TWO KINDS OF ENTRY SHARE THE `sever` KIND, and only one of them is about us.
+ * `settlePartial` writes one when a claim's body could be cut by THIS unit
+ * (`cell` is our own head at that sub-step) and one when this unit's own trail
+ * could be cut by a claim's head (`cell` is one of our body segments). The
+ * discriminator is exact rather than a guess: `trackOf` deletes `head[k]` from
+ * `body[k]`, so a segment entry can never name the head cell of its sub-step.
+ *
+ * POLARITY. Only `assumedPresent === false` entries move the floor: the
+ * timeline read the cell empty and did NOT apply the cut, so the shorter world
+ * is one it has not scored. An `assumedPresent === true` entry is a cut the
+ * settled occupancy already carries.
+ *
+ * WHERE THE CUT LANDS. `indexOf` on the settled occupancy is the engine's own
+ * arithmetic wherever the named cell survived to the end of the turn. Where it
+ * did not — a trail cell the tail has since left, which `trackOf` unions into
+ * `body[k]` from the pre-move record — the settlement does not say where the
+ * cut fell, and the sound reading of "somewhere" is the deepest cut the engine
+ * can produce: `indexOf(cell, 1)` never returns 0, so the head always survives
+ * and nothing else is promised.
+ */
+export function moverSeverLoss(
+  settlement: PartialSettlement,
+  wireId: string,
+  headAtTurnStart: number
+): number {
+  const settled = settlement.board[wireId];
+  if (settled === undefined) return 0;
+  const occupancy = settled.occupancy;
+  if (occupancy.length <= 1) return 0;
+  const traversed = settlement.traversed[wireId] ?? [];
+  // The head at sub-step k, exactly as `trackOf` builds it: the turn-start
+  // head, then one entry per cell the settlement says this unit entered, and
+  // the last of those repeated once it has stopped.
+  const headAt = (subStep: number): number => {
+    if (subStep <= 0) return headAtTurnStart;
+    const entered = traversed[Math.min(subStep, traversed.length) - 1];
+    return entered ?? headAtTurnStart;
+  };
+  let keep = occupancy.length;
+  for (const d of settlement.ledger) {
+    if (d.kind !== 'sever' || d.unitId !== wireId || d.assumedPresent) continue;
+    // Our head at that sub-step: this entry is the claim being cut BY us.
+    if (d.cell === headAt(d.subStep)) continue;
+    const cut = occupancy.indexOf(d.cell, 1);
+    keep = Math.min(keep, cut < 1 ? 1 : cut);
+  }
+  return occupancy.length - keep;
+}
+
+/**
  * Whether a held unit could be gone by the end of the turn: the peril the plan
  * cannot change (`Substrate.perilOf`) united with the peril it just made
  * (`reachedByMovers`). Both halves are the engine's; the union is the reading.
@@ -260,10 +327,12 @@ export function claimSurvival(
 /**
  * Every unit's coordinates, read off one settlement.
  *
- * A MOVER's weight is what the settled board says it is — growth and sever
- * already applied — and its survival is the settlement's own `fates`. A HELD
- * unit has no settled board entry by construction; its interval is its claim's,
- * and its partial loss is the weight a sever could take without killing it.
+ * A MOVER's weight is what the settled board says it is — the growth and the
+ * severs THIS timeline applied — and its survival is the settlement's own
+ * `fates`; the severs the timeline did not apply but the ledger admits are its
+ * `partialLossMax`, exactly as a held unit's are. A HELD unit has no settled
+ * board entry by construction; its interval is its claim's, and its partial
+ * loss is the weight a sever could take without killing it.
  */
 export function unitValuesOf(
   sub: EngineSubstrate,
@@ -294,7 +363,9 @@ export function unitValuesOf(
       survival: moverSurvival(settlement, unit.wireId),
       weightMin: weight,
       weightMax: weight,
-      partialLossMax: 0,
+      // A MOVER CAN BE SEVERED TOO, and reading `partialLossMax` as zero for
+      // one was the floor's own defect — see `moverSeverLoss`.
+      partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
     });
   }
   return out;

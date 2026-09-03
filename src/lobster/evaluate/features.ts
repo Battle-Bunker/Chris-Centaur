@@ -51,7 +51,13 @@ import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial
 import { boardOf } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
-import { claimSurvival, claimsById, moverSurvival, reachedByMovers } from '../bounds/material';
+import {
+  claimSurvival,
+  claimsById,
+  moverSeverLoss,
+  moverSurvival,
+  reachedByMovers,
+} from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
@@ -212,7 +218,11 @@ export function standingOf(
 
     // A MOVER. The settlement says where it ended and what it weighs; the
     // ledger says whether anything unknown could have TAKEN it — which is not
-    // the same as whether anything unknown could have changed its turn.
+    // the same as whether anything unknown could have changed its turn, and
+    // not the same again as whether anything unknown could have CUT it: a
+    // sever is the engine's one non-fatal contact, and a mover carries the
+    // weight it could lose to one exactly as a held unit does
+    // (`moverSeverLoss`).
     const settled = settlement.board[unit.wireId];
     const survival = moverSurvival(settlement, unit.wireId);
     const dead = survival === 'no';
@@ -235,7 +245,7 @@ export function standingOf(
       tierMax: unit.tier,
       tierAtArrival: unit.tier,
       tierExpiresAtTurn: unit.tierExpiresAtTurn,
-      partialLossMax: 0,
+      partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
       energy: settled?.energy ?? 0,
       cell: settled?.occupancy[0] ?? (unit.cells[0] as number),
       worstAlive: !dead && (!mine || !contingent),

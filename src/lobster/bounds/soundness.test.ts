@@ -49,6 +49,7 @@ import {
   trueWorstCase,
   unboundedBudget,
 
+  type BoardSpec,
   type TestBoard,
 } from './testkit';
 
@@ -378,6 +379,90 @@ describe('the finished-sweep rule', () => {
     expect(declared).toBeGreaterThan(0);
     expect(floorRested).toBeGreaterThan(0);
   }, 300_000);
+});
+
+/**
+ * THE SEVER BOARD — the minimal reproduction of the `floor=B0 ceiling=B3`
+ * inversion measured at 287 per game on `potions` seed 2.
+ *
+ * A snake of weight three steps one square west. Its body still stands on the
+ * square its head just left, and a HELD knight of strictly higher tier is one
+ * knight-move from that square. The engine's body rule then says: equal-or-
+ * lower tier dies on the segment, strictly higher tier SEVERS it and stops.
+ * A sever is the one non-fatal contact in the game, so the snake is alive in
+ * every world and weighs three in some of them and one in others.
+ *
+ * `B0` holds the knight, settles the optimistic timeline in which it is not
+ * there, reads the snake's weight straight off the settled board — three — and
+ * published a floor above the value of a world `B3` then enumerated and
+ * settled in full. Weight is the only coordinate that moved; the two sides
+ * agree about who is alive.
+ *
+ * Both units are needed and neither is decoration: drop the knight and there
+ * is no sever, and give it the snake's tier and it dies on the body instead of
+ * cutting it. The tiers are the ones the measured position had.
+ */
+const SEVER_WIDTH = 7;
+const severCell = (x: number, y: number): number => y * SEVER_WIDTH + x;
+const SEVER_BOARD: BoardSpec = {
+  width: SEVER_WIDTH,
+  height: SEVER_WIDTH,
+  units: [
+    {
+      id: 0,
+      team: OURS,
+      type: 'snake',
+      occupancy: [severCell(3, 3), severCell(3, 2), severCell(2, 2)],
+      tier: -1,
+    },
+    { id: 1, team: 1, type: 'knight', occupancy: [severCell(5, 4)], tier: 0 },
+  ],
+};
+
+describe('a mover the ledger says could be SEVERED is not worth its uncut weight', () => {
+  test('the whole mixture brackets the truth on the sever board', () => {
+    const stats = freshStats();
+    const board = makeTestBoard(SEVER_BOARD);
+    expect(replySpaceSize(board, OURS)).toBeGreaterThan(1);
+    sweepBoard(board, 0, stats);
+    report('sever', stats);
+    expect(stats.violations).toEqual([]);
+    expect(stats.checks).toBeGreaterThan(0);
+  }, 300_000);
+
+  test('B0 alone does not price the severable body it cannot see', () => {
+    // The regression proper, at the two rungs that disagreed. B0 holds the
+    // knight; B3 enumerates it and settles the cut. Before the fold read the
+    // ledger's `sever` entries, B0 answered 2 where B3 answered 0 and the
+    // bank threw.
+    const board = makeTestBoard(SEVER_BOARD);
+    const gen = makeGenerator();
+    const evaluate = makeEvaluator();
+    const sub = makeSubstrate(board, OURS);
+    let cut = 0;
+    try {
+      for (const plan of allPlans(sub, gen, OURS, 32)) {
+        const truth = trueWorstCase(board, OURS, plan).value;
+        const b0 = priceWith(sub, gen, evaluate, plan, B0_ONLY, unboundedBudget());
+        const full = priceWith(sub, gen, evaluate, plan, DEFAULT_BANK_CONFIG, unboundedBudget());
+        expect(b0.floor).toBeLessThanOrEqual(truth + EPS);
+        expect(full.floor).toBeLessThanOrEqual(truth + EPS);
+        expect(full.floor).toBeLessThanOrEqual(full.ceiling + EPS);
+        // The plan that walks the head off the body is the one with a cut
+        // under it: B0's floor has to come DOWN to the truth there, and the
+        // whole point is that it does so without the enemy being enumerated.
+        const staged = [...plan.values()][0];
+        if (staged !== undefined && staged.to === severCell(2, 3)) {
+          cut++;
+          expect(b0.floor).toBe(truth);
+        }
+      }
+    } finally {
+      sub.release();
+    }
+    // Anti-vacuity: the severable plan has to be in the option list at all.
+    expect(cut).toBeGreaterThan(0);
+  }, 120_000);
 });
 
 describe('held-unit value soundness: the INTERVAL, never the frozen scalar', () => {
