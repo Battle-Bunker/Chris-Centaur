@@ -443,6 +443,19 @@ export class DecisionLogger {
     }
   }
 
+  /** One turn's canonical settlement, or null when none was stored. The
+   *  re-run input, and what an ON-DEMAND derivation (the cell inspector's
+   *  territory read) derives from. */
+  public async getTurnSettlement(gameId: string, turn: number): Promise<BoardSnapshot | null> {
+    if (!dbConfigured) return null;
+    const res = await db.execute(sql`
+      SELECT settlement FROM turn_boards WHERE game_id = ${gameId} AND turn = ${turn}
+    `);
+    const row = res.rows[0] as { settlement?: unknown } | undefined;
+    const settlement = row?.settlement as BoardSnapshot | undefined;
+    return settlement && settlement.board ? settlement : null;
+  }
+
   /**
    * The event log, filtered. This is what `/api/logs` answers now: the rows
    * the decision actually produced, in the one order there is, rather than a

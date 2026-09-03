@@ -1411,8 +1411,9 @@
     // first"), and it cannot show what a moveset trades between members, which
     // is the only question the lens asks. What survives is the orientation the
     // inspector was actually used for — what is standing here, and what the
-    // decision has to say about this square — and the ownership half returns
-    // as an ON-DEMAND read at L6 rather than as a per-turn paint layer.
+    // decision has to say about this square — plus the ownership half as an
+    // ON-DEMAND read (`askCellTerritory`) rather than as a per-turn paint
+    // layer.
     function cellInspectContext() {
       const board = viewMode === 'historic'
         ? historicBoard()
@@ -1443,7 +1444,7 @@
     // resizes, candidate selection and perspective switches.
     function renderCellInspect() {
       const popup = document.getElementById('cellInspectPopup');
-      const { board, ownership, hypotheticalMove } = cellInspectContext();
+      const { board } = cellInspectContext();
       if (!selectedCell || !board ||
           selectedCell.x < 0 || selectedCell.x >= board.width ||
           selectedCell.y < 0 || selectedCell.y >= board.height) {
@@ -1634,27 +1635,30 @@
     // reconnect after a death), making its logged past un-inspectable.
     let historyLoggedSnakeIds = new Set();
     let historyLoggedFetch = null;    // in-flight/settled fetch promise (fetch once per page)
-    // Recorded command state (/api/logs/commands): per-turn snapshots of every
-    // snake's command state at the END of each turn — same shape as the live
-    // broadcast (stagedMoves/waypoints/routes/activeIntentModes/owners plus
-    // per-snake operators) — and the raw operator command events. Drives the
-    // history render's command overlays through the SAME code paths live uses.
-    let commandHistory = null;        // { events: [...], turnStates: { turn: state } }
-    let commandHistoryFetch = null;   // in-flight fetch promise (dedupe)
-    let commandHistoryMaxTurn = -1;   // highest turn with a recorded snapshot
-    let commandFetchLiveTurn = -1;    // liveMaxTurn when we last fetched (refetch gate)
-    const historicCache = new Map();  // snakeId → { decisions, turnToIndex }
-    let historicDecisions = null;     // decisions for the currently-viewed snake
-    let historicTurnToIndex = {};     // turn number → index into historicDecisions
-    let historicIndex = 0;            // current decision index being viewed
+    // ── THE REPLAY DATA PATH — `turn_events`, one turn at a time ───────────
+    //
+    // It used to be per SNAKE: a multi-megabyte decision log per unit, cached,
+    // tail-fetched, merged, with a completeness proof per snake, and a board
+    // synthesized out of whichever log happened to carry one. Every column it
+    // read is gone — `move_evaluations`, `safe_moves`, `bot_recommendation`,
+    // `game_state` per unit per turn — and so is the per-turn command snapshot
+    // beside it, which was a second representation of state the events already
+    // determine.
+    //
+    // What replaces it is smaller and is the SAME object live play holds: the
+    // turn's `TurnEvent`s, folded by the reducer live play folds with. A turn
+    // is bounded by its deadline, so a turn's events are kilobytes, scrubbing
+    // WITHIN a turn is a local fold, and there is exactly one implementation
+    // of what a frame means (Law C).
+    const historicEvents = new Map();   // board turn → TurnEvent[] (seq order)
+    const historicEventsInflight = new Map(); // board turn → in-flight fetch
     let historicTurnNumber = 0;       // current turn number being viewed
     let historicMoveState = null;     // moveState for the historic board/breakdown
-    // What renderHistoricAtTurn resolved for the currently displayed turn:
-    // boardRow drives the board (may come from ANY cached team log), prevRow is
-    // the row before it in the SAME log (for death-marker detection), ownRow is
-    // the inspected snake's decision at that turn (null after its death).
+    // What renderHistoricAtTurn resolved for the currently displayed turn: the
+    // board from the timeline, the previous board for death markers, and the
+    // folded lens frame — which is what the old `ownRow` and `cmd` snapshot
+    // both were, arrived at by folding rather than by storing.
     let historicRenderCtx = null;
-    const historicInflight = new Map(); // snakeId → in-flight fetch promise (dedupe)
     // ── Board timeline ──────────────────────────────────────────────────────
     // ONE canonical board per turn for the whole game, from
     // /api/games/:id/turns (native turn_states rows merged server-side with
@@ -2659,7 +2663,7 @@
       if (ctx.unitId) lensSelectCandidate(ctx.unitId, ms.moves[moveKey].move);
 
       try {
-        renderRail(live ? null : (historicRenderCtx && historicRenderCtx.ownRow) || null);
+        renderRail();
       } catch (e) {
         console.error('renderRail failed:', e);
       }
@@ -3907,8 +3911,7 @@
           historyLoggedSnakeIds = new Set((group.snakes || []).map((s) => s.snake_id));
           // Refresh the panel/board so newly-selectable snakes get their
           // clickable affordance, and warm their decision caches.
-          if (viewMode === 'historic' && !finishedMode && historicDecisions) {
-            prefetchHistoricTeam();
+          if (viewMode === 'historic' && !finishedMode) {
             renderHistoricAtTurn(historicTurnNumber);
           }
         })
@@ -4058,254 +4061,98 @@
       return timelineFloorRow(turn - 1);
     }
 
-    // Load one snake's logged decisions, coalescing concurrent/duplicate
-    // requests onto a single in-flight promise and caching the (~2MB) result.
-    // A cached entry is REUSED as-is unless the caller needs a turn beyond what
-    // we've already fetched — and growing an entry fetches only the missing
-    // TAIL (the API's startTurn filter), never the whole log again. This is
-    // what keeps scrubbing near the live edge cheap: the old full-refetch on
-    // every tail miss re-downloaded and re-parsed the entire multi-MB log.
-    // opts.force (game-end reconciliation) refreshes the tail even when no
-    // specific turn is being requested, bypassing the rate limit.
-    function loadSnakeDecisions(snakeId, targetTurn, opts) {
-      const force = !!(opts && opts.force);
-      const entry = historicCache.get(snakeId);
-      if (entry) {
-        const wantsTail =
-          force ||
-          (targetTurn != null &&
-            targetTurn > entry.maxTurn &&
-            entry.maxTurn < liveMaxTurn);
-        if (!wantsTail || snakeLogIsFinal(snakeId, entry)) {
-          return Promise.resolve(entry);
-        }
-        // Rate-limit unforced tail refreshes so scrubbing held at the live
-        // edge (or past a dead snake's last turn) can't hammer the server.
-        const now = Date.now();
-        if (!force && entry.lastTailFetchAt && now - entry.lastTailFetchAt < 1500) {
-          return Promise.resolve(entry);
-        }
-        let p = historicInflight.get(snakeId);
-        if (!p) {
-          entry.lastTailFetchAt = now;
-          p = fetchHistoricDecisions(snakeId, entry.maxTurn + 1)
-            .then((tail) => { mergeTailIntoEntry(entry, tail); return entry; })
-            .finally(() => { historicInflight.delete(snakeId); });
-          historicInflight.set(snakeId, p);
-        }
-        return p;
-      }
-      let p = historicInflight.get(snakeId);
-      if (!p) {
-        p = fetchHistoricDecisions(snakeId)
-          .then((e) => { historicCache.set(snakeId, e); return e; })
-          .finally(() => { historicInflight.delete(snakeId); });
-        historicInflight.set(snakeId, p);
-      }
+    // ONE TURN'S EVENTS, fetched once and cached forever.
+    //
+    // A turn's event log is APPEND-ONLY and, once the turn has resolved,
+    // closed: there is no tail to chase and no completeness proof to run,
+    // which is the whole per-snake tail-refresh apparatus this replaces. The
+    // live edge is the one exception and it is handled by not caching it — a
+    // turn the board has not yet moved past is still being written, so it is
+    // re-fetched rather than trusted.
+    function ensureHistoricEvents(turn) {
+      if (turn == null || turn < 0) return Promise.resolve([]);
+      // A turn is SETTLED once the board has moved past it: its event log is
+      // closed and the cached copy is final. `historyFetchesFrozen` says the
+      // post-game reconciliation is done, which settles every turn at once.
+      const settled = historyFetchesFrozen || (finishedMode ? true : turn < liveMaxTurn);
+      const held = historicEvents.get(turn);
+      if (held && settled) return Promise.resolve(held);
+      const flight = historicEventsInflight.get(turn);
+      if (flight) return flight;
+      const url = `/api/logs?game_id=${encodeURIComponent(gameId)}` +
+        `&startTurn=${turn}&endTurn=${turn}&limit=5000`;
+      const p = fetch(url)
+        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then((data) => {
+          const events = ((data && data.events) || [])
+            .filter((e) => e && e.turn === turn)
+            .sort((a, b) => a.seq - b.seq);
+          historicEvents.set(turn, events);
+          return events;
+        })
+        .catch((err) => {
+          console.error(`Failed to load turn ${turn} events:`, err);
+          return historicEvents.get(turn) || [];
+        })
+        .finally(() => { historicEventsInflight.delete(turn); });
+      historicEventsInflight.set(turn, p);
       return p;
     }
 
-    // A snake's log is FINAL (will never grow) once that is PROVABLE. The game
-    // merely being over is NOT proof: the server flushes decision rows to the
-    // database asynchronously, so treating game-over as "log complete" would
-    // freeze a partial log — the final turns would stay unexplorable until a
-    // page refresh. Proof is one of:
-    //  - the log already covers the end of the game (the last decision is made
-    //    one turn before the final board turn), or
-    //  - post-game reconciliation finished (historyFetchesFrozen), or
-    //  - during a live game, the board has moved past the log's last turn and
-    //    the snake is no longer on it (it died at a turn we already have).
-    function snakeLogIsFinal(snakeId, entry) {
-      if (entry.complete) return true;
-      if (historyFetchesFrozen) { entry.complete = true; return true; }
-      const over = finishedMode || gameEnded;
-      if (over) {
-        const finalT = knownFinalTurn ?? timelineFinalTurn;
-        if (finalT != null && entry.maxTurn >= finalT - 1) {
-          entry.complete = true;
-          return true;
-        }
-        // While a post-game reconcile pass is pending or running, stay
-        // non-final so it keeps force-refreshing this log's tail (it freezes
-        // all history fetching when done). But when no reconcile pass will
-        // ever run — the finished-mode load failed or never started — fall
-        // through to the dead-on-board proof below, so scrubbing past an
-        // early-dead snake's last turn doesn't tail-refetch forever. For a
-        // page that watched the game end live, currentGameState is the final
-        // board, which proves an absent snake's log can no longer grow.
-        if (gameEndReconcile) return false;
-      }
-      // Dead: the board (live, or final after a game end) has moved past the
-      // log's last turn and the snake is no longer on it.
-      if (currentGameState && currentGameState.board &&
-          (currentGameState.turn ?? 0) > entry.maxTurn &&
-          !currentGameState.board.snakes.some((s) => s.id === snakeId)) {
-        entry.complete = true;
-        return true;
-      }
-      return false;
-    }
-
-    // Point the loaded-decisions view at one unit's cached log, synchronously.
-    // An un-logged unit (every chess piece) simply gets an empty log, which the
-    // breakdown panel renders as "no data" — never a blocked inspection.
-    function adoptHistoricDecisions(snakeId) {
-      const entry = historicCache.get(snakeId);
-      historicDecisions = entry ? entry.decisions : [];
-      historicTurnToIndex = entry ? entry.turnToIndex : {};
-    }
-
-    async function ensureHistoricDecisions(targetTurn, opts) {
-      const snakeId = getHistoricSnakeId();
-      if (!snakeId) return false;
-      let entry;
+    /**
+     * THE REPLAYED FRAME — the same fold, off the stored bytes.
+     *
+     * `frameAtSeq` is the function the live page calls on the events the
+     * socket delivered; the events here came out of `turn_events` instead,
+     * verbatim, so the two are one fold over one event type. `isHead` is false
+     * because a recorded turn is closed: determinations are legal iff the
+     * playhead is at the live head, and this is not.
+     */
+    function historicFrameFor(turn) {
+      const view = lensView();
+      const events = historicEvents.get(turn);
+      if (!view || !events || events.length === 0) return null;
+      const last = events[events.length - 1];
       try {
-        entry = await loadSnakeDecisions(snakeId, targetTurn, opts);
-      } catch (err) {
-        console.error('Failed to load historic turns:', err);
-        adoptHistoricDecisions(snakeId);
-        return false;
+        return view.frameAtSeq(events, last.seq, false);
+      } catch (e) {
+        console.error('replay fold unavailable:', e && e.message ? e.message : e);
+        return null;
       }
-      historicDecisions = entry.decisions;
-      historicTurnToIndex = entry.turnToIndex;
-      // Warm the rest of the team in the background. Coalesced + cached, so this
-      // is a cheap no-op once every snake is loaded.
-      prefetchHistoricTeam();
-      return historicDecisions.length > 0;
     }
 
-    // Fetch one snake's logged decisions and build a turn→index map. Shared by
-    // the on-demand loader and the background prefetcher. With `sinceTurn`,
-    // fetches only rows from that turn on (an incremental tail). The server
-    // filters on the decision-log `turn` column, which runs one AHEAD of
-    // game_state.turn (a decision made on board turn N is stored with
-    // turn = N+1), so startTurn = sinceTurn yields every row with
-    // game_state.turn >= sinceTurn - 1: at worst a one-row overlap with what
-    // we already have (deduped on merge), never a gap.
-    async function fetchHistoricDecisions(snakeId, sinceTurn) {
-      // Snake ids contain '#', which must be encoded or the suffix is read as a
-      // URL fragment and the wrong (or no) snake's logs come back.
-      let url =
-        `/api/logs?game_id=${encodeURIComponent(gameId)}&snake_id=${encodeURIComponent(snakeId)}`;
-      if (sinceTurn != null) url += `&startTurn=${encodeURIComponent(sinceTurn)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-      const decisions = (data && data.decisions) || [];
-      const turnToIndex = {};
-      let maxTurn = 0;
-      // Key by game_state.turn so the slider aligns with the live "Turn:"
-      // header (the decision-log `turn` column is offset by one).
-      decisions.forEach((d, i) => {
-        const t = d.game_state?.turn ?? d.turn;
-        turnToIndex[t] = i;
-        if (t > maxTurn) maxTurn = t;
-        // Feed the roster registry so since-dead snakes (ours and enemies)
-        // stay listed with their final length.
-        recordSnakesSeen(d.game_state);
-      });
-      return { decisions, turnToIndex, maxTurn };
+    /** Point the lens rail and the board ink at a replayed turn. The rail is
+     *  the SAME renderer live play uses, reading the SAME frame type — there
+     *  is no replay panel and no replay empty state to drift. */
+    function adoptHistoricLens(turn) {
+      const events = historicEvents.get(turn) || [];
+      lensTurn = turn;
+      lensEvents = events;
+      lensAtHead = false;
+      lensSeq = events.length > 0 ? events[events.length - 1].seq : 0;
+      lensHeld = null;
+      lensNarrowNote = null;
+      const view = lensView();
+      if (view && lensCursor === null) lensCursor = view.initialCursor();
+      lensRender();
     }
 
-    // The recorded command state for one displayed turn, or null while the
-    // command history hasn't loaded (or the turn has no snapshot — e.g. the
-    // final turn, which never resolves).
-    function commandStateFor(turnNumber) {
-      const states = commandHistory && commandHistory.turnStates;
-      return (states && states[turnNumber]) || null;
+    // Kept for the callers that ask "is there anything to replay at this
+    // turn": the events for the turn, loaded, and whether any arrived.
+    async function ensureHistoricDecisions(targetTurn) {
+      const turn = targetTurn == null ? historicTurnNumber : targetTurn;
+      const events = await ensureHistoricEvents(turn);
+      return events.length > 0;
     }
 
-    // Fetch the game's command history once (deduped), refetching only when a
-    // live game has advanced past what we loaded and the user is scrubbing
-    // beyond it. Re-renders the viewed historic turn when data lands so the
-    // command overlays appear without another user action.
-    function ensureCommandHistory(targetTurn) {
-      // "The game is over" is only proof of completeness once the cached
-      // snapshots reach the last resolvable turn (final turn - 1): a fetch
-      // made mid-live is missing every later turn's snapshot, and trusting it
-      // just because the game has since ended would permanently truncate the
-      // command overlays. (finishedMode is included: a live page that watched
-      // the end converts to finishedMode reactively.) Refetches stay bounded
-      // via the commandFetchLiveTurn gate below.
-      const cmdFinalTurn = knownFinalTurn ?? timelineFinalTurn;
-      const endedComplete = (finishedMode || gameEnded) &&
-        cmdFinalTurn != null && commandHistoryMaxTurn >= cmdFinalTurn - 1;
-      const haveEnough = commandHistory &&
-        (endedComplete ||
-          targetTurn == null || targetTurn <= commandHistoryMaxTurn ||
-          liveMaxTurn <= commandFetchLiveTurn);
-      if (haveEnough) return Promise.resolve(commandHistory);
-      if (commandHistoryFetch) return commandHistoryFetch;
-      const fetchedAtLiveTurn = liveMaxTurn;
-      commandHistoryFetch = fetch(`/api/logs/commands?game_id=${encodeURIComponent(gameId)}`)
-        .then((resp) => {
-          // A non-OK response (e.g. a 500 with a JSON error body) must not be
-          // cached as an empty history — leave commandHistory untouched so a
-          // later attempt retries.
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          return resp.json();
-        })
-        .then((data) => {
-          commandHistory = {
-            events: (data && data.events) || [],
-            turnStates: (data && data.turnStates) || {},
-          };
-          commandHistoryMaxTurn = -1;
-          for (const t of Object.keys(commandHistory.turnStates)) {
-            const n = Number(t);
-            if (n > commandHistoryMaxTurn) commandHistoryMaxTurn = n;
-          }
-          commandFetchLiveTurn = fetchedAtLiveTurn;
-          if (viewMode === 'historic' && !isScrubbing) {
-            renderHistoricAtTurn(historicTurnNumber);
-          }
-          return commandHistory;
-        })
-        .catch((err) => {
-          console.error('Failed to load command history:', err);
-          return null;
-        })
-        .finally(() => { commandHistoryFetch = null; });
-      return commandHistoryFetch;
-    }
-
-    // Append a tail fetch's rows onto an existing cache entry, in place (the
-    // entry's arrays/maps are shared with historicDecisions/historicTurnToIndex,
-    // so in-place growth is what makes the new rows visible everywhere).
-    // Inserts are strictly FIFO on the server, so tail rows only ever extend
-    // the entry. Rows we already hold are REFRESHED in place rather than
-    // skipped: the server back-fills submitted_move / server_move onto a row
-    // about a turn after inserting it, and those columns drive the death
-    // markers on the last logged turn.
-    function mergeTailIntoEntry(entry, tail) {
-      let added = 0;
-      for (const d of tail.decisions) {
-        const t = d.game_state?.turn ?? d.turn;
-        const existing = entry.turnToIndex[t];
-        if (existing != null) {
-          entry.decisions[existing] = d;
-          continue;
-        }
-        if (t <= entry.maxTurn) continue; // out-of-order guard; never expected
-        entry.turnToIndex[t] = entry.decisions.length;
-        entry.decisions.push(d);
-        entry.maxTurn = t;
-        added++;
-      }
-      return added;
-    }
-
-    // Highest explorable turn: the board timeline is the authority (it covers
-    // every turn any log covers, plus — for modern games — the final /end
-    // board no decision log ever had), with the per-snake caches as a floor
-    // for old games loaded before the timeline lands. Monotone: caches only
-    // grow.
+    // Highest explorable turn. The board timeline is the AUTHORITY and now
+    // the only source: it carries one canonical board per turn for the whole
+    // game, including the final board no decision was ever made on. The
+    // per-snake log floor it used to be maxed against is gone with the logs —
+    // it existed because a board could only be recovered from whichever unit's
+    // row happened to carry one.
     function recomputeHistoryMaxTurn() {
-      let m = timelineMaxTurn > 0 ? timelineMaxTurn : 0;
-      for (const sid of historicLoggedIds()) {
-        const e = historicCache.get(sid);
-        if (e && e.maxTurn > m) m = e.maxTurn;
-      }
-      return m;
+      return timelineMaxTurn > 0 ? timelineMaxTurn : 0;
     }
 
     // Adopt a freshly computed logged-turn maximum as the slider range for a
@@ -4326,77 +4173,33 @@
       }
     }
 
-    // Post-game log reconciliation. The server flushes decision rows AND turn-
-    // state rows asynchronously, so at the moment a game ends the database may
-    // be missing the last few turns — the root cause of "the latest moves
-    // aren't explorable until I refresh". This loop force-refreshes the board
-    // timeline's tail and every team log's tail with backoff until BOTH
-    // provably reach the end of the game (the timeline must cover the final
-    // board; decisions must cover the last decision turn, F - 1), or until
-    // ~12s of attempts are exhausted. Afterwards all history fetching is
-    // frozen: every entry is final and scrubbing costs zero network.
+    // Post-game reconciliation. The server flushes rows asynchronously, so at
+    // the moment a game ends the database may still be missing the last turn
+    // or two — the root cause of "the latest moves aren't explorable until I
+    // refresh". This loop force-refreshes the board timeline's tail with
+    // backoff until it provably covers the final board, then freezes history
+    // fetching: every turn's events are closed and scrubbing costs zero
+    // network. It is much shorter than it was because there is now ONE tail to
+    // chase rather than one per unit plus a completeness proof each.
     let gameEndReconcile = null;
     function reconcileHistoryAfterGameEnd() {
       if (gameEndReconcile) return gameEndReconcile;
       gameEndReconcile = (async () => {
-        let lastTotal = -1;
+        let lastSize = -1;
         let stagnantRounds = 0;
         for (let round = 0; round < 6; round++) {
           if (round > 0) await sleep(500 * Math.pow(1.6, round));
-          const targets = Array.from(historicLoggedIds()).filter((sid) => {
-            const e = historicCache.get(sid);
-            return !e || !snakeLogIsFinal(sid, e);
-          });
-          const wantTimeline = !timelineIsComplete();
-          if (targets.length === 0 && !wantTimeline) break;
-          await Promise.allSettled([
-            ...targets.map((sid) => loadSnakeDecisions(sid, null, { force: true })),
-            ...(wantTimeline ? [ensureTimeline({ force: true })] : []),
-          ]);
+          if (timelineIsComplete()) break;
+          await ensureTimeline({ force: true }).catch(() => 0);
           applyHistoryMaxTurn(recomputeHistoryMaxTurn());
-          const finalT = knownFinalTurn ?? timelineFinalTurn;
-          const decisionsDone =
-            finalT != null &&
-            Array.from(historicLoggedIds()).some((sid) => {
-              const e = historicCache.get(sid);
-              return e && e.maxTurn >= finalT - 1;
-            });
-          if (decisionsDone && timelineIsComplete()) break;
-          // Stagnation exit: stop once consecutive rounds add nothing — the
-          // flush either landed or never will (e.g. every snake died well
-          // before the game's final turn, so no log can ever reach it). A
-          // known final turn gets one extra quiet round of patience before
-          // giving up on reaching it.
-          let total = turnTimeline.size;
-          for (const sid of historicLoggedIds()) {
-            const e = historicCache.get(sid);
-            if (e) total += e.decisions.length;
-          }
-          stagnantRounds = total === lastTotal ? stagnantRounds + 1 : 0;
-          lastTotal = total;
-          if (stagnantRounds >= (finalT == null ? 2 : 3)) break;
+          const size = turnTimeline.size;
+          stagnantRounds = size === lastSize ? stagnantRounds + 1 : 0;
+          lastSize = size;
+          if (stagnantRounds >= 2) break;
         }
         historyFetchesFrozen = true;
       })();
       return gameEndReconcile;
-    }
-
-    // Warm the cache for our other controlled snakes in the background so that
-    // switching perspective (list click or board click) is instant instead of
-    // paying a network round-trip per selection.
-    function prefetchHistoricTeam() {
-      for (const sid of historicLoggedIds()) {
-        if (historicCache.has(sid) || historicInflight.has(sid)) continue;
-        // When a teammate's log lands while we're viewing history, re-render:
-        // it may extend the board coverage past the inspected snake's death.
-        loadSnakeDecisions(sid, null)
-          .then(() => {
-            if (viewMode === 'historic' && !isScrubbing) {
-              renderHistoricAtTurn(historicTurnNumber);
-            }
-          })
-          .catch(() => {});
-      }
     }
 
     // Switch the inspected unit while scrubbing, and re-render the same turn so
@@ -4416,68 +4219,19 @@
       if (sliderEl && document.activeElement === sliderEl) sliderEl.blur();
       if (snakeId === getHistoricSnakeId()) return;
       historicSnakeId = snakeId;
-      // The loaded decisions belong to the PREVIOUS perspective — swap in the
-      // new unit's cached log (or nothing) before painting, or the breakdown
-      // would briefly describe the unit the user just navigated away from.
-      adoptHistoricDecisions(snakeId);
+      // THE PERSPECTIVE MOVES IMMEDIATELY. Nothing has to be fetched: the
+      // turn's events are one log for every unit on the board, so switching
+      // which unit is inspected is a change of cursor and not a change of
+      // data — which is why this used to need a per-unit fetch and no longer
+      // does.
       const turnToShow = historicTurnNumber;
+      const view = lensView();
+      const frame = historicFrameFor(turnToShow);
+      if (view && frame && lensCursor) {
+        lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'focus', unit: snakeId });
+      }
       renderHistoricAtTurn(turnToShow);
       updateTurnControls();
-      const ok = await ensureHistoricDecisions(turnToShow);
-      if (!ok || viewMode !== 'historic' || historicSnakeId !== snakeId) return;
-      renderHistoricAtTurn(turnToShow);
-      updateTurnControls();
-    }
-
-    // Index of the last decision at or before turnNumber within one cache
-    // entry, or -1 when the entry has nothing at/before that turn.
-    function indexForTurnInEntry(entry, turnNumber) {
-      if (!entry || !entry.decisions || entry.decisions.length === 0) return -1;
-      if (entry.turnToIndex[turnNumber] != null) return entry.turnToIndex[turnNumber];
-      let best = -1;
-      for (let i = 0; i < entry.decisions.length; i++) {
-        const t = entry.decisions[i].game_state?.turn ?? entry.decisions[i].turn;
-        if (t <= turnNumber) best = i; else break;
-      }
-      return best;
-    }
-
-    // Map a desired turn number to the nearest logged decision index at or
-    // before it (logs may skip a turn). Returns -1 if there is nothing logged.
-    function decisionIndexForTurn(turnNumber) {
-      if (!historicDecisions || historicDecisions.length === 0) return -1;
-      if (historicTurnToIndex[turnNumber] != null) return historicTurnToIndex[turnNumber];
-      let best = -1;
-      for (let i = 0; i < historicDecisions.length; i++) {
-        const t = historicDecisions[i].game_state?.turn ?? historicDecisions[i].turn;
-        if (t <= turnNumber) best = i; else break;
-      }
-      return best === -1 ? 0 : best;
-    }
-
-    // LEGACY board resolution from per-snake decision logs: the fallback for
-    // turns the timeline doesn't cover (endpoint failure, or an old-format
-    // game whose rows are already in memory before the timeline lands).
-    // Returns the highest board-BEARING row with game_state.turn <= target
-    // across all cached selectable snakes (plus the prior row in the same log,
-    // for death-marker detection), or null when nothing covers it. Modern slim
-    // rows carry no board and are never board sources.
-    function resolveBoardRow(turnNumber) {
-      let best = null;
-      for (const sid of historicLoggedIds()) {
-        const entry = historicCache.get(sid);
-        if (!entry) continue;
-        const i = indexForTurnInEntry(entry, turnNumber);
-        if (i < 0) continue;
-        const row = entry.decisions[i];
-        if (!row.game_state?.board) continue;
-        const t = row.game_state?.turn ?? row.turn;
-        if (!best || t > best.turn) {
-          const prev = i > 0 ? entry.decisions[i - 1] : null;
-          best = { row, prevRow: prev?.game_state?.board ? prev : null, turn: t };
-        }
-      }
-      return best;
     }
 
     // Strip every live-only affordance from the page. Used for finished games,
@@ -4602,21 +4356,18 @@
           historicSnakeId = group.default_snake_id;
         }
 
-        // Load the board timeline and the inspected snake's decisions,
-        // retrying briefly in case the logs are still being written.
-        // force:true makes a cached mid-game snapshot (from scrubbing while
-        // live) refresh its tail instead of being trusted as-is — trusting it
+        // Load the board timeline, retrying briefly in case the rows are
+        // still being written. force:true refreshes a mid-game cache (from
+        // scrubbing while live) rather than trusting it as-is — trusting it
         // was why the last turns of a just-finished game went missing until a
-        // page refresh.
+        // page refresh. The turn's DECISION loads per turn, when the playhead
+        // arrives at it.
         const loadOnce = async () => {
-          const [decisionsOk] = await Promise.all([
-            ensureHistoricDecisions(null, { force: true }),
-            ensureTimeline({ force: true }).catch(() => 0),
-          ]);
+          await ensureTimeline({ force: true }).catch(() => 0);
           if (timelineFinalTurn != null && knownFinalTurn == null) {
             knownFinalTurn = timelineFinalTurn;
           }
-          return decisionsOk || timelineTurns.length > 0;
+          return timelineTurns.length > 0;
         };
         let ok = await loadOnce();
         for (let attempt = 1; attempt < 3 && !ok; attempt++) {
@@ -4632,8 +4383,8 @@
         }
 
         // The board timeline's last turn is the effective "live edge" for
-        // scrubbing (with the per-snake logs as a floor) — never any single
-        // snake's log, which ends early if that snake died early.
+        // scrubbing — never any single unit's log, which ends early if that
+        // unit died early.
         liveMaxTurn = recomputeHistoryMaxTurn();
 
         document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
@@ -4680,9 +4431,6 @@
       // The selected turn lives in the slider (value) domain and is kept exactly
       // as the user picked it — we never echo a snapped data turn back to it.
       historicTurnNumber = Math.max(0, Math.min(liveMaxTurn, turnNumber));
-      // Recorded command state (waypoints, routes, staged arrows, operators)
-      // for the viewed turns; fire-and-forget, re-renders when it lands.
-      ensureCommandHistory(historicTurnNumber);
       // Latest-wins: stamp this load so a stale async resolution (an earlier,
       // slower scrub) can detect it has been superseded and bail out.
       const token = ++scrubLoadToken;
@@ -4739,6 +4487,19 @@
       scrubLoadToken++;
       historicSnakeId = null;
       historicMoveState = null;
+      historicRenderCtx = null;
+      // THE LENS RETURNS TO NOW WITH THE BOARD. Scrubbing a replayed turn
+      // pointed the rail at that turn's stored events; the live head is a
+      // different turn, and leaving the rail on the old one would show a
+      // finished decision under a live board. The next `lens-frames` refills
+      // it — the reset is what makes that arrival a fresh turn rather than an
+      // append onto a replay.
+      lensTurn = -1;
+      lensEvents = [];
+      lensSeq = 0;
+      lensAtHead = true;
+      lensHeld = null;
+      lensNarrowNote = null;
       document.getElementById('boardOverlay').innerHTML = '';
       restoreLiveSelectionPanel();
       if (currentGameState) {
@@ -4866,42 +4627,13 @@
       // frame but skip the heavier side-panel DOM rebuild; the full render runs
       // once on commit/release.
       const lightweight = !!(opts && opts.lightweight);
-      const idx = decisionIndexForTurn(turnNumber);
-      const ownRow = (historicDecisions && idx >= 0) ? historicDecisions[idx] : null;
-      const ownTurn = ownRow ? (ownRow.game_state?.turn ?? ownRow.turn) : -1;
 
-      // Board resolution: timeline first, legacy per-snake logs as fallback —
-      // whichever covers a higher turn at/below the target wins.
+      // THE BOARD comes from the per-game timeline and from nowhere else: one
+      // canonical settlement per board turn, stored once. The legacy
+      // "whichever unit's log happened to carry a board" resolution is gone
+      // with the logs that carried one.
       const tlRow = timelineFloorRow(turnNumber);
-      const legacy = resolveBoardRow(turnNumber);
-      let boardState = null;   // full canonical-ish state {turn, board, lastMoves?}
-      let prevBoard = null;    // previous board, for death-marker detection
-      let timelineRow = null;  // the timeline row when it's the source (grids)
-      if (tlRow && (!legacy || tlRow.turn >= legacy.turn)) {
-        boardState = tlRow.game_state;
-        timelineRow = tlRow;
-        // The previous board drives disappearance-based death markers, so a
-        // gapped floor row must not stand in for the true previous turn:
-        // diffing across a many-turn hole (a websocket reconnect gap in the
-        // live-seeded rows) would mark every snake that died inside the hole
-        // as dying HERE, at stale positions. Database timelines are written
-        // per turn, so a small gap there is tolerated (matching the old
-        // sparse-log behavior); a gap involving live-seeded rows is not.
-        const prev = timelinePrevRow(tlRow.turn);
-        const prevUsable = prev && (
-          prev.turn === tlRow.turn - 1 ||
-          (!prev.liveSeeded && !tlRow.liveSeeded)
-        );
-        prevBoard = prevUsable ? prev.game_state.board
-          : (legacy && legacy.turn === tlRow.turn ? legacy.prevRow?.game_state?.board || null : null);
-      } else if (legacy) {
-        boardState = legacy.row.game_state;
-        prevBoard = legacy.prevRow?.game_state?.board || null;
-        // Even when a legacy row paints the board, the timeline row for the
-        // SAME turn (if cached) still carries the shared grids.
-        timelineRow = timelineRowAt(legacy.turn);
-      }
-      if (!boardState || !boardState.board) {
+      if (!tlRow || !tlRow.game_state || !tlRow.game_state.board) {
         // Nothing covers this turn yet — kick the load, repaint when it
         // lands, and keep the current frame instead of blanking.
         ensureTimeline()
@@ -4913,47 +4645,50 @@
           .catch(() => {});
         return;
       }
-      historicIndex = idx >= 0 ? idx : 0;
+      const boardState = tlRow.game_state;
+      // The previous board drives disappearance-based death markers, so a
+      // gapped floor row must not stand in for the true previous turn:
+      // diffing across a many-turn hole (a websocket reconnect gap in the
+      // live-seeded rows) would mark every snake that died inside the hole
+      // as dying HERE, at stale positions.
+      const prev = timelinePrevRow(tlRow.turn);
+      const prevUsable = prev && (
+        prev.turn === tlRow.turn - 1 || (!prev.liveSeeded && !tlRow.liveSeeded)
+      );
+      const prevBoard = prevUsable ? prev.game_state.board : null;
+
       // The rendered (data) turn may differ from the user-selected turn when
       // data is sparse. Keep historicTurnNumber (the slider/value domain)
       // untouched; only the "Turn:" header reflects the data turn on screen.
       const renderedTurn = boardState.turn ?? 0;
-      // The inspected snake's evaluation applies only when its own log covers
-      // the rendered turn (i.e. it was still alive and logging there).
-      const evalRow = (ownRow && ownTurn === renderedTurn) ? ownRow : null;
 
-      if (evalRow) {
-        // Modern slim rows carry the head on game_state.you; the board lookup
-        // covers old rows and any slim row missing it.
-        const boardSnake = boardState.board.snakes.find(s => s.id === evalRow.snake_id);
-        const head = evalRow.game_state?.you?.head
-          || boardSnake?.head || boardSnake?.body?.[0];
-        // The shared territory grid moved off the eval blob onto the turn
-        // row for modern games; inject whichever this row's era provides so
-        // the renderer sees one shape.
-        const blob = evalRow.move_evaluations || {};
-        const evalInput = {
-          evaluations: blob.evaluations || (Array.isArray(blob) ? blob : []),
-        };
-        historicMoveState = BoardRenderer.processMoveEvaluations(
-          evalInput, evalRow.safe_moves, head, evalRow.bot_recommendation
-        );
-        historicMoveState.selectedMove = null;
-        historicMoveState.selectedSnake = evalRow.snake_id;
-      } else {
-        // No decision row for the inspected unit at this turn — a chess piece,
-        // which never produces one, or a snake after its death. There are no
-        // candidates to draw, and that is a fact about the turn rather than a
-        // failure to load: the rail says which.
-        historicMoveState = null;
+      // THE DECISION at that turn is its event log, folded. Absent, the load
+      // is kicked and the frame repaints when it lands — the rail says which
+      // of "not loaded" and "nothing happened" it is looking at, in its own
+      // words, and it is the SAME sentence live play shows.
+      if (!historicEvents.has(renderedTurn)) {
+        ensureHistoricEvents(renderedTurn).then((events) => {
+          if (events.length === 0) return;
+          if (viewMode !== 'historic' || isScrubbing) return;
+          if ((timelineFloorRow(historicTurnNumber)?.turn ?? -1) !== renderedTurn) return;
+          scheduleHistoricCommitRender();
+        });
       }
-      // The recorded command state at the END of the rendered turn (null when
-      // command history hasn't loaded or the turn has no snapshot).
+      adoptHistoricLens(renderedTurn);
+      const frame = historicFrameFor(renderedTurn);
+      const unit = getHistoricSnakeId();
+
+      // The candidate overlay, from the frame's own candidates: the
+      // destinations THIS DECISION priced, as they appear in the rows it
+      // retained. Nothing else in the log enumerates a unit's options, and
+      // inventing an enumeration here would be a computation nobody performed.
+      historicMoveState = candidateStateFromFrame(frame, unit, boardState.board);
+
       historicRenderCtx = {
         boardRow: { game_state: boardState },
         prevRow: prevBoard ? { game_state: { board: prevBoard } } : null,
-        ownRow: evalRow,
-        cmd: commandStateFor(renderedTurn),
+        frame,
+        unit,
       };
 
       document.getElementById('currentTurn').textContent = renderedTurn;
@@ -4962,20 +4697,49 @@
       renderHistoricBoard();
       // The snake list (alive/dead roster, lengths) must track the displayed
       // turn even DURING a drag — a snake's death has to grey it out live as
-      // the user scrubs, not only on release. It's cheap enough to rebuild
-      // whenever the rendered data turn changes; only the heavier evaluation
-      // side panel waits for commit/release.
+      // the user scrubs, not only on release.
       if (!lightweight || snakeInfoRenderedTurn !== renderedTurn) {
         snakeInfoRenderedTurn = renderedTurn;
         BoardRenderer.renderSnakeInfo(
-          document.getElementById('snakeInfoList'), boardState, getHistoricSnakeId(),
+          document.getElementById('snakeInfoList'), boardState, unit,
           { groupByTeam: true, onSelectSnake: switchHistoricSnake,
             selectableSnakeIds: historicSelectableIds(),
             deadSnakes: deadSnakesFor(boardState) }
         );
       }
       if (lightweight) return;
-      renderRail(evalRow);
+      renderRail();
+    }
+
+    /**
+     * The board's candidate overlay, built from a folded frame.
+     *
+     * The old path ran `processMoveEvaluations` over a per-unit blob of scored
+     * candidates. That blob is deleted: its premise — that a joint plan's
+     * value decomposes onto its units — is measured false in both directions,
+     * so the scores it carried were an answer to a question this bot does not
+     * ask. What survives is the ENUMERATION half, which was always correct and
+     * is what the keyboard navigator and the click handler both index, so it
+     * is rebuilt here from the frame's `candidates` and carries no score at
+     * all — the rail says what a candidate is worth, once, in one place.
+     */
+    function candidateStateFromFrame(frame, unit, board) {
+      if (!frame || !unit || !board) return null;
+      const rows = (frame.candidates || {})[unit] || [];
+      if (rows.length === 0) return null;
+      const moves = {};
+      for (const row of rows) {
+        const cell = BoardRenderer.moveDestinationCell(row.to, board);
+        if (!cell) continue;
+        moves[row.key] = {
+          key: row.key,
+          direction: row.key,
+          position: cell,
+          safe: row.legal !== false,
+        };
+      }
+      if (Object.keys(moves).length === 0) return null;
+      return { moves, selectedMove: null, selectedSnake: unit };
     }
 
     // ── Live drag rendering ──────────────────────────────────────────────────
@@ -4998,18 +4762,15 @@
       // live edge: the last turn is historic like any other, so it must paint
       // during the drag too.
       if (!finishedMode && target >= liveMaxTurn) return;
-      // Render only from data already in memory. The board needs the timeline
-      // (or a legacy board-bearing log); if neither covers anything yet, kick
-      // the (deduped) loads and repaint once something lands.
-      if (timelineTurns.length === 0 && (!historicDecisions || historicDecisions.length === 0)) {
+      // Render only from data already in memory. The board is the timeline's;
+      // with nothing cached yet, kick the (deduped) load and repaint once it
+      // lands rather than blanking the frame under the drag.
+      if (timelineTurns.length === 0) {
         ensureTimeline()
           .then((added) => {
             if (added > 0 && isScrubbing) schedulePreviewRender(scrubRenderTurn);
           })
           .catch(() => {});
-        ensureHistoricDecisions().then((ok) => {
-          if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
-        });
         return;
       }
       // Suppress live repaints while previewing so an incoming live turn can't
@@ -5018,62 +4779,55 @@
       renderHistoricAtTurn(target, { lightweight: true });
     }
 
-    // Warm the board timeline AND the inspected snake's logs the instant the
-    // pointer lands so the first drag frame can render without waiting on the
-    // network.
+    // Warm the board timeline the instant the pointer lands so the first drag
+    // frame can render without waiting on the network. The turn's events load
+    // per turn, as the drag arrives at each one — a drag crosses turns faster
+    // than a fetch returns, and prefetching a whole game's event logs to serve
+    // a gesture is exactly the multi-megabyte eagerness this path shed.
     function primeHistoricForScrub() {
-      if (timelineTurns.length === 0) {
-        ensureTimeline()
-          .then((added) => {
-            if (added > 0 && isScrubbing) schedulePreviewRender(scrubRenderTurn);
-          })
-          .catch(() => {});
-      }
-      if (historicDecisions && historicDecisions.length > 0) return;
-      ensureHistoricDecisions().then((ok) => {
-        if (ok && isScrubbing) schedulePreviewRender(scrubRenderTurn);
-      });
+      if (timelineTurns.length > 0) return;
+      ensureTimeline()
+        .then((added) => {
+          if (added > 0 && isScrubbing) schedulePreviewRender(scrubRenderTurn);
+        })
+        .catch(() => {});
     }
 
-    // Our own snake's death markers: solid = head + server_move (back-filled
-    // from the next turn's lastMoves — the snake stepped, then was gone);
-    // ghost = head + submitted_move, only when it differs. Rows without
-    // server_move (mid-game / older logs) → no markers.
-    //
-    // The marker belongs only on the snake's DEATH turn. When the timeline has
-    // the next turn's board, that presence check is exact — a snake still on
-    // the next board gets no marker (the last decision row of a game WINNER
-    // has a back-filled server_move too, and must not draw a death marker).
-    // Without a next board, fall back to the "last row of the own log" gate.
-    function buildHistoricOurDeaths(turn) {
-      const t = turn.game_state?.turn ?? (turn.turn - 1);
-      const next = timelineRowAt(t + 1);
-      if (next) {
-        const aliveNext = (next.game_state?.board?.snakes || []).some(s => s.id === turn.snake_id);
-        if (aliveNext) return [];
-      } else if (historicIndex !== historicDecisions.length - 1) {
-        return [];
-      }
-      const serverMove = turn.server_move;
-      if (!serverMove) return [];
-      const boardSnakes = historicRenderCtx?.boardRow?.game_state?.board?.snakes
-        || turn.game_state?.board?.snakes || [];
-      const ourSnake = boardSnakes.find(s => s.id === turn.snake_id) || turn.game_state?.you;
-      const head = ourSnake?.body?.[0] || ourSnake?.head;
-      if (!head) return [];
-      const actualHead = applyMoveToCell(head, serverMove);
-      const submittedMove = turn.submitted_move;
-      const intendedHead =
-        submittedMove && submittedMove !== serverMove
-          ? applyMoveToCell(head, submittedMove)
+    /**
+     * Our own units' death markers, from the log rather than from a back-filled
+     * column.
+     *
+     * `turn.resolved` records what each unit ACTUALLY did — the server's own
+     * account — and the frame's staged record carries what we asked for. A
+     * unit that resolved a move and is not on the next board died taking it;
+     * the ghost marker is drawn only where the two differ, which is the one
+     * case a reader learns something from.
+     */
+    function historicOurDeaths(frame, board, nextBoard) {
+      if (!frame || !nextBoard) return [];
+      const out = [];
+      for (const [unit, staged] of Object.entries(frame.staged || {})) {
+        const resolved = staged.resolved;
+        if (resolved == null) continue;
+        if ((nextBoard.snakes || []).some((sn) => sn.id === unit)) continue;
+        const snake = (board.snakes || []).find((sn) => sn.id === unit);
+        const head = snake?.head || snake?.body?.[0];
+        if (!head) continue;
+        const actualHead = BoardRenderer.moveDestinationCell(resolved, board);
+        if (!actualHead) continue;
+        const asked = staged.confirmed != null ? staged.confirmed : staged.to;
+        const intendedHead = asked != null && asked !== resolved
+          ? BoardRenderer.moveDestinationCell(asked, board)
           : null;
-      return [{
-        id: turn.snake_id,
-        lastHead: head,
-        intendedHead,
-        actualHead,
-        color: ourSnake?.customizations?.color || ourSnake?.color || '#888888',
-      }];
+        out.push({
+          id: unit,
+          lastHead: head,
+          intendedHead,
+          actualHead,
+          color: snake?.customizations?.color || snake?.color || '#888888',
+        });
+      }
+      return out;
     }
 
     /** The replay view, from the recorded rows: the same object `liveView`
@@ -5081,36 +4835,98 @@
     function renderHistoricBoard() {
       const ctx = historicRenderCtx;
       if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
-      const own = ctx.ownRow; // the inspected unit's decision, null after death
-      // The arrow shows the move actually SUBMITTED to the game server for
-      // this turn — ground truth. A row without one falls back to the bot's
-      // recommendation, which is now the same object as the incumbent moveset's
-      // assignment, drawn the same way: one vocabulary, one arrow.
-      const submitted = own ? (own.submitted_move || null) : null;
-      const botRec = own ? (own.bot_recommendation || null) : null;
-      // The recorded command state at the END of the rendered turn: the same
-      // maps the live broadcast carries, so the identical render path draws
-      // them. Null when no snapshot covers the turn.
-      const cmd = ctx.cmd || null;
+      const board = ctx.boardRow.game_state.board;
+      const frame = ctx.frame;
+      const unit = ctx.unit;
+      // THE ARROW is the move that actually went to the game server, taken off
+      // the fold: the confirmation the wire read back, else what was staged.
+      // The bot's recommendation is not a second vocabulary any more — it IS
+      // the incumbent moveset's assignment, drawn as the violet incumbent by
+      // the lens ink beside this.
+      const stagedUnit = frame ? (frame.staged || {})[unit] : null;
+      const chosen = stagedUnit
+        ? (stagedUnit.confirmed != null ? stagedUnit.confirmed : stagedUnit.to)
+        : null;
+      const nextBoard = timelineRowAt((ctx.boardRow.game_state.turn ?? 0) + 1)?.game_state?.board
+        || null;
       renderView({
         gameState: ctx.boardRow.game_state,
         moveState: historicMoveState,
-        snakeId: own ? own.snake_id : getHistoricSnakeId(),
-        chosenMove: submitted || botRec,
-        showChosenArrow: !!own,
+        snakeId: unit,
+        chosenMove: chosen != null ? chosen : null,
+        showChosenArrow: chosen != null,
         previousBoard: ctx.prevRow?.game_state?.board || null,
-        ourDeaths: own ? buildHistoricOurDeaths(own) : [],
+        ourDeaths: historicOurDeaths(frame, board, nextBoard),
         lastMoves: ctx.boardRow.game_state?.lastMoves || null,
         deathCells: ctx.boardRow.game_state?.deathCells || null,
-        fatalConsented: !!(own && own.fatal_consent),
-        stagedMoves: cmd ? cmd.stagedMoves : null,
-        intentModes: cmd ? cmd.activeIntentModes : null,
-        owners: cmd ? cmd.owners : null,
-        routes: cmd ? cmd.routes : null,
+        // THE COMMAND STATE IS FOLDED, not snapshotted. `command_turn_states`
+        // stored a per-turn copy of exactly these maps beside the events that
+        // determine them, and a materialised copy with no rebuild is how a
+        // table starts disagreeing with its source. The fold is the rebuild.
+        stagedMoves: historicStagedMoves(frame),
+        intentModes: historicIntentModes(frame),
+        owners: historicOwners(frame),
+        routes: frame ? frame.routes : null,
         routeHeads: true,
-        waypoints: cmd ? cmd.waypoints : null,
+        waypoints: frame ? frame.waypoints : null,
         lens: lensInk(),
       });
+    }
+
+    /**
+     * The staged arrows, in the renderer's own vocabulary.
+     *
+     * The renderer draws the CONFIRMED move solid and the requested one as a
+     * dashed ghost where the two differ — the optimistic layer of the
+     * requested → confirmed → final pipeline — and the fold carries exactly
+     * those two facts as separate events, which is why the replay can draw the
+     * same picture the live board drew rather than a summary of it. Every move
+     * here is a full-board cell index: one numbering, so a piece and a snake
+     * read the same way.
+     */
+    function historicStagedMoves(frame) {
+      if (!frame) return null;
+      const out = {};
+      for (const [unit, staged] of Object.entries(frame.staged || {})) {
+        if (staged.to == null && staged.confirmed == null) continue;
+        out[unit] = {
+          move: staged.confirmed != null ? staged.confirmed : null,
+          requestedMove: staged.to != null ? staged.to : null,
+          committed: !!staged.committed,
+          rotation: false,
+          color: null,
+        };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    }
+
+    /** Who held each unit, from the frame's unit rows — the same identity the
+     *  live broadcast's `owners` map carries, folded rather than snapshotted. */
+    function historicOwners(frame) {
+      if (!frame) return null;
+      const out = {};
+      for (const row of frame.units || []) {
+        if (!row.owner && !row.operator) continue;
+        out[row.unit] = { userId: row.owner, name: row.operator, color: null };
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    }
+
+    /** The active intent per unit, folded from the command log: a standing
+     *  goto or near beats the default, and a human pin beats both. */
+    function historicIntentModes(frame) {
+      if (!frame) return null;
+      const out = {};
+      for (const [unit, route] of Object.entries(frame.routes || {})) {
+        if (route && route.kind) out[unit] = 'goto';
+      }
+      for (const [unit, waypoint] of Object.entries(frame.waypoints || {})) {
+        if (waypoint && waypoint.kind) out[unit] = 'near';
+      }
+      for (const row of frame.units || []) {
+        if (row.fixity === 'pinned' || row.fixity === 'committed') out[row.unit] = 'manual';
+      }
+      return Object.keys(out).length > 0 ? out : null;
     }
 
     function handleHistoricCanvasClick(event) {
@@ -5150,27 +4966,29 @@
      * and where the frame came from, which the badge says. Neither is a branch
      * in what is drawn.
      */
-    function renderRail(evalRow) {
+    function renderRail() {
       const historic = viewMode === 'historic';
       document.getElementById('noSelectionMsg').style.display = 'none';
       document.getElementById('selectionUI').style.display = 'block';
       document.getElementById('selectedSnakePanel').classList.toggle('active', !historic);
 
-      const snakeId = historic ? (evalRow ? evalRow.snake_id : getHistoricSnakeId()) : selectedSnakeId;
+      const snakeId = historic ? getHistoricSnakeId() : selectedSnakeId;
       const board = activeBoard();
       const snake = (board?.snakes || []).find((s) => s.id === snakeId)
         || (historic ? snakeLastSeen.get(snakeId)?.snake : null)
         || null;
       const name = snake?.name
-        || (historic ? (evalRow?.snake_name || snakeId) : (controlledSnakeTurnData[snakeId]?.name || snakeId));
+        || (historic ? snakeId : (controlledSnakeTurnData[snakeId]?.name || snakeId));
       const glyph = !snake?.letter && snake?.emoji ? `${snake.emoji} ` : '';
       document.getElementById('selectedSnakeName').textContent =
         `${glyph}${name || ''}${historic ? ' (history)' : ''}`;
 
-      // The fatal-consent note is a fact about the turn, so it renders from
-      // whichever side supplies the turn.
+      // The fatal-consent note is a fact about the TURN, and the turn's log
+      // records it: `commit` carries the operator who consented, and the
+      // marker is drawn where the operator took responsibility for a
+      // certain-death move rather than where a back-filled column said so.
       const fatalNote = document.getElementById('fatalConsentNote');
-      const consented = historic && !!evalRow?.fatal_consent;
+      const consented = historic && historicFatalConsent(snakeId);
       if (consented && !fatalNote) {
         const el = document.createElement('span');
         el.id = 'fatalConsentNote';
@@ -5213,17 +5031,28 @@
       );
     }
 
-    // Read-only mirror of the live intent badge: the inspected snake's command
-    // state at the END of the displayed turn — active command mode plus the
-    // operator who issued it — from the recorded per-turn snapshot. Hidden when
-    // no snapshot covers the turn (history predating command logging, or the
-    // final turn, which never resolves).
+    /** Did an operator consent to a certain-death move for this unit, this
+     *  turn? The event log says: a `commit` on the unit is the operator taking
+     *  responsibility, and it names them. */
+    function historicFatalConsent(unit) {
+      const frame = historicRenderCtx && historicRenderCtx.frame;
+      if (!frame || !unit) return false;
+      return (frame.events || []).some(
+        (e) => e.kind === 'commit' && e.unit === unit && e.actor && e.actor.kind === 'operator'
+      );
+    }
+
+    // Read-only mirror of the live intent badge: the inspected unit's command
+    // state at the displayed `seq` — active command mode plus the operator who
+    // issued it — FOLDED from the turn's events. Hidden when the unit was
+    // under no standing command.
     function renderHistoricCommandNote(snakeId) {
       const nameEl = document.getElementById('selectedSnakeName');
       let note = document.getElementById('commandStateNote');
-      const cmd = historicRenderCtx && historicRenderCtx.cmd;
-      const mode = cmd && cmd.activeIntentModes ? cmd.activeIntentModes[snakeId] : null;
-      if (!mode) {
+      const frame = historicRenderCtx && historicRenderCtx.frame;
+      const modes = historicIntentModes(frame);
+      const mode = modes ? modes[snakeId] : null;
+      if (!frame || !mode) {
         if (note) note.style.display = 'none';
         return;
       }
@@ -5234,35 +5063,31 @@
         nameEl.after(note);
       }
       // Built with textContent — operator names are untrusted.
+      const route = (frame.routes || {})[snakeId] || null;
+      const waypoint = (frame.waypoints || {})[snakeId] || null;
+      const staged = (frame.staged || {})[snakeId] || null;
+      const board = historicRenderCtx?.boardRow?.game_state?.board;
       let label;
       if (mode === 'goto') {
-        const cells = (cmd.waypoints && cmd.waypoints[snakeId] && cmd.waypoints[snakeId].cells) || [];
-        label = `goto ×${cells.length}`;
+        label = `goto ×${((route && route.cells) || []).length}`;
       } else if (mode === 'near') {
-        const cell = cmd.waypoints && cmd.waypoints[snakeId] && cmd.waypoints[snakeId].cells
-          ? cmd.waypoints[snakeId].cells[0] : null;
+        const cell = waypoint && waypoint.cells ? waypoint.cells[0] : null;
         label = cell ? `near (${cell.x},${cell.y})` : 'near';
-      } else if (mode === 'hold') {
-        label = 'hold';
       } else if (mode === 'manual') {
-        const staged = cmd.stagedMoves && cmd.stagedMoves[snakeId];
-        let moveLabel = staged && staged.requestedMove != null ? staged.requestedMove : null;
-        // A piece's manual move is a numeric full-board index — show the
-        // destination cell (or the rotation) instead of a bare index.
-        if (typeof moveLabel === 'number') {
-          const board = historicRenderCtx?.boardRow?.game_state?.board;
-          const cell = board ? BoardRenderer.moveDestinationCell(moveLabel, board) : null;
-          if (staged.rotation) moveLabel = 'rotate';
-          else moveLabel = cell ? `(${cell.x},${cell.y})` : String(moveLabel);
-        }
-        label = moveLabel != null ? `manual ${moveLabel}` : 'manual';
+        // Every move in the lens is a full-board CELL — one numbering, so a
+        // piece and a snake read the same way and nobody has to be told which
+        // convention a column was written under.
+        const to = staged && staged.to != null ? staged.to : null;
+        const cell = to != null && board ? BoardRenderer.moveDestinationCell(to, board) : null;
+        label = cell ? `manual (${cell.x},${cell.y})` : 'manual';
       } else {
         label = 'bot (heuristic)';
       }
-      const operator = cmd.operators ? cmd.operators[snakeId] : null;
-      note.textContent = operator ? `${label} — ${operator.name}` : label;
-      note.style.borderColor = operator ? operator.color : '#555';
-      note.style.color = operator ? operator.color : '#999';
+      const unitRow = (frame.units || []).find((u) => u.unit === snakeId) || null;
+      const operator = unitRow && unitRow.operator ? unitRow.operator : null;
+      note.textContent = operator ? `${label} — ${operator}` : label;
+      note.style.borderColor = '#555';
+      note.style.color = '#999';
       note.style.display = '';
     }
 

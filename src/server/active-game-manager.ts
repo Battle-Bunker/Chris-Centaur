@@ -2320,6 +2320,16 @@ export class ActiveGameManager {
     CommandLogger.getInstance().logEvent({ ...event, payload });
   }
 
+  /** The board a game is CURRENTLY on, when that is the turn being asked
+   *  about. A turn still in play has not been flushed to `turn_boards`, and an
+   *  on-demand derivation about the board in front of an operator must not be
+   *  told the square does not exist yet. */
+  public settlementFor(gameId: string, turn: number): BoardSnapshot | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn !== turn) return null;
+    return game.boardState;
+  }
+
   /**
    * WHERE THE LOG IS, for a game: the turn under the writer and the newest
    * `seq` it has stamped. It is what a served inspection stamps its
