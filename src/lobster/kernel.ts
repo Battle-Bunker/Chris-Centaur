@@ -91,12 +91,18 @@ import { basisKeyOf } from "./bounds"
 import { basisOf } from "./search/basis"
 import type {
   BasisKey,
+  ClusterId,
   ClusterView,
+  ConditionalRanking,
   EventId,
+  KernelLensPort,
   LensEvent,
+  LensRefusal,
   LensSink,
+  Lock,
   Moveset,
   MovesetMove,
+  RankConditionalResult,
   UnitKey,
 } from "../lens/types"
 
@@ -2511,6 +2517,118 @@ export class LobsterKernel implements Kernel {
   private refuse(run: Run, refusal: EmitRefusal, key: string): null {
     this.emitLens(run, (at) => ({ kind: "refusal", at, refusal, planKey: key }))
     return null
+  }
+
+
+  /**
+   * THE QUERY PORT a running kernel exposes to its inspectors (04 §4.4).
+   *
+   * Reads the LIVE run — `lastReport` only exists once a decision has ended,
+   * which is when the turn is about to resolve and the operator has stopped
+   * looking. Every method answers about the decision that is happening now, or
+   * refuses in a way a display can render.
+   */
+  lensPort(): KernelLensPort {
+    const off: LensRefusal = {
+      ok: false,
+      refusal: "off-head",
+      detail: "no decision is running: an inspection is a question about a live search",
+    }
+    return {
+      partition: (): ReadonlyArray<ClusterView> => this.run?.clusters ?? [],
+      movesets: (cluster: ClusterId): ReadonlyArray<Moveset> => {
+        const run = this.run
+        if (run === null || run.reservoir === null) return []
+        const plan = run.wirePlan
+        if (plan === null) return run.reservoir.rows(cluster)
+        return run.reservoir.rows(cluster, this.cutPlan(run, plan).per.get(cluster)?.complementKey)
+      },
+      rankConditional: (cluster: ClusterId, locks: ReadonlyArray<Lock>): RankConditionalResult => {
+        const run = this.run
+        if (run === null) return off
+        return this.rankConditionalNow(run, cluster, locks)
+      },
+      explainMoveset: (): Promise<LensRefusal> =>
+        Promise.resolve({
+          ok: false,
+          refusal: "reserve-spent",
+          detail: "explainMoveset lands at L3 with the inspection reserve it is charged to",
+        }),
+      reserve: { budgetMs: 0, spentMs: 0, queued: 0 },
+    }
+  }
+
+  /**
+   * PHASE 1 — THE FIRST PAINT, in the same frame as the click.
+   *
+   * The retained reservoir, filtered by the lock. Rows out immediately, marked
+   * `provisional`, and when the filter is empty the answer is `source:
+   * 'empty'` — which a display renders as SEARCHING and never as NOTHING. The
+   * two are indistinguishable to a reader and only one of them is true: the
+   * reservoir holds a cluster's top-k, and an operator asking about a unit's
+   * fifth candidate is asking about a row nobody priced.
+   *
+   * Phase 2 — the speculative context, which makes the head `conform(ctx ⊕
+   * pin)` rather than an approximation of it — is L3's, with the reserve it is
+   * charged to and the typed refusal past it.
+   */
+  private rankConditionalNow(
+    run: Run,
+    cluster: ClusterId,
+    locks: ReadonlyArray<Lock>,
+  ): RankConditionalResult {
+    const view = run.clusters.find((c) => c.id === cluster)
+    if (view === undefined) {
+      return { ok: false, refusal: "unknown-cluster", detail: `no cluster ${cluster} at this basis` }
+    }
+    const held = new Map<UnitKey, number>()
+    for (const lock of locks) held.set(lock.unit, lock.to)
+    const complementKey =
+      run.wirePlan === null ? undefined : this.cutPlan(run, run.wirePlan).per.get(cluster)?.complementKey
+    const rows = (run.reservoir?.rows(cluster, complementKey) ?? []).filter((row) =>
+      row.moves.every((m) => {
+        const to = held.get(m.unit)
+        return to === undefined || to === m.to
+      }),
+    )
+    // LOCKING NARROWS (04 §3, Q2). The locked unit leaves `members` for the
+    // `boundedBy` strip, and by T1 that can only narrow or split — never widen.
+    const locked: FixedUnit[] = locks.map((l) => ({ unit: l.unit, to: l.to, by: null }))
+    const fixities = this.fixitiesOf(run)
+    const after = partitionOf({
+      sub: run.input.sub,
+      asTeam: run.input.asTeam,
+      epoch: run.epoch,
+      posture: run.governor.current,
+      basis: run.basisKey,
+      ...fixities,
+      pins: [...fixities.pins, ...locked],
+    })
+    const members = new Set(view.members)
+    const clusterAfter =
+      after.find((c) => c.members.some((m) => members.has(m))) ??
+      ({ ...view, members: [], boundedBy: [...view.boundedBy, ...locked.map((l) => ({ ...l, why: "pin" as const }))] })
+    const ranking: ConditionalRanking = {
+      cluster,
+      locks,
+      clusterAfter,
+      rows,
+      source: rows.length === 0 ? "empty" : "retained-filter",
+      cursor: run.active.cursor,
+      provisional: true,
+      degraded: false,
+      contextKey: pinContextKey(
+        [...canonicalPins(run.pins), ...locks.map((l) => ({
+          unitId: run.input.sub.unitIdOf(l.unit) ?? -1,
+          to: l.to,
+          tentative: true,
+        }))],
+        true,
+      ),
+      final: false,
+    }
+    this.emitLens(run, (at) => ({ kind: "conditional", at, ranking }))
+    return { ok: true, ...ranking }
   }
 
   // --------------------------------------------------------------- report
