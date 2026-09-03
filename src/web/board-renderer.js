@@ -1757,6 +1757,11 @@ const BoardRenderer = (function () {
   function renderLensGround(ctx, board, lens, cellSize) {
     if (!lens || !lens.clusters || lens.clusters.length === 0) return;
     const ink = lensTheme(lens.theme);
+    ctx.save();
+    // SCRUBBED frames draw their hypotheses faintly. The playhead is off the
+    // head, determinations are refused, and the ink says so before the
+    // affordance has to.
+    ctx.globalAlpha = lens.dim ? 0.7 : 1;
     for (const cluster of lens.clusters) {
       const heads = (cluster.members || [])
         .map((id) => headOf(board, id))
@@ -1796,6 +1801,7 @@ const BoardRenderer = (function () {
       ctx.setLineDash([]);
       ctx.restore();
     }
+    ctx.restore();
   }
 
   // A cluster chip on the unit's head plate, opposite the letter: violet with
@@ -1876,6 +1882,8 @@ const BoardRenderer = (function () {
   function renderLensHandle(ctx, board, lens, cellSize) {
     if (!lens) return;
     const ink = lensTheme(lens.theme);
+    ctx.save();
+    ctx.globalAlpha = lens.dim ? 0.7 : 1;
 
     for (const cluster of lens.clusters || []) {
       for (const unitId of cluster.members || []) {
@@ -1947,6 +1955,7 @@ const BoardRenderer = (function () {
         ctx.restore();
       }
     }
+    ctx.restore();
   }
 
   // The neutral candidate plate. It used to be a quality tint; it is now one

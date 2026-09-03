@@ -47,7 +47,9 @@ of truth for staged moves.
 - **Centaur play.** The web UI (served on `PORT`, default 5000, at `/play`)
   lets humans select snakes, stage exact moves, draw premove paths and
   waypoints, or leave snakes on engine auto-pilot. Whatever the human does is
-  the same write-through staging path the engine uses.
+  the same write-through staging path the engine uses. Selecting a unit also
+  opens the **decision lens** (below), which is where the bot's own reasoning
+  about that unit is read.
 - **Hold (`h`).** A standing "stand your ground" order for units that *can*
   hold. Movement costs health under the rules and standing still does not, so
   a piece with no food and no worthwhile target within reach should not be
@@ -62,6 +64,62 @@ of truth for staged moves.
   head must vacate its square every turn, so there is no stay to stage for
   one, and `h` on a snake says so instead of doing anything. A held unit
   wears a **shield above its head** on the board, live and in replay.
+
+## The decision lens
+
+The centaur's inspection surface. It answers **"why is this unit moving
+there?"** — and the answer stopped being a list of heuristic components some
+time ago, because the bot stopped deciding that way. It solves **clusters** of
+interacting units jointly and emits **movesets**: one assignment of a move to
+every member of a cluster, scored as a whole. A per-unit table of thirty
+weighted terms is not a lossy view of that decision; it is a view of a decision
+nobody takes any more.
+
+- **Four levels, one cursor.** Selecting a unit opens its **cluster** — the
+  other units the bot is solving jointly with it — and the top **movesets** for
+  that cluster, conditional on the candidate under the cursor. Descend with
+  `[` `]` (moveset) and `B` (a member's terms); every level below the deepest
+  one you chose fills itself in, so a selected unit is never left staring at an
+  empty panel.
+- **Scored as best-of-cluster.** The number beside a candidate is what the
+  whole cluster can do *if this unit plays that move* — not what the move is
+  worth on its own. A candidate whose conditional list was never computed shows
+  a grade (`~` estimated, `·` unpriced) and never a bare number.
+- **The joint row is mandatory.** A member's contribution is a delta against a
+  fixed reference action, and the part of the total that is nobody's alone is
+  drawn as its own row — **even when it is zero**, because a zero cross term is
+  a finding, and omitting a zero residual and omitting a large one are the same
+  bug.
+- **Violet means hypothetical.** Cluster tethers, chips and implied moves are
+  violet; nothing else on the board is. **Only disagreement draws**: a member
+  whose implied move equals what is already staged gets a ring on the existing
+  arrowhead rather than a second arrow, so walking the moveset list lights up
+  exactly what would change. `F` draws the runner-up in teal, dotted, only
+  where it differs.
+- **`Space` stages what is on the screen.** The lock pins the focused unit plus
+  every member whose move differs from what is staged — the exact set that
+  makes the displayed moveset the one the kernel stages — and the count is on
+  the affordance *before* the press, with no `≤`. On rank 1 that is one pin,
+  yours, which is precisely what `Space` always did: the gesture is not
+  re-taught, it is re-explained. `Shift+Space` pins every member.
+  Cross-owner pins are refused at the client and named, never issued.
+- **The turn has a timeline.** `,` `.` step the events *within* the current
+  turn, `Shift+,` `Shift+.` jump emission to emission, `N` returns to now.
+  Stepping back is loud: the ink fades and every determination is refused,
+  because locking against a frame whose ordering has moved would stage
+  something other than what is drawn.
+- **One display, two sources.** Live play and replay are the same fold over the
+  same event type — `src/lens/view` consumes a `LensFrame` and emits a draw
+  transcript, and `src/web/lens-panel.js` turns that transcript into the rail
+  and the board's ink. There is no live-versus-replay branch anywhere in the
+  render path; what differs is whether determinations are legal, and that is a
+  label on one affordance.
+
+Gone with it: the per-unit heuristic table, the Voronoi territory overlay and
+its switch, the grey recommendation hint arrow (the bot's recommendation *is*
+the rank-1 moveset's assignment now), per-candidate quality tints, and the two
+"no data" panels — replaced by one honest sentence that names what has happened
+and at which `seq`.
 
 ## Chess pieces
 
@@ -174,5 +232,12 @@ never-destroy-data rule for that database.
   move to Firebase.
 - `src/logic/piece-moves.ts` — chess-piece movement legality, mirrored from
   the TacticToes engine (keep in lockstep with the server's `pieceMoves.ts`).
-- `src/server/websocket-server.ts` + `src/web/` — the centaur UI.
+- `src/server/websocket-server.ts` + `src/web/` — the centaur UI, and the
+  seven lens envelopes (`lens-frames` out; `lens-conditional`,
+  `lens-breakdown`, `lens-lock`, `lens-cancel` in, each answered or refused in
+  the type of its own reply).
+- `src/lens/view/` — the decision lens's view-model: the cursor state machine,
+  the two sources, and the renderer that turns a `LensFrame` into a draw
+  transcript. `src/web/lens-panel.js` is the only thing that reads that
+  transcript, and it holds no lens logic of its own.
 - `src/logic/` — the decision engine (Voronoi territory strategy).

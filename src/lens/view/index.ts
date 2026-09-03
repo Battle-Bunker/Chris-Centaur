@@ -20,7 +20,7 @@
  * and are re-exported here so the whole U surface has one import path.
  */
 
-import { frameAt } from '../store';
+import { applyEvent, emptyStore, frameAt } from '../store';
 import {
   clusterOf,
   incumbentCandidate,
@@ -230,6 +230,31 @@ export function makeReplayDecisionSource(input: ReplaySourceInput): DecisionSour
       return listeners.add(fn);
     },
   };
+}
+
+/**
+ * THE PAGE'S ENTRY POINT. A turn's events in, the frame at one `seq` out —
+ * folded by the reducer replay folds with, never by a second copy of it living
+ * in the browser. The client holds the events; this holds the meaning.
+ *
+ * The anchor is the turn's own `board.arrived`: a fold never crosses a turn
+ * boundary, so there is nothing to seek past and no game-length fold to avoid.
+ */
+export function frameAtSeq(
+  events: ReadonlyArray<TurnEvent>,
+  seq: number,
+  isHead: boolean
+): LensFrame {
+  const anchor = events.find((e) => e.kind === 'board.arrived') ?? events[0];
+  if (anchor === undefined) throw new Error('a turn with no events has no frame');
+  const store = events
+    .filter((e) => e.seq > anchor.seq)
+    .reduce<FrameStore>((acc, e) => applyEvent(acc, e), emptyStore(anchor));
+  return makeLiveDecisionSource({
+    store,
+    at: { gameId: anchor.gameId, turn: anchor.turn, seq },
+    isHead,
+  }).frame();
 }
 
 export function requestConditional(
@@ -514,7 +539,11 @@ function movesetOps(
  * attention.
  */
 function decidingRung(selected: Moveset, foil: Moveset): string {
-  const dominance = foil.dominance ?? selected.dominance;
+  // The interesting half of the pair is the LOSER: `better()`'s branch is the
+  // reason the row that did not win did not win, and reading the winner's
+  // "leads on the proved floor" back at the operator answers nothing.
+  const loser = selected.rank > foil.rank ? selected : foil;
+  const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
   if (dominance === null) return 'unsealed — the barrier has not run';
   switch (dominance.kind) {
     case 'leader':
