@@ -67,15 +67,368 @@ var LensView = (() => {
   });
 
   // src/lens/store/index.ts
-  var NOT_IMPLEMENTED = "not implemented: L2/L4/L5";
-  function emptyStore(_anchor) {
-    throw new Error(NOT_IMPLEMENTED);
+  function emptyStore(anchor) {
+    return { turn: anchor.turn, anchor, events: [] };
   }
-  function applyEvent(_store, _event) {
-    throw new Error(NOT_IMPLEMENTED);
+  function applyEvent(store, event) {
+    if (event.turn !== store.turn) return store;
+    for (const held of store.events) {
+      if (held.seq === event.seq) return store;
+    }
+    return { turn: store.turn, anchor: store.anchor, events: [...store.events, event] };
   }
-  function frameAt(_store, _seq) {
-    throw new Error(NOT_IMPLEMENTED);
+  function bySeq(a, b) {
+    return a.seq - b.seq;
+  }
+  function upTo(store, seq) {
+    return [store.anchor, ...store.events].filter((e) => e.seq <= seq).sort(bySeq);
+  }
+  function payloadOf(event) {
+    return event.payload;
+  }
+  function boardOf(anchor) {
+    const carried = anchor.payload;
+    const settlement = carried?.settlement;
+    if (settlement && settlement.board) return settlement;
+    return {
+      game: { id: anchor.gameId, ruleset: { name: "", version: "", settings: {} }, map: "", timeout: 0, source: "" },
+      turn: anchor.turn,
+      board: { width: 0, height: 0, food: [], hazards: [], snakes: [] }
+    };
+  }
+  function unitRowsOf(board, roster, fixities, dead) {
+    const snakes = board.board.snakes ?? [];
+    const keys = snakes.length > 0 ? snakes.map((s) => s.id) : [...roster];
+    return keys.map((unit) => {
+      const snake = snakes.find((s) => s.id === unit);
+      const fixed = fixities.get(unit);
+      return {
+        unit,
+        kind: snake?.unitType ?? "snake",
+        letter: snake?.letter ?? "",
+        weight: snake?.length ?? 0,
+        health: snake?.health ?? 0,
+        orientation: snake?.orientation ?? { dx: 0, dy: 0 },
+        fixity: dead.has(unit) ? "dead" : fixed?.fixity ?? "free",
+        owner: fixed?.owner ?? null,
+        operator: fixed?.operator ?? null
+      };
+    });
+  }
+  function reservoirKey(cluster) {
+    return String(cluster);
+  }
+  function conditionalKey(cluster, unit, to) {
+    return `${cluster}|${unit}|${to}`;
+  }
+  function candidatesOf(priced) {
+    const out = {};
+    for (const [unit, rows] of priced) {
+      out[unit] = [...rows.values()].sort((a, b) => a.to - b.to);
+    }
+    return out;
+  }
+  function noteCandidates(priced, rows, best) {
+    for (const row of rows) {
+      for (const move of row.moves) {
+        let perUnit = priced.get(move.unit);
+        if (!perUnit) {
+          perUnit = /* @__PURE__ */ new Map();
+          priced.set(move.unit, perUnit);
+        }
+        const existing = perUnit.get(move.to);
+        const aggregate = best && row.rank === 1 ? { aggregate: row.lo, grade: row.exact ? "exact" : "provisional" } : existing?.conditionalBest ?? null;
+        perUnit.set(move.to, {
+          key: `${move.unit}:${move.to}`,
+          to: move.to,
+          path: move.path,
+          legal: true,
+          conditionalBest: aggregate,
+          disposition: existing?.disposition ?? null
+        });
+      }
+    }
+  }
+  function frameAt(store, seq) {
+    const events = upTo(store, seq);
+    const anchor = store.anchor;
+    const board = boardOf(anchor);
+    const arrival = payloadOf(anchor);
+    let partition = [];
+    const movesets = {};
+    const priced = /* @__PURE__ */ new Map();
+    const staged = {};
+    const routes = {};
+    const waypoints = {};
+    const advice = [];
+    const fixities = /* @__PURE__ */ new Map();
+    const dead = /* @__PURE__ */ new Set();
+    let input = null;
+    let emissionSeq = anchor.seq;
+    let quantaSpent = 0;
+    let last = anchor;
+    for (const event of events) {
+      last = event;
+      switch (event.kind) {
+        case "partition": {
+          partition = payloadOf(event).clusters;
+          break;
+        }
+        case "movesets": {
+          const p = payloadOf(event);
+          movesets[reservoirKey(p.cluster)] = p.rows;
+          noteCandidates(priced, p.rows, true);
+          break;
+        }
+        case "conditional": {
+          const p = payloadOf(event);
+          for (const lock of p.locks) {
+            movesets[conditionalKey(p.cluster, lock.unit, lock.to)] = p.rows;
+          }
+          noteCandidates(priced, p.rows, true);
+          break;
+        }
+        case "emission": {
+          emissionSeq = event.seq;
+          quantaSpent += 1;
+          break;
+        }
+        case "decision.begin": {
+          input = payloadOf(event).input ?? null;
+          break;
+        }
+        case "pin": {
+          const p = payloadOf(event);
+          fixities.set(p.unit, {
+            fixity: p.tentative ? "free" : "pinned",
+            owner: event.actor.id,
+            operator: event.actor.name
+          });
+          break;
+        }
+        case "unpin": {
+          fixities.delete(payloadOf(event).unit);
+          break;
+        }
+        case "commit": {
+          const p = payloadOf(event);
+          fixities.set(p.unit, {
+            fixity: "committed",
+            owner: event.actor.id,
+            operator: event.actor.name
+          });
+          break;
+        }
+        case "commit.observed": {
+          const unit = event.unit;
+          if (unit !== null) {
+            const held = fixities.get(unit);
+            fixities.set(unit, {
+              fixity: "committed",
+              owner: held?.owner ?? event.actor.id,
+              operator: held?.operator ?? event.actor.name
+            });
+            staged[unit] = { ...staged[unit] ?? {}, committed: true };
+          }
+          break;
+        }
+        case "stage.fastpass":
+        case "stage.requested": {
+          const p = payloadOf(event);
+          staged[p.unit] = { ...staged[p.unit] ?? {}, unit: p.unit, to: p.to, source: p.source };
+          break;
+        }
+        case "stage.confirmed": {
+          const p = payloadOf(event);
+          staged[p.unit] = { ...staged[p.unit] ?? {}, unit: p.unit, confirmed: p.to, serverTs: p.serverTs };
+          break;
+        }
+        case "stage.retry": {
+          const p = payloadOf(event);
+          staged[p.unit] = { ...staged[p.unit] ?? {}, unit: p.unit, retryWhy: p.why };
+          break;
+        }
+        case "operator.command": {
+          applyCommand(event, routes, waypoints);
+          break;
+        }
+        case "advice": {
+          const p = payloadOf(event);
+          advice.push({ ...p, by: event.actor.id });
+          break;
+        }
+        case "turn.resolved": {
+          const p = payloadOf(event);
+          for (const death of p.deaths) dead.add(death);
+          for (const move of p.moves) {
+            staged[move.unit] = { ...staged[move.unit] ?? {}, unit: move.unit, resolved: move.to };
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    const at = {
+      gameId: anchor.gameId,
+      turn: store.turn,
+      seq,
+      tMono: last.atWall - anchor.atWall,
+      tWall: last.atWall,
+      mode: "replay",
+      isHead: false
+    };
+    return {
+      at,
+      board,
+      units: unitRowsOf(board, arrival?.roster ?? [], fixities, dead),
+      partition,
+      candidates: candidatesOf(priced),
+      movesets,
+      breakdown: {},
+      staged,
+      routes,
+      waypoints,
+      advice,
+      events,
+      provenance: provenanceOf(input, emissionSeq, quantaSpent)
+    };
+  }
+  function applyCommand(event, routes, waypoints) {
+    const p = payloadOf(event);
+    const unit = p.target ?? event.unit;
+    if (unit === null) return;
+    switch (p.verb) {
+      case "goto-set":
+      case "goto-append":
+      case "goto-remove":
+      case "goto-target-reached":
+        routes[unit] = { kind: "goto", ...p.detail, by: event.actor.id };
+        break;
+      case "near-set":
+        waypoints[unit] = { kind: "near", ...p.detail, by: event.actor.id };
+        break;
+      case "waypoint-clear":
+        delete waypoints[unit];
+        break;
+      case "input-clear":
+      case "command-cleared-on-death":
+        delete routes[unit];
+        delete waypoints[unit];
+        break;
+      default:
+        break;
+    }
+  }
+  function digestString(digest, key) {
+    const value = digest?.[key];
+    return typeof value === "string" ? value : null;
+  }
+  function provenanceOf(input, emissionSeq, quantaSpent) {
+    return {
+      botId: input?.botId ?? "",
+      behaviourId: input?.behaviourId ?? "",
+      evalVersion: digestString(input?.kernelOptions, "evalVersion") ?? "",
+      guidanceId: digestString(input?.kernelOptions, "guidanceId"),
+      emissionSeq,
+      quantaSpent,
+      premise: null,
+      kind: "observed"
+    };
+  }
+
+  // src/lens/store/sources.ts
+  function refuse(reason, detail) {
+    return { ok: false, refusal: reason, detail };
+  }
+  var LIVE_MODE = { true: "live-head", false: "live-scrub" };
+  var NO_PORT = "no running kernel is attached to this source, so nothing can be searched for the ask; the recorded frames answer, the reserve does not";
+  function headSeqOf(store) {
+    return store.events.reduce((max, e) => Math.max(max, e.seq), store.anchor.seq);
+  }
+  function makeSource(kind, input, stamp) {
+    let store = input.store;
+    let at = input.at;
+    const listeners = /* @__PURE__ */ new Set();
+    function announce(delta) {
+      for (const fn of listeners) fn(delta);
+    }
+    return {
+      kind,
+      get at() {
+        return at;
+      },
+      seek(to) {
+        at = to;
+        announce({ kind: "cursor", at: to });
+      },
+      frame() {
+        return stamp(frameAt(store, at.seq), at, store);
+      },
+      timeline() {
+        return frameAt(store, at.seq).events;
+      },
+      async breakdown(moveset) {
+        const stored = frameAt(store, at.seq).breakdown[moveset];
+        if (stored !== void 0) {
+          return { value: stored, basis: stored.basis, provenance: { kind: "observed", at } };
+        }
+        if (!input.port) return refuse("off-head", NO_PORT);
+        const answer = await input.port.explainMoveset(moveset);
+        if ("ok" in answer) return answer;
+        return {
+          value: answer,
+          basis: answer.basis,
+          provenance: { kind: "observed", at }
+        };
+      },
+      async conditional(req) {
+        if (!input.port) return refuse("off-head", NO_PORT);
+        const answer = input.port.rankConditional(req.cluster, [req.lock]);
+        if (!answer.ok) return answer;
+        if (answer.clusterAfter.generation !== req.clusterGeneration) {
+          return refuse(
+            "generation-superseded",
+            `cluster ${req.cluster} is at generation ${answer.clusterAfter.generation}, the ask named ${req.clusterGeneration} — rows from two generations are never in one list`
+          );
+        }
+        return {
+          requestId: answer.contextKey,
+          ranking: answer.rows,
+          cursor: answer.cursor,
+          final: answer.final,
+          cancel() {
+          }
+        };
+      },
+      subscribe(fn) {
+        listeners.add(fn);
+        return () => {
+          listeners.delete(fn);
+        };
+      },
+      /** Live only in practice, and harmless on a replay: fold one more event
+       *  and tell every cursor watching. The reducer refuses a duplicate `seq`,
+       *  so a re-delivered event costs a scan and changes nothing. */
+      ingest(event) {
+        const next = applyEvent(store, event);
+        if (next === store) return;
+        store = next;
+        announce({ kind: "event", event });
+      }
+    };
+  }
+  function makeLiveSource(input) {
+    return makeSource("live", input, (frame, at, store) => {
+      const head = input.isHead && at.seq >= headSeqOf(store);
+      return { ...frame, at: { ...frame.at, mode: LIVE_MODE[`${head}`], isHead: head } };
+    });
+  }
+  function makeReplaySource(input) {
+    return makeSource("replay", input, (frame) => ({
+      ...frame,
+      at: { ...frame.at, mode: "replay", isHead: false }
+    }));
   }
 
   // src/lens/view/cursor.ts
@@ -470,103 +823,40 @@ var LensView = (() => {
   }
 
   // src/lens/view/index.ts
-  var LIVE_MODE = { true: "live-head", false: "live-scrub" };
-  function refuse(reason, detail) {
-    return { ok: false, refusal: reason, detail };
-  }
-  function headSeqOf(store) {
-    return store.events.reduce((max, e) => Math.max(max, e.seq), store.anchor.seq);
-  }
-  function subscribers() {
-    const fns = /* @__PURE__ */ new Set();
+  function withTransport(base, transport) {
     return {
-      add: (fn) => {
-        fns.add(fn);
-        return () => {
-          fns.delete(fn);
-        };
+      kind: base.kind,
+      get at() {
+        return base.at;
       },
-      emit: (d) => {
-        for (const fn of fns) fn(d);
+      seek(to) {
+        base.seek(to);
+      },
+      frame() {
+        return base.frame();
+      },
+      timeline() {
+        return base.timeline();
+      },
+      breakdown(moveset) {
+        return transport === void 0 ? base.breakdown(moveset) : transport.breakdown(moveset);
+      },
+      conditional(req) {
+        return transport === void 0 ? base.conditional(req) : transport.conditional(req);
+      },
+      subscribe(fn) {
+        return base.subscribe(fn);
       }
     };
   }
   function makeLiveDecisionSource(input) {
-    const store = input.store;
-    let at = input.at;
-    const listeners = subscribers();
-    return {
-      kind: "live",
-      get at() {
-        return at;
-      },
-      seek(to) {
-        at = to;
-        listeners.emit({ kind: "cursor", at: to });
-      },
-      frame() {
-        const head = input.isHead && at.seq >= headSeqOf(store);
-        const base = frameAt(store, at.seq);
-        return {
-          ...base,
-          at: { ...base.at, ...at, mode: LIVE_MODE[`${head}`], isHead: head }
-        };
-      },
-      timeline() {
-        return store.events.filter((e) => e.seq <= at.seq);
-      },
-      breakdown(moveset) {
-        const transport = input.transport;
-        return transport === void 0 ? Promise.resolve(refuse("unknown-cluster", "no inspection transport is attached")) : transport.breakdown(moveset);
-      },
-      conditional(req) {
-        const transport = input.transport;
-        return transport === void 0 ? Promise.resolve(refuse("unknown-cluster", "no inspection transport is attached")) : transport.conditional(req);
-      },
-      subscribe(fn) {
-        return listeners.add(fn);
-      }
-    };
+    return withTransport(
+      makeLiveSource({ store: input.store, at: input.at, isHead: input.isHead }),
+      input.transport
+    );
   }
   function makeReplayDecisionSource(input) {
-    let at = input.at;
-    const listeners = subscribers();
-    return {
-      kind: "replay",
-      get at() {
-        return at;
-      },
-      seek(to) {
-        at = to;
-        listeners.emit({ kind: "cursor", at: to });
-      },
-      frame() {
-        const base = frameAt(input.store, at.seq);
-        return { ...base, at: { ...base.at, ...at, mode: "replay", isHead: false } };
-      },
-      timeline() {
-        return input.store.events.filter((e) => e.seq <= at.seq);
-      },
-      breakdown(moveset) {
-        const frame = frameAt(input.store, at.seq);
-        const stored = frame.breakdown[moveset];
-        return Promise.resolve(
-          stored === void 0 ? refuse("unknown-cluster", `no breakdown was retained for ${moveset}`) : {
-            value: stored,
-            basis: stored.basis,
-            provenance: { kind: "observed", at }
-          }
-        );
-      },
-      conditional(_req) {
-        return Promise.resolve(
-          refuse("off-head", "a conditional ranking is a question for a running decision")
-        );
-      },
-      subscribe(fn) {
-        return listeners.add(fn);
-      }
-    };
+    return withTransport(makeReplaySource({ store: input.store, at: input.at }), void 0);
   }
   function frameAtSeq(events, seq, isHead) {
     const anchor = events.find((e) => e.kind === "board.arrived") ?? events[0];

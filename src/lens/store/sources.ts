@@ -59,6 +59,9 @@ function refuse(reason: LensRefusal['refusal'], detail: string): LensRefusal {
   return { ok: false, refusal: reason, detail };
 }
 
+/** The one legitimate difference between the two live readings, as data. */
+const LIVE_MODE = { true: 'live-head', false: 'live-scrub' } as const;
+
 const NO_PORT =
   'no running kernel is attached to this source, so nothing can be searched for the ask; ' +
   'the recorded frames answer, the reserve does not';
@@ -69,10 +72,19 @@ const NO_PORT =
  * implementation can grow a behaviour the other lacks: there is exactly one
  * place below where a frame is built, and it is this one.
  */
+/** The highest `seq` the store holds. A live cursor at or past it is AT THE
+ *  HEAD; one dragged behind it is scrubbing, which is loud and where every
+ *  determination affordance is replaced by *return to now*. It is a fact about
+ *  the fold and the cursor, so it is computed here rather than asserted by
+ *  whichever caller happened to build the source. */
+function headSeqOf(store: FrameStore): number {
+  return store.events.reduce((max, e) => Math.max(max, e.seq), store.anchor.seq);
+}
+
 function makeSource(
   kind: DecisionSourceKind,
   input: SourceInput,
-  stamp: (frame: LensFrame) => LensFrame
+  stamp: (frame: LensFrame, at: Cursor, store: FrameStore) => LensFrame
 ): DecisionSource & { ingest(event: TurnEvent): void } {
   let store = input.store;
   let at = input.at;
@@ -92,12 +104,21 @@ function makeSource(
       announce({ kind: 'cursor', at: to });
     },
     frame(): LensFrame {
-      return stamp(frameAt(store, at.seq));
+      return stamp(frameAt(store, at.seq), at, store);
     },
     timeline(): ReadonlyArray<TurnEvent> {
       return frameAt(store, at.seq).events;
     },
     async breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
+      // THE RETAINED BREAKDOWN FIRST, for both sources and for the same
+      // reason: a breakdown the decision already produced is a recorded fact,
+      // and re-asking a running kernel for it would spend the reserve to be
+      // told what the fold already holds. It is also what makes a drilled row
+      // in replay the row the operator drilled live (Law C).
+      const stored = frameAt(store, at.seq).breakdown[moveset];
+      if (stored !== undefined) {
+        return { value: stored, basis: stored.basis, provenance: { kind: 'observed', at } };
+      }
       if (!input.port) return refuse('off-head', NO_PORT);
       const answer = await input.port.explainMoveset(moveset);
       if ('ok' in answer) return answer;
@@ -151,14 +172,14 @@ function makeSource(
 export function makeLiveSource(input: LiveSourceInput): DecisionSource & {
   ingest(event: TurnEvent): void;
 } {
-  return makeSource('live', input, (frame) => ({
-    ...frame,
-    at: {
-      ...frame.at,
-      mode: input.isHead ? 'live-head' : 'live-scrub',
-      isHead: input.isHead,
-    },
-  }));
+  return makeSource('live', input, (frame, at, store) => {
+    // `isHead` is the CONNECTION's claim — this socket is following a running
+    // turn — and the cursor is where it is actually looking. Both must hold:
+    // an operator who scrubs back is on a live turn and off its head, which is
+    // `live-scrub` and not `replay`.
+    const head = input.isHead && at.seq >= headSeqOf(store);
+    return { ...frame, at: { ...frame.at, mode: LIVE_MODE[`${head}`], isHead: head } };
+  });
 }
 
 /** Replay: the events were read from `turn_events`. Closed at the head, so no
