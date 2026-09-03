@@ -47,12 +47,14 @@ import type {
   BudgetHandle,
   CrossfadeVerdict,
   EmitRecord,
+  FeatureContribution,
   JointPlan,
   Kernel,
   KernelInput,
   Pin,
   PinEvent,
   PinSet,
+  PlanExplanation,
   PlanScore,
   Posture,
   SearchContext,
@@ -87,8 +89,11 @@ import {
 import { diffPartitions, partitionOf, type FixedUnit } from "../lens/kernel/partition"
 import { makeReservoir, slackFrom, type MovesetReservoir } from "../lens/kernel/reservoir"
 import { unitKeyOf } from "../lens/kernel/keys"
+import { rankConditional as rankConditionalPure } from "../lens/kernel/conditional"
+import { carveReserve } from "../lens/kernel/reserve"
 import { basisKeyOf } from "./bounds"
 import { basisOf } from "./search/basis"
+import { LENS_ROW_CAP } from "../lens/types"
 import type {
   BasisKey,
   ClusterId,
@@ -97,11 +102,17 @@ import type {
   EventId,
   KernelLensPort,
   LensEvent,
+  JointResidual,
   LensRefusal,
+  LensReserve,
   LensSink,
   Lock,
+  MemberMarginal,
   Moveset,
+  MovesetBreakdown,
+  MovesetKey,
   MovesetMove,
+  FeatureDelta,
   RankConditionalResult,
   UnitKey,
 } from "../lens/types"
@@ -277,6 +288,17 @@ export interface PinCacheStats {
   invalidations: number
   evictions: number
   creates: number
+  /**
+   * [CHANGE 2]'s OWN MEASUREMENT, shipped with the change it defends (04 §3.3
+   * Q6). `promotionAttempts` counts epoch changes that went looking for a
+   * speculative entry to promote; `promotions` counts the ones that found one.
+   * The ratio is the frequency with which an operator commits a pin they
+   * hovered first — and if it is near zero the promotion is still CORRECT
+   * (Law B needs it) but its latency value is on a path nobody walks, which is
+   * a thing to learn from a counter rather than from an argument.
+   */
+  promotionAttempts: number
+  promotions: number
 }
 
 /** Tier-3 context-exclusive store: LRU, keyed by canonical PinSet, per turn. */
@@ -290,6 +312,8 @@ export class PinContextCache {
     invalidations: 0,
     evictions: 0,
     creates: 0,
+    promotionAttempts: 0,
+    promotions: 0,
   }
 
   constructor(private readonly capacity: number) {}
@@ -342,6 +366,76 @@ export class PinContextCache {
     this.map.set(key, entry)
     this.evict()
     return { entry, resumed: false }
+  }
+
+  /**
+   * [CHANGE 2] — PROMOTE A SPECULATIVE ENTRY INTO THE COMMITTED NAMESPACE.
+   *
+   * Without this the operator's hover is searched for four slices, the
+   * operator commits it, and the kernel starts from an entry with
+   * `incumbent: null`: `pickContext` writes into `spec:[…]` and `retarget`
+   * obtains `pin:[…]`, and those are different keys by construction. The
+   * promotion is what makes the staged moveset the INSPECTED moveset — the
+   * same object in the same cache entry, rather than two rankings that
+   * happened to agree.
+   *
+   * WHAT IT CARRIES, and what it refuses to:
+   *
+   *   incumbent    a plan is not a promise; `improve` resumes from it and
+   *                re-prices it, which is where the new basis's floor comes
+   *                from.
+   *   witnesses    certificates. They survive restarts and pin-context
+   *                switches by contract.
+   *   cursor, citedUnits, stepCostMs   accounting, not adjudication.
+   *
+   *   NOT bounds / boundsBasis. A floor proved in the old epoch may not gate
+   *   the new one, and the whole ratchet exists to make that unrepresentable.
+   *   The new basis establishes its own floor from its own first emission.
+   */
+  promote(from: string, to: string, epoch: number, pins: PinSet): boolean {
+    this.stats.promotionAttempts++
+    const source = this.map.get(from)
+    if (source === undefined) return false
+    this.map.delete(from)
+    const existing = this.map.get(to)
+    const carried = {
+      incumbent: source.incumbent,
+      witnesses: source.witnesses,
+      cursor: source.cursor,
+      citedUnits: new Set(source.citedUnits),
+      stepCostMs: source.stepCostMs,
+    }
+    if (existing !== undefined) {
+      // An entry under the committed key already exists — a previous epoch's.
+      // The plan and the certificates are still worth having; the bracket is
+      // not, and is not taken.
+      existing.incumbent = carried.incumbent ?? existing.incumbent
+      existing.witnesses = carried.witnesses.length > 0 ? carried.witnesses : existing.witnesses
+      existing.cursor = Math.max(existing.cursor, carried.cursor)
+      for (const unitId of carried.citedUnits) existing.citedUnits.add(unitId)
+      existing.bounds = null
+      existing.boundsBasis = null
+      existing.lastUsed = ++this.tick
+    } else {
+      this.map.set(to, {
+        key: to,
+        tier: PIN_CACHE_TIER.EXCLUSIVE,
+        pins,
+        speculative: false,
+        epochBaseline: epoch,
+        incumbent: carried.incumbent,
+        bounds: null,
+        boundsBasis: null,
+        witnesses: carried.witnesses,
+        cursor: carried.cursor,
+        citedUnits: carried.citedUnits,
+        stepCostMs: carried.stepCostMs,
+        lastUsed: ++this.tick,
+      })
+      this.evict()
+    }
+    this.stats.promotions++
+    return true
   }
 
   /**
@@ -798,6 +892,24 @@ interface Run {
   /** Per cluster, the last `movesets` frame's content — so an unchanged
    * reservoir does not re-emit a frame every barrier. */
   readonly framed: Map<number, string>
+  /**
+   * THE INSPECTION RESERVE, carved BEFORE `searchDeadline` and by nothing else
+   * (05 §(d) gate 7(i)). The search is unconditionally shorter by a fixed,
+   * DECLARED amount; inspection is unconditionally affordable; and no exchange
+   * rate between compute and operator attention is ever computed, because a
+   * rate would let the scheduler spend the human.
+   */
+  readonly reserveMs: number
+  reserveSpent: number
+  /** True while a refinement slice is running. The sink is called BETWEEN
+   * slices only, so a request that arrives inside one is queued rather than
+   * served — a rule made structural instead of conventional. */
+  inSlice: boolean
+  readonly queued: Array<{ cluster: ClusterId; locks: ReadonlyArray<Lock> }>
+  /** The plan behind a retained row, for `explainMoveset`. Bounded: an
+   * explanation is a question about a row the operator can see, and there are
+   * at most `LENS_ROW_CAP` of those. */
+  readonly plansByMoveset: Map<string, JointPlan>
   pins: Pin[]
   tentative: Pin[]
   /**
@@ -925,7 +1037,15 @@ export class LobsterKernel implements Kernel {
     const t0 = now()
     const budgetMs = Math.max(0, input.deadlineMs - t0)
     const deadline = t0 + budgetMs
-    const searchDeadline = deadline - this.opts.reserveMs
+    // THE RESERVE IS DECLARED, NOT TAKEN. `reserveMs` is the wire's final
+    // flush; `LENS_INSPECTION_MS` is the operator's, carved on top of it and
+    // ONLY when someone is watching — a decision nobody inspects must be
+    // exactly as long as it was before the lens existed (gate 7(ii)).
+    const carved =
+      input.lens === undefined
+        ? { searchDeadlineMs: deadline - this.opts.reserveMs, reserveMs: 0 }
+        : carveReserve(deadline - this.opts.reserveMs, t0)
+    const searchDeadline = carved.searchDeadlineMs
     const initialStepCostMs =
       input.initialStepCostMs ?? this.opts.initialStepCostMs ?? this.opts.sliceMs
     const cache = new PinContextCache(this.opts.pinCacheCapacity)
@@ -955,6 +1075,11 @@ export class LobsterKernel implements Kernel {
       lens: input.lens ?? null,
       reservoir: input.lens === undefined ? null : makeReservoir(),
       clusters: [],
+      reserveMs: carved.reserveMs,
+      reserveSpent: 0,
+      inSlice: false,
+      queued: [],
+      plansByMoveset: new Map<string, JointPlan>(),
       stamp: 0,
       basisKey: "",
       framed: new Map<number, string>(),
@@ -1127,6 +1252,12 @@ export class LobsterKernel implements Kernel {
         return
       }
 
+      // 0¾. INSPECTIONS QUEUED DURING THE LAST SLICE. Between slices is the
+      //     only place the sink is called, so a request that arrived inside
+      //     one waits here — at most one slice, which is the same bound an
+      //     operator's pin waits under.
+      this.drainInspections(run)
+
       // 1. Constraint epochs come first: the wire must never hold a set that
       //    contradicts an operator, not even for one slice.
       if (this.pending.length > 0) {
@@ -1213,6 +1344,7 @@ export class LobsterKernel implements Kernel {
       const budget = new SliceBudget(run.now, run.t0, sliceEnd)
       const ctx = this.searchContext(run, entry, budget)
       const s0 = run.now()
+      run.inSlice = true
       // EVERY ROW THIS SLICE RETAINS IS STAMPED HERE, with a reading the loop
       // has already taken. A row that read the clock for itself would be work
       // the decision spent on being watched.
@@ -1255,6 +1387,7 @@ export class LobsterKernel implements Kernel {
         run.refusals["bounds-inversion"]++
       }
       const s1 = run.now()
+      run.inSlice = false
       run.slices++
       this.observeSliceCost(run, entry, s1 - s0)
       entry.cursor++
@@ -1466,6 +1599,18 @@ export class LobsterKernel implements Kernel {
   /** Point the active context at the new pin set; report an exact-hit resume. */
   private retarget(run: Run): boolean {
     const key = pinContextKey(run.pins)
+    // [CHANGE 2]. The speculative form of THESE pins is the one the operator
+    // was hovering, and it differs from the committed form in exactly one
+    // token's `?`. Which pin they hovered is not recorded, so each is tried in
+    // turn: at most `|pins|` map lookups, and the first hit is the entry four
+    // slices of search already went into.
+    for (const pin of run.pins) {
+      const speculative = pinContextKey(
+        run.pins.map((p) => (p.unitId === pin.unitId ? { ...p, tentative: true } : p)),
+        true,
+      )
+      if (run.cache.promote(speculative, key, run.epoch, run.pins)) break
+    }
     const { entry, resumed } = run.cache.obtain(
       key,
       run.pins,
@@ -2447,6 +2592,7 @@ export class LobsterKernel implements Kernel {
         const per = cut.per.get(cluster.id)
         if (per === undefined) continue
         if (!reservoir.admits(cluster.id, per.complementKey, order)) continue
+        if (run.plansByMoveset.size < LENS_ROW_CAP * 4) run.plansByMoveset.set(per.key, trial.plan)
         reservoir.offer(
           this.rowOf(run, cluster, per, cut.whole, trial, entry.cursor),
           trial.because === null ? null : { because: trial.because, ...(trial.witness === null ? {} : { witness: trial.witness }) }
@@ -2529,6 +2675,9 @@ export class LobsterKernel implements Kernel {
    * refuses in a way a display can render.
    */
   lensPort(): KernelLensPort {
+    // `this` inside the returned literal is the LITERAL. The kernel is
+    // captured, once, so the port reads the live run rather than nothing.
+    const kernel = this
     const off: LensRefusal = {
       ok: false,
       refusal: "off-head",
@@ -2546,16 +2695,199 @@ export class LobsterKernel implements Kernel {
       rankConditional: (cluster: ClusterId, locks: ReadonlyArray<Lock>): RankConditionalResult => {
         const run = this.run
         if (run === null) return off
-        return this.rankConditionalNow(run, cluster, locks)
+        const left = run.reserveMs - run.reserveSpent
+        // PAST THE RESERVE, THE ANSWER IS A TYPED REFUSAL AND NEVER A ROW.
+        // An inspection that cannot be afforded must say so: a served row
+        // would be the decision paying for the operator's attention, which is
+        // the one trade the whole reserve exists to forbid.
+        if (!(left > 0)) {
+          return {
+            ok: false,
+            refusal: "reserve-spent",
+            detail: `the inspection reserve is spent: ${run.reserveSpent.toFixed(3)} of ${run.reserveMs}`,
+          }
+        }
+        // INSIDE A SLICE the sink is not called. The request is queued for the
+        // next boundary and the operator gets the FIRST PAINT now, which is a
+        // read of rows the decision already priced and costs it nothing.
+        if (run.inSlice) {
+          run.queued.push({ cluster, locks })
+          return this.firstPaint(run, cluster, locks)
+        }
+        return this.inspect(run, cluster, locks)
       },
-      explainMoveset: (): Promise<LensRefusal> =>
-        Promise.resolve({
-          ok: false,
-          refusal: "reserve-spent",
-          detail: "explainMoveset lands at L3 with the inspection reserve it is charged to",
-        }),
-      reserve: { budgetMs: 0, spentMs: 0, queued: 0 },
+      explainMoveset: (
+        key: MovesetKey,
+        members?: ReadonlyArray<UnitKey>,
+      ): Promise<MovesetBreakdown | LensRefusal> => {
+        const run = this.run
+        if (run === null) return Promise.resolve(off)
+        return Promise.resolve(this.explainMovesetNow(run, key, members))
+      },
+      get reserve(): LensReserve {
+        const run = kernel.run
+        return {
+          budgetMs: run?.reserveMs ?? 0,
+          spentMs: run?.reserveSpent ?? 0,
+          queued: run?.queued.length ?? 0,
+        }
+      },
     }
+  }
+
+
+  /** Serve every inspection that arrived while a slice was running. */
+  private drainInspections(run: Run): void {
+    if (run.queued.length === 0) return
+    const waiting = run.queued.splice(0, run.queued.length)
+    for (const request of waiting) {
+      if (!(run.reserveMs - run.reserveSpent > 0)) break
+      this.inspect(run, request.cluster, request.locks)
+    }
+  }
+
+  /**
+   * PHASE 2 — the speculative context, charged to the reserve.
+   *
+   * The head is `conform(ctx ⊕ pin, wirePlan)`: the same object a lock stages,
+   * because [CHANGE 2] promotes the entry rather than starting a new one. What
+   * it costs is measured on the kernel's own clock and taken off the reserve,
+   * so an operator who hovers all turn shortens the search by exactly the
+   * amount that was declared before the turn began — and no more.
+   */
+  private inspect(
+    run: Run,
+    cluster: ClusterId,
+    locks: ReadonlyArray<Lock>,
+  ): RankConditionalResult {
+    const view = run.clusters.find((c) => c.id === cluster)
+    if (view === undefined) {
+      return { ok: false, refusal: "unknown-cluster", detail: `no cluster ${cluster} at this basis` }
+    }
+    const before = run.now()
+    const left = run.reserveMs - run.reserveSpent
+    const budget = new SliceBudget(run.now, run.t0, before + left)
+    const ctx = { ...this.searchContext(run, run.active, budget), trials: undefined }
+    let answer: RankConditionalResult
+    try {
+      answer = rankConditionalPure({
+        ctx,
+        search: run.input.search,
+        cluster,
+        generation: view.generation,
+        locks,
+        reserveMs: left,
+        ...(run.wirePlan === null ? {} : { wirePlan: run.wirePlan }),
+        retained: run.reservoir?.rows(cluster) ?? [],
+        cursor: run.active.cursor,
+      })
+    } catch {
+      answer = {
+        ok: false,
+        refusal: "off-head",
+        detail: "the conditional context could not be built on this basis",
+      }
+    }
+    run.reserveSpent += Math.max(0, run.now() - before)
+    if (answer.ok) {
+      const ranking: ConditionalRanking = answer
+      this.emitLens(run, (at) => ({ kind: "conditional", at, ranking }))
+    }
+    return answer
+  }
+
+  /**
+   * LEVEL 1 ALWAYS, LEVEL 2 FOR THE NAMED MEMBERS (04 §4.4).
+   *
+   *  · the AGGREGATE is one `explainPlan` on the row's own plan — the joint
+   *    fold, whole-board, which is the only kind of number Law A permits;
+   *  · a MARGINAL is a CONTRASTIVE DELTA, not a share: the same explanation
+   *    with one member swapped to its next-best option, differenced. A
+   *    difference of two joint explanations is legitimate exactly where a sum
+   *    is not, and it is the question the operator is asking — "what does this
+   *    unit's move buy?" — rather than a fabricated attribution;
+   *  · the RESIDUAL is `aggregate − Σ marginals`, NAMED and always present,
+   *    zero included. A display that shows the deltas without it is showing a
+   *    total that does not add up and hiding the fact.
+   *
+   * An evaluator that does not explain gets `aggregate: null` and no
+   * marginals. That is not an error state — it is the state every non-
+   * production evaluator produces, and the panel says "this evaluator does not
+   * explain" rather than drawing zeros.
+   */
+  private explainMovesetNow(
+    run: Run,
+    key: MovesetKey,
+    members?: ReadonlyArray<UnitKey>,
+  ): MovesetBreakdown | LensRefusal {
+    const left = run.reserveMs - run.reserveSpent
+    if (!(left > 0)) {
+      return { ok: false, refusal: "reserve-spent", detail: "the inspection reserve is spent" }
+    }
+    const plan = run.plansByMoveset.get(key)
+    if (plan === undefined) {
+      return { ok: false, refusal: "unknown-cluster", detail: `no retained row keyed ${key}` }
+    }
+    const before = run.now()
+    try {
+      const sub = run.input.sub
+      const evaluate = run.input.evaluate
+      const explain = evaluate.explainPlan?.bind(evaluate)
+      const empty: JointResidual = { total: { lo: 0, est: 0, hi: 0 }, features: [] }
+      if (explain === undefined) {
+        return { moveset: key, basis: run.basisKey, aggregate: null, marginals: [], residual: empty }
+      }
+      const whole = explain(sub, plan, run.input.asTeam)
+      const wanted = new Set(members ?? [])
+      const marginals: MemberMarginal[] = []
+      for (const [unitId, chosen] of plan) {
+        const unit = unitKeyOf(sub, unitId)
+        if (members !== undefined && !wanted.has(unit)) continue
+        // THE FOIL: this unit's next-best option, with every other unit held
+        // exactly where it is. The plan's domain is unchanged, so the two
+        // explanations share a basis and their difference is legal.
+        const foil = run.input.gen
+          .candidatesFor(sub, unitId)
+          .candidates.find((c) => c.to !== chosen.to)
+        if (foil === undefined) continue
+        const swapped = new Map(plan)
+        swapped.set(unitId, foil)
+        const against = explain(sub, swapped, run.input.asTeam)
+        marginals.push({
+          unit,
+          delta: minus(whole.bound, against.bound),
+          features: deltaFeatures(whole.features, against.features),
+          against: { to: foil.to },
+        })
+      }
+      return {
+        moveset: key,
+        basis: run.basisKey,
+        aggregate: {
+          profile: whole.profile,
+          bound: whole.bound,
+          features: whole.features,
+          exact: whole.exact,
+          ledgerSize: whole.ledgerSize,
+        },
+        marginals,
+        residual: residualOf(whole, marginals),
+      }
+    } catch {
+      return { ok: false, refusal: "off-head", detail: "the explanation could not be built" }
+    } finally {
+      run.reserveSpent += Math.max(0, run.now() - before)
+    }
+  }
+
+  /** Phase 1 alone: the retained rows, filtered by the lock, marked
+   *  provisional. Zero evaluations, zero clock. */
+  private firstPaint(
+    run: Run,
+    cluster: ClusterId,
+    locks: ReadonlyArray<Lock>,
+  ): RankConditionalResult {
+    return this.rankConditionalNow(run, cluster, locks)
   }
 
   /**
@@ -2757,6 +3089,47 @@ function basisSnapshot(b: RatchetBasis): BasisSnapshot {
     floorLo: b.floorLo,
     emits: b.emits,
   }
+}
+
+/** Interval arithmetic for a CONTRASTIVE DELTA. Not a share of a total: the
+ *  fold is over one joint resolution, and a per-unit quantity may order work
+ *  and may never compose into a value. */
+function minus(a: Bound, b: Bound): Bound {
+  return { lo: a.lo - b.lo, est: a.est - b.est, hi: a.hi - b.hi }
+}
+
+function deltaFeatures(
+  whole: ReadonlyArray<FeatureContribution>,
+  against: ReadonlyArray<FeatureContribution>,
+): FeatureDelta[] {
+  const other = new Map(against.map((f) => [f.key, f.contribution]))
+  return whole.map((f) => ({
+    key: f.key,
+    delta: minus(f.contribution, other.get(f.key) ?? { lo: 0, est: 0, hi: 0 }),
+  }))
+}
+
+/**
+ * THE NAMED JOINT RESIDUAL — `aggregate − Σ marginals`, always drawn, zero
+ * included (Law A). A zero residual is itself a finding: it says the members'
+ * contributions happen to account for the whole this time. Omitting a zero one
+ * and omitting a large one are the same rendering bug, and only "always draw
+ * it" catches both.
+ */
+function residualOf(
+  whole: PlanExplanation,
+  marginals: ReadonlyArray<MemberMarginal>,
+): JointResidual {
+  let total: Bound = whole.bound
+  for (const m of marginals) total = minus(total, m.delta)
+  const perFeature = new Map<string, Bound>()
+  for (const f of whole.features) perFeature.set(f.key, f.contribution)
+  for (const m of marginals) {
+    for (const f of m.features) {
+      perFeature.set(f.key, minus(perFeature.get(f.key) ?? { lo: 0, est: 0, hi: 0 }, f.delta))
+    }
+  }
+  return { total, features: [...perFeature].map(([key, delta]) => ({ key, delta })) }
 }
 
 function witnessKey(w: Witness): string {
