@@ -950,7 +950,48 @@ export class LobsterKernel implements Kernel {
 
   // ------------------------------------------------------------- the loop
 
+  /**
+   * One macrotask hop, charged to the decision like any other elapsed time.
+   * An `AsyncIterable` that emits nothing, so a caller splices it in with
+   * `yield*` exactly where a boundary is and the loop's own yield stays where
+   * it is. Inert when the kernel is configured synchronous (`yieldIntervalMs`
+   * of 0), which is the harness setting.
+   */
+  private async *handBack(run: Run): AsyncIterable<EmitRecord> {
+    if (this.opts.yieldIntervalMs <= 0) return
+    await yieldToEventLoop()
+    run.lastYieldWall = defaultNow()
+    run.yields++
+  }
+
   private async *drive(run: Run): AsyncIterable<EmitRecord> {
+    // ---- THE PROCESS IS HANDED BACK AT BOTH ENDS OF RUNG 0.
+    //
+    // The loop below yields at the TOP of each iteration, which is after rung
+    // 0 — and rung 0 is the one part of a decision whose cost no slice bounds.
+    // It generates and assesses every unit's candidate set and pays for the
+    // first evaluation of this board, which on the FIRST decision of a game is
+    // also the whole grammar warm-up the reach shells memoise per game (585
+    // step relations, 84 000 grammar queries, measured on a 12x12 twelve-unit
+    // board: 45% of a cold rung 0 and none of a warm one). Until the loop's
+    // first yield the process could not reach its timer or check phase for the
+    // whole of that — and when rung 0 outruns the search deadline the loop is
+    // never entered, so it could not reach them AT ALL. That is precisely what
+    // the yield exists to prevent: the Firestore listener that carries an
+    // operator's pin, the manager's coalesced staged write, the per-turn
+    // final-flush timer and the other games sharing the process all live out
+    // there.
+    //
+    // BOTH ENDS, and not one: `setImmediate` resolves in the CHECK phase, so a
+    // single hop taken from inside poll can service the check queue without
+    // the loop ever passing through timers. Two hops cross a phase boundary,
+    // which is the difference between "a pin listener could have run" and "a
+    // pin listener has run". The one after rung 0 is also the boundary that
+    // matters to an operator: the wire is holding a legal set by then, so a
+    // pin delivered while rung 0 was working is drained BEFORE the first
+    // refinement slice rather than after it.
+    yield* this.handBack(run)
+
     // ---- Rung 0: a conforming, legal joint plan on the wire before any
     // refinement runs. `conform(ctx, ∅)` is contractually a complete legal
     // plan: staging nothing is not an option this kernel has.
@@ -958,6 +999,7 @@ export class LobsterKernel implements Kernel {
     run.stager.adopt(seed.key)
     const first = this.buildRecord(run, seed)
     yield* this.commit(run, first)
+    yield* this.handBack(run)
 
     // A slice that charges nothing to the clock cannot end the turn, so the
     // loop needs a stop the clock cannot provide. It is a bug rail, not a
@@ -1154,6 +1196,38 @@ export class LobsterKernel implements Kernel {
       if (cand === undefined) continue
       const rec = this.stageAndGate(run, /* forced */ false)
       if (rec !== null) yield* this.commit(run, rec)
+    }
+
+    // ---- THE LAST EPOCH. An operator event delivered by the loop's final
+    // yield — or queued while its last slice ran — used to be dropped: the
+    // loop exits on the search deadline, `decide`'s `finally` empties the
+    // queue, and the flush below then put a set on the wire that contradicts
+    // a pin this kernel had already accepted. "The wire must never hold a set
+    // that contradicts an operator, not even for one slice" is the rule the
+    // epoch step inside the loop enforces, and it does not stop being the rule
+    // because the search budget ran out. It is also the cheap direction: the
+    // epoch path is the conform FAST path (splice, repair only what the splice
+    // disturbed, one pair pass) and every one of its loops watches a budget
+    // that is already spent, so what runs is the splice and nothing else.
+    // `reserveMs` is what pays for it — the same reserve the flush spends.
+    if (this.pending.length > 0) {
+      const at = this.earliestArrival(run)
+      const slicesAtEvent = run.slices
+      const conformCallsBefore = run.conformCalls
+      if (this.applyPinEvents(run)) {
+        const resumed = this.retarget(run)
+        const conformed = this.conformNow(run, run.wirePlan ?? EMPTY_PLAN)
+        run.stager.adopt(conformed.key)
+        const rec = this.buildRecord(run, conformed)
+        yield* this.commit(run, rec)
+        run.conformance.push({
+          epoch: run.epoch,
+          latencyMs: Math.max(0, run.now() - at),
+          slicesBefore: run.slices - slicesAtEvent,
+          conformCalls: run.conformCalls - conformCallsBefore,
+          resumedFromCache: resumed,
+        })
+      }
     }
 
     // ---- Final flush. The improvement threshold and the rate limit are
