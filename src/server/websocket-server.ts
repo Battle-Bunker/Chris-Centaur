@@ -9,6 +9,18 @@ import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
+import type {
+  ClusterId,
+  ConditionalRequest,
+  LensRefusal,
+  LensRefusalReason,
+  MovesetBreakdown,
+  MovesetKey,
+  Provenanced,
+  RankConditionalResult,
+  TurnEvent,
+  UnitKey,
+} from '../lens/types';
 import {
   IDLE_CLOSE_CODE,
   IDLE_CLOSE_REASON,
@@ -34,13 +46,11 @@ interface WSClient {
   // connection aliveness, NOT user activity — it must never bump
   // lastActivityAt or the 30-minute idle sweep would never fire.
   isAlive: boolean;
-  // DISPLAY-ONLY subscription: whether this client draws the Voronoi territory
-  // overlay. False means it never renders `territoryCells`, so shipping them
-  // is pure waste and they are stripped from everything sent to it (see
-  // stripUnwantedDisplayData). Nothing about the game or the bot's own Voronoi
-  // computation depends on it. Defaults true — a client that never declares a
-  // preference keeps the full payload.
-  wantsTerritoryOverlay: boolean;
+  // The lens requests this connection has in flight, by `requestId`. One
+  // `DecisionSource` per connection (04 §3 O10): the fold is pure and the
+  // event array is shared, so a per-connection source is a cursor and not a
+  // copy — and a cancel from one inspector must not cancel another's.
+  lensRequests: Set<string>;
 }
 
 /** Inbound message types that represent real user intent. Pings (which the
@@ -57,11 +67,41 @@ const USER_INTENT_TYPES = new Set([
   'set-waypoint',
   'clear-human-input',
   'activity',
+  // A lock is a determination — the one gesture on the lens that changes what
+  // the bot is allowed to do. A conditional request is a LOOK, and looks are
+  // numerous: they fund search (04 §3 Q4) but they are not intent, or the idle
+  // sweep would never fire on an operator who left a pointer on the board.
+  'lens-lock',
 ]);
 
 interface WSMessage {
   type: string;
   [key: string]: any;
+}
+
+/**
+ * THE QUERY PORT the running decision exposes to its inspectors, seen from
+ * the wire. Both questions are served out of `LENS_INSPECTION_MS`, the reserve
+ * carved BEFORE `searchDeadline`, so both can be refused — and a refusal comes
+ * back TYPED, on the same channel, never as silence. A UI that cannot tell
+ * "the reserve is spent" from "nothing happened" draws the second when it
+ * means the first, which is the failure this port's return type prevents.
+ *
+ * The port is attached by whatever is running the decision. With none
+ * attached every request is answered `unknown-cluster`, which is the honest
+ * answer: there is no decision here to ask about.
+ */
+export interface LensInspectionPort {
+  rankConditional(gameId: string, req: ConditionalRequest): RankConditionalResult;
+  explainMoveset(
+    gameId: string,
+    moveset: MovesetKey,
+    members?: ReadonlyArray<UnitKey>
+  ): Promise<Provenanced<MovesetBreakdown> | LensRefusal>;
+}
+
+function lensRefusal(refusal: LensRefusalReason, detail: string): LensRefusal {
+  return { ok: false, refusal, detail };
 }
 
 export class GameWebSocketServer {
@@ -92,6 +132,35 @@ export class GameWebSocketServer {
   // Last known Firebase connection status; replayed to every new connection
   // and re-broadcast on change (drives the red error banner in the web UI).
   private latestFirebaseStatus: unknown = null;
+  // The running decision's inspection port, when there is one. Null is not a
+  // switch: it is the state "no decision is answering questions right now",
+  // and it produces a typed refusal rather than a silence.
+  private lensPort: LensInspectionPort | null = null;
+
+  /** Attached by whoever owns the running decision. */
+  attachLensPort(port: LensInspectionPort | null): void {
+    this.lensPort = port;
+  }
+
+  /**
+   * S→C `lens-frames` — the whole turn's new events, batched at each emission
+   * barrier and at each operator event.
+   *
+   * EVENTS, not frames. The client holds the current turn's events (kilobytes,
+   * bounded by the deadline) and folds them with the same reducer replay uses,
+   * so scrubbing inside the turn is a local fold and never a fetch. That is
+   * what makes live and replay one state machine instead of two code paths
+   * that agree.
+   */
+  broadcastLensFrames(
+    gameId: string,
+    turn: number,
+    events: ReadonlyArray<TurnEvent>,
+    head: boolean
+  ): void {
+    if (events.length === 0) return;
+    this.broadcastToGame(gameId, { type: 'lens-frames', gameId, turn, events, head });
+  }
 
   broadcastFirebaseStatus(status: unknown): void {
     this.latestFirebaseStatus = status;
@@ -128,7 +197,7 @@ export class GameWebSocketServer {
         connectedAt: now,
         lastActivityAt: now,
         isAlive: true,
-        wantsTerritoryOverlay: true,
+        lensRequests: new Set<string>(),
       };
       this.clients.add(client);
       this.logActiveConnections('connect', connId);
@@ -247,9 +316,6 @@ export class GameWebSocketServer {
         waypoints: this.gameManager.getWaypointsForGame(gameId),
         routes: this.gameManager.getRoutesForGame(gameId),
         activeIntentModes: this.gameManager.getActiveIntentModesForGame(gameId),
-        // Board-level, so it rides the board frame too: a client that joins
-        // mid-turn gets the partition without waiting for a unit's decision.
-        boardTerritory: this.gameManager.getBoardTerritory(gameId),
       });
 
       this.broadcastLobbyUpdate();
@@ -263,13 +329,11 @@ export class GameWebSocketServer {
         gameId,
         snakeId,
         turn: turnData.gameState.turn,
+        // CANDIDATE ENUMERATION, and nothing more. `moveEvaluations` stopped
+        // being a scoring contract when the decision stopped being per-unit
+        // (04 §5.3 #17): the client reads the direction-keyed / destination-
+        // keyed split out of it and reads every number out of the lens frame.
         moveEvaluations: turnData.moveEvaluations,
-        // The Voronoi partition is a property of the BOARD, so it is sent from
-        // the game's own snapshot rather than from this unit's decision — a
-        // chess piece, which has no engine pass of its own, carries exactly the
-        // same grids as a snake.
-        boardTerritory: this.gameManager.getBoardTerritory(gameId),
-        safeMoves: turnData.safeMoves,
         botRecommendation: turnData.botRecommendation,
         // Which bot made it. Rides the per-unit frame because a centaur may
         // hold seats on games bound to different bots, so this is a property
@@ -407,14 +471,14 @@ export class GameWebSocketServer {
 
         const gameState = this.gameManager.getGameState(gameId);
 
-        this.send(client.ws, this.stripUnwantedDisplayData(client, {
+        this.send(client.ws, {
           type: 'game-subscribed',
           gameId,
           userId,
           userColor: user?.color || '#888888',
           playerName: user?.name || null,
           ...(gameState || {}),
-        }));
+        });
 
         this.broadcastSelectionsUpdate(gameId);
         break;
@@ -440,14 +504,13 @@ export class GameWebSocketServer {
           const game = this.gameManager.getGame(client.gameId);
           const controlled = game?.controlledSnakes.get(snakeId);
           if (controlled) {
-            this.send(client.ws, this.stripUnwantedDisplayData(client, {
+            this.send(client.ws, {
               type: 'snake-selected',
               snakeId,
               turnData: controlled.latestTurnData,
-              boardTerritory: this.gameManager.getBoardTerritory(client.gameId),
               botRecommendation: controlled.botRecommendation,
               stagedMove: controlled.intent.kind === 'manual' ? controlled.intent.move : null,
-            }));
+            });
           }
         } else if (result.contestedBy) {
           this.send(client.ws, {
@@ -593,12 +656,130 @@ export class GameWebSocketServer {
         break;
       }
 
-      case 'set-display-prefs': {
-        // DISPLAY-ONLY subscription, declared by the client on connect and
-        // whenever a display switch is flipped. It changes what this
-        // connection is SENT, never what the game or the bot computes.
-        if (typeof msg.territoryOverlay === 'boolean') {
-          client.wantsTerritoryOverlay = msg.territoryOverlay;
+      // ---------------------------------------------------------------
+      // THE LENS. Four inbound envelopes (04 §4.5); every one of them either
+      // answers or refuses, in the type of its own reply.
+      // ---------------------------------------------------------------
+
+      case 'lens-conditional': {
+        // A candidate under the cursor. This IS the attention channel: a look
+        // opens (or reuses) the speculative pin context for that lock, so the
+        // look really does buy search, and the operator is owed the echo —
+        // which rides back as `cursor`, the slices spent.
+        const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+        const unit = typeof msg.lock?.unit === 'string' ? (msg.lock.unit as UnitKey) : null;
+        const to = Number.isInteger(msg.lock?.to) ? (msg.lock.to as number) : null;
+        const cluster = Number.isInteger(msg.cluster) ? (msg.cluster as ClusterId) : null;
+        if (!client.gameId || !requestId || unit === null || to === null || cluster === null) break;
+
+        client.lensRequests.add(requestId);
+        this.gameManager.notePinConsideration(client.gameId, unit, to);
+
+        const port = this.lensPort;
+        const answer: RankConditionalResult =
+          port === null
+            ? lensRefusal('unknown-cluster', 'no decision is inspectable on this game right now')
+            : port.rankConditional(client.gameId, {
+                cluster,
+                clusterGeneration: Number.isInteger(msg.generation) ? msg.generation : 0,
+                lock: { unit, to },
+              });
+        client.lensRequests.delete(requestId);
+        this.send(client.ws, { type: 'lens-conditional-rows', requestId, ...answer });
+        break;
+      }
+
+      case 'lens-breakdown': {
+        const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+        const moveset = typeof msg.moveset === 'string' ? (msg.moveset as MovesetKey) : null;
+        if (!client.gameId || !requestId || moveset === null) break;
+
+        const members: ReadonlyArray<UnitKey> | undefined = Array.isArray(msg.members)
+          ? (msg.members.filter((m: unknown) => typeof m === 'string') as UnitKey[])
+          : undefined;
+
+        client.lensRequests.add(requestId);
+        const port = this.lensPort;
+        const pending: Promise<Provenanced<MovesetBreakdown> | LensRefusal> =
+          port === null
+            ? Promise.resolve(
+                lensRefusal('unknown-cluster', 'no decision is inspectable on this game right now')
+              )
+            : port.explainMoveset(client.gameId, moveset, members);
+
+        void pending
+          .catch((err: unknown) =>
+            lensRefusal('reserve-spent', (err as Error)?.message ?? 'the explanation failed')
+          )
+          .then((answer) => {
+            // A cancel that landed while the reserve was working is honoured
+            // here: the operator has moved on, and an answer to a question
+            // they withdrew is noise on their rail.
+            if (!client.lensRequests.delete(requestId)) return;
+            this.send(client.ws, { type: 'lens-breakdown-rows', requestId, ...answer });
+          });
+        break;
+      }
+
+      case 'lens-lock': {
+        // THE DISPLAY CONTRACT, on the wire: the moveset drawn when `Space` is
+        // pressed is the moveset that is staged. The lock compiles to one
+        // `select-move` per pin — the existing staging path, unchanged — plus
+        // this record, which carries `expected` for the divergence check.
+        //
+        // ATOMIC. A half-locked moveset is not the picture on screen, so
+        // ownership is re-checked HERE for every pin before any pin is
+        // written; the client's own guard is an affordance, not a permission.
+        const pins: Array<{ unit: UnitKey; to: unknown }> = Array.isArray(msg.pins) ? msg.pins : [];
+        if (!client.gameId || !client.userId || pins.length === 0) break;
+
+        const game = this.gameManager.getGame(client.gameId);
+        const refused = pins.filter((pin) => {
+          const controlled = game?.controlledSnakes.get(pin.unit);
+          return !controlled || controlled.selectedBy !== client.userId;
+        });
+        const shaped = pins.every(
+          (pin) =>
+            typeof pin.unit === 'string' &&
+            (typeof pin.to === 'number' || typeof pin.to === 'string')
+        );
+
+        if (refused.length > 0 || !shaped) {
+          this.send(client.ws, {
+            type: 'lens-lock',
+            ok: false,
+            refusal: 'off-head',
+            detail:
+              refused.length > 0
+                ? `not yours to determine: ${refused.map((p) => p.unit).join(', ')}`
+                : 'a pin carried neither a direction nor a destination',
+            blocked: refused.map((p) => p.unit),
+          });
+          break;
+        }
+
+        for (const pin of pins) {
+          this.gameManager.setUserSelection(client.gameId, pin.unit, pin.to as CentaurMove);
+        }
+        this.send(client.ws, {
+          type: 'lens-lock',
+          ok: true,
+          cluster: msg.cluster ?? null,
+          moveset: msg.moveset ?? null,
+          pins: pins.map((p) => p.unit),
+          expected: msg.expected ?? null,
+          emissionSeq: msg.emissionSeq ?? null,
+        });
+        break;
+      }
+
+      case 'lens-cancel': {
+        // The operator looked away. The request is withdrawn and the
+        // attention that was funding it is released.
+        const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+        if (requestId) client.lensRequests.delete(requestId);
+        if (client.gameId && typeof msg.unit === 'string') {
+          this.gameManager.clearPinConsideration(client.gameId, msg.unit);
         }
         break;
       }
@@ -951,37 +1132,13 @@ export class GameWebSocketServer {
     }
   }
 
-  /** Drop the parts of a message a client has said it does not display.
-   *  Today that is the territory overlay's `territoryCells` — the overlay's
-   *  data and nothing else's. `cellOwnership` stays: it feeds the Alt-click
-   *  cell inspector, a separate feature with its own switch (none). Returns
-   *  the message untouched when there is nothing to strip. */
-  private stripUnwantedDisplayData(client: WSClient, msg: any): any {
-    if (client.wantsTerritoryOverlay) return msg;
-    const bt = msg.boardTerritory;
-    if (!bt || !bt.territoryCells) return msg;
-    return { ...msg, boardTerritory: { ...bt, territoryCells: {} } };
-  }
-
   private broadcastToGame(gameId: string, msg: any): void {
     const data = JSON.stringify(msg);
-    // The stripped variant is built at most once per broadcast, and only when
-    // a client that wants it is actually listening — clients with the overlay
-    // on pay nothing for the ones that switched it off.
-    const strippable = !!msg.boardTerritory?.territoryCells;
-    let stripped: string | null = null;
     for (const client of this.clients) {
       if (client.gameId !== gameId || client.isLobby || client.ws.readyState !== WebSocket.OPEN) {
         continue;
       }
-      let payload = data;
-      if (strippable && !client.wantsTerritoryOverlay) {
-        if (stripped === null) {
-          stripped = JSON.stringify(this.stripUnwantedDisplayData(client, msg));
-        }
-        payload = stripped;
-      }
-      this.sendRaw(client, payload, msg.type);
+      this.sendRaw(client, data, msg.type);
     }
   }
 

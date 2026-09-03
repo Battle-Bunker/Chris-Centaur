@@ -227,17 +227,72 @@
       box-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
       opacity: 0; transition: opacity 0.25s ease-out;
     }
-    .decision-stats {
-      background: #2a2a2a; border-radius: 8px; padding: 15px; overflow-x: auto;
+    /* ── THE LENS RAIL ────────────────────────────────────────────────────
+       Four stacked panels — unit → candidates → movesets → breakdown — plus
+       the intra-turn lane. Violet is the ONE hue in here, and it means the
+       same thing it means on the board: hypothetical. Nothing in the rail is
+       coloured by how good a number is; a colour ramp over scores is what the
+       deleted table used instead of saying what it knew. */
+    .lens-rail { display: flex; flex-direction: column; gap: 10px; }
+    .lens-panel {
+      background: #2a2a2a; border-radius: 8px; padding: 10px 12px; overflow-x: auto;
     }
-    .decision-stats h3 { font-size: 15px; margin-bottom: 10px; color: #4CAF50; }
-    .stats-table {
-      width: 100%; border-collapse: collapse; font-size: 13px;
+    .lens-panel-head {
+      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      color: #B39DFF; margin-bottom: 6px;
     }
-    .stats-table th, .stats-table td {
-      padding: 6px 8px; text-align: left; border-bottom: 1px solid #444;
+    .lens-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
+    .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
+    /* A stale complement is struck through and KEPT: the row was a real
+       bracket of a real plan, and its question is what moved. */
+    .lens-row-stale td { text-decoration: line-through; color: #999; }
+    /* A declared narrowing refuses the floor comparison, so the row is present
+       and is not sorted against the others. */
+    .lens-row-unsorted td { color: #9A9A9A; font-style: italic; }
+    .lens-width { color: #999; }
+    .lens-focus-line { font-size: 13px; color: #eee; }
+    .lens-cluster { float: right; color: #B39DFF; }
+    .lens-sub, .lens-provenance { font-size: 11px; color: #888; }
+    .lens-provenance { padding: 0 4px; }
+    .lens-fixed-strip { font-size: 11px; color: #9A9A9A; margin-top: 6px; }
+    .lens-fixed { margin-right: 10px; white-space: nowrap; }
+    .lens-foil { font-size: 11px; color: #4DB6AC; margin-top: 6px; }
+    .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
+    .lens-empty { font-size: 12px; color: #888; padding: 4px 0; }
+    .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
+    .lens-stale-flag { color: #FF8A65; }
+    .lens-trail { color: #B39DFF; font-size: 10px; margin-left: 6px; }
+    .lens-displaced { color: #FF8A65; font-size: 10px; margin-left: 6px; }
+    .lens-staged-flag { color: #9E9E9E; font-size: 10px; margin-left: 6px; }
+    /* While a widen is held the whole list is visibly superseded — struck, and
+       still there, which is the entire point of the policy. */
+    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #999; }
+    /* The widen banner. It holds an ADDITIVE change behind one gesture and
+       never blanks the table under it. */
+    .lens-banner {
+      background: rgba(179,157,255,.14); border: 1px solid #B39DFF; border-radius: 6px;
+      padding: 6px 10px; font-size: 12px; color: #ddd; margin-bottom: 8px;
     }
-    .stats-table th { background: #333; font-weight: 600; }
+    .lens-banner button {
+      background: #B39DFF; color: #14181e; border: none; border-radius: 4px;
+      padding: 2px 8px; font-weight: 700; cursor: pointer; margin-left: 8px;
+    }
+    /* The intra-turn lane: one row per lane, ticks at their own seq. */
+    .lens-lane {
+      position: relative; height: 18px; margin: 2px 0;
+      border-bottom: 1px solid #333;
+    }
+    .lens-lane-name {
+      position: absolute; left: 0; top: 2px; font-size: 10px; color: #666; width: 54px;
+    }
+    .lens-tick {
+      position: absolute; top: 0; transform: translateX(-50%);
+      background: none; border: none; padding: 0; cursor: pointer;
+      font-size: 11px; color: inherit;
+    }
+    .lens-tick-hollow { opacity: .55; }
+    .lens-lane-foot { font-size: 11px; color: #888; margin-top: 4px; }
     .stats-table tr:last-child td { border-bottom: none; }
     .stats-table .total-row { font-weight: 600; background: #333; }
     .connection-status {
@@ -443,9 +498,6 @@
             <div class="turn-info">Turn: <span id="currentTurn">0</span></div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <div class="board-tools">
-                <label class="board-toggle" title="Draw the board-wide Voronoi territory overlay (each unit's reachable region, outlined in its colour). Off skips the whole overlay — the client stops building territory grids and the server stops sending them.">
-                  <input type="checkbox" id="territoryOverlayToggle"> Voronoi
-                </label>
                 <button type="button" class="shortcuts-hint" id="shortcutsHintBtn" title="Keyboard shortcuts">Help:&nbsp;Ctrl&nbsp;+&nbsp;/</button>
               </div>
             <div id="firstMoveIndicator" style="display: none; background: #ff9800; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">FIRST MOVE — EXTENDED TURN TIME</div>
@@ -498,25 +550,12 @@
                the shortcuts pane (Ctrl+/) for the whole schema. -->
           <div class="unit-status-line" id="unitStatusLine"></div>
 
-          <div class="decision-stats">
-            <h3>Decision Breakdown</h3>
-            <table class="stats-table">
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Value</th>
-                  <th>Weight</th>
-                  <th>Weighted</th>
-                  <th>Impact</th>
-                </tr>
-              </thead>
-              <tbody id="statsTableBody">
-                <tr>
-                  <td colspan="5" style="text-align: center; color: #888;">Waiting for turn data...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <!-- THE LENS. Four panels, in the order the cursor descends them,
+               plus the turn's own lane. Every one of them is rendered from the
+               view-model's draw transcript (src/lens/view → lens-panel.js), so
+               what the rail says and what the board draws are one statement. -->
+          <div class="lens-rail" id="lensRail"></div>
+          <div class="lens-panel" id="lensLane"></div>
         </div>
       </div>
     </div>
@@ -608,7 +647,7 @@
           <h3>Inspecting the board</h3>
           <dl>
             <dt><kbd>Alt</kbd>+click</dt>
-            <dd>Inspect a cell: which unit&rsquo;s Voronoi territory owns it and at what distance. Works on any cell, bodies included; with a candidate selected it describes that move&rsquo;s hypothetical board.</dd>
+            <dd>Inspect a cell: what is standing on it, and what the lens has to say about it &mdash; whether its occupant is still a variable the bot is solving, or is fixed and by whom.</dd>
             <dt><kbd>Alt</kbd> tap</dt>
             <dd>Tap Alt on its own to cycle which unit tags are shown by default: <b>all</b> &rarr; <b>our team&rsquo;s</b> &rarr; <b>none</b>. Hovering a unit whose tag is down calls it up; resting on a tag that is up makes it step aside. Persisted per browser. <b>Now:</b> <span id="tagModeReadout">all tags shown</span>.</dd>
             <dt>click</dt>
@@ -629,14 +668,48 @@
         </div>
 
         <div class="shortcuts-group">
+          <h3>Inspecting the decision</h3>
+          <dl>
+            <dt>select a unit</dt>
+            <dd>Selecting a unit opens its <b>cluster</b> &mdash; the other units the bot is solving jointly with it &mdash; and the top movesets for that cluster, given the candidate under your cursor. The candidate column is scored as <b>best-of-cluster</b>: what the whole cluster can do if this unit plays that move, not what the move is worth on its own.</dd>
+            <dt><kbd>[</kbd> <kbd>]</kbd></dt>
+            <dd>Walk down and up the moveset list. The board draws the difference: the members whose move would change light up, the ones that agree keep their arrow and gain a ring.</dd>
+            <dt><kbd>F</kbd></dt>
+            <dd>The <b>foil</b> &mdash; the runner-up drawn in teal, dotted, only where it differs from the row you are on, with the margin and the rung that decided.</dd>
+            <dt><kbd>B</kbd></dt>
+            <dd>Drill a member: its contribution, its terms, and the <b>joint residual</b> &mdash; the part of the total that is not any single member&rsquo;s, drawn even when it is zero, because a zero cross term is itself a finding.</dd>
+            <dt><kbd>Space</kbd></dt>
+            <dd>Lock. It stages <b>exactly the moveset on screen</b>, by pinning this unit plus every member whose move differs from what is staged &mdash; the count is on the affordance <i>before</i> you press. On rank 1 that is one pin, yours, which is precisely what Space always did.</dd>
+            <dt><kbd>Shift</kbd>+<kbd>Space</kbd></dt>
+            <dd>Lock the whole moveset: pin every member, whatever the bot would have inferred.</dd>
+            <dt><kbd>U</kbd></dt>
+            <dd>Release this unit&rsquo;s pin and nothing else &mdash; goto and near targets stay. The unit rejoins the cluster, which widens for everyone looking at it.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
+          <h3>The turn timeline</h3>
+          <dl>
+            <dt><kbd>,</kbd> <kbd>.</kbd></dt>
+            <dd>Step one event back / forward <b>within the current turn</b>. The playhead snaps to events, never to pixels: a moment between two events is the earlier event&rsquo;s frame.</dd>
+            <dt><kbd>Shift</kbd>+<kbd>,</kbd> <kbd>.</kbd></dt>
+            <dd>Jump kernel emission to kernel emission &mdash; the moments the bot actually changed its mind.</dd>
+            <dt><kbd>Home</kbd> <kbd>End</kbd></dt>
+            <dd>To the board&rsquo;s arrival, or to the head.</dd>
+            <dt><kbd>N</kbd></dt>
+            <dd>Back to <b>now</b>. Stepping back through the turn is loud on purpose: the ink fades and every determination is refused, because locking against a frame whose ordering has moved would stage something other than what you are looking at.</dd>
+          </dl>
+        </div>
+
+        <div class="shortcuts-group">
           <h3>Display</h3>
           <dl>
             <dt><kbd>Ctrl</kbd> + <kbd>/</kbd></dt>
             <dd>Open or close this pane, anywhere on the page.</dd>
             <dt>unit tags</dt>
             <dd>A unit&rsquo;s numbers ride on its OWN body &mdash; letter on the head, then weight, health, and any buff with the turns it has left, and the tail&rsquo;s stacked-part count on the tail. A tag appears only for a unit too short to carry all of them (a piece always is), and then obeys the <kbd>Alt</kbd>-tap mode above. A long enough snake never shows one.</dd>
-            <dt>Voronoi</dt>
-            <dd>The checkbox above the board toggles the territory overlay, live and in history alike. Switching it off skips the overlay&rsquo;s work entirely &mdash; no grids built, drawn, or even sent &mdash; not just its paint. Persisted per browser.</dd>
+            <dt>violet</dt>
+            <dd>On the board, violet means <b>hypothetical</b> &mdash; a cluster&rsquo;s tethers and chips, and the moves a moveset implies. Nothing else on the board is violet. A member whose implied move matches what is already staged gets a ring on the existing arrowhead rather than a second arrow: <b>only disagreement draws</b>, so walking the moveset list lights up exactly what would change.</dd>
           </dl>
         </div>
 
@@ -679,6 +752,11 @@
 
   <script src="/dom-utils.js"></script>
   <script src="/board-renderer.js"></script>
+  <!-- The lens's view-model, bundled from src/lens/view (npm run build:lens):
+       the one fold and the one cursor machine, shared with replay and with the
+       boundary tests. `lens-panel.js` renders what it produces. -->
+  <script src="/lens-view.js"></script>
+  <script src="/lens-panel.js"></script>
   <script src="/keynav-machine.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
@@ -780,103 +858,471 @@
     let gameEndedSnakes = {};
     let selectedSnakeId = null;
 
-    // ── Cell inspection (Voronoi ownership popup) ───────────────────────────
-    // ALT+LEFT-clicking any board cell selects it and shows which snake's
-    // Voronoi territory owns it and at what BFS distance. (The right button is
-    // a board control now — it sets goto targets.) While a candidate move is
-    // selected (and the board shows that move's projected territory), the popup
-    // reports the same HYPOTHETICAL board. An unmodified left click, like
-    // Escape, clears the inspection.
-    // Sentinels mirror OWNER_NEUTRAL / OWNER_UNREACHED in logic/territory-view.ts.
-    const CELL_OWNER_NEUTRAL = -1;
-    const CELL_OWNER_UNREACHED = -2;
+    // ── Cell inspection ─────────────────────────────────────────────────────
+    // ALT+LEFT-clicking any board cell selects it and describes it: what is
+    // standing there, and what the lens has to say about that unit — whether
+    // the bot is still choosing its move, or it is fixed and by whom. (The
+    // right button is a board control now — it sets goto targets.) An
+    // unmodified left click, like Escape, clears the inspection.
     let selectedCell = null;          // {x, y} | null
     // The cell whose CLASH the inspector is explaining, or null. Independent
-    // of `selectedCell` on purpose: cell inspection answers "whose territory
-    // is this", clash inspection answers "what happened here", and the two are
+    // of `selectedCell` on purpose: cell inspection answers "what is this
+    // square", clash inspection answers "what happened here", and the two are
     // opened by different gestures and cleared by different things.
     let clashInspectCell = null;      // {x, y} | null
-    // The board-wide Voronoi partition for one live turn, broadcast per GAME
-    // (see BoardTerritory on the server): { turn, territoryCells, cellOwnership }.
-    // It describes the whole board, so every selection-driven view — the
-    // territory overlay, this inspector — reads it from here regardless of
-    // which unit is selected, and a chess piece (which has no engine decision
-    // of its own to carry grids on) sees exactly what a snake sees.
-    let liveBoardTerritory = null;
-    let historicCellOwnership = null; // CellOwnership | null for the rendered historic turn
-
-    // Apply a broadcast board-territory snapshot; newest turn wins.
-    function applyBoardTerritory(snapshot) {
-      if (!snapshot || typeof snapshot.turn !== 'number') return;
-      if (liveBoardTerritory && liveBoardTerritory.turn > snapshot.turn) return;
-      liveBoardTerritory = snapshot;
-    }
-
-    // The partition for the board currently on screen, or null. A grid from an
-    // earlier turn would misattribute cells, so the turn must match exactly.
-    function liveTerritoryForCurrentTurn() {
-      if (!liveBoardTerritory || !currentGameState) return null;
-      return liveBoardTerritory.turn === currentGameState.turn ? liveBoardTerritory : null;
-    }
-
-    // ── Voronoi territory overlay switch ────────────────────────────────────
-    // THE gate for the overlay, live and historic alike. When it is off the
-    // overlay's work does not happen at any layer, rather than happening and
-    // then not being painted:
-    //   · the page stops threading territory grids into any moveState
-    //     (territoryGridForOverlay below is the one accessor every site uses);
-    //   · renderBoard is told showTerritory:false, so it builds no owner map,
-    //     no per-snake colour/body maps and walks no cell boundaries — that
-    //     also covers a candidate's PROJECTED grid, which rides on the move;
-    //   · the server is told to stop putting `territoryCells` on the wire for
-    //     this client (see the display-prefs message). The bot's own Voronoi
-    //     computation is untouched — it is decision-making, not display.
-    // Persisted per browser; on by default.
-    const TERRITORY_OVERLAY_PREF_KEY = 'territoryOverlayEnabled';
-    let territoryOverlayOn = true;
-    try {
-      territoryOverlayOn = localStorage.getItem(TERRITORY_OVERLAY_PREF_KEY) !== '0';
-    } catch (_e) { /* storage unavailable → session-only default */ }
-
-    // The territory grid any moveState should carry, given the switch. Every
-    // site that plumbs a grid into a moveState goes through here, so there is
-    // one place the overlay can be switched off for good.
-    function territoryGridForOverlay(grid) {
-      return territoryOverlayOn ? (grid || {}) : {};
-    }
-
-    // Tell the server whether this client wants the overlay's data at all.
-    // Display-only: `cellOwnership` (the Alt-click inspector's grid) keeps
-    // flowing either way, since the inspector is a separate feature.
-    function sendDisplayPrefs() {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({
-        type: 'set-display-prefs',
-        territoryOverlay: territoryOverlayOn,
-      }));
-    }
-
-    function setTerritoryOverlay(on) {
-      territoryOverlayOn = !!on;
-      try {
-        localStorage.setItem(TERRITORY_OVERLAY_PREF_KEY, territoryOverlayOn ? '1' : '0');
-      } catch (_e) { /* storage unavailable → session-only toggle */ }
-      const box = document.getElementById('territoryOverlayToggle');
-      if (box) box.checked = territoryOverlayOn;
-      sendDisplayPrefs();
-      // Rebuild whatever moveState is on screen so its grid matches the switch
-      // (switching back on must re-thread the grid, not wait for a new turn).
-      if (viewMode === 'historic') {
-        renderHistoricAtTurn(historicTurnNumber);
-      } else {
-        if (selectedSnakeId) setupMoveStateForSnake(selectedSnakeId);
-        scheduleRender();
-      }
-    }
-
     function repaintBoard() {
       if (viewMode === 'historic') renderHistoricBoard();
       else scheduleRender();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // THE LENS
+    //
+    // The client half of the inspection surface. It holds THREE things and
+    // computes none of them:
+    //
+    //   · the turn's events, exactly as `lens-frames` delivered them. A turn
+    //     is bounded by its deadline, so this is kilobytes, and holding them
+    //     is what makes scrubbing inside a turn a local fold rather than a
+    //     fetch;
+    //   · the cursor — unit, candidate, moveset, drill, foil — whose whole
+    //     transition table lives in `src/lens/view/cursor.ts` and is tested
+    //     there, not here;
+    //   · the last draw transcript, which `lens-panel.js` turns into the rail
+    //     and into the board's ink.
+    //
+    // The fold and the view-model are ONE implementation, in TypeScript,
+    // shared by live play, replay and the boundary tests (Law C). It reaches
+    // the browser as `window.LensView`, bundled by `npm run build:lens` and
+    // pinned byte-for-byte by `lens-bundle.test.ts` — a second fold written in
+    // JavaScript on this page is precisely the drift this rebuild is undoing.
+    // With no events yet the rail renders the frame's own honest emptiness,
+    // which is a sentence rather than a blank panel, and it is the same
+    // sentence in both directions.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const LENS_VIOLET = BoardRenderer.LENS_THEME.light.lens;
+
+    let lensTurn = -1;
+    let lensEvents = [];          // this turn's TurnEvents, in seq order
+    let lensSeq = 0;              // the seq under the playhead
+    let lensAtHead = true;        // false ⇒ live-scrub: determinations refuse
+    let lensLaneExpanded = false; // attention ticks are numerous and low-grade
+    let lensCursor = null;        // LensCursor, owned by the view-model
+    let lensTranscript = [];
+    let lensPrevFrame = null;     // the frame the operator is looking at
+    let lensTrails = [];          // rank trails, which decay after two emissions
+    // A WIDEN in hand: the notice, the transcript we are STILL drawing, and
+    // when the timer runs out. Additive uncertainty is staged.
+    let lensHeld = null;
+    let lensNarrowNote = null;
+    let lensBannerTimer = null;
+    let lensRequestSeq = 0;
+    const lensPending = new Map(); // requestId → what it was asked for
+
+    /** The view-model, once the built lens module is on the page. */
+    function lensView() {
+      return typeof window !== 'undefined' ? window.LensView || null : null;
+    }
+
+    /** The frame under the playhead: ONE fold, the same one replay uses. A
+     *  fold that cannot run is reported ONCE — it is a property of the build,
+     *  not of this frame, so repeating it every render would bury everything
+     *  else in the console without adding a word. */
+    let lensFoldComplaint = null;
+    function lensFrame() {
+      const view = lensView();
+      if (!view || lensEvents.length === 0) return null;
+      try {
+        return view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
+      } catch (e) {
+        const said = e && e.message ? e.message : String(e);
+        if (lensFoldComplaint !== said) {
+          lensFoldComplaint = said;
+          console.error('lens fold unavailable:', said);
+        }
+        return null;
+      }
+    }
+
+    function lensRender() {
+      const view = lensView();
+      const frame = lensFrame();
+      const fresh = frame && view ? view.renderFrame(frame, lensCursor || undefined, lensTrails) : [];
+      // WHILE A WIDEN IS HELD, the old list is what is drawn: struck through
+      // and headed stale, never blanked. An epoch change is the worst possible
+      // moment to take the display away from an operator deciding whether to
+      // lock.
+      lensTranscript = lensHeld ? lensHeld.transcript : fresh;
+      const rail = document.getElementById('lensRail');
+      if (rail) {
+        const banner = lensHeld
+          ? LensPanel.bannerHTML(lensHeld.notice, lensHeld.deadline - clientNow())
+          : LensPanel.narrowNoteHTML(lensNarrowNote);
+        const body = lensTranscript.length
+          ? LensPanel.railHTML(lensTranscript)
+          : `<section class="lens-panel"><div class="lens-empty">` +
+            LensPanel.escapeHTML(lensEmptyLine()) + `</div></section>`;
+        rail.innerHTML = banner + body;
+        rail.classList.toggle('lens-held', !!lensHeld);
+      }
+      const lane = document.getElementById('lensLane');
+      if (lane) {
+        lane.innerHTML = LensPanel.laneHTML(lensLaneRows(), {
+          seq: lensSeq,
+          expanded: lensLaneExpanded,
+          badge: lensAtHead ? null : '⏸ SCRUBBED · [N] to return to now',
+        });
+      }
+    }
+
+    // The honest empty state: what HAS happened, and at which seq. Not "no
+    // data" — that sentence was written twice, once for live and once for
+    // replay, and the two had already drifted apart.
+    function lensEmptyLine() {
+      const emissions = lensEvents.filter((e) => e.kind === 'emission').length;
+      if (lensEvents.length === 0) return 'no decision events yet this turn';
+      if (emissions === 0) return `fast-pass only — no kernel emission yet at seq ${lensSeq}`;
+      return `no cluster under the cursor at seq ${lensSeq}`;
+    }
+
+    // The lane is a view of EVENTS, so it draws from them directly and needs
+    // no fold at all: ticks at their own seq, in their own lane.
+    const LENS_LANE_OF = {
+      partition: 'kernel', movesets: 'kernel', emission: 'kernel', posture: 'kernel',
+      conditional: 'kernel', refusal: 'kernel', 'stage.fastpass': 'kernel',
+      'decision.begin': 'kernel', 'decision.end': 'kernel',
+      operator: 'operator', 'operator.command': 'operator', pin: 'operator',
+      unpin: 'operator', commit: 'operator', 'pin.refused': 'operator',
+      selection: 'operator',
+      'stage.requested': 'staging', 'stage.confirmed': 'staging',
+      'stage.retry': 'staging', 'commit.observed': 'staging',
+      advice: 'advice',
+    };
+    function lensLaneRows() {
+      return lensEvents.map((e) => ({
+        lane: LENS_LANE_OF[e.kind] || 'operator',
+        seq: e.seq,
+        atWorkMs: e.atWorkMs,
+        kind: e.kind,
+        color: e.actor ? e.actor.color : null,
+        shape: e.payload && e.payload.hover ? 'hollow' : 'solid',
+      }));
+    }
+
+    /** The board's ink, straight off the same transcript the rail rendered. */
+    function lensInk() {
+      if (!lensTranscript.length) return null;
+      const ink = LensPanel.inkFromTranscript(lensTranscript);
+      // Off the head the hypotheses are drawn faintly — the same fact the
+      // lane's badge and the lock affordance are both saying.
+      if (ink) ink.dim = !lensAtHead;
+      return ink;
+    }
+
+    /** What the lens has to say about one square, for the cell inspector. */
+    function lensCellNote(cell) {
+      const ink = lensInk();
+      if (!ink || !cell) return null;
+      const board = activeBoard();
+      if (!board) return null;
+      const at = BoardRenderer.findSnakeAtCell(board, cell);
+      if (at) {
+        const cluster = ink.clusters.find((c) => c.members.includes(at.id));
+        if (cluster) return `cluster ${cluster.glyph} — the bot is still choosing this unit's move`;
+        const bound = ink.clusters
+          .flatMap((c) => c.boundedBy)
+          .find((b) => b.unit === at.id);
+        if (bound) return `fixed: ${bound.why}${bound.by ? ` by ${bound.by}` : ''}`;
+      }
+      return null;
+    }
+
+    /** S→C `lens-frames`: the turn's events, folded by the same reducer
+     *  replay uses. A new turn resets the store — a fold never crosses a turn
+     *  boundary, so there is nothing to seek past. */
+    function ingestLensFrames(msg) {
+      if (!msg || !Array.isArray(msg.events)) return;
+      if (msg.turn !== lensTurn) {
+        lensTurn = msg.turn;
+        lensEvents = [];
+        // T17: the old board's moves are meaningless, and FOCUS SURVIVES.
+        const view = lensView();
+        if (view && lensCursor) {
+          lensCursor = view.applyCursorEvent(lensCursor, lensFrame() || {}, {
+            t: 'turn-boundary', turn: msg.turn,
+          });
+        }
+      }
+      const seen = new Set(lensEvents.map((e) => e.seq));
+      for (const event of msg.events) {
+        if (!seen.has(event.seq)) lensEvents.push(event);
+      }
+      lensEvents.sort((a, b) => a.seq - b.seq);
+      if (lensAtHead) lensSeq = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
+      lensAtHead = lensAtHead && msg.head !== false;
+      if (lensPendingFocus) lensFocus(lensPendingFocus);
+      lensReact();
+      lensRender();
+      repaintBoard();
+    }
+
+    /**
+     * The reactive policy, at the widget: ADDITIVE UNCERTAINTY IS STAGED,
+     * SUBTRACTIVE CERTAINTY IS APPLIED.
+     *
+     * A widen — a peer released a pin, so the cluster gained a variable — is
+     * held behind one gesture on a deadline-scaled timer, suspended while the
+     * drill panel is open and queued behind a lock in flight. A narrow removes
+     * a variable, so every surviving moveset is still a valid picture of a
+     * smaller problem: it applies at once with a footer note.
+     */
+    function lensReact() {
+      const view = lensView();
+      const next = lensFrame();
+      if (!view || !next) return;
+      const prev = lensPrevFrame;
+      if (!prev) { lensPrevFrame = next; return; }
+
+      lensTrails = lensCursor ? view.rowTrails(prev, next, lensCursor) : [];
+      const notice = view.reactiveNotice(prev, next);
+
+      if (notice && notice.gained) {
+        // Hold. The transcript already on screen is the one that stays on
+        // screen; only its header changes.
+        if (!lensHeld) {
+          lensHeld = {
+            notice,
+            transcript: lensTranscript,
+            deadline: clientNow() + notice.autoAcceptMs,
+            prev,
+          };
+          if (!notice.suspended && !notice.queuedBehindLock) {
+            lensBannerTimer = setTimeout(lensAcceptWiden, notice.autoAcceptMs);
+          }
+        }
+        return;
+      }
+
+      lensNarrowNote = notice && notice.lost ? notice : null;
+      if (lensCursor) lensCursor = view.resolveCursor(lensCursor, prev, next);
+      lensPrevFrame = next;
+    }
+
+    /** Accept the widen: the new list lands, and the cursor re-resolves against
+     *  the old assignment restricted to the members present in both. */
+    function lensAcceptWiden() {
+      if (lensBannerTimer) { clearTimeout(lensBannerTimer); lensBannerTimer = null; }
+      const view = lensView();
+      const next = lensFrame();
+      if (view && next && lensHeld) {
+        if (lensCursor) lensCursor = view.resolveCursor(lensCursor, lensHeld.prev, next);
+        lensTrails = lensCursor ? view.rowTrails(lensHeld.prev, next, lensCursor) : [];
+        lensPrevFrame = next;
+      }
+      lensHeld = null;
+      lensRender();
+      repaintBoard();
+    }
+
+    function lensSend(message) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return null;
+      const requestId = `r${++lensRequestSeq}`;
+      ws.send(JSON.stringify({ ...message, requestId }));
+      lensPending.set(requestId, message.type);
+      return requestId;
+    }
+
+    // C→S `lens-conditional` — and the attention channel with it. A look opens
+    // (or reuses) the speculative context for that lock, so the look really
+    // does buy search; the echo comes back as `cursor`, the slices spent.
+    function lensAskConditional(unit, to) {
+      const frame = lensFrame();
+      const cluster = frame && lensView() ? lensView().clusterOf(frame, unit) : null;
+      if (!cluster) return;
+      lensSend({
+        type: 'lens-conditional',
+        cluster: cluster.id,
+        generation: cluster.generation,
+        lock: { unit, to },
+      });
+    }
+
+    function lensAskBreakdown(movesetKey, members) {
+      lensSend({ type: 'lens-breakdown', moveset: movesetKey, members: members || undefined });
+    }
+
+    /** C→S `lens-lock`. The pins the VIEW-MODEL computed — exact, and counted
+     *  on screen before the press — plus `expected`, which is what makes the
+     *  divergence check possible at all. */
+    function lensLock(everyMember) {
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame || !lensCursor) return false;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showBannerNotice('not connected — nothing was staged');
+        return false;
+      }
+      if (everyMember) {
+        lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'lock.moveset' });
+      }
+      let plan;
+      try {
+        plan = view.planLock(frame, lensCursor);
+      } catch (e) {
+        showBannerNotice(e && e.message ? e.message : 'determinations are legal only at the head');
+        return false;
+      }
+      if (plan.blockedBy.length > 0) {
+        // NEVER a cross-owner determination without an explicit takeover.
+        const who = plan.blockedBy.map((b) => `${b.unit} (${b.owner})`).join(', ');
+        showBannerNotice(`lock needs a pin on ${who} — take the unit over first, or lock rank 1`);
+        return false;
+      }
+      ws.send(JSON.stringify({
+        type: 'lens-lock',
+        cluster: frame.partition.length ? frame.partition[0].id : null,
+        moveset: plan.moveset,
+        pins: plan.pins,
+        expected: plan.expected,
+        emissionSeq: plan.emissionSeq,
+      }));
+      lensExpected = plan;
+      return true;
+    }
+
+    // Recorded before the press, compared against the next emission. This one
+    // comparison per emission is the whole reason the display contract is
+    // falsifiable rather than aspirational.
+    let lensExpected = null;
+    function lensCheckDivergence() {
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame || !lensExpected) return;
+      const report = view.checkDivergence(lensExpected, frame);
+      lensExpected = null;
+      if (!report) return;
+      const said = report.differing
+        .map((d) => `${d.unit} went ${d.expected}→${d.actual} (${d.why})`)
+        .join('; ');
+      showBannerNotice(`after your lock: ${said}`);
+    }
+
+    /** The keymap's additions. Every existing binding is untouched; this
+     *  returns false for a press that is not the lens's business. */
+    function lensHandleKey(e) {
+      const binding = LensPanel.keyBinding(e);
+      if (!binding) return false;
+      const view = lensView();
+      const frame = lensFrame();
+      switch (binding.action) {
+        case 'timeline.prev': lensSeek(-1, false); break;
+        case 'timeline.next': lensSeek(1, false); break;
+        case 'timeline.prevEmission': lensSeek(-1, true); break;
+        case 'timeline.nextEmission': lensSeek(1, true); break;
+        case 'timeline.start': lensSeekTo(lensEvents.length ? lensEvents[0].seq : 0); break;
+        case 'timeline.head': lensNow(); break;
+        case 'now': lensNow(); break;
+        case 'lock.moveset': lensLock(true); break;
+        default:
+          if (!view || !frame || !lensCursor) break;
+          if (binding.action === 'moveset.prev' || binding.action === 'moveset.next') {
+            lensStepMoveset(binding.action === 'moveset.next' ? 1 : -1);
+          } else if (binding.action === 'foil') {
+            lensCursor = view.applyCursorEvent(lensCursor, frame, {
+              t: 'foil', mode: lensCursor.foil === 'off' ? 'latched' : 'off',
+            });
+          } else if (binding.action === 'drill' || binding.action === 'drill.all') {
+            const cluster = view.clusterOf(frame, lensCursor.unit);
+            const member = cluster && cluster.members.find((m) => m !== lensCursor.drill);
+            if (member) {
+              lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'drill', unit: member });
+              if (lensCursor.moveset) lensAskBreakdown(lensCursor.moveset, [member]);
+            }
+          } else if (binding.action === 'release') {
+            if (lensCursor.unit) {
+              lensSend({ type: 'lens-cancel', unit: lensCursor.unit });
+              lensCursor = view.applyCursorEvent(lensCursor, frame, {
+                t: 'release', unit: lensCursor.unit,
+              });
+            }
+          }
+          break;
+      }
+      lensRender();
+      repaintBoard();
+      return true;
+    }
+
+    function lensStepMoveset(delta) {
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame || !lensCursor) return;
+      const rows = view.rowsFor(frame, lensCursor.unit, lensCursor.candidate);
+      if (rows.length === 0) return;
+      const at = Math.max(0, rows.findIndex((r) => r.key === lensCursor.moveset));
+      const next = rows[Math.min(rows.length - 1, Math.max(0, at + delta))];
+      if (next) {
+        lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'moveset', key: next.key });
+      }
+    }
+
+    // Scrubbing INSIDE the turn. It is a local fold over events this client
+    // already has, so it costs no round trip — and it is loud, because a
+    // determination issued against a frame whose ordering has moved would
+    // break the display contract at exactly the moment it matters.
+    function lensSeek(delta, emissionsOnly) {
+      const pool = emissionsOnly ? lensEvents.filter((e) => e.kind === 'emission') : lensEvents;
+      if (pool.length === 0) return;
+      const before = pool.filter((e) => e.seq < lensSeq);
+      const after = pool.filter((e) => e.seq > lensSeq);
+      const target = delta < 0
+        ? (before.length ? before[before.length - 1].seq : pool[0].seq)
+        : (after.length ? after[0].seq : pool[pool.length - 1].seq);
+      lensSeekTo(target);
+    }
+
+    function lensSeekTo(seq) {
+      lensSeq = seq;
+      const head = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
+      lensAtHead = seq >= head;
+    }
+
+    function lensNow() {
+      lensSeekTo(lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0);
+      lensAtHead = true;
+    }
+
+    /** Focus, from every source that focuses: a board click, the roster, Tab.
+     *  Focus is a cursor transition and a transition needs a frame, so a focus
+     *  that lands before this turn's first frame is REMEMBERED rather than
+     *  dropped — the operator selected a unit and meant it, and the frame is
+     *  milliseconds away. */
+    let lensPendingFocus = null;
+    function lensFocus(unitId) {
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame) {
+        lensPendingFocus = unitId;
+        return;
+      }
+      lensPendingFocus = null;
+      lensCursor = view.applyCursorEvent(
+        lensCursor || view.initialCursor(),
+        frame,
+        { t: 'focus', unit: unitId }
+      );
+      if (lensCursor.candidate != null) lensAskConditional(unitId, lensCursor.candidate);
+      lensRender();
+    }
+
+    function lensSelectCandidate(unitId, to) {
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame || !lensCursor) return;
+      lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'candidate', to });
+      lensAskConditional(unitId, to);
+      lensRender();
     }
 
     function selectCell(cell) {
@@ -958,27 +1404,20 @@
         || null;
     }
 
-    // The board + ownership snapshot the inspector should describe. When a
-    // candidate move is selected, the board overlay shows that move's
-    // PROJECTED territory, so the inspector switches to the matching
-    // projected ownership grid (hypothetical: our head on the candidate cell).
+    // THE BOARD the inspector describes. It used to also resolve a Voronoi
+    // ownership grid — the board-wide partition, shipped on every turn, that
+    // the overlay painted (04 §5.3 #14). That grid is gone from the wire: it
+    // answers the PRE-CLUSTER question ("which unit could reach this cell
+    // first"), and it cannot show what a moveset trades between members, which
+    // is the only question the lens asks. What survives is the orientation the
+    // inspector was actually used for — what is standing here, and what the
+    // decision has to say about this square — and the ownership half returns
+    // as an ON-DEMAND read at L6 rather than as a per-turn paint layer.
     function cellInspectContext() {
-      if (viewMode === 'historic') {
-        const board = historicBoard();
-        const sel = historicMoveState?.selectedMove;
-        const projected = sel ? historicMoveState.moves[sel]?.projectedCellOwnership : null;
-        return projected
-          ? { board, ownership: projected, hypotheticalMove: sel }
-          : { board, ownership: historicCellOwnership, hypotheticalMove: null };
-      }
-      const board = currentGameState?.board || null;
-      const sel = moveState?.selectedMove;
-      const projected = (selectedSnakeId && sel) ? moveState.moves[sel]?.projectedCellOwnership : null;
-      if (projected) return { board, ownership: projected, hypotheticalMove: sel };
-      // Ownership must describe the board being shown; a stale grid from the
-      // previous turn would misattribute cells.
-      const territory = board ? liveTerritoryForCurrentTurn() : null;
-      return { board, ownership: territory?.cellOwnership || null, hypotheticalMove: null };
+      const board = viewMode === 'historic'
+        ? historicBoard()
+        : (currentGameState?.board || null);
+      return { board };
     }
 
     // Draw the yellow inspection border on the canvas — the same rect the
@@ -1021,45 +1460,19 @@
       const py = canvas.offsetTop + canvas.clientTop +
         (board.height - 1 - selectedCell.y) * cellSize;
 
-      const arrows = { up: '↑', down: '↓', left: '←', right: '→' };
       let body = `<div style="color:#aaa">Cell (${selectedCell.x}, ${selectedCell.y})</div>`;
-      if (hypotheticalMove) {
-        body += `<div style="color:#CE93D8">Hypothetical: after ${arrows[hypotheticalMove] || ''} ${hypotheticalMove}</div>`;
-      }
-      const idx = ownership ? selectedCell.y * ownership.width + selectedCell.x : -1;
-      // Physical vacate prediction for the body segment on this cell (0/absent
-      // = the cell is already free). Same clearance the territory BFS walks.
-      const vacates = (ownership && ownership.vacatesAt) ? ownership.vacatesAt[idx] : 0;
       const occupant = BoardRenderer.findSnakeAtCell(board, selectedCell);
       if (occupant) {
-        const isHead = occupant.head && occupant.head.x === selectedCell.x && occupant.head.y === selectedCell.y;
-        const clears = vacates > 0 ? ` — clears by +${vacates} turn${vacates === 1 ? '' : 's'}` : '';
-        body += `<div style="color:#aaa">Occupied by ${occupant.name || occupant.id} (${isHead ? 'head' : 'body'})${clears}</div>`;
+        const isHead = occupant.head
+          && occupant.head.x === selectedCell.x && occupant.head.y === selectedCell.y;
+        body += `<div style="color:#aaa">Occupied by ${escapeHtml(occupant.name || occupant.id)} (${isHead ? 'head' : 'body'})</div>`;
       }
-      if (!ownership) {
-        body += `<div>No territory data for this turn yet</div>`;
-      } else {
-        const owner = ownership.owner[idx];
-        if (owner === CELL_OWNER_UNREACHED) {
-          body += `<div>Unreached — no unit can get here</div>`;
-        } else if (owner === CELL_OWNER_NEUTRAL) {
-          body += `<div>Neutral — contested at distance ${ownership.distance[idx]}, no survivor</div>`;
-        } else {
-          const ownerId = ownership.sources[owner];
-          const snake = board.snakes.find(s => s.id === ownerId);
-          const name = snake ? `${!snake.letter && snake.emoji ? snake.emoji + ' ' : ''}${snake.name || ownerId}`.trim() : ownerId;
-          const color = (snake && (snake.color || snake.customizations?.color)) || '#999';
-          const d = ownership.distance[idx];
-          body += `<div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};margin-right:5px;vertical-align:baseline"></span>Owned by <b>${name}</b></div>`;
-          if (occupant) {
-            // Owned despite being occupied: future territory — the body will
-            // have vacated by the time the owner arrives.
-            body += `<div>Future territory: arrives in ${d} turn${d === 1 ? '' : 's'}, after the body clears</div>`;
-          } else {
-            body += `<div>${d} ${d === 1 ? 'cell' : 'cells'} from its head</div>`;
-          }
-        }
-      }
+      // What the LENS says about this square, which is the whole of what a
+      // hypothetical is allowed to say here: whose origin it is, and whether
+      // the moveset under the cursor sends anyone to it.
+      const lensNote = lensCellNote(selectedCell);
+      if (lensNote) body += `<div style="color:${LENS_VIOLET}">${escapeHtml(lensNote)}</div>`;
+
       popup.innerHTML = body;
       popup.style.display = 'block';
       // Prefer above the cell; clamp inside the wrapper and flip below if needed.
@@ -1095,6 +1508,39 @@
       clearCellSelection();
     });
 
+    // The lane's own input, delegated on the strip: a tick moves the playhead
+    // to ITS seq — the scrubber snaps to events, never to pixels, so a click
+    // between two ticks lands on the earlier one — and the foot toggles the
+    // attention ticks, which are hidden by default because they are numerous
+    // and low-grade.
+    document.getElementById('lensLane').addEventListener('pointerdown', (e) => {
+      if (!e.target || !e.target.closest) return;
+      const tick = e.target.closest('[data-seq]');
+      if (tick) {
+        e.preventDefault();
+        lensSeekTo(parseInt(tick.getAttribute('data-seq'), 10));
+        lensRender();
+        repaintBoard();
+        return;
+      }
+      if (e.target.closest('.lens-lane-foot')) {
+        e.preventDefault();
+        lensLaneExpanded = !lensLaneExpanded;
+        lensRender();
+      }
+    });
+
+    // The widen banner's Show control, delegated on the rail — which outlives
+    // its own contents, so a re-render between press and release cannot
+    // swallow the gesture.
+    document.getElementById('lensRail').addEventListener('pointerdown', (e) => {
+      if (!e.target || !e.target.closest) return;
+      if (!e.target.closest('[data-lens-accept]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      lensAcceptWiden();
+    });
+
     // The clash panel's own close control. Delegated on the popup (which
     // outlives its contents) and taken on pointerdown, for the same reason the
     // board and the units table are: a repaint between press and release must
@@ -1112,7 +1558,6 @@
     let connectedUsers = [];
     let controlledSnakeTurnData = {};
     let contestedSnakeId = null;
-    let analyticsFrozen = false;
     // Snake ownership: { [snakeId]: {userId, name, color} | null }. Broadcast by
     // the server; drives on-board name tags, roster owner badges, Tab cycling.
     let owners = {};
@@ -1246,9 +1691,10 @@
     // Selection vs. staging vs. commit (three distinct concepts):
     //   - SELECTION (the purple box) is a purely local inspection cursor.
     //     Clicking a candidate cell or pressing arrows/WASD moves the box and
-    //     updates the breakdown table + projected-territory overlay ONLY. It
-    //     sends nothing to the server, stages nothing, and never clears the
-    //     queue. See `selectMove`.
+    //     re-opens the cluster's conditional ranking under that candidate. It
+    //     stages nothing and never clears the queue; the one thing it does
+    //     send is the ask that funds the ranking, which is a look and not a
+    //     command. See `selectMove`.
     //   - STAGING is a three-stage pipeline, all broadcast via the
     //     stagedMoves map (grey = bot-seeded, user color = human):
     //       requestedMove — the last move the user/bot asked for. Painted
@@ -1329,10 +1775,6 @@
       // Tight ping burst right after connect so a usable clock-offset
       // estimate exists before the first turn deadline matters.
       afterOpen: () => {
-        // Declare the display prefs on every (re)connect, right after the
-        // subscribe: the server keeps them per connection, so a reconnect
-        // would otherwise silently start shipping overlay data again.
-        sendDisplayPrefs();
         for (let i = 0; i < 5; i++) setTimeout(sendClockPing, 150 + i * 350);
       },
       // Distinguish this page's idle closes in the connection log.
@@ -1399,7 +1841,6 @@
             currentGameState = msg.boardState;
             seedTimelineFromLive(currentGameState);
           }
-          applyBoardTerritory(msg.boardTerritory);
           if (msg.controlledSnakes) {
             controlledSnakeIds = new Set(msg.controlledSnakes.map(s => s.id));
             for (const cs of msg.controlledSnakes) {
@@ -1452,7 +1893,6 @@
           }
           currentGameState = msg.gameState;
           seedTimelineFromLive(currentGameState);
-          applyBoardTerritory(msg.boardTerritory);
           turnExpiryTime = msg.turnExpiryTime || null;
           if (msg.selections) {
             selections = msg.selections;
@@ -1480,7 +1920,6 @@
           }
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
 
           liveMaxTurn = Math.max(liveMaxTurn, msg.turn);
           if (viewMode === 'live') {
@@ -1511,10 +1950,6 @@
             moveCommitted: msg.moveCommitted,
             committedMove: msg.committedMove,
           };
-          // The Voronoi partition rides the frame as a BOARD-level snapshot,
-          // identical whichever unit's turn data this is.
-          // (renderGameBoard below refreshes the inspection popup with it.)
-          applyBoardTerritory(msg.boardTerritory);
 
           // This is the only per-snake update that always fires when a snake's
           // path is recomputed, so refresh the live goto route + active mode
@@ -1549,8 +1984,7 @@
               // (de)selection.
             }
             selectedSnakeId = msg.snakeId;
-            applyBoardTerritory(msg.boardTerritory);
-            if (msg.turnData) {
+              if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
                 turnData: msg.turnData,
                 moveCommitted: msg.moveCommitted,
@@ -1561,7 +1995,6 @@
             // Candidate keys are strings; a piece's staged move arrives as a
             // numeric destination index, so normalize to the key space.
             userSelectedMove = msg.stagedMove != null ? String(msg.stagedMove) : null;
-            analyticsFrozen = msg.moveCommitted || false;
             setupMoveStateForSnake(msg.snakeId);
             showSelectionUI();
             scheduleRender();
@@ -1610,7 +2043,6 @@
               moveState = null;
               moveSubmitted = false;
               userSelectedMove = null;
-              analyticsFrozen = false;
               hideSelectionUI();
             }
           }
@@ -1629,7 +2061,6 @@
             moveState = null;
             moveSubmitted = false;
             userSelectedMove = null;
-            analyticsFrozen = false;
             hideSelectionUI();
           }
           break;
@@ -1669,12 +2100,40 @@
             }
             if (msg.snakeId === selectedSnakeId) {
               moveSubmitted = true;
-              analyticsFrozen = true;
               // Re-root the candidate set at the projected head.
               setupMoveStateForSnake(msg.snakeId);
               updateMoveControls();
             }
             scheduleRender();
+          }
+          break;
+
+        // ── THE LENS ─────────────────────────────────────────────────────
+        case 'lens-frames':
+          ingestLensFrames(msg);
+          // A lock's `expected` is checked against the first frame that lands
+          // after it. One comparison per emission, and the display contract
+          // stops being an aspiration.
+          lensCheckDivergence();
+          break;
+
+        case 'lens-conditional-rows':
+        case 'lens-breakdown-rows': {
+          lensPending.delete(msg.requestId);
+          // A refusal is an ANSWER and is rendered as one. `source: 'empty'`
+          // reads as *searching*; a spent reserve says so; neither is silence
+          // and neither is a bare gap in the table.
+          if (msg.ok === false) {
+            showBannerNotice(`lens: ${msg.refusal} — ${msg.detail || ''}`.trim());
+          }
+          lensRender();
+          break;
+        }
+
+        case 'lens-lock':
+          if (msg.ok === false) {
+            showBannerNotice(`lock refused: ${msg.detail || msg.refusal}`);
+            lensExpected = null;
           }
           break;
 
@@ -1832,19 +2291,12 @@
       }
 
       const head = snake.head || snake.body[0];
-      // Candidates come from the UNIT's own turn data; the territory grid comes
-      // from the BOARD's snapshot. Keeping the two apart is what makes the
-      // overlay unit-agnostic: a chess piece has candidates but no engine pass
-      // of its own, and reading its (empty) grid off its turn data is exactly
-      // what used to leave pieces with no territory overlay at all.
-      const evalData = {
-        evaluations: td.moveEvaluations || [],
-        territoryCells: territoryGridForOverlay(liveTerritoryForCurrentTurn()?.territoryCells)
-      };
-
-      moveState = BoardRenderer.processMoveEvaluations(evalData, td.safeMoves || [], head, null);
-      // The selected unit's own territory is the one drawn brightest — the same
-      // emphasis the replay gives the inspected unit.
+      // The unit's own candidate ENUMERATION, and nothing else: what the unit
+      // may be told to do, keyed the way the keyboard navigates it. What each
+      // candidate is WORTH is the cluster's best under it, and that lives on
+      // the lens frame with its grade.
+      const evalData = { evaluations: td.moveEvaluations || [] };
+      moveState = BoardRenderer.processMoveEvaluations(evalData, [], head, null);
       moveState.selectedSnake = snakeId;
 
       if (csData.moveCommitted && csData.committedMove) {
@@ -1859,10 +2311,8 @@
           moveState.selectedMove = String(csData.committedMove);
         }
         moveSubmitted = true;
-        analyticsFrozen = true;
       } else {
         moveSubmitted = false;
-        analyticsFrozen = false;
         if (userSelectedMove) {
           moveState.selectedMove = userSelectedMove;
         } else {
@@ -1887,17 +2337,11 @@
     }
 
     function showSelectionUI() {
-      document.getElementById('noSelectionMsg').style.display = 'none';
-      document.getElementById('selectionUI').style.display = 'block';
-      document.getElementById('selectedSnakePanel').classList.add('active');
-
-      const snake = currentGameState?.board.snakes.find(s => s.id === selectedSnakeId);
-      const csInfo = controlledSnakeTurnData[selectedSnakeId];
-      const name = snake?.name || csInfo?.name || selectedSnakeId;
-      document.getElementById('selectedSnakeName').textContent = name;
-      updateIntentModeBadge();
-
-      updateMoveControls();
+      renderRail(null);
+      // Focus is a lens gesture as much as a control one: it is what opens the
+      // conditional ranking for this unit's incumbent candidate, and what tells
+      // the kernel a human is looking (the look funds the search).
+      if (selectedSnakeId) lensFocus(selectedSnakeId);
     }
 
     // Reflect the snake's active next-move source (Heuristic | Manual | Goto |
@@ -1989,112 +2433,121 @@
       renderFallbackTimer = setTimeout(runScheduledRender, 250);
     }
 
-    function renderGameBoard() {
-      if (!currentGameState) return;
-      // While scrubbing history, live WS updates still refresh currentGameState
-      // and the overlay maps above, but must not repaint the board being viewed.
-      if (viewMode === 'historic') return;
+    /**
+     * THE ONE BOARD RENDER. Live play and replay hand it the same object and
+     * it draws the same picture; there is no second path, no second option
+     * assembly, and no `if (historic)` anywhere below this comment.
+     *
+     * This replaces a fork of roughly nine hundred lines that had already
+     * drifted where nobody was looking — the two paths' empty states differed,
+     * and each had grown its own answer to "what is staged", "who owns this",
+     * "which unit is inspected". A view is: a board, what was ordered on it,
+     * and what the lens is hypothesising over it. Where that object comes from
+     * is the caller's business and nothing else's.
+     */
+    function renderView(view) {
+      if (!view || !view.gameState || !view.gameState.board) return;
       const canvas = document.getElementById('gameCanvas');
+      const board = view.gameState.board;
 
-      const selectionGlows = {};
-      for (const [snakeId, sel] of Object.entries(selections)) {
-        if (sel && sel.color) {
-          selectionGlows[snakeId] = sel.color;
-        }
-      }
-
-      const renderMoveState = moveSubmitted ? null : moveState;
-      // Staged moves are fully server-owned: heuristic-seeded ones render grey,
-      // human-staged ones in the controller's color, and committed ones as a
-      // double arrow (see board-renderer). The client renders the broadcast
-      // stagedMoves snapshot directly — no local synthesis.
-      // Death markers are derived uniformly for every unit (ours and enemies)
-      // by the renderer's disappearance path: a unit present last turn but gone
-      // this turn gets a solid marker on its authoritative death cell —
-      // currentGameState.deathCells for pieces (the exact cell the engine
-      // recorded, mid-path deaths included), currentGameState.lastMoves for
-      // snakes (the move that killed them) — and, for snakes we controlled, a
-      // ghost marker from the move we committed (lastCommittedMoves), drawn
-      // only when it differs. This naturally shows only on the death turn:
-      // next turn the unit is already absent from previousBoard, so no marker
-      // is drawn.
-      const cellSize = BoardRenderer.renderBoard(canvas, currentGameState, renderMoveState, {
-        snakeId: selectedSnakeId,
-        showChosenArrow: false,
-        // Overlay switch: false makes the renderer skip the territory work
-        // whole, projected grids included — see territoryGridForOverlay.
-        showTerritory: territoryOverlayOn,
+      const cellSize = BoardRenderer.renderBoard(canvas, view.gameState, view.moveState, {
+        snakeId: view.snakeId,
+        chosenMove: view.chosenMove || null,
+        showChosenArrow: !!view.showChosenArrow,
         controlledSnakeIds: controlledSnakeIds,
-        selectionGlows: selectionGlows,
-        // Unit tags: styling derives reactively from the selections map
-        // (single selection property) inside the renderer; the Alt-tap
-        // display mode rides along, plus both hover inputs — the unit under
-        // the cursor and the tag the cursor is latched onto.
-        owners: owners,
-        selections: selections,
+        selectionGlows: view.selectionGlows || {},
+        owners: view.owners || null,
+        selections: view.selections || null,
+        // Hover and tag mode are properties of THIS pointer on THIS page, so
+        // they are read live in both directions — a replayed unit's tag calls
+        // up under the cursor exactly as a live one's does.
         hoveredUnitId: hoveredUnitId,
         tagHoverUnitId: tagHoverUnitId,
         tagMode: tagDisplayMode,
-        // The clash cell under the cursor, so the affordance lights up under
-        // the same pointer the cursor shape is already answering.
         clashHoverCell: clashHoverCell,
-        stagedMoves: stagedMoves,
-        // Standing-order state per unit: the renderer reads 'hold' out of it
-        // to draw the shield above a held unit's head.
+        stagedMoves: view.stagedMoves || null,
+        intentModes: view.intentModes || null,
+        previousBoard: view.previousBoard || null,
+        lastMoves: view.lastMoves || null,
+        deathCells: view.deathCells || null,
+        submittedMoves: view.submittedMoves || null,
+        ourDeaths: view.ourDeaths || null,
+        fatalConsented: !!view.fatalConsented,
+        // The lens's ink, in the renderer's own vocabulary. Null draws nothing
+        // at all — an unfocused board is exactly as quiet as it was before any
+        // of this existed.
+        lens: view.lens || null,
+      });
+
+      // Goto routes and waypoint cells. `route[0]` is the STAGED next move and
+      // the rest is the path onward, so the drawn path always matches the move
+      // that will actually commit. A unit that is no longer on the board has no
+      // plan — the server clears it the moment it dies — so both loops are
+      // board-driven and a frame arriving mid-teardown leaves no orphans.
+      for (const snake of board.snakes) {
+        const route = (view.routes || {})[snake.id];
+        if (!route || !route.cells || route.cells.length === 0) continue;
+        drawRouteOverlay(canvas, snake, route, board, cellSize, '#4CAF50',
+          view.routeHeads ? (snake.head || snake.body[0]) : undefined);
+      }
+      for (const snakeId in (view.waypoints || {})) {
+        if (!board.snakes.some((s) => s.id === snakeId)) continue;
+        drawWaypointOverlay(canvas, view.waypoints[snakeId], board, cellSize);
+      }
+
+      // The candidate overlay is PRESENTATIONAL only. All board input is owned
+      // by the delegated pointerdown handler on `.canvas-wrapper`, so
+      // rebuilding this — which happens on every render — can never swallow an
+      // interaction.
+      const overlayEl = document.getElementById('boardOverlay');
+      if (view.moveState) {
+        BoardRenderer.createBoardOverlay(overlayEl, canvas, board, view.moveState, null);
+      } else {
+        overlayEl.innerHTML = '';
+      }
+
+      revalidateHoverAfterRender();
+      renderCellInspect();
+      renderClashInspect();
+    }
+
+    /** The live view: the authoritative board and every order standing on it. */
+    function liveView() {
+      const selectionGlows = {};
+      for (const [snakeId, sel] of Object.entries(selections)) {
+        if (sel && sel.color) selectionGlows[snakeId] = sel.color;
+      }
+      return {
+        gameState: currentGameState,
+        moveState: moveSubmitted ? null : moveState,
+        snakeId: selectedSnakeId,
+        showChosenArrow: false,
+        selectionGlows,
+        owners,
+        selections,
+        // Staged moves are fully server-owned: heuristic-seeded ones render
+        // grey, human-staged ones in the controller's colour, committed ones
+        // as a double arrow. The client renders the broadcast snapshot
+        // directly — no local synthesis.
+        stagedMoves,
         intentModes: activeIntentModes,
+        routes: gotoRoutes,
+        waypoints,
         previousBoard: previousGameState?.board || null,
-        // Authoritative per-snake moves from the engine → solid death heads.
         lastMoves: currentGameState?.lastMoves || null,
-        // Authoritative per-piece death cells → solid death heads for pieces
-        // (mid-path deaths land on the exact cell the engine recorded).
         deathCells: currentGameState?.deathCells || null,
         // The moves we committed → ghost (intended) death heads for our snakes.
         submittedMoves: lastCommittedMoves,
-      });
+        lens: lensInk(),
+      };
+    }
 
-      // Render every snake's live green "goto" route so all connected clients
-      // can see what each controller has planned. route[0] is the STAGED next
-      // move and the rest is the shortest path onward from it, so the drawn
-      // path always matches the move that will actually commit.
-      for (const snake of currentGameState.board.snakes) {
-        const route = gotoRoutes[snake.id];
-        if (!route || !route.cells || route.cells.length === 0) continue;
-        drawRouteOverlay(canvas, snake, route, currentGameState.board, cellSize, '#4CAF50');
-      }
-
-      // Render every LIVING snake's waypoint cells (green goto queue in order,
-      // or the single blue near target) so observers can see the controller's
-      // plan. A unit that is no longer on the board has no plan — the server
-      // clears its command the moment it dies, and this mirrors that so a
-      // frame that arrives mid-teardown can never leave orphaned target badges
-      // behind (the route loop above is board-driven for the same reason).
-      for (const snakeId in waypoints) {
-        if (!currentGameState.board.snakes.some(s => s.id === snakeId)) continue;
-        drawWaypointOverlay(canvas, waypoints[snakeId], currentGameState.board, cellSize);
-      }
-
-      if (selectedSnakeId && moveState && !moveSubmitted) {
-        // The candidate overlay is PRESENTATIONAL only — it draws the
-        // candidate cells' hover affordance. It deliberately has no click handler:
-        // all board input is owned by the delegated pointerdown handler on
-        // `.canvas-wrapper`, so rebuilding this overlay (which happens on every
-        // render) can never swallow an interaction.
-        BoardRenderer.createBoardOverlay(
-          document.getElementById('boardOverlay'), canvas,
-          currentGameState.board, moveState, null
-        );
-      } else {
-        document.getElementById('boardOverlay').innerHTML = '';
-      }
-
-      // Re-derive the hover against the fresh tag rects / unit cells.
-      revalidateHoverAfterRender();
-
-      // Keep the cell-inspection highlight/popup in sync with the repaint.
-      renderCellInspect();
-      // Same for the clash inspector, so scrubbing to another turn re-reads
-      // that turn's clash records (or closes the panel when it has none).
-      renderClashInspect();
+    function renderGameBoard() {
+      if (!currentGameState) return;
+      // While scrubbing history, live updates still refresh currentGameState
+      // and the overlay maps, but must not repaint the board being viewed.
+      if (viewMode === 'historic') return;
+      renderView(liveView());
     }
 
     // Record every snake present in a game state so the roster remembers dead
@@ -2162,73 +2615,53 @@
       if (!moveState) {
         updateIntentModeBadge();
         renderUnitStatus('Waiting for this unit\u2019s candidate moves\u2026');
+        lensRender();
         return;
       }
-      updateIntentModeBadge();
-
-      if (moveSubmitted) {
-        renderUnitStatus('Move <b>committed</b> for this turn.');
-      } else {
-        const label = selectedCandidateLabel();
-        renderUnitStatus(
-          (label
-            ? `Selected <b>${escapeHtml(label)}</b> \u2014 press <kbd>Space</kbd> to stage it.`
-            : 'Pick a destination on the board, or steer with the arrow pad / numpad, then <kbd>Space</kbd> to stage.') +
-          ' <kbd>H</kbd> holds position, <kbd>Del</kbd> clears every command. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
-        );
-      }
-
-      if (!analyticsFrozen) {
-        const autoSelectedMove = moveState.selectedMove ? moveState.moves[moveState.selectedMove] : null;
-        BoardRenderer.updateStatsTable(
-          document.getElementById('statsTableBody'), autoSelectedMove || null, moveState
-        );
-      }
+      renderRail(null);
     }
 
-    // SELECTION = local inspection cursor only (the purple box). Moving it
-    // (candidate-cell click, arrows, WASD) updates the breakdown table +
-    // projected-territory overlay and nothing else: no server message, no
-    // staged-move write, no queue clear. Staging is a separate explicit
-    // action (Space / Stage button -> stageSelectedMove).
+    // SELECTION = the inspection cursor's CANDIDATE level, and nothing else:
+    // no server message, no staged-move write, no queue clear. Staging is a
+    // separate explicit action (Space → stageSelectedMove), and it is the one
+    // gesture whose meaning grew — it stages the selected candidate and
+    // thereby the displayed moveset, through the minimum pins.
+    //
+    // ONE function for live and replay. The replay simply cannot stage, which
+    // it says on the affordance rather than in a second copy of this code:
+    // the read-only mirror of this function used to live 2,000 lines further
+    // down and had already grown its own answers to "which candidate is
+    // selected" and "what does the keyboard cursor remember".
     function selectMove(moveKey, nav) {
-      if (moveSubmitted || !selectedSnakeId) return;
-      if (!moveState) return;
-      if (!moveState.moves[moveKey]) return; // not a candidate this turn
+      const ctx = inspectionContext();
+      const ms = ctx.moveState;
+      if (!ms || !ms.moves[moveKey]) return; // not a candidate this turn
+      const live = viewMode !== 'historic';
+      if (live && (moveSubmitted || !selectedSnakeId)) return;
 
-      userSelectedMove = moveKey;
-      moveState.selectedMove = moveKey;
+      if (live) userSelectedMove = moveKey;
+      else historicKeyFocus = 'candidates';
+      ms.selectedMove = moveKey;
       // Keep the keyboard cursor ({axis, distance}) in step with EVERY
       // selection source (board click, keypad button, keyboard), so
       // arrow/numpad steering continues from wherever the selection is.
       // Keyboard transitions pass their own authoritative nav (it carries
-      // axis memory a position-derived one cannot); clicks derive it from
-      // the candidate.
-      moveState.keyNav = nav
-        || deriveKeyNavFromSelection(moveState.moves[moveKey], moveState.keyNav);
+      // axis memory a position-derived one cannot); clicks derive it.
+      ms.keyNav = nav || deriveKeyNavFromSelection(ms.moves[moveKey], ms.keyNav);
 
-      // Schedule the repaint BEFORE any of the panel updates below. They
-      // render third-party-shaped data (score breakdowns) and must not be
-      // able to skip the repaint by throwing partway through — the board is
-      // the primary feedback for this action, so it cannot depend on the
-      // panels rendering cleanly.
-      scheduleRender();
+      // Schedule the repaint BEFORE the panels. They render third-party-shaped
+      // data and must not be able to skip the repaint by throwing partway
+      // through — the board is the primary feedback for this action.
+      repaintBoard();
 
-      try {
-        updateMoveControls();
-      } catch (e) {
-        console.error('updateMoveControls failed:', e);
-      }
+      // T3: the candidate level, chosen. The moveset list re-defaults beneath
+      // it, and the ask that funds it goes out with it.
+      if (ctx.unitId) lensSelectCandidate(ctx.unitId, ms.moves[moveKey].move);
 
       try {
-        const move = moveState.moves[moveKey];
-        if (move) {
-          BoardRenderer.updateStatsTable(
-            document.getElementById('statsTableBody'), move, moveState
-          );
-        }
+        renderRail(live ? null : (historicRenderCtx && historicRenderCtx.ownRow) || null);
       } catch (e) {
-        console.error('updateStatsTable failed:', e);
+        console.error('renderRail failed:', e);
       }
     }
 
@@ -2444,10 +2877,10 @@
       // resizes the board, it does not click a cell.
       if (event.target && event.target.closest &&
           event.target.closest('#boardResizeHandle')) return;
-      // History mode: Alt+Left inspects (the popup reads the historic ownership
-      // snapshot), and a plain left click keeps the replay's own meanings —
-      // pick a candidate move, else switch inspected snake / toggle a territory
-      // highlight. Nothing else applies, since there is no live snake to steer.
+      // History mode: Alt+Left inspects the cell, and a plain left click keeps
+      // the replay's own meanings — pick a candidate move, else switch the
+      // inspected unit. Nothing else applies, since there is no live unit to
+      // steer.
       if (viewMode === 'historic') {
         if (event.button !== 0) return;
         if (event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -2463,19 +2896,17 @@
           return;
         }
 
-        // Candidate-move selection FIRST, exactly as in live play. This has to
-        // be resolved here rather than left to the overlay's own click handler:
-        // the replay's fallback below toggles a territory highlight and
-        // re-renders, which tears the overlay down between press and release,
-        // so the button's click never fires. That is the same teardown race the
-        // live path was rebuilt to avoid.
+        // Candidate-move selection FIRST, exactly as in live play — the same
+        // function, resolved here rather than left to the overlay's own click
+        // handler, because a re-render between press and release would tear
+        // the overlay down and swallow the click.
         if (hIn && historicMoveState && historicMoveState.moves) {
           for (const move of Object.values(historicMoveState.moves)) {
             const pos = move.position;
             if (pos && pos.x === hCell.x && pos.y === hCell.y) {
               event.preventDefault();
               event.stopPropagation();
-              historicSelectMove(move.key ?? move.direction);
+              selectMove(move.key ?? move.direction);
               return;
             }
           }
@@ -2685,9 +3116,6 @@
       return {
         head: proj, moves, selectedMove: null, postCommit: true,
         candidatesByPosition, holdCandidate: null,
-        // Same board-level grid every other moveState carries, so this
-        // synthetic one is not a second shape for consumers to special-case.
-        territoryCells: territoryGridForOverlay(liveTerritoryForCurrentTurn()?.territoryCells),
         selectedSnake: snakeId,
       };
     }
@@ -2973,7 +3401,7 @@
           unitId,
           unit: (board?.snakes || []).find(s => s.id === unitId) || null,
           moveState: historicMoveState,
-          select: historicSelectMove,
+          select: selectMove,
         };
       }
       return {
@@ -3194,14 +3622,6 @@
       if (e.target === e.currentTarget) setShortcutsPane(false);
     });
 
-    // ── Voronoi overlay switch wiring ───────────────────────────────────────
-    (function setupTerritoryOverlayToggle() {
-      const box = document.getElementById('territoryOverlayToggle');
-      if (!box) return;
-      box.checked = territoryOverlayOn;
-      box.addEventListener('change', () => setTerritoryOverlay(box.checked));
-    })();
-
     // ── Clear human input ───────────────────────────────────────────────────
     // ONE path for "this unit has been told nothing". Everything a human can
     // give a unit — a staged move (a piece's rotation is one), a goto queue, a
@@ -3275,6 +3695,16 @@
       if (e.key === 'Escape') { clearCellSelection(); setClashInspectCell(null); }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
+      }
+
+      // THE LENS'S KEYS, claimed before the live/historic split because
+      // inspection is the one thing that works identically in both: the same
+      // cursor, over the same frame type, from a different source. It claims
+      // only keys the shortcuts pane had left free, and returns false for
+      // every press that is not its business — which is most of them.
+      if (lensHandleKey(e)) {
+        e.preventDefault();
+        return;
       }
 
       // In read-only history mode, arrow keys go to whichever control the user
@@ -3376,7 +3806,6 @@
           moveState = null;
           moveSubmitted = false;
           userSelectedMove = null;
-          analyticsFrozen = false;
           hideSelectionUI();
           scheduleRender();
         }
@@ -4425,24 +4854,6 @@
       updateNavButtons(displayTurn);
     }
 
-    // A candidate-less moveState that carries nothing but the board's shared
-    // territory grid, so the overlay (and its click-to-highlight) work for a
-    // unit with no logged evaluations. Same shape every other moveState has —
-    // consumers see one contract, not a second special case. Null when the
-    // turn has no grid to show.
-    function sharedTerritoryMoveState(territoryCells, unitId) {
-      if (!territoryCells || Object.keys(territoryCells).length === 0) return null;
-      return {
-        selectedMove: null,
-        moves: {},
-        safeMoves: [],
-        territoryCells,
-        selectedSnake: unitId || null,
-        candidatesByPosition: new Map(),
-        holdCandidate: null,
-      };
-    }
-
     // Mirrors the Game History viewer's per-turn render: same BoardRenderer
     // entry points, just with interactivity off. The BOARD comes from the
     // per-game timeline (with the legacy any-team-log resolution as fallback),
@@ -4523,7 +4934,6 @@
         const blob = evalRow.move_evaluations || {};
         const evalInput = {
           evaluations: blob.evaluations || (Array.isArray(blob) ? blob : []),
-          territoryCells: territoryGridForOverlay(blob.territoryCells || timelineRow?.territory),
         };
         historicMoveState = BoardRenderer.processMoveEvaluations(
           evalInput, evalRow.safe_moves, head, evalRow.bot_recommendation
@@ -4531,21 +4941,12 @@
         historicMoveState.selectedMove = null;
         historicMoveState.selectedSnake = evalRow.snake_id;
       } else {
-        // No decision log for the inspected unit at this turn — a chess piece
-        // (which never logs one) or a snake after its death. There are no
-        // candidates to draw, but the turn's territory grid belongs to the
-        // BOARD, not to that unit, so the overlay still renders.
-        historicMoveState = sharedTerritoryMoveState(
-          territoryGridForOverlay(timelineRow?.territory), getHistoricSnakeId()
-        );
+        // No decision row for the inspected unit at this turn — a chess piece,
+        // which never produces one, or a snake after its death. There are no
+        // candidates to draw, and that is a fact about the turn rather than a
+        // failure to load: the rail says which.
+        historicMoveState = null;
       }
-      // The cell inspector reads whichever era captured the ownership grid:
-      // the eval blob (old rows) or the turn row (modern rows). Set per
-      // render, never carried over — a stale grid would misattribute cells.
-      // Sourcing it from the turn row also means inspection keeps working on
-      // turns after the inspected snake's death.
-      historicCellOwnership =
-        evalRow?.move_evaluations?.cellOwnership || timelineRow?.cell_ownership || null;
       // The recorded command state at the END of the rendered turn (null when
       // command history hasn't loaded or the turn has no snapshot).
       historicRenderCtx = {
@@ -4574,8 +4975,7 @@
         );
       }
       if (lightweight) return;
-      if (evalRow) showHistoricSelectionPanel(evalRow);
-      else showHistoricNoDataPanel();
+      renderRail(evalRow);
     }
 
     // ── Live drag rendering ──────────────────────────────────────────────────
@@ -4676,115 +5076,41 @@
       }];
     }
 
+    /** The replay view, from the recorded rows: the same object `liveView`
+     *  builds, filled from the log instead of from the socket. */
     function renderHistoricBoard() {
       const ctx = historicRenderCtx;
       if (!ctx || !ctx.boardRow || !ctx.boardRow.game_state) return;
-      const canvas = document.getElementById('gameCanvas');
-      const turn = ctx.boardRow;
-      const own = ctx.ownRow; // inspected snake's decision, null after its death
-      // The prior logged turn's board (from the SAME log the board row came
-      // from) lets the renderer detect units that vanished this turn;
-      // deathCells (pieces) and lastMoves (snakes), both on game_state, then
-      // mark their true death cell.
-      const prevTurn = ctx.prevRow;
-      // The primary arrow shows the move that was actually SUBMITTED to the
-      // game server for this turn (ground truth). Rows without submitted_move
-      // (older logs / unresolved turns) fall back to the bot recommendation,
-      // rendered in a visually distinct "recommendation only" style. When the
-      // submitted move differs from the bot's recommendation, the bot's pick
-      // is drawn as a thin secondary hint so overrides are visible. All of
-      // this applies only while the inspected snake has data for the turn.
+      const own = ctx.ownRow; // the inspected unit's decision, null after death
+      // The arrow shows the move actually SUBMITTED to the game server for
+      // this turn — ground truth. A row without one falls back to the bot's
+      // recommendation, which is now the same object as the incumbent moveset's
+      // assignment, drawn the same way: one vocabulary, one arrow.
       const submitted = own ? (own.submitted_move || null) : null;
       const botRec = own ? (own.bot_recommendation || null) : null;
-      // Recorded command state at the end of this turn: the same maps the live
-      // broadcast carries, so the exact live render paths draw them — staged
-      // arrows + owner name tags inside renderBoard, goto routes and waypoint
-      // cells via the shared overlay functions below. The inspected snake keeps
-      // its ground-truth submitted/recommendation arrow (the chosenMove branch
-      // wins over its staged entry inside the renderer).
+      // The recorded command state at the END of the rendered turn: the same
+      // maps the live broadcast carries, so the identical render path draws
+      // them. Null when no snapshot covers the turn.
       const cmd = ctx.cmd || null;
-      const cellSize = BoardRenderer.renderBoard(canvas, turn.game_state, historicMoveState, {
+      renderView({
+        gameState: ctx.boardRow.game_state,
+        moveState: historicMoveState,
         snakeId: own ? own.snake_id : getHistoricSnakeId(),
-        showTerritory: territoryOverlayOn,
         chosenMove: submitted || botRec,
-        chosenMoveStyle: submitted ? 'submitted' : 'recommendation-only',
-        secondaryMove: submitted && botRec && submitted !== botRec ? botRec : null,
         showChosenArrow: !!own,
-        previousBoard: prevTurn?.game_state?.board || null,
+        previousBoard: ctx.prevRow?.game_state?.board || null,
         ourDeaths: own ? buildHistoricOurDeaths(own) : [],
-        lastMoves: turn.game_state?.lastMoves || null,
-        deathCells: turn.game_state?.deathCells || null,
+        lastMoves: ctx.boardRow.game_state?.lastMoves || null,
+        deathCells: ctx.boardRow.game_state?.deathCells || null,
         fatalConsented: !!(own && own.fatal_consent),
         stagedMoves: cmd ? cmd.stagedMoves : null,
-        // The recorded hold set for this turn — the same map, from the same
-        // snapshot, so a replayed hold draws the identical shield.
         intentModes: cmd ? cmd.activeIntentModes : null,
         owners: cmd ? cmd.owners : null,
-        // Unit tags render here through the same shared path as live play;
-        // both hover inputs + the Alt-tap display mode apply identically.
-        hoveredUnitId: hoveredUnitId,
-        tagHoverUnitId: tagHoverUnitId,
-        tagMode: tagDisplayMode,
-        // Clash hover too: a historic clash cell is inspectable exactly as a
-        // live one is, so it lights up under the cursor the same way.
-        clashHoverCell: clashHoverCell,
-        // Which units are OURS is what the "our team's tags" mode reads, and a
-        // replayed unit is ours by exactly the same test as a live one.
-        controlledSnakeIds: controlledSnakeIds,
+        routes: cmd ? cmd.routes : null,
+        routeHeads: true,
+        waypoints: cmd ? cmd.waypoints : null,
+        lens: lensInk(),
       });
-      if (cmd) {
-        const board = turn.game_state.board;
-        // Same overlays as the live render loop, gated on board presence so a
-        // dead snake's lingering targets never draw on later turns.
-        for (const snake of board.snakes) {
-          const route = cmd.routes && cmd.routes[snake.id];
-          if (route && route.cells && route.cells.length > 0) {
-            drawRouteOverlay(canvas, snake, route, board, cellSize, '#4CAF50',
-              snake.head || snake.body[0]);
-          }
-        }
-        for (const snakeId in (cmd.waypoints || {})) {
-          if (!board.snakes.some((s) => s.id === snakeId)) continue;
-          drawWaypointOverlay(canvas, cmd.waypoints[snakeId], board, cellSize);
-        }
-      }
-      const overlayEl = document.getElementById('boardOverlay');
-      if (historicMoveState) {
-        // Presentational only, like the live overlay: input is owned by the
-        // delegated pointerdown handler, so rebuilding this cannot swallow a
-        // click.
-        BoardRenderer.createBoardOverlay(
-          overlayEl, canvas, turn.game_state.board,
-          historicMoveState, null
-        );
-      } else {
-        overlayEl.innerHTML = '';
-      }
-
-      // Re-derive the hover against the fresh tag rects / unit cells.
-      revalidateHoverAfterRender();
-
-      // Keep the cell-inspection highlight/popup in sync with the repaint.
-      renderCellInspect();
-      // Same for the clash inspector, so scrubbing to another turn re-reads
-      // that turn's clash records (or closes the panel when it has none).
-      renderClashInspect();
-    }
-
-    // Read-only candidate selection: clicking a candidate cell / move button —
-    // or steering with the keyboard — shows that move's heuristic breakdown.
-    // The replay's counterpart of selectMove, down to keeping the keyboard
-    // cursor ({axis, distance}) in step with every selection source.
-    function historicSelectMove(moveKey, nav) {
-      const ms = historicMoveState;
-      if (!ms || !ms.moves[moveKey]) return;
-      historicKeyFocus = 'candidates';
-      ms.selectedMove = moveKey;
-      ms.keyNav = nav || deriveKeyNavFromSelection(ms.moves[moveKey], ms.keyNav);
-      renderHistoricBoard();
-      BoardRenderer.updateStatsTable(
-        document.getElementById('statsTableBody'), ms.moves[moveKey], ms
-      );
     }
 
     function handleHistoricCanvasClick(event) {
@@ -4812,69 +5138,78 @@
         return;
       }
 
-      // Territory highlighting needs the inspected snake's evaluation data,
-      // which doesn't exist for turns after its death.
-      if (!historicMoveState) return;
-
-      // Toggle the Voronoi territory highlight for the clicked cell.
-      const clickedSnake = BoardRenderer.findTerritoryOwnerAtCell(historicMoveState.territoryCells, cell);
-      if (clickedSnake) {
-        historicMoveState.selectedSnake =
-          (historicMoveState.selectedSnake === clickedSnake) ? null : clickedSnake;
-        renderHistoricBoard();
-      } else if (historicMoveState.selectedSnake) {
-        historicMoveState.selectedSnake = null;
-        renderHistoricBoard();
-      }
     }
 
-    // In history mode the selection panel becomes a read-only breakdown viewer:
-    // the snake-perspective name is shown, control buttons (Stage) and the
-    // intent badge are hidden, and the move buttons + stats reflect the logged
-    // turn. restoreLiveSelectionPanel() undoes this on return to live.
-    function showHistoricSelectionPanel(turn) {
+    /**
+     * THE RAIL, live and replayed, from ONE function.
+     *
+     * There used to be three of these: the live panel, the replay's panel, and
+     * a third for "no data", which each said a different thing about the same
+     * absence. What differs between live and replay is not the panel — it is
+     * whether a determination is legal, which the affordance's own label says,
+     * and where the frame came from, which the badge says. Neither is a branch
+     * in what is drawn.
+     */
+    function renderRail(evalRow) {
+      const historic = viewMode === 'historic';
       document.getElementById('noSelectionMsg').style.display = 'none';
       document.getElementById('selectionUI').style.display = 'block';
-      document.getElementById('selectedSnakePanel').classList.remove('active');
+      document.getElementById('selectedSnakePanel').classList.toggle('active', !historic);
 
-      // The snake's identity: the rendered board first, then the row's slim
-      // `you` (modern rows carry no board), then the snake_name column.
-      const snake = (historicRenderCtx?.boardRow?.game_state?.board?.snakes
-          || turn.game_state?.board?.snakes || [])
-        .find(s => s.id === turn.snake_id) || turn.game_state?.you;
-      const name = snake?.name || turn.snake_name || turn.snake_id;
-      // Historical logs predating letters stored an emoji head glyph.
+      const snakeId = historic ? (evalRow ? evalRow.snake_id : getHistoricSnakeId()) : selectedSnakeId;
+      const board = activeBoard();
+      const snake = (board?.snakes || []).find((s) => s.id === snakeId)
+        || (historic ? snakeLastSeen.get(snakeId)?.snake : null)
+        || null;
+      const name = snake?.name
+        || (historic ? (evalRow?.snake_name || snakeId) : (controlledSnakeTurnData[snakeId]?.name || snakeId));
       const glyph = !snake?.letter && snake?.emoji ? `${snake.emoji} ` : '';
-      const nameEl = document.getElementById('selectedSnakeName');
-      nameEl.textContent = `${glyph}${name} (history)`;
-      // Confirmed-fatal note: this turn's submitted move went through the
-      // fatal-move confirmation dialog (deliberate death, not a bot mistake).
-      let fatalNote = document.getElementById('fatalConsentNote');
-      if (turn.fatal_consent) {
-        if (!fatalNote) {
-          fatalNote = document.createElement('span');
-          fatalNote.id = 'fatalConsentNote';
-          fatalNote.style.cssText = 'color: #ff1744; font-size: 12px; font-weight: 700; border: 1px solid #ff1744; border-radius: 10px; padding: 2px 8px; margin-left: 8px;';
-          fatalNote.textContent = '\u26A0 FATAL MOVE CONFIRMED BY USER';
-          nameEl.after(fatalNote);
-        }
-        fatalNote.style.display = '';
+      document.getElementById('selectedSnakeName').textContent =
+        `${glyph}${name || ''}${historic ? ' (history)' : ''}`;
+
+      // The fatal-consent note is a fact about the turn, so it renders from
+      // whichever side supplies the turn.
+      const fatalNote = document.getElementById('fatalConsentNote');
+      const consented = historic && !!evalRow?.fatal_consent;
+      if (consented && !fatalNote) {
+        const el = document.createElement('span');
+        el.id = 'fatalConsentNote';
+        el.style.cssText = 'color: #ff1744; font-size: 12px; font-weight: 700; border: 1px solid #ff1744; border-radius: 10px; padding: 2px 8px; margin-left: 8px;';
+        el.textContent = '\u26A0 FATAL MOVE CONFIRMED BY USER';
+        document.getElementById('selectedSnakeName').after(el);
       } else if (fatalNote) {
-        fatalNote.style.display = 'none';
+        fatalNote.style.display = consented ? '' : 'none';
       }
 
       const badge = document.getElementById('intentModeBadge');
-      if (badge) badge.style.display = 'none';
+      if (badge) badge.style.display = historic ? 'none' : '';
+      if (historic) renderHistoricCommandNote(snakeId);
+      else updateIntentModeBadge();
 
-      renderHistoricCommandNote(turn.snake_id);
-
+      // Determinations are legal IFF the playhead is at the live head. Off it,
+      // the affordance does not vanish — a greyed control teaches nothing — it
+      // re-labels, and one key gets you back.
       renderUnitStatus(
-        'Read-only replay \u2014 click a candidate square, or steer with the ' +
-        'arrow pad / numpad, to read that move\u2019s breakdown. ' +
-        '<kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
+        historic
+          ? 'Read-only replay \u2014 <kbd>,</kbd> <kbd>.</kbd> step the turn\u2019s events, ' +
+            '<kbd>[</kbd> <kbd>]</kbd> walk the movesets, <kbd>B</kbd> drills a member. ' +
+            '<kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
+          : liveStatusLine()
       );
-      BoardRenderer.updateStatsTable(
-        document.getElementById('statsTableBody'), null, historicMoveState
+
+      lensRender();
+    }
+
+    /** What the live status line says, which depends only on what is staged. */
+    function liveStatusLine() {
+      if (moveSubmitted) return 'Move <b>committed</b> for this turn.';
+      const label = selectedCandidateLabel();
+      return (
+        (label
+          ? `Selected <b>${escapeHtml(label)}</b> \u2014 press <kbd>Space</kbd> to stage it.`
+          : 'Pick a destination on the board, or steer with the arrow pad / numpad, then <kbd>Space</kbd> to stage.') +
+        ' <kbd>H</kbd> holds position, <kbd>Del</kbd> clears every command. ' +
+        '<kbd>[</kbd> <kbd>]</kbd> walk the cluster\u2019s movesets. <kbd>Ctrl</kbd>+<kbd>/</kbd> for all shortcuts.'
       );
     }
 
@@ -4931,50 +5266,6 @@
       note.style.display = '';
     }
 
-    // Shown instead of the breakdown when the viewed turn has no decision data
-    // for the inspected snake. Distinguishes WHY: the snake is dead on this
-    // board (its usual meaning), or this is the game's final board (no
-    // decision is ever made on it \u2014 the game ended here), or the decisions
-    // simply haven't loaded/flushed yet.
-    function showHistoricNoDataPanel() {
-      document.getElementById('noSelectionMsg').style.display = 'none';
-      document.getElementById('selectionUI').style.display = 'block';
-      document.getElementById('selectedSnakePanel').classList.remove('active');
-
-      const snakeId = getHistoricSnakeId();
-      const rec = snakeLastSeen.get(snakeId);
-      const name = rec?.snake?.name || snakeId || 'Snake';
-      const glyph = !rec?.snake?.letter && rec?.snake?.emoji ? `${rec.snake.emoji} ` : '';
-      document.getElementById('selectedSnakeName').textContent = `${glyph}${name} (history)`;
-
-      const fatalNote = document.getElementById('fatalConsentNote');
-      if (fatalNote) fatalNote.style.display = 'none';
-      const commandNote = document.getElementById('commandStateNote');
-      if (commandNote) commandNote.style.display = 'none';
-      const badge = document.getElementById('intentModeBadge');
-      if (badge) badge.style.display = 'none';
-
-      const boardState = historicRenderCtx?.boardRow?.game_state;
-      const unit = boardState?.board?.snakes?.find(s => s.id === snakeId) || null;
-      const finalT = knownFinalTurn ?? timelineFinalTurn;
-      const isFinalBoard = finalT != null && (boardState?.turn ?? -1) >= finalT;
-      const reason = isFinalBoard
-        ? 'the game ended on this board; no decision is made on the final turn.'
-        : BoardRenderer.isPieceUnit(unit)
-          // Pieces are inspectable like any other unit; they simply never
-          // produce a decision log, so say so rather than promising a load.
-          ? 'chess pieces are steered by command, not by the decision engine.'
-          : unit
-            ? 'not loaded yet for this turn.'
-            : 'it is dead at this turn.';
-      renderUnitStatus(
-        `No decision data for this unit \u2014 ${escapeHtml(reason)}`
-      );
-      document.getElementById('statsTableBody').innerHTML =
-        '<tr><td colspan="5" style="text-align: center; color: #888;">' +
-        `No decision data \u2014 ${escapeHtml(reason)}</td></tr>`;
-    }
-
     function restoreLiveSelectionPanel() {
       const fatalNote = document.getElementById('fatalConsentNote');
       if (fatalNote) fatalNote.style.display = 'none';
@@ -4982,11 +5273,8 @@
       if (commandNote) commandNote.style.display = 'none';
       const badge = document.getElementById('intentModeBadge');
       if (badge) badge.style.display = '';
-      if (selectedSnakeId) {
-        showSelectionUI();
-      } else {
-        hideSelectionUI();
-      }
+      if (selectedSnakeId) showSelectionUI();
+      else hideSelectionUI();
     }
 
     (function setupTurnSlider() {
