@@ -291,9 +291,6 @@ export interface UnitDecisionRow {
   readonly gameState: GameState;
 }
 
-/** The port the engine writes rows through — a function, so the lobster layer
- * never has to import the logger singleton to have somewhere to put a row. */
-export type LogDecisionPort = (row: UnitDecisionRow) => void;
 
 // ------------------------------------------------------------------- inputs
 

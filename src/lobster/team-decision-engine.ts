@@ -118,24 +118,6 @@ export interface TeamDecisionPorts {
   /** The transport registry's reverse lookup for pin-event unit numbers. */
   pinSnakeIdOf(gameId: string, unitId: UnitId): string | null;
   /**
-   * REPLAY TELEMETRY OUT. One completed row per unit per turn, handed over
-   * after the decision has settled — see `./telemetry.ts` for what a row says
-   * and why it costs nothing inside the budget.
-   *
-   * A PORT AND NOT AN IMPORT. The logger is a process-wide singleton with a
-   * database queue behind it; reaching for it from in here would put a
-   * Postgres dependency inside the decision layer, and every lobster test
-   * would then be one import away from a live connection attempt. The wire
-   * layer owns persistence, so the wire layer supplies the sink and a test
-   * supplies a list.
-   *
-   * Required rather than optional, deliberately: an optional telemetry port is
-   * an unwired one, and an unwired one is exactly the silence this exists to
-   * end. A caller with nowhere to put rows passes `() => undefined` and has
-   * said so.
-   */
-  logDecision(row: UnitDecisionRow): void;
-  /**
    * WHICH BOT THIS GAME PLAYS — the production binding site.
    *
    * Before this port existed there was none. The engine reached for its own
@@ -582,7 +564,11 @@ export class TeamDecisionEngine {
           kernelOptions: digestOf(this.kernelOptions()),
         },
         engine: 'lobster',
-        profile: String((evaluate as { profile?: CriterionProfile }).profile ?? ''),
+        // The profile's NAME, which is what a reader can compare. The
+        // evaluator carries the profile itself — name, weights and horizons —
+        // and the weights are already inside `botId`'s digest, so putting the
+        // object here would store the same fact twice in two shapes.
+        profile: (evaluate as { profile?: CriterionProfile }).profile?.name ?? '',
         unitKeyOf: (unitId) => sub.unitOf(unitId as UnitId)?.wireId ?? null,
       }) ?? null;
     const kin: KernelInput = {
@@ -642,24 +628,21 @@ export class TeamDecisionEngine {
         game.stepCostMs = report.finalStepCostMs;
         game.stepCostTurn = input.turn;
       }
-      // TELEMETRY, IN THE FINALLY AND BEFORE THE RELEASE.
+      // THE LENS CLOSES IN THE FINALLY AND BEFORE THE RELEASE.
       //
       // In the `finally` because the two paths that most need explaining are
       // the ones that do not reach the end of the loop: a decision ABANDONED
-      // because the turn resolved early, and one that threw. Both of those are
-      // turns a replay currently has nothing at all to say about, and a row
-      // written only on the happy path would leave exactly those holes.
+      // because the turn resolved early, and one that threw. Both are turns a
+      // replay would otherwise have nothing at all to say about, and a record
+      // closed only on the happy path would leave exactly those holes.
+      // `emitted === 0` is `stagedNothing` — an outcome a reader must never
+      // have to infer from an absence, because an absence is also what a lost
+      // log looks like.
       //
-      // Before `sub.release()` because every candidate assessment and every
-      // counterfactual evaluation reads the substrate; after it there is
-      // nothing left to read. Its own try/catch, because a decision must never
-      // be able to fail on account of its own logging.
-      // THE LENS CLOSES IN THE SAME `finally`, and for the same reason: a
-      // decision abandoned because the turn resolved early, and one that
-      // threw, are precisely the two turns a replay would otherwise have
-      // nothing to say about. `emitted === 0` is `stagedNothing` — an outcome
-      // a reader must never have to infer from an absence, because an absence
-      // is also what a lost log looks like.
+      // Before `sub.release()` because the candidate republish below reads the
+      // substrate; after it there is nothing left to read. Its own try/catch,
+      // because a decision must never be able to fail on account of its own
+      // record.
       try {
         lens?.end({
           abandoned: game.latestTurn > input.turn,
@@ -1221,14 +1204,6 @@ export class TeamDecisionEngine {
     }
 
     for (const row of rows) {
-      try {
-        this.ports.logDecision(row);
-      } catch (err) {
-        this.log(
-          `[team-engine] ${input.gameId} turn ${input.turn}: logDecision port threw for ` +
-            `${row.snakeId} — ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
       const unit = sub.unitOfWireId(row.snakeId);
       const move = lastForwarded.get(row.snakeId);
       if (unit === undefined || unit.type !== 'snake' || move === undefined) continue;

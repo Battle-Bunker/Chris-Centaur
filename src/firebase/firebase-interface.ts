@@ -432,23 +432,6 @@ export class TacticToesFirebaseInterface {
     // existed (05 §(d) gate 7(ii)).
     lensSink: (gameId, turn, decision) =>
       this.gameManager.lensDecision(gameId, turn, decision),
-    // THE ROW PATH IS GONE, AND THIS PORT IS DELIBERATELY UNCONSUMED.
-    //
-    // `UnitDecisionRow` is the old telemetry shape: one row per unit per turn
-    // carrying up to six explained candidates with full feature breakdowns,
-    // built on the premise that a joint plan's value decomposes onto its
-    // units. The evaluator itself measures that premise as false in both
-    // directions, so the rows were an expensive account of a question this bot
-    // does not ask, and `decision_logs` is dropped with them.
-    //
-    // What replaces the account is not smaller data about the same units, it
-    // is data about the right object: the `movesets` projection (a whole-board
-    // proved bracket per cluster restriction, with the joint residual NAMED)
-    // and `unit_outcomes` (what actually happened to each unit), both written
-    // from the one `turn_events` log the active game manager sequences. The
-    // port stays because the engine's contract names it; nothing on this side
-    // wants a row, so nothing on this side takes one.
-    logDecision: () => undefined,
   });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
