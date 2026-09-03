@@ -925,14 +925,22 @@
       return typeof window !== 'undefined' ? window.LensView || null : null;
     }
 
-    /** The frame under the playhead: ONE fold, the same one replay uses. */
+    /** The frame under the playhead: ONE fold, the same one replay uses. A
+     *  fold that cannot run is reported ONCE — it is a property of the build,
+     *  not of this frame, so repeating it every render would bury everything
+     *  else in the console without adding a word. */
+    let lensFoldComplaint = null;
     function lensFrame() {
       const view = lensView();
       if (!view || lensEvents.length === 0) return null;
       try {
         return view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
       } catch (e) {
-        console.error('lens fold failed:', e);
+        const said = e && e.message ? e.message : String(e);
+        if (lensFoldComplaint !== said) {
+          lensFoldComplaint = said;
+          console.error('lens fold unavailable:', said);
+        }
         return null;
       }
     }
