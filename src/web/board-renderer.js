@@ -2320,20 +2320,19 @@ const BoardRenderer = (function () {
    * of a per-unit decision the bot no longer takes; what a candidate is worth
    * is now `aggregate(L(C, u→m) rank 1)` — the best the CLUSTER can do given
    * that candidate — and it arrives on the lens frame with a grade, never as a
-   * bare number. `offerable` replaces `safeMoves` for exactly the reason D6
-   * gives: admissibility is a ledger disposition now, and "offerable" is all
-   * this function ever meant by it.
+   * bare number.
+   *
+   * `safeMoves` is gone too (#18), and with it the idea that the BOARD knows
+   * which candidates are admissible. Admissibility is a ledger disposition
+   * now, with a grade that says strictly more than a boolean did; what the
+   * board offers is what is ENUMERATED, and the fatal marker still warns about
+   * the one determination that kills you. A candidate the operator cannot see
+   * is a candidate they cannot inspect.
    */
-  function processMoveEvaluations(
-    moveEvaluations,
-    offerable,
-    head,
-    chosenMove,
-  ) {
+  function processMoveEvaluations(moveEvaluations, _offerable, head, chosenMove) {
     const moveState = {
       selectedMove: null,
       moves: {},
-      offerable: offerable || [],
       selectedSnake: null,
     };
 
@@ -2370,8 +2369,7 @@ const BoardRenderer = (function () {
         direction: null,
         kind: evalData.kind || "move",
         position: evalData.dest || null,
-        // Enumerated candidates are legal by construction — "safe" here means
-        // exactly what safeMoves means for snakes: offerable.
+        // Enumerated candidates are legal by construction.
         isSafe: true,
       }));
     } else {
@@ -2397,7 +2395,7 @@ const BoardRenderer = (function () {
           direction: direction,
           kind: "move",
           position: candidatePos,
-          isSafe: moveState.offerable.includes(direction),
+          isSafe: true,
         };
       });
     }

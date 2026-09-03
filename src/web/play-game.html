@@ -1025,6 +1025,7 @@
       lensEvents.sort((a, b) => a.seq - b.seq);
       if (lensAtHead) lensSeq = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
       lensAtHead = lensAtHead && msg.head !== false;
+      if (lensPendingFocus) lensFocus(lensPendingFocus);
       lensRender();
       repaintBoard();
     }
@@ -1193,14 +1194,23 @@
       lensAtHead = true;
     }
 
-    /** Focus, from every source that focuses: a board click, the roster, Tab. */
+    /** Focus, from every source that focuses: a board click, the roster, Tab.
+     *  Focus is a cursor transition and a transition needs a frame, so a focus
+     *  that lands before this turn's first frame is REMEMBERED rather than
+     *  dropped — the operator selected a unit and meant it, and the frame is
+     *  milliseconds away. */
+    let lensPendingFocus = null;
     function lensFocus(unitId) {
       const view = lensView();
       const frame = lensFrame();
-      if (!view) return;
+      if (!view || !frame) {
+        lensPendingFocus = unitId;
+        return;
+      }
+      lensPendingFocus = null;
       lensCursor = view.applyCursorEvent(
         lensCursor || view.initialCursor(),
-        frame || {},
+        frame,
         { t: 'focus', unit: unitId }
       );
       if (lensCursor.candidate != null) lensAskConditional(unitId, lensCursor.candidate);
@@ -2154,8 +2164,8 @@
       }
 
       const head = snake.head || snake.body[0];
-      // The unit's own candidate ENUMERATION, and nothing else: what is
-      // offerable, keyed the way the keyboard navigates it. What each
+      // The unit's own candidate ENUMERATION, and nothing else: what the unit
+      // may be told to do, keyed the way the keyboard navigates it. What each
       // candidate is WORTH is the cluster's best under it, and that lives on
       // the lens frame with its grade.
       const evalData = { evaluations: td.moveEvaluations || [] };
