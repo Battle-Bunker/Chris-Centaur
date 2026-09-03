@@ -871,33 +871,25 @@ export class EngineSubstrate implements Substrate {
   /**
    * This unit's record with `to` staged — interned, see `stagedRecords`.
    *
-   * STAGE THE ACTION, NOT THE DESTINATION. A staged CELL is re-read through
-   * the movement grammar by `resolveTurn`, against the occupancy of the board
-   * it is handed — and `settlePartial` hands it a board with every held unit
-   * REMOVED. One rule in the grammar reads occupancy: a pawn's diagonal step
-   * is an attack or a meal, so `planUnitAction` admits it only when the target
-   * cell holds food or a body when the turn opens (`queries.ts::pawnTargetsOf`).
-   * Take the held body away and the same staged cell is no longer a legal
-   * action at all, `stagedAction` substitutes the kind's default — a piece
-   * HOLDS — and the optimistic timeline settles a different move from the one
-   * the plan named. Nothing is ledgered, because the ledger records what the
-   * units it settled ran into and this one never left its square.
+   * STAGE THE ACTION AND NOTHING ELSE. `resolveTurn` re-reads a staged cell
+   * through the movement grammar, and one rule in the grammar reads occupancy
+   * rather than the mover: a pawn's diagonal step is legal only onto a cell
+   * holding food or a body as the turn opens (`queries.ts::pawnTargetsOf`).
+   * `settlePartial` used to hand that re-reading a board with every held unit
+   * REMOVED, which could turn a staged capture into an illegal action and
+   * silently substitute the kind's default (a piece HOLDS) with nothing
+   * ledgered — the bug `f4b4a81` worked around by staging the walked path
+   * directly, bypassing the grammar's re-read.
    *
-   * That is a floor with no world under it, and it was measured: `mixed`
-   * seed 3 turn 23, our pawn staged the diagonal capture of a held snake's
-   * body segment, B0 stood the pawn still and published −336.5 while every
-   * enumeration of that snake's replies but one settles the pawn's arrival as
-   * a `bodyBlock` and kills it. 990 inversions in one game, all of them this.
-   *
-   * `ResolveUnit.path` supersedes `stagedMove` and is taken verbatim, so
-   * staging the path the OBSERVED board's grammar produces makes the action a
-   * fact of the plan rather than a re-derivation against a board that is
-   * missing units on purpose. Only genuine MOVES get one: a `stay` and a
-   * pawn's `rotate` walk no cells, and `path` cannot express the rotation
-   * (`resolveTurn` records facing from the action, not from the walk), so
-   * those keep the staged cell — and neither of them reads occupancy, so
-   * neither can be rewritten by the hold. `NO_ORDER_MOVE` asks for the kind's
-   * own default and is left to the engine for the same reason.
+   * The engine now reads staging legality against `presence`: held units at
+   * their OBSERVED cells, visible to the grammar and invisible to the
+   * collision phase (`ResolveTurnInput.presence`, set by `settlePartial`
+   * itself off `input.held`). A capture onto a held body is legal again, and
+   * where a held unit's presence there is actually in doubt — observed on an
+   * earlier board it may since have left — the engine ledgers that itself as
+   * a `grammar` divergence (`settlePartial.ts::grammarDivergences`), keyed to
+   * the claim whose whereabouts decide it. `stagedMove` alone is what the
+   * plan named; the path workaround is gone.
    */
   private stagedRecordFor(unitId: UnitId, record: ResolveUnit, to: CellIndex): ResolveUnit {
     let byTo = this.stagedRecords.get(unitId);
@@ -907,20 +899,10 @@ export class EngineSubstrate implements Substrate {
     }
     const hit = byTo.get(to);
     if (hit !== undefined) return hit;
-    const made = this.stagedRecordOf(record, to);
+    const made =
+      to === NO_ORDER_MOVE ? { ...record, stagedMove: undefined } : { ...record, stagedMove: to };
     byTo.set(to, made);
     return made;
-  }
-
-  private stagedRecordOf(record: ResolveUnit, to: CellIndex): ResolveUnit {
-    if (to === NO_ORDER_MOVE) return { ...record, stagedMove: undefined };
-    const walked = pathOfQuery(
-      { type: record.type, occupancy: record.occupancy, orientation: record.orientation },
-      to,
-      this.shape()
-    );
-    if (walked === null || walked.length === 0) return { ...record, stagedMove: to };
-    return { ...record, stagedMove: to, path: [...walked] };
   }
 
   /**
