@@ -122,17 +122,18 @@ function subscribers(): {
 }
 
 /**
- * LIVE. Maps the websocket's `lens-frames` events into the store through the
- * reducer and hands out frames at whatever `seq` this connection's cursor sits
- * on — which is per CONNECTION, so a second operator scrubbing does not move
- * anyone else's playhead.
+ * LIVE. A CURSOR over a store, not a copy of one: the fold is pure and the
+ * event array is shared, so the store is grown by whoever is receiving
+ * `lens-frames` and this hands out the frame at whatever `seq` this connection
+ * sits on. That is what makes a second operator's scrubbing cost nothing and
+ * move nobody else's playhead.
  */
 export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
-  let store = input.store;
+  const store = input.store;
   let at: Cursor = input.at;
   const listeners = subscribers();
 
-  const source: DecisionSource = {
+  return {
     kind: 'live',
     get at(): Cursor {
       return at;
@@ -168,18 +169,6 @@ export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
       return listeners.add(fn);
     },
   };
-
-  /** The wire's own events, folded by THE SAME reducer replay folds with. */
-  (source as { ingest?: (events: ReadonlyArray<TurnEvent>) => void }).ingest = (
-    events: ReadonlyArray<TurnEvent>
-  ): void => {
-    for (const event of events) {
-      store = { ...store, events: [...store.events, event] };
-      listeners.emit({ kind: 'event', event });
-    }
-  };
-
-  return source;
 }
 
 /**

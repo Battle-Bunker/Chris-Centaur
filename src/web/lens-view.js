@@ -492,10 +492,10 @@ var LensView = (() => {
     };
   }
   function makeLiveDecisionSource(input) {
-    let store = input.store;
+    const store = input.store;
     let at = input.at;
     const listeners = subscribers();
-    const source = {
+    return {
       kind: "live",
       get at() {
         return at;
@@ -527,13 +527,6 @@ var LensView = (() => {
         return listeners.add(fn);
       }
     };
-    source.ingest = (events) => {
-      for (const event of events) {
-        store = { ...store, events: [...store.events, event] };
-        listeners.emit({ kind: "event", event });
-      }
-    };
-    return source;
   }
   function makeReplayDecisionSource(input) {
     let at = input.at;
