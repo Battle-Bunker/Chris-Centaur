@@ -42,6 +42,7 @@ export {
 export { recordLensRun, serialiseLensEvent, type LensRunSpec } from './record';
 export { carveReserve } from './reserve';
 export {
+  planPartsOf,
   promotedContextKey,
   rankConditional,
   speculativeKeyFor,

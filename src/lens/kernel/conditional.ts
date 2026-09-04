@@ -25,7 +25,7 @@
  * named for. The key keeps the `?`; the pin set inside it binds.
  */
 
-import type { Assumption, JointPlan, Pin, SearchContext, SearchCore, UnitId } from '../../lobster/contracts';
+import type { Assumption, Candidate, JointPlan, Pin, SearchContext, SearchCore, UnitId } from '../../lobster/contracts';
 import { canonicalPins, parsePinContextKey, pinContextKey } from '../../lobster/kernel';
 import { basisOf } from '../../lobster/search/basis';
 import { basisKeyOf } from '../../lobster/bounds';
@@ -118,6 +118,27 @@ export function speculativeKeyFor(ctx: SearchContext, locks: ReadonlyArray<Lock>
 function postureOf(assumptions: ReadonlyArray<Assumption>): Posture {
   for (const a of assumptions) if (a.kind === 'posture') return a.posture;
   return 'SIGHTED';
+}
+
+/**
+ * `${unitId}>${to}:${path}`, LEXICOGRAPHICALLY sorted and joined with `|` —
+ * the one producer `complementKey` and `witness` share (03 §2.2, Law E's
+ * `keyOf(cluster, complementKey)` — `reservoir.ts:143`). `lobster/kernel.ts`'s
+ * `cutPlan` (2546-2557) builds every part for the WHOLE plan, sorts that list
+ * once with this exact comparator, and then splits it per cluster — so a
+ * grouping key built any other way (sorted by `unitId`, as `complementKey`
+ * used to be here) can put unit ids of different digit counts in a different
+ * order than `cutPlan`'s split does, naming two groups for one complement
+ * (§5.2). `kernel.ts` is out of this change's reach (owned elsewhere in this
+ * pass), so this factors the two producers THIS module owns — witness and
+ * complementKey, which disagreed with each other as well as with `cutPlan` —
+ * into one function, sorted the way `cutPlan` already sorts.
+ */
+export function planPartsOf(entries: Iterable<readonly [UnitId, Candidate]>): string {
+  return [...entries]
+    .map(([unitId, c]) => `${unitId}>${c.to}:${c.path.join('.')}`)
+    .sort()
+    .join('|');
 }
 
 function movesOf(plan: JointPlan, ctx: SearchContext, members: ReadonlySet<UnitId>): MovesetMove[] {
@@ -275,16 +296,9 @@ export function rankConditional(req: RankConditionalInput): RankConditionalResul
     // that hid it would answer a question they did not ask.
     moves: movesOf(staged, ctx, memberIds),
     basis,
-    complementKey: [...staged.entries()]
-      .filter(([unitId]) => !memberIds.has(unitId))
-      .sort((a, b) => a[0] - b[0])
-      .map(([unitId, c]) => `${unitId}>${c.to}:${c.path.join('.')}`)
-      .join('|'),
+    complementKey: planPartsOf([...staged.entries()].filter(([unitId]) => !memberIds.has(unitId))),
     complement: 'live',
-    witness: [...staged.entries()]
-      .map(([unitId, c]) => `${unitId}>${c.to}:${c.path.join('.')}`)
-      .sort()
-      .join('|'),
+    witness: planPartsOf(staged.entries()),
     lo: 0,
     est: 0,
     hi: 0,
