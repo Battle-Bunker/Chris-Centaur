@@ -18,6 +18,7 @@ import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
   BoundEvaluator,
+  COMMAND_KNOBS,
   CLIFF_MATERIAL_WEIGHT,
   CONTEST_LOSS,
   DEAD,
@@ -2064,5 +2065,110 @@ describe('the turn cap is seated, and it is the engine that decides it', () => {
     const tradedEarly = priced(capBoard(1, 3));
     expect(Number.isFinite(winningEarly.lo)).toBe(true);
     expect(Number.isFinite(tradedEarly.hi)).toBe(true);
+  });
+});
+
+// ------------------------------------------------ D2: the pawn that parks
+
+/**
+ * A PAWN'S ORIENTATION IS SOMETHING THE FOLD CAN SEE — BEHAVIOUR-AUDIT D2, at
+ * the coordinates it was found on.
+ *
+ * The reproduction is `potions` seed 5, turn 27: blue-C, a pawn on (0,10) with
+ * the wall on two sides, facing INTO one of them, printing
+ *
+ *     T 27 blue-C pawn hp90 (0,10)->(0,10)  top3: (0,11)=91.23 (0,10)=91.23 (0,9)=91.23
+ *
+ * — a three-way tie between the hold and both rotations, and nineteen
+ * consecutive turns of it. Every member reads `Standing.cell` and a rotation
+ * does not move it, so a rotation and a hold are the same position to all of
+ * them but `command`, and `command` intersected the piece's front with the
+ * contested trail domain and the food board, both of which a queen's claim
+ * cloud collapses near the perimeter (`entrapment.md` §4.4). The one cell that
+ * differed between two orientations was in neither board.
+ *
+ * The board below is that geometry rebuilt: our pawn in the corner facing the
+ * wall, our snake and an enemy snake to give plane 1 a domain, an enemy queen
+ * whose cloud is what collapses it near the pawn, and the only food on the far
+ * side of the board. The two arms are the SAME board under the same profile
+ * with `mobility` at 0 and at 1 — so what is pinned is the addend and not the
+ * fixture.
+ *
+ * `mobility = 0` is the shipped behaviour before D2 and reproduces the tie to
+ * every digit the runner printed. `mobility = 1` separates the rotation that
+ * turns the pawn ALONG the board from the hold, and leaves the rotation that
+ * turns it further INTO the wall tied with the hold — which is correct, since
+ * that one buys no front either.
+ *
+ * NOTE ON THE AUDIT'S PROSE. D2 calls the escape "the east rotation". At
+ * (0,10) facing west the two side squares are (0,11) and (0,9), so the pawn
+ * cannot reach east in one turn: the rotation this term buys is the one along
+ * the board, and east is two turns away. The mechanism is the audit's; the
+ * compass bearing in its sentence is not.
+ */
+describe('D2 — a pawn at the wall, where a rotation and a hold used to tie', () => {
+  const PARKED_TURN = 27;
+  const parkedBoard: Board = {
+    width: 11,
+    height: 11,
+    food: [{ x: 5, y: 5 }],
+    hazards: [],
+    snakes: [
+      piece('bC', { x: 0, y: 10 }, 'pawn', 1, {
+        teamID: 'blue',
+        health: 90,
+        orientation: { dx: -1, dy: 0 },
+      }),
+      makeSnake('bA', [{ x: 3, y: 3 }, { x: 3, y: 2 }, { x: 3, y: 1 }], { teamID: 'blue' }),
+      piece('rQ', { x: 8, y: 4 }, 'queen', 9, { teamID: 'red', health: 90 }),
+      makeSnake('rA', [{ x: 6, y: 6 }, { x: 6, y: 7 }, { x: 6, y: 8 }], { teamID: 'red' }),
+    ],
+  } as Board;
+
+  /** Every action the pawn has, scored by the WHOLE fold under one profile. */
+  const scored = (mobility: number): Map<number, number> => {
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const asTeam = sub.teamNumber('blue');
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    const evaluator = new BoundEvaluator({
+      ...TERRITORY_PROFILE,
+      command: { ...COMMAND_KNOBS, mobility },
+    });
+    const out = new Map<number, number>();
+    for (const action of sub.actionsOf(pawn)) {
+      const plan = new Map<UnitId, Candidate>(defaultPlan(sub));
+      plan.set(pawn, action);
+      out.set(action.to, evaluator.evaluatePlan(sub, plan as JointPlan, asTeam).bound.lo);
+    }
+    return out;
+  };
+
+  const hold = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 10 });
+  const alongTheBoard = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 9 });
+
+  test('with mobility off the pawn is indifferent — the parked reproduction', () => {
+    const arm = scored(0);
+    // The pawn really does have three options here, as the trace printed.
+    expect(arm.size).toBe(3);
+    const values = [...arm.values()];
+    for (const v of values) expect(v).toBeCloseTo(values[0] as number, 12);
+  });
+
+  test('with mobility at 1 the rotation along the board outranks the hold', () => {
+    const arm = scored(1);
+    const held = arm.get(hold) as number;
+    const turned = arm.get(alongTheBoard) as number;
+    expect(Number.isFinite(held)).toBe(true);
+    expect(Number.isFinite(turned)).toBe(true);
+    expect(turned).toBeGreaterThan(held);
+    // And the argmax IS that rotation, not merely better than the hold: this
+    // is the move the audit says a careful operator plays on turn 27.
+    expect(Math.max(...arm.values())).toBe(turned);
+    // The OTHER rotation turns the pawn further into the wall and buys no
+    // front, so it stays exactly level with the hold. The term prices the
+    // orientation, not the act of rotating.
+    const intoTheWall = [...arm.entries()].find(([to]) => to !== hold && to !== alongTheBoard);
+    expect((intoTheWall as [number, number])[1]).toBeCloseTo(held, 12);
   });
 });

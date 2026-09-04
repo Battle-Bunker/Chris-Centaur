@@ -1029,6 +1029,11 @@ function commandSum(
     if (front === null) continue;
     let ground = 0;
     let meals = 0;
+    // THE FRONT'S OWN CARDINALITY, INTERSECTED WITH NOTHING — see
+    // `CommandKnobs.mobility`. It is the only reading here that survives the
+    // domain collapsing, and so the only one that can tell a pawn's rotation
+    // from its hold.
+    let reach = 0;
     const domain = mine ? ourDomain : theirDomain;
     const food = mine ? ourFood : theirFood;
     for (let i = 0; i < words; i++) {
@@ -1036,8 +1041,12 @@ function commandSum(
       if (f === 0) continue;
       ground += popcount32((f & (domain[i] as number)) >>> 0);
       meals += popcount32((f & (food[i] as number)) >>> 0);
+      reach += popcount32(f >>> 0);
     }
-    const c = Math.min(1, (ground * knobs.ground + meals * knobs.food) / open);
+    const c = Math.min(
+      1,
+      (ground * knobs.ground + meals * knobs.food + reach * knobs.mobility) / open
+    );
     total += mine ? c : -c;
   }
   return total / ctx.pieceScale;

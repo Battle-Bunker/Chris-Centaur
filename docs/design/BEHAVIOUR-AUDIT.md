@@ -173,6 +173,61 @@ Fix `stationary` (D6) and add `longestPark`.
 * `snakes`, `sparse`: **byte-identical** — the `commandSum` loop skips `leavesTrail` kinds,
   so a board with no piece never reaches the new addend.
 
+### STATUS: BUILT, MEASURED, KEPT — the direction holds, the magnitude does not
+
+`CommandKnobs.mobility = 1`, the addend `|F_u| · knobs.mobility` inside the same clamp
+(`features.ts`, `commandSum`), validated at construction by `checkWeights` — which now
+refuses a `command` block whose numeric knobs are missing or negative, because a knob
+that reaches the fold as `undefined` makes `c` NaN in every piece evaluation on the board
+and a stored binding is a plain object TypeScript never saw.
+
+Measured `mixed` + `potions` seeds 1–3, 60 turns, `--nodes`, arm-vs-arm at `mobility` 0
+and 1 on the same build. **`parked` is the audit's own counter, recomputed off the
+transcripts, not the runner's `stationary`** — the two disagree here and D6 is why.
+
+| | parked | longestPark | meals/100 | deaths | pawn top-two ties* |
+|---|---|---|---|---|---|
+| `mixed` before | **7.29%** | 8 | 19.55 | 10 | 70% |
+| `mixed` after | **6.44%** | 6 | 20.40 | 10 | 43% |
+| `potions` before | **10.93%** | 10 | 18.23 | 10 | — |
+| `potions` after | **8.03%** | 5 | 19.76 | 9 | — |
+
+\* share of parked pawn-turns whose top two floors agree to 5e-3, both classes pooled.
+The `before` column reproduces this document's own corpus row (7.2% / 10.4%) to within a
+seed's worth of noise, which is what says the recomputation is measuring the same thing.
+
+`snakes` and `sparse` are **byte-identical on all five seeds**, counter for counter, as
+predicted. Deaths rise on no class (5 seeds: `mixed` 17 → 14, `potions` 15 → 14, `snakes`
+14 → 14, `sparse` 0 → 0). All sixteen inversion arms clean.
+
+**What the prediction got right, and what it did not.** Parked falls on both classes and
+`longestPark` roughly halves, meals rise on both, and the pawn's tie rate falls by a
+third — the direction is right on every counter. The MAGNITUDES are not met: parked
+reaches 6.4% / 8.0% against a predicted <4%, and `longestPark` 6 / 5 against ≤3. The
+addend separates a rotation from a hold, which is what it was built to do; it does not
+make the pawn's whole option set gradient-rich, and 43% of parked pawn-turns still end in
+a tie the tie-break decides.
+
+**One thing the prediction did not anticipate, recorded because it is real.** The knob
+applies to every non-royal piece, and for a KNIGHT — which has no orientation — `|F_u|`
+is a pure centrality bonus, so a knight in a high-mobility cell is now paid to stay in
+it. `mixed` knight parked share rises 4.56% → 8.64%, and it is the reason the runner's
+`stationary` counter rises on `mixed` (2.54 → 3.77 per 100) while the true parked share
+falls. Kept anyway — the team totals move the right way on both classes and on every
+counter D2 named — but a knight parking is a new thing to watch, and if it grows the
+right narrowing is to gate the addend on kinds that HAVE an orientation rather than to
+retune the level.
+
+**A correction to this section's own prose.** D2 says blue-C escapes by "the east
+rotation". At (0,10) facing west the two side squares are (0,11) and (0,9)
+(`moveGrammar.planUnitAction`, the `rotate` branch: the sides are `±(−dy, dx)`), so east
+is two turns away and the rotation this term buys is the one ALONG the board. The
+mechanism is unchanged; the compass bearing was wrong. The boundary test
+(`evaluate.test.ts`, "D2 — a pawn at the wall, where a rotation and a hold used to tie")
+pins the geometry at the reproduction's own cell: with `mobility` at 0 all three of the
+pawn's options score identically, and at 1 the along-the-board rotation is the argmax
+while the into-the-wall rotation stays exactly level with the hold.
+
 ---
 
 ## D3 — `room`'s fear falls as the snake grows, at equal absolute shortfall
