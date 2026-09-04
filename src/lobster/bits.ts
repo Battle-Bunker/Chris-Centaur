@@ -42,10 +42,6 @@ export function bbSet(board: Bitboard, cell: number): void {
   board[cell >>> 5] = ((board[cell >>> 5] as number) | (1 << (cell & 31))) >>> 0;
 }
 
-export function bbClear(board: Bitboard, cell: number): void {
-  board[cell >>> 5] = ((board[cell >>> 5] as number) & ~(1 << (cell & 31))) >>> 0;
-}
-
 export function bbTest(board: Bitboard, cell: number): boolean {
   if (cell < 0) return false;
   const word = board[cell >>> 5];

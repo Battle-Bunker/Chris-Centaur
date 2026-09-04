@@ -49,36 +49,9 @@ import {
   type BoardSpec,
 } from '../bounds/testkit';
 import { makeSearchCore } from '../search';
+import { makeSnake, piece, boardOf } from '../../tests/board-fixtures';
 
 // --------------------------------------------------------------------- fixtures
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
-const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
 
 const TURN = 30;
 

@@ -16,7 +16,6 @@
  */
 
 import type { Coord, Snake, Board } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { EngineSubstrate } from '../lobster/substrate';
 import {
@@ -35,6 +34,7 @@ import {
 import type { EvalContext } from '../lobster/evaluate';
 import { MIXED_SCENARIO, SNAKE_SCENARIO, runGame } from './local-game';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
+import { makeSnake as snake, boardOf, cellAt } from './board-fixtures';
 
 jest.setTimeout(180_000);
 
@@ -42,23 +42,9 @@ jest.setTimeout(180_000);
 
 const TURN = 12;
 
-function snake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
+// NOT converted to the shared `piece`: this one takes no `weight` argument
+// and hardcodes `length: 1` — a different signature, not a copy — see
+// SIMPLIFY-PLAN-3.md item 1.
 const piece = (
   id: string,
   at: Coord,
@@ -66,10 +52,7 @@ const piece = (
   extra: Partial<Snake> = {}
 ): Snake => snake(id, [at], { unitType, length: 1, ...extra });
 
-const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
-
-const cell = (board: Board, c: Coord): number => marshalBoard(board, TURN).toIndex(c);
+const cell = (board: Board, c: Coord): number => cellAt(board, TURN, c);
 
 /** Score one joint plan and hand back the momentum part alone. */
 function momentumOf(sub: EngineSubstrate, plan: JointPlan, asTeam: number): number {

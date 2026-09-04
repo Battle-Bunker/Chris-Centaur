@@ -12,7 +12,7 @@
  */
 
 import type { Board as ApiBoard, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
-import { makeSnake as makeSnakeUnit } from './board-fixtures';
+import { piece as sharedPiece } from './board-fixtures';
 import type { PinEvent, UnitId } from '../lobster/contracts';
 import type { KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
@@ -33,8 +33,10 @@ class StepClock {
   };
 }
 
+// Local adapter: this file's `piece` takes `teamID` as a fifth positional,
+// not in `extra` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>
-  makeSnakeUnit(id, [at], { unitType, length: weight, teamID } as Partial<Snake>);
+  sharedPiece(id, at, unitType, weight, { teamID });
 
 const board = (): ApiBoard =>
   ({

@@ -11,9 +11,9 @@
  * seam.
  */
 
-import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import type { Board, CentaurMove, GameState, Snake } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
-import { makeSnake } from './board-fixtures';
+import { makeSnake, piece } from './board-fixtures';
 import type {
   Candidate,
   JointPlan,
@@ -34,14 +34,9 @@ import {
 
 // ------------------------------------------------------------------ fixtures
 
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
+// NOT converted to the shared `boardOf`: this one takes SIZE as a second
+// positional (default 7, not 9) — a different arity, not a copy — see
+// SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[], size = 7, extra: Partial<Board> = {}): Board =>
   ({ width: size, height: size, food: [], hazards: [], snakes, ...extra }) as Board;
 
