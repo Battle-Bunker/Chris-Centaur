@@ -29,26 +29,14 @@
  * equal tier and equal weight.
  */
 
-import { Board, Coord, Snake } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
+import { Board, Coord } from '../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { Candidate, UnitId } from '../lobster/contracts';
 import { materialEvaluator, standingOf } from '../lobster/evaluate';
-import { makeSnake } from './board-fixtures';
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
-const boardOf = (snakes: Snake[]): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes }) as Board;
+import { piece, boardOf, cellAt } from './board-fixtures';
 
 const TURN = 30;
-const at = (board: Board, cell: Coord): number => marshalBoard(board, TURN).toIndex(cell);
+const at = (board: Board, cell: Coord): number => cellAt(board, TURN, cell);
 
 afterEach(() => clearGeometryCache());
 
