@@ -190,8 +190,8 @@
  * whole reason either term exists. See `DEFAULT_WEIGHTS`.
  */
 
-import { computeClaims } from '../../engine-vendor/engine/claims';
 import type { Claim } from '../../engine-vendor/engine/claims';
+import { claimsAfter } from '../../logic/turn-oracle';
 import type { CellIndex, UnitId } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Bound, type Feature, envelope, ourUnitTerm, point } from './bound';
@@ -455,27 +455,9 @@ function claimsPerHorizon(sub: EngineSubstrate, window: number): ReadonlyArray<R
   const hit = CLAIMS.get(sub.marshalled);
   if (hit !== undefined) return hit;
   const m = sub.marshalled;
-  const base = {
-    ...m.config,
-    units: m.units,
-    turn: m.arrivalTurn,
-    teamOf: Object.fromEntries(m.teamOf),
-    effects: m.effects,
-    potions: m.potions,
-    potionsEnabled: m.potionsEnabled,
-    potionWindowTurns: m.potionWindowTurns,
-    pawnPromotionWeight: m.pawnPromotionWeight,
-    maxTurns: m.maxTurns,
-  };
   const out: Array<ReadonlyArray<Claim>> = [];
-  for (let k = 1; k <= window; k++) {
-    // `input.turn − observedTurn` IS the span a claim dilates over, so this is
-    // the board k turns on with nothing else assumed. No `options`: see the
-    // narrowing note in the header.
-    out.push(
-      computeClaims({ ...base, held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })) })
-    );
-  }
+  // No `options`: see the narrowing note in the header.
+  for (let k = 1; k <= window; k++) out.push(claimsAfter(m, k));
   const frozen: ReadonlyArray<ReadonlyArray<Claim>> = out;
   CLAIMS.set(sub.marshalled, frozen);
   return frozen;

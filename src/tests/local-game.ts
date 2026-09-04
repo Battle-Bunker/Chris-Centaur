@@ -17,9 +17,8 @@
 import { writeFileSync } from 'fs';
 import type { Board, Coord, Snake } from '../types/battlesnake';
 import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
-import { marshalBoard } from '../logic/turn-oracle';
+import { marshalBoard, claimsAfter } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
-import { computeClaims } from '../engine-vendor/engine/claims';
 import { ORTHOGONALS, leavesTrail } from '../engine-vendor/engine/moveGrammar';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import { legalTargets } from '../engine-vendor/engine/queries';
@@ -989,21 +988,7 @@ function readPickup(
   let enemyTier = 0;
   let catchTurn = 0;
   for (let k = 1; k <= span; k++) {
-    const claims = computeClaims({
-      ...m.config,
-      units: m.units,
-      turn: m.arrivalTurn,
-      teamOf: Object.fromEntries(m.teamOf),
-      effects: m.effects,
-      potions: m.potions,
-      potionsEnabled: m.potionsEnabled,
-      potionWindowTurns: m.potionWindowTurns,
-      pawnPromotionWeight: m.pawnPromotionWeight,
-      maxTurns: m.maxTurns,
-      // `input.turn - observedTurn` is the span a claim dilates over, so this
-      // is the board k turns into the window with nothing else assumed.
-      held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })),
-    });
+    const claims = claimsAfter(m, k);
     const mine = claims.find((c) => c.id === collectorId);
     if (mine === undefined) return null;
     const ground = new Set(mine.everPossible);
@@ -1109,22 +1094,9 @@ export function entrappedAt(board: Board, turn: number): EntrapmentReading[] {
   const cloud = new Map<string, Set<number>[]>();
   for (const u of m.units) cloud.set(u.id, [new Set<number>([u.occupancy[0] as number])]);
   for (let t = 1; t <= kMax; t++) {
-    const claims = computeClaims({
-      ...m.config,
-      units: m.units,
-      turn: m.arrivalTurn,
-      teamOf: Object.fromEntries(m.teamOf),
-      effects: m.effects,
-      potions: m.potions,
-      potionsEnabled: m.potionsEnabled,
-      potionWindowTurns: m.potionWindowTurns,
-      pawnPromotionWeight: m.pawnPromotionWeight,
-      maxTurns: m.maxTurns,
-      // `input.turn - observedTurn` is the span a claim dilates over, so this
-      // is every unit's reach t turns on with nothing else assumed — asked of
-      // the rules rather than reconstructed, exactly as `readPickup` asks them.
-      held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - t })),
-    });
+    // Asked of the rules rather than reconstructed, exactly as `readPickup`
+    // asks them.
+    const claims = claimsAfter(m, t);
     const seen = new Set<string>();
     for (const claim of claims) {
       const per = cloud.get(claim.id);

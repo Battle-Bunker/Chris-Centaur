@@ -41,7 +41,7 @@
  */
 
 import type { Board as ApiBoard } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
+import { marshalBoard, settleInputBase } from '../logic/turn-oracle';
 import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
@@ -835,18 +835,7 @@ export class EngineSubstrate implements Substrate {
    */
   private inputTemplate(): Omit<PartialSettleInput, 'units' | 'held'> {
     if (this.templateCache !== null) return this.templateCache;
-    const m = this.marshalled;
-    this.templateCache = {
-      ...m.config,
-      turn: m.arrivalTurn,
-      teamOf: Object.fromEntries(m.teamOf),
-      effects: m.effects,
-      potions: m.potions,
-      potionsEnabled: m.potionsEnabled,
-      potionWindowTurns: m.potionWindowTurns,
-      pawnPromotionWeight: m.pawnPromotionWeight,
-      maxTurns: m.maxTurns,
-    };
+    this.templateCache = settleInputBase(this.marshalled);
     return this.templateCache;
   }
 
