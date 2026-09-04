@@ -110,7 +110,7 @@ import type { Claim } from '../../engine-vendor/engine/claims';
 import type { CellIndex, UnitId } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, envelope, point } from './bound';
-import { winsContest } from './contest';
+import { type Arrival, type ArrivalField, arrivalField, beatenAt, winsContest } from './contest';
 import type { EvalContext, Standing } from './features';
 
 /**
@@ -120,12 +120,12 @@ import type { EvalContext, Standing } from './features';
  */
 export const PERIL_WEIGHT = 2;
 
-/** The best enemy arrival at every cell, at one horizon of the window. */
-interface Horizon {
-  readonly reached: Uint8Array;
-  readonly tier: Int32Array;
-  readonly weight: Int32Array;
-}
+/**
+ * The best enemy arrival at every cell, at one horizon of the window — the
+ * same triple `contestField` builds for the one-turn field, under `contest.ts`'s
+ * name for it.
+ */
+type Horizon = ArrivalField;
 
 /** Everything one board's window reading needs, per subject team. */
 interface WindowRead {
@@ -195,63 +195,43 @@ function windowRead(sub: EngineSubstrate, asTeam: number, window: number): Windo
   const ground = new Map<UnitId, ReadonlyArray<CellIndex>[]>();
   for (let k = 0; k < perHorizon.length; k++) {
     const claims = perHorizon[k] as ReadonlyArray<Claim>;
-    const reached = new Uint8Array(cells);
-    const tier = new Int32Array(cells);
-    const weight = new Int32Array(cells);
     for (const claim of claims) {
       const unit = sub.unitOfClaim(claim);
-      if (unit === undefined) continue;
-      if (unit.team === asTeam) {
-        let rows = ground.get(unit.unitId);
-        if (rows === undefined) {
-          // Indexed BY HORIZON, never appended: a unit missing a claim at one
-          // horizon would otherwise shift every later row by one.
-          rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
-          ground.set(unit.unitId, rows);
-        }
-        rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
-        continue;
+      if (unit === undefined || unit.team !== asTeam) continue;
+      let rows = ground.get(unit.unitId);
+      if (rows === undefined) {
+        // Indexed BY HORIZON, never appended: a unit missing a claim at one
+        // horizon would otherwise shift every later row by one.
+        rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
+        ground.set(unit.unitId, rows);
       }
-      // THE BEST ARRIVAL, exactly as `contestField` builds it: the highest tier
-      // any enemy could bring, and the heaviest weight among the enemies at
-      // that tier. `strictMaximum` needs no more than that pair.
-      const t = claim.tierAtArrival;
-      const w = claim.weightMax;
-      for (const cell of claim.everPossible) {
-        if (cell < 0 || cell >= cells) continue;
-        if (reached[cell] === 0) {
-          reached[cell] = 1;
-          tier[cell] = t;
-          weight[cell] = w;
-          continue;
-        }
-        const seen = tier[cell] as number;
-        if (t > seen) {
-          tier[cell] = t;
-          weight[cell] = w;
-        } else if (t === seen && w > (weight[cell] as number)) {
-          weight[cell] = w;
-        }
-      }
+      rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
     }
-    horizons.push({ reached, tier, weight });
+    horizons.push(arrivalField(cells, enemyClaims(sub, claims, asTeam)));
   }
   const read: WindowRead = { horizons, ground };
   perTeam.set(asTeam, read);
   return read;
 }
 
+/**
+ * Every claim in `claims` not belonging to `asTeam`, as one arrival apiece —
+ * THE BEST ARRIVAL, exactly as `contestField` builds it: the highest tier any
+ * enemy could bring, and the heaviest weight among the enemies at that tier.
+ * `strictMaximum` needs no more than that pair.
+ */
+function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam: number): Iterable<Arrival> {
+  for (const claim of claims) {
+    const unit = sub.unitOfClaim(claim);
+    if (unit === undefined || unit.team === asTeam) continue;
+    yield { cells: claim.everPossible, tier: claim.tierAtArrival, weight: claim.weightMax };
+  }
+}
+
 /** The tier a unit still holds at an absolute turn. `tierExpiresAtTurn` is
  *  EXCLUSIVE — the first turn at which the tier no longer governs. */
 function heldAt(tier: number, expiresAtTurn: number | null, turn: number): number {
   return expiresAtTurn !== null && turn >= expiresAtTurn ? 0 : tier;
-}
-
-/** Does this arrival beat us at this cell? False where nothing arrives. */
-function beatenAt(tier: number, weight: number, h: Horizon, cell: number): boolean {
-  if (cell < 0 || cell >= h.reached.length) return false;
-  if (h.reached[cell] !== 1) return false;
-  return !winsContest(tier, weight, h.tier[cell] as number, h.weight[cell] as number);
 }
 
 /**
@@ -381,7 +361,7 @@ function tradeFor(
       if (cells === undefined || cells.length === 0) continue;
       let beaten = 0;
       for (const cell of cells) {
-        if (beatenAt(debuffed, collectorUnit.weight, h, cell)) beaten++;
+        if (beatenAt(h, debuffed, collectorUnit.weight, cell)) beaten++;
       }
       // The near turns carry the reading: see the header. A claim at horizon k
       // grants the enemy k free turns and the collector none, and the

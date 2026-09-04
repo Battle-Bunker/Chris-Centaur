@@ -85,6 +85,7 @@
  * the food gate green.
  */
 
+import type { CellIndex } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
@@ -109,11 +110,14 @@ export const CONTEST_LOSS = 1;
  * — and a sentinel inside the value range is a bug waiting for its first
  * debuff potion.
  */
-export interface ContestField {
+export interface ArrivalField {
   readonly reached: Uint8Array;
   readonly tier: Int32Array;
   readonly weight: Int32Array;
 }
+
+/** @deprecated use `ArrivalField` — same shape, kept so existing importers compile. */
+export type ContestField = ArrivalField;
 
 /**
  * Keyed on the MARSHALLED BOARD rather than on the substrate, because a
@@ -151,25 +155,35 @@ export function winsContest(
 }
 
 /**
- * Every cell an enemy of `asTeam` could end this turn on, with the best arrival
- * it could bring there. One enumeration pass per enemy, cached per board per
- * subject team.
+ * One arrival: everything that lands on `cells` carries the same frozen
+ * `(tier, weight)`. `contestField` yields one per enemy unit (its whole
+ * action set at once); `potion.ts`'s window read yields one per enemy claim.
  */
-export function contestField(sub: EngineSubstrate, asTeam: number): ContestField {
-  return perBoardPerTeam(FIELDS, sub.marshalled, asTeam, () => computeContestField(sub, asTeam));
+export interface Arrival {
+  readonly cells: Iterable<CellIndex>;
+  readonly tier: number;
+  readonly weight: number;
 }
 
-function computeContestField(sub: EngineSubstrate, asTeam: number): ContestField {
-  const cells = sub.grid.cells;
+/**
+ * The best arrival at every cell, over `cells` total cells: the highest
+ * frozen tier any arrival brings, and the heaviest frozen weight among the
+ * arrivals at that tier. That pair is all `strictMaximum` needs — beating the
+ * best of them is exactly being the unique maximum of the whole set.
+ *
+ * `reached` is a mask and not a sentinel in `tier`, because a tier may be
+ * NEGATIVE — `turnEngine` tracks a `vulnerableCollided` set for exactly those
+ * — and a sentinel inside the value range is a bug waiting for its first
+ * debuff potion.
+ */
+export function arrivalField(cells: number, arrivals: Iterable<Arrival>): ArrivalField {
   const reached = new Uint8Array(cells);
   const tier = new Int32Array(cells);
   const weight = new Int32Array(cells);
-  for (const unit of sub.roster()) {
-    if (unit.team === asTeam) continue;
-    const t = frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn);
-    const w = unit.weight;
-    for (const action of sub.actionsOf(unit.unitId)) {
-      const cell = action.to;
+  for (const arrival of arrivals) {
+    const t = arrival.tier;
+    const w = arrival.weight;
+    for (const cell of arrival.cells) {
       if (cell < 0 || cell >= cells) continue;
       if (reached[cell] === 0) {
         reached[cell] = 1;
@@ -189,23 +203,45 @@ function computeContestField(sub: EngineSubstrate, asTeam: number): ContestField
   return { reached, tier, weight };
 }
 
+/** True where some arrival reaches this cell and `(tier, weight)` does not beat it. */
+export function beatenAt(field: ArrivalField, tier: number, weight: number, cell: number): boolean {
+  if (cell < 0 || cell >= field.reached.length) return false;
+  if (field.reached[cell] !== 1) return false;
+  return !winsContest(tier, weight, field.tier[cell] as number, field.weight[cell] as number);
+}
+
+/** Every enemy of `asTeam`'s whole action set, as one arrival apiece. */
+function* enemyArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arrival> {
+  for (const unit of sub.roster()) {
+    if (unit.team === asTeam) continue;
+    yield {
+      cells: sub.actionsOf(unit.unitId).map((a) => a.to),
+      tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
+      weight: unit.weight,
+    };
+  }
+}
+
+/**
+ * Every cell an enemy of `asTeam` could end this turn on, with the best arrival
+ * it could bring there. One enumeration pass per enemy, cached per board per
+ * subject team.
+ */
+export function contestField(sub: EngineSubstrate, asTeam: number): ContestField {
+  return perBoardPerTeam(FIELDS, sub.marshalled, asTeam, () =>
+    arrivalField(sub.grid.cells, enemyArrivals(sub, asTeam))
+  );
+}
+
 /** `CONTEST_LOSS` where this unit's destination is a contest it does not win. */
-function costOf(ctx: EvalContext, s: Standing, field: ContestField): number {
-  if (field.reached[s.cell] !== 1) return 0;
+function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
   const unit = ctx.sub.unitOf(s.unitId);
   if (unit === undefined) return 0;
   // FROZEN, both sides: the rules adjudicate this turn's collisions on the
   // tier and weight held at the START of it, so a unit that grew on a meal in
   // the position being scored still contests at the weight it set out with.
   const ourTier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
-  return winsContest(
-    ourTier,
-    unit.weight,
-    field.tier[s.cell] as number,
-    field.weight[s.cell] as number
-  )
-    ? 0
-    : CONTEST_LOSS;
+  return beatenAt(field, ourTier, unit.weight, s.cell) ? CONTEST_LOSS : 0;
 }
 
 /**
