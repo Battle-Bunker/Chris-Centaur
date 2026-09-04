@@ -241,29 +241,51 @@ refuses a `command` block whose numeric knobs are missing or negative, because a
 that reaches the fold as `undefined` makes `c` NaN in every piece evaluation on the board
 and a stored binding is a plain object TypeScript never saw.
 
-Measured `mixed` + `potions` seeds 1–3, 60 turns, `--nodes`, arm-vs-arm at `mobility` 0
-and 1 on the same build. **`parked` is the audit's own counter, recomputed off the
-transcripts, not the runner's `stationary`** — the two disagree here and D6 is why.
+MEASURED TWICE, and the second measurement is the one that counts. The first was
+arm-vs-arm at `mobility` 0 and 1 on one build, with the parked share recomputed off the
+traces because the runner could not then report it. The second, below, is
+BRANCH-vs-BRANCH: the working-branch head (`ab68d97`, which carries D6's fixed
+instrument) against this branch's head, `mixed`/`snakes`/`sparse`/`potions` seeds 1–3,
+60 turns, `--nodes --json`, subtracted per class by `scripts/ab-compare.js`. `parked`
+below IS the runner's `stationary` now, and the recomputation and the instrument agree to
+a tenth of a point on `mixed` (7.29 vs 7.15) — which is the check that the first
+measurement was measuring the same thing.
 
-| | parked | longestPark | meals/100 | deaths | pawn top-two ties* |
-|---|---|---|---|---|---|
-| `mixed` before | **7.29%** | 8 | 19.55 | 10 | 70% |
-| `mixed` after | **6.44%** | 6 | 20.40 | 10 | 43% |
-| `potions` before | **10.93%** | 10 | 18.23 | 10 | — |
-| `potions` after | **8.03%** | 5 | 19.76 | 9 | — |
+| | parked | longestPark | meals/100 | meals | deaths | deaths/100 | unit-turns |
+|---|---|---|---|---|---|---|---|
+| `mixed` before | **7.15%** | 8 | 19.55 | 246 | 10 | 0.79 | 1258 |
+| `mixed` after | **6.30%** | 6 | 20.40 | 233 | 10 | **0.88** | 1142 |
+| `potions` before | **10.71%** | 10 | 18.23 | 223 | 10 | 0.82 | 1223 |
+| `potions` after | **7.87%** | 5 | 19.85 | 232 | 9 | 0.77 | 1169 |
 
-\* share of parked pawn-turns whose top two floors agree to 5e-3, both classes pooled.
-The `before` column reproduces this document's own corpus row (7.2% / 10.4%) to within a
-seed's worth of noise, which is what says the recomputation is measuring the same thing.
+`snakes` and `sparse` are **byte-identical**: the two JSON summaries differ in the arm
+label and in nothing else, counter for counter, on all three seeds — the `commandSum`
+loop skips `leavesTrail` kinds, so a board with no piece never reaches the addend. All
+sixteen inversion arms clean under `CENTAUR_DEBUG_INVERSION=1` (four classes × seeds 1–3
+at 30 turns, plus `potions` seeds 4, 5, 6, 8 at 60), `crashed: null` on every one.
 
-`snakes` and `sparse` are **byte-identical on all five seeds**, counter for counter, as
-predicted. Deaths rise on no class (5 seeds: `mixed` 17 → 14, `potions` 15 → 14, `snakes`
-14 → 14, `sparse` 0 → 0). All sixteen inversion arms clean.
+**THE COST, stated in the reading that shows it.** Deaths rise in COUNT on no class —
+`mixed` 4/4/2 → 4/4/2 seed for seed, `potions` 2/4/4 → 2/4/3, `snakes` 7 → 7, `sparse`
+0 → 0 — but on `mixed` they arrive EARLIER, on every seed: death turns (10,47,48,57) →
+(18,24,33,58), (28,51,53,57) → (9,30,39,51), (24,43) → (19,21), a mean death turn of
+**41.8 → 30.2**. That is the whole of the 9% fall in `mixed` unit-turns, and the
+denominator is why `deathsPer100` RISES there (0.79 → 0.88, up on 3/3 seeds) with the
+count flat, and why `mixed`'s ABSOLUTE meals fall (246 → 233) while its meals/100 rises.
+`potions` shows none of it: absolute meals 223 → 232, one death fewer, unit-turns off
+4%. Whoever reads only the rate column on `mixed` is reading a denominator.
+
+`mixed`'s death CAUSES move with the timing: `bodyBlock` + `self` **1 → 6** over three
+seeds, `contest` 7 → 4, `edge` 2 → 0. A pawn that stops parking meets things a parked
+pawn never met, and on `mixed` what it meets is a body. KEPT — every counter D2 named
+moves the right way on both classes, and no class buries a unit it did not bury before —
+but the class of death it trades into is D3's own, and D3's measurement is where to find
+out whether the trade is paid back.
 
 **What the prediction got right, and what it did not.** Parked falls on both classes and
 `longestPark` roughly halves, meals rise on both, and the pawn's tie rate falls by a
 third — the direction is right on every counter. The MAGNITUDES are not met: parked
-reaches 6.4% / 8.0% against a predicted <4%, and `longestPark` 6 / 5 against ≤3. The
+reaches 6.3% / 7.9% against a predicted <4%, `longestPark` 6 / 5 against ≤3, and
+meals/100 rises 4.3% on `mixed` against a predicted ≥5% (`potions` clears it at 9.3%). The
 addend separates a rotation from a hold, which is what it was built to do; it does not
 make the pawn's whole option set gradient-rich, and 43% of parked pawn-turns still end in
 a tie the tie-break decides.
@@ -271,9 +293,11 @@ a tie the tie-break decides.
 **One thing the prediction did not anticipate, recorded because it is real.** The knob
 applies to every non-royal piece, and for a KNIGHT — which has no orientation — `|F_u|`
 is a pure centrality bonus, so a knight in a high-mobility cell is now paid to stay in
-it. `mixed` knight parked share rises 4.56% → 8.64%, and it is the reason the runner's
-`stationary` counter rises on `mixed` (2.54 → 3.77 per 100) while the true parked share
-falls. Kept anyway — the team totals move the right way on both classes and on every
+it. `mixed` knight parked share rises 4.56% → 8.64% — it is the team total that falls,
+and it falls in spite of the knights, not with them. (Under the PRE-D6 counter this
+showed up as `stationary` rising on `mixed` while the true parked share fell; that
+counter is gone, and the branch-vs-branch table above is the fixed one.) Kept anyway —
+the team totals move the right way on both classes and on every
 counter D2 named — but a knight parking is a new thing to watch, and if it grows the
 right narrowing is to gate the addend on kinds that HAVE an orientation rather than to
 retune the level.
