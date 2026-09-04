@@ -205,7 +205,7 @@ import {
   winsContest,
 } from './contest';
 import type { EvalContext, Standing } from './features';
-import { perBoard } from './memo';
+import { perBoard, perBoardPerTeam } from './memo';
 
 /**
  * How much heavier the collector's peril reads than the team's profit. Two:
@@ -452,49 +452,39 @@ const EMPTY_GROUND: ReadonlyArray<CellIndex> = Object.freeze([]);
 const CLAIMS = new WeakMap<object, ReadonlyArray<ReadonlyArray<Claim>>>();
 
 function claimsPerHorizon(sub: EngineSubstrate, window: number): ReadonlyArray<ReadonlyArray<Claim>> {
-  const hit = CLAIMS.get(sub.marshalled);
-  if (hit !== undefined) return hit;
-  const m = sub.marshalled;
-  const out: Array<ReadonlyArray<Claim>> = [];
-  // No `options`: see the narrowing note in the header.
-  for (let k = 1; k <= window; k++) out.push(claimsAfter(m, k));
-  const frozen: ReadonlyArray<ReadonlyArray<Claim>> = out;
-  CLAIMS.set(sub.marshalled, frozen);
-  return frozen;
+  return perBoard(CLAIMS, sub.marshalled, () => {
+    const m = sub.marshalled;
+    const out: Array<ReadonlyArray<Claim>> = [];
+    // No `options`: see the narrowing note in the header.
+    for (let k = 1; k <= window; k++) out.push(claimsAfter(m, k));
+    return out;
+  });
 }
 
 function windowRead(sub: EngineSubstrate, asTeam: number, window: number): WindowRead {
-  let perTeam = READS.get(sub.marshalled);
-  if (perTeam === undefined) {
-    perTeam = new Map<number, WindowRead>();
-    READS.set(sub.marshalled, perTeam);
-  }
-  const hit = perTeam.get(asTeam);
-  if (hit !== undefined) return hit;
-
-  const cells = sub.grid.cells;
-  const perHorizon = claimsPerHorizon(sub, window);
-  const horizons: ArrivalField[] = [];
-  const ground = new Map<UnitId, ReadonlyArray<CellIndex>[]>();
-  for (let k = 0; k < perHorizon.length; k++) {
-    const claims = perHorizon[k] as ReadonlyArray<Claim>;
-    for (const claim of claims) {
-      const unit = sub.unitOfClaim(claim);
-      if (unit === undefined || unit.team !== asTeam) continue;
-      let rows = ground.get(unit.unitId);
-      if (rows === undefined) {
-        // Indexed BY HORIZON, never appended: a unit missing a claim at one
-        // horizon would otherwise shift every later row by one.
-        rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
-        ground.set(unit.unitId, rows);
+  return perBoardPerTeam(READS, sub.marshalled, asTeam, () => {
+    const cells = sub.grid.cells;
+    const perHorizon = claimsPerHorizon(sub, window);
+    const horizons: ArrivalField[] = [];
+    const ground = new Map<UnitId, ReadonlyArray<CellIndex>[]>();
+    for (let k = 0; k < perHorizon.length; k++) {
+      const claims = perHorizon[k] as ReadonlyArray<Claim>;
+      for (const claim of claims) {
+        const unit = sub.unitOfClaim(claim);
+        if (unit === undefined || unit.team !== asTeam) continue;
+        let rows = ground.get(unit.unitId);
+        if (rows === undefined) {
+          // Indexed BY HORIZON, never appended: a unit missing a claim at one
+          // horizon would otherwise shift every later row by one.
+          rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
+          ground.set(unit.unitId, rows);
+        }
+        rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
       }
-      rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
+      horizons.push(arrivalField(cells, enemyClaims(sub, claims, asTeam)));
     }
-    horizons.push(arrivalField(cells, enemyClaims(sub, claims, asTeam)));
-  }
-  const read: WindowRead = { horizons, ground };
-  perTeam.set(asTeam, read);
-  return read;
+    return { horizons, ground };
+  });
 }
 
 /**
