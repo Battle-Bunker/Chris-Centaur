@@ -56,6 +56,7 @@ import {
   claimsById,
   moverSeverLoss,
   moverSurvival,
+  moverWeightCeiling,
 } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
@@ -247,7 +248,18 @@ export function standingOf(
     const survival = moverSurvival(settlement, unit.wireId);
     const dead = survival === 'no';
     const contingent = survival === 'maybe';
+    // A MOVER THE OPTIMISTIC TIMELINE KILLED AND THE LEDGER LEFT CONTINGENT is
+    // alive in some world and has no settled board entry to read. Its weight
+    // there is bounded by `moverWeightCeiling`, its energy by what it carried
+    // in (a turn only spends energy), and its cell by the furthest the
+    // settlement saw it get — which is where it stands in the world where
+    // nothing stopped it and the closest thing the settlement holds to a
+    // position for one where something did. See `bounds/material.ts`.
+    const gone = settled === undefined;
+    const possible = gone && !dead;
+    const traversed = settlement.traversed[unit.wireId] ?? [];
     const weight = settled?.occupancy.length ?? 0;
+    const weightMax = possible ? moverWeightCeiling(sub, unit) : weight;
     // NOT `settlement.tiers`, which already carries this turn's pickup. A
     // standing's tier is the one the unit CARRIES IN, and the pickup's effect
     // enters the fold once, through `tiersAfterPickupBy`, priced over the
@@ -260,14 +272,16 @@ export function standingOf(
       isKing: unit.isKing,
       held: false,
       weightMin: weight,
-      weightMax: weight,
+      weightMax,
       tierMin: unit.tier,
       tierMax: unit.tier,
       tierAtArrival: unit.tier,
       tierExpiresAtTurn: unit.tierExpiresAtTurn,
       partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
-      energy: settled?.energy ?? 0,
-      cell: settled?.occupancy[0] ?? (unit.cells[0] as number),
+      energy: settled?.energy ?? (possible ? unit.energy : 0),
+      cell:
+        settled?.occupancy[0] ??
+        (possible ? (traversed[traversed.length - 1] ?? (unit.cells[0] as number)) : (unit.cells[0] as number)),
       certainIfAlive: EMPTY_CELLS,
       worstAlive: !dead && (!mine || !contingent),
       bestAlive: !dead && (mine || !contingent),
@@ -714,13 +728,46 @@ export const roomFeature: Feature<EvalContext> = {
   },
 };
 
+/**
+ * A UNIT'S EXCLUSIVE ROOM IS A COMPETITION, AND ONLY ONE SIDE OF IT CAN BE
+ * READ OFF ONE SWEEP.
+ *
+ * `owned` is "cells this unit reaches strictly before every OTHER admitted
+ * trail unit", so it falls when another admitted unit crowds it. Every unit
+ * the reading admits at a CLOUD — a held one, dilated from where it was last
+ * observed — or at a life it may not have — a contingent mover — crowds cells
+ * it may not be at in the world being priced. That direction is right for a
+ * term the reading MINIMISES (ours in `lo`, theirs in `hi`): more crowding is
+ * a smaller number, and a smaller number is the bound. It is exactly wrong for
+ * the term the reading MAXIMISES, and reading it there is where the floor went
+ * above the truth.
+ *
+ * Measured on `potions` seed 8: a held enemy snake's cloud crowded its own
+ * LOCATED team-mate — the unit `B1` had just enumerated — out of four of the
+ * six cells that team-mate owns in every world it enumerated. Their `−g` shrank,
+ * the floor rose 0.37 above a complete world the bank went on to settle, and
+ * the bank threw 77 times in one game. The crowder belonged to the enemy, the
+ * cells it stole belonged to the enemy, and our floor collected the difference.
+ *
+ * So the maximised side is read off the sweep only when the crowd is CERTAIN —
+ * every admitted trail unit located and alive in every world, which is what a
+ * fully modelled board is, and which is what keeps R3 collapse exact. With one
+ * uncertain crowder admitted the upper bound available without a second sweep
+ * against a different crowd is the saturation point of `g` itself, and that is
+ * what is used: `g ≤ 1` by construction, for every unit, on every board.
+ */
 function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
+  // A crowder that might not be where the sweep puts it can only be one of
+  // these two, and either makes every maximised `owned` an under-count.
+  const crowdCertain = partition.trails.every(
+    (t) => !t.subject.held && t.subject.worstAlive && t.subject.bestAlive
+  );
   let total = 0;
   for (const t of partition.trails) {
     // The endpoint that hurts the reading: our term shrinks, theirs grows.
     const wantSmall = reading === 'lo' ? t.mine : !t.mine;
     const len = Math.max(1, wantSmall ? t.subject.weightMax : t.subject.weightMin);
-    const g = Math.min(1, Math.sqrt(t.owned / len));
+    const g = wantSmall || crowdCertain ? Math.min(1, Math.sqrt(t.owned / len)) : 1;
     total += t.mine ? g : -g;
   }
   return total;

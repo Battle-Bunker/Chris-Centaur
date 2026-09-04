@@ -29,15 +29,25 @@ const TURNS = 6;
 const SEED = 1;
 
 /** THE PRE-LENS RECORDING. Taken on `1266ae8` — L1, before `KernelInput.lens`
- *  existed — with this exact runner, these exact scenarios, seed 1, 6 turns. */
+ *  existed — with this exact runner, these exact scenarios, seed 1, 6 turns.
+ *
+ *  THE `mixed` PAIR WAS RE-TAKEN once, and the reason is not the lens. The
+ *  bound-soundness repair to `evaluate/features.ts` (`room`'s maximised side)
+ *  and to `bounds/material.ts` (a mover the optimistic timeline killed is not
+ *  certainly dead) changes what a plan on a board with HELD units is worth, so
+ *  the search visits different plans and the counters move with them — on the
+ *  `mixed` board only; `snake` is byte-identical to the original recording,
+ *  which is the evidence that the lens itself still costs nothing. The
+ *  re-recording is the same measurement on the same commit's runner with the
+ *  sink absent, and it is what a later lens change is now compared against. */
 const RECORDED = {
   snake: {
     550: { nodes: 6946, reads: 296183, slices: 6444, decisions: 18 },
     1100: { nodes: 13668, reads: 613032, slices: 13166, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7274, reads: 219712, slices: 1364, decisions: 18 },
-    1100: { nodes: 11592, reads: 748958, slices: 3191, decisions: 18 },
+    550: { nodes: 7283, reads: 218465, slices: 1355, decisions: 18 },
+    1100: { nodes: 11394, reads: 769281, slices: 3195, decisions: 18 },
   },
 } as const;
 

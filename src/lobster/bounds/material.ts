@@ -219,7 +219,30 @@ function moverSurvivalVia(
   wireId: string,
   seen: Set<string> | null
 ): Trit {
-  if (settlement.board[wireId] === undefined || settlement.deaths[wireId] !== undefined) return 'no';
+  if (settlement.board[wireId] === undefined || settlement.deaths[wireId] !== undefined) {
+    // A DEATH IN THE OPTIMISTIC TIMELINE IS NOT A PROOF OF DEATH.
+    //
+    // `settlePartial` settles with every held unit ABSENT, which is optimistic
+    // about contacts WITH those units and, through the movers it thereby lets
+    // run further than any world does, PESSIMISTIC about everything downstream.
+    // Measured on `potions` seed 5: our queen was staged along a slide whose
+    // second cell is a held snake's body, the timeline read that cell empty,
+    // the queen ran on to the cell our own snake had come to rest on and took
+    // it — and the fold, reading the settled board, wrote our snake off as
+    // certainly dead. In every world the body IS there, the queen is severed
+    // at it, and the snake lives. `best` was 3 material below a world the bank
+    // then enumerated: a ceiling under the truth, 26 times in one game, and on
+    // the minimal board of `soundness.test.ts` it clamps the whole team to
+    // DEAD and publishes `hi = −∞`.
+    //
+    // `fates` is the engine's own verdict and the only one entitled to close
+    // this: "'dead' and 'alive' are proofs; 'contingent' is a work list"
+    // (`settlePartial.ts`), and a mover is contingent exactly when the ledger
+    // names it at all. So a death the ledger does not touch is proved and
+    // scores as one; a death the ledger names is a death in THIS timeline and
+    // nothing more.
+    return settlement.fates[wireId] === 'dead' ? 'no' : 'maybe';
+  }
   let kings: string[] | null = null;
   for (const entry of settlement.ledger) {
     if (entry.unitId !== wireId) continue;
@@ -461,6 +484,29 @@ function claimSurvivalsUncached(
  * board entry by construction; its interval is its claim's, and its partial
  * loss is the weight a sever could take without killing it.
  */
+/**
+ * THE MOST A MOVER CAN WEIGH IN ANY WORLD.
+ *
+ * Read for a mover the timeline killed and the ledger did not prove dead: the
+ * settled board has no entry for it, so there is no weight to read off, and
+ * the reading that bounds every world it might be alive in is the weight it
+ * stood at when the turn opened plus the one meal a turn can add. That cap is
+ * the engine's own — `claims.ts` prices a held unit's weight ceiling as
+ * `length + min(span, foodInReach)`, and a mover's span is one — and the two
+ * ways weight goes DOWN (a sever, a promotion) only ever make it smaller.
+ *
+ * Over-stating it is safe in both frames and understating it is not: a
+ * possibly-alive unit of ours enters only `best` (which a larger figure
+ * raises) and a possibly-alive unit of theirs only the subject's `worst`
+ * (which a larger figure lowers). Both directions widen.
+ */
+export function moverWeightCeiling(
+  sub: EngineSubstrate,
+  unit: { readonly weight: number }
+): number {
+  return unit.weight + (sub.marshalled.config.food.length > 0 ? 1 : 0);
+}
+
 export function unitValuesOf(
   sub: EngineSubstrate,
   settlement: PartialSettlement
@@ -482,13 +528,17 @@ export function unitValuesOf(
       continue;
     }
     const settled = settlement.board[unit.wireId];
+    const survival = moverSurvival(settlement, unit.wireId);
     const weight = settled?.occupancy.length ?? 0;
+    // A mover the timeline killed but the ledger left contingent weighs
+    // nothing on the settled board and something in every world it survives.
+    const possible = settled === undefined && survival !== 'no';
     out.push({
       unitId: unit.unitId,
       team: unit.team,
-      survival: moverSurvival(settlement, unit.wireId),
+      survival,
       weightMin: weight,
-      weightMax: weight,
+      weightMax: possible ? moverWeightCeiling(sub, unit) : weight,
       // A MOVER CAN BE SEVERED TOO, and reading `partialLossMax` as zero for
       // one was the floor's own defect — see `moverSeverLoss`.
       partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
