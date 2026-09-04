@@ -800,3 +800,38 @@ continuation is concrete, or a budget an order of magnitude larger.
 Its harness also found: **G-D3 fails** — 485 inversions on `potions` seed 4
 where a B1 floor sits above an exact concrete reply. That is a floor defect
 independent of the ply and is the next soundness item.
+
+### 7.1 The 485, followed up (2026-09-04, `b1-sound`)
+
+**They do not reproduce, and the instrument that says so is stronger than the
+one that reported them.** `src/lobster/bounds/exact-reply.ts` takes a priced
+plan, enumerates every held unit's complete option list out of the engine's own
+enumerator, names them all at once and settles: each leaf is a concrete world,
+and a floor above one is a refutation no comparison between rungs can produce.
+Run on all sixteen gate arms at one plan in ten — four scenarios × seeds 1–3 at
+thirty turns, `potions` at sixty on seeds 4, 5, 6 and 8 — it settles tens of
+millions of concrete worlds and reports **zero** floors above one, on `potions`
+seed 4 included, and zero ceilings below a complete reply space. The same
+sixteen arms print no `INVERSION` line under `CENTAUR_DEBUG_INVERSION=1`. The
+B4 harness's 485 were a fact about `origin/ceiling`'s own reading, not about the
+bank the ladder ships.
+
+**What the follow-up did find is a different and finer class, and it needed a
+different instrument.** R1 is stated on the fold's TOTAL, and the fold is a
+non-negatively weighted sum, so a term whose own `lo` sits above its own value
+in some world is a broken bound that another term's slack is currently paying
+for — live the moment that term moves. `src/lobster/evaluate/law-sweep.test.ts`
+checks R1 TERM BY TERM with the shipped evaluator over 240 generated boards
+carrying snakes, pieces, food and potions. It found nine classes. Two are
+closed here (`command.hi` 600 → 199, `reach.lo` 128 → 106); the other seven are
+pinned as a ratchet with their counts, because closing them is seven repairs in
+seven terms. The fold's own `lo` is under every world on every board in the
+sweep, before and after.
+
+**And the sharpest thing it found is about splitting a tie by reading.** A
+reading may resolve a tie in the direction it is responsible for only when the
+tie is an ARTIFACT of holding — a claim cloud is a union over worlds and ties
+with units no single world puts on that square. Between two located movers a
+tie is the resolver's own mutual kill, the same in every world, and splitting
+it makes `lo` and `hi` disagree on a determinate board: 268 further `reach`
+defects, each a concrete world the split had pushed below its own bracket.
