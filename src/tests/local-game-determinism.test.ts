@@ -22,6 +22,8 @@ import {
   SNAKE_SCENARIO,
   runGame,
   summaryOf,
+  resolveOpponent,
+  type Opponent,
 } from './local-game';
 import { clearGeometryCache } from '../lobster/substrate';
 
@@ -48,6 +50,30 @@ async function play(spec: typeof MIXED_SCENARIO, scenario: string, turns: number
       summaryOf(
         result.metrics,
         { label: 'test', scenario, seed: SEED, turnsRequested: turns },
+        { kind: 'nodes', nodes: NODES }
+      )
+    ),
+    log: result.log.join('\n'),
+  };
+}
+
+/** Same as `play`, plus a named opponent for every team but team 0. */
+async function playAgainst(
+  spec: typeof MIXED_SCENARIO,
+  scenario: string,
+  opponent: Opponent,
+  turns: number = TURNS
+) {
+  const result = await runGame(
+    { ...spec, maxTurns: turns, seed: SEED, nodeBudget: NODES },
+    { scores: false, opponent }
+  );
+  clearGeometryCache();
+  return {
+    json: JSON.stringify(
+      summaryOf(
+        result.metrics,
+        { label: 'test', scenario, seed: SEED, turnsRequested: turns, opponent: opponent.name },
         { kind: 'nodes', nodes: NODES }
       )
     ),
@@ -125,6 +151,65 @@ describe('the deterministic mode', () => {
     const { json } = await play(MIXED_SCENARIO, 'mixed');
     expect(JSON.parse(json).wall).toBeUndefined();
     expect(json).not.toContain('Ms');
+  });
+
+  /**
+   * STRATEGY DIVERSITY, DETERMINISTICALLY. `--opponent` breaks the mirror —
+   * every team but team 0 plays a different profile — and it has to keep the
+   * SAME determinism guarantee the mirror mode does, or an A/B run against it
+   * would be measuring the machine again exactly like the ms mode did.
+   */
+  describe('the opponent profile', () => {
+    test('plays deterministically too: two runs are byte-identical', async () => {
+      const opponent = resolveOpponent('material-only');
+      const first = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      const second = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      expect(second.json).toBe(first.json);
+      expect(second.log).toBe(first.log);
+    });
+
+    test('and of a snake-only board too', async () => {
+      const opponent = resolveOpponent('material-only');
+      const first = await playAgainst(SNAKE_SCENARIO, 'snakes', opponent);
+      const second = await playAgainst(SNAKE_SCENARIO, 'snakes', opponent);
+      expect(second.json).toBe(first.json);
+      expect(second.log).toBe(first.log);
+    });
+
+    test('names itself in the JSON summary — a mirror run carries no such field', async () => {
+      const opponent = resolveOpponent('material-only');
+      const { json } = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      const summary = JSON.parse(json) as { opponent?: string };
+      expect(summary.opponent).toBe('material-only');
+
+      const mirror = await play(MIXED_SCENARIO, 'mixed');
+      expect(JSON.parse(mirror.json).opponent).toBeUndefined();
+      expect(mirror.json).not.toContain('"opponent"');
+    });
+
+    test('actually changes what the non-decider teams play — not a no-op flag', async () => {
+      const mirror = await play(MIXED_SCENARIO, 'mixed');
+      const against = await playAgainst(MIXED_SCENARIO, 'mixed', resolveOpponent('material-only'));
+      // Not a claim about which is BETTER — see docs/ORCHESTRATOR-LOOP.md on
+      // over-optimising against a mirror — only that the profile was really
+      // read: a decision made against a materially different evaluator is
+      // extremely unlikely to reproduce the mirror's play byte for byte.
+      expect(against.json).not.toBe(mirror.json);
+    });
+
+    test('is selected and validated through the bot-binding catalog, not a second lookup', () => {
+      expect(resolveOpponent('lobster-territory').name).toBe('lobster-territory');
+      expect(resolveOpponent('lobster-territory-a').name).toBe('lobster-territory-a');
+      expect(resolveOpponent('material-only').name).toBe('material-only');
+    });
+
+    test('refuses a name outside that catalog, naming what does exist', () => {
+      // No `greedy-food` or `cautious` profile exists yet (calibration.ts has
+      // no such member) — the flag says so by way of the catalog it lists,
+      // rather than silently falling back to the default or inventing one.
+      expect(() => resolveOpponent('greedy-food')).toThrow(/material-only/);
+      expect(() => resolveOpponent('cautious')).toThrow(/lobster-territory/);
+    });
   });
 
   test('the ms mode still reports its wall clock, and is still the default', async () => {

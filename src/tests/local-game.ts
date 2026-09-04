@@ -26,7 +26,7 @@ import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
 import { EngineSubstrate, makeSubstrate, clearGeometryCache } from '../lobster/substrate';
 import { rigFor } from '../lobster/candidates';
-import { defaultEvaluator } from '../lobster/evaluate';
+import { defaultEvaluator, BoundEvaluator } from '../lobster/evaluate';
 import type { Evaluator, JointPlan, Candidate, UnitId, KernelInput } from '../lobster/contracts';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
@@ -34,6 +34,14 @@ import { observeLoud, type LoudReading } from '../lobster/bounds';
 import { mulberry32 } from '../lobster/bounds/testkit';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
 import type { LensSink } from '../lens/types';
+// THE OPPONENT PROFILE — `--opponent=<name>`. Selected and validated through
+// the exact seam production uses to bind a bot to a game (`bot-binding.ts`'s
+// catalog and `parseBotSpec`), never a second lookup invented for this
+// runner: the catalog IS the set of profiles that exist
+// (`calibration.ts`'s `DEFAULT_WEIGHTS`/`TERRITORY_PROFILE`, its royal-command
+// ablation, and `MATERIAL_ONLY_PROFILE`), and `parseBotSpec` is what already
+// runs a stored binding through `checkWeights` before a live game plays it.
+import { BUILTIN_BOTS, parseBotSpec } from '../config/bot-binding';
 
 // ---------------------------------------------------------------------------
 // Board construction
@@ -1128,6 +1136,37 @@ export interface GameResult {
   readonly finalBoard: Board;
 }
 
+/**
+ * ONE OPPONENT: a name from the bot-binding catalog, and the evaluator that
+ * name resolved to. `name` rides along so the JSON summary can carry it
+ * (`RunSummary.opponent`) without re-deriving it from an `Evaluator`, which
+ * exposes nothing to derive a name from.
+ */
+export interface Opponent {
+  readonly name: string;
+  readonly evaluate: Evaluator;
+}
+
+/**
+ * `--opponent=<profile>` → an `Opponent`, resolved and validated through the
+ * SAME seam production binds a bot with. `parseBotSpec` against
+ * `BUILTIN_BOTS` is exactly what `BotRegistry` runs a stored `bot.*` binding
+ * through before a live game plays it — a catalog member by name is the
+ * string-literal branch of that function — so a name this accepts is a name
+ * production would too, and the refusal message is the one that already
+ * lists what exists. There is no second catalog and no second check: an
+ * unknown name (a `greedy-food` or a `cautious` nobody has built) is refused
+ * here exactly as it would be as a stored binding, naming the catalog that
+ * DOES exist rather than inventing an entry for one that doesn't.
+ */
+export function resolveOpponent(name: string): Opponent {
+  const parsed = parseBotSpec(name, BUILTIN_BOTS);
+  if ('error' in parsed) {
+    throw new Error(`--opponent=${name}: ${parsed.error}`);
+  }
+  return { name, evaluate: new BoundEvaluator(parsed.spec.profile) };
+}
+
 export async function runGame(
   spec: GameSpec,
   opts: {
@@ -1138,6 +1177,18 @@ export async function runGame(
      *  `KernelInput.lens` unset, which is the unwatched decision the cost gate
      *  compares against. */
     lensFor?: (turn: number, teamId: string) => { sink: LensSink; attach?: (sub: EngineSubstrate) => void } | undefined;
+    /**
+     * STRATEGY DIVERSITY, NOT ANOTHER MIRROR. Absent (the default, and the
+     * state the byte-identity gate measures): every team plays
+     * `opts.evaluate ?? defaultEvaluator`, exactly as before this option
+     * existed — mirror self-play, unchanged bit for bit. Present: TEAM 0 —
+     * `spec.teams[0]?.id`, the deciding team by the scenario's OWN roster
+     * order, not the alphabetical order the turn loop iterates in — keeps
+     * that same default profile, and every other team plays `opponent`'s
+     * instead. The bot itself is never touched; only which profile each
+     * team's copy of the shipped evaluator folds against.
+     */
+    opponent?: Opponent;
   } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
@@ -1212,6 +1263,11 @@ export async function runGame(
   /** wireId -> the destination it staged last turn, for the dither signature. */
   const previousStage = new Map<string, string>();
   const key = (c: Coord): string => `${c.x},${c.y}`;
+  // TEAM 0, per the scenario's OWN roster (`spec.teams[0]`) — a fact about the
+  // board, fixed for the whole game, and independent of the alphabetical
+  // order the turn loop below iterates teams in. This is "the deciding team"
+  // `opts.opponent` never touches.
+  const deciderTeamId = spec.teams[0]?.id;
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     const teams = new Set(
@@ -1223,12 +1279,20 @@ export async function runGame(
     try {
       for (const teamId of [...teams].sort()) {
         const t0 = monotonic();
+        // `opts.opponent` absent: every team gets the same evaluator it
+        // always did. Present: only team 0 does — every other team plays the
+        // opponent's evaluator instead, so the mirror is broken deliberately
+        // rather than by accident.
+        const evaluateForTeam =
+          opts.opponent !== undefined && teamId !== deciderTeamId
+            ? opts.opponent.evaluate
+            : (opts.evaluate ?? defaultEvaluator);
         const decision = await decideTeam(
           board,
           turn,
           teamId,
           budget,
-          opts.evaluate ?? defaultEvaluator,
+          evaluateForTeam,
           opts.scores ?? true,
           opts.lensFor?.(turn, teamId)
         );
@@ -1516,6 +1580,14 @@ export interface RunSummary {
   /** THE BOARD CLASS. Counters are never pooled across it — see ab-compare. */
   readonly scenario: string;
   readonly seed: number;
+  /**
+   * The profile every team but team 0 played, by catalog name — absent for a
+   * mirror run (the default, and what the byte-identity gate measures).
+   * `ab-compare.js` pairs on this alongside (scenario, seed): a `mixed` run
+   * against `material-only` and a `mixed` mirror run are not the same
+   * experiment and are never subtracted against each other.
+   */
+  readonly opponent?: string;
   readonly mode: 'ms' | 'nodes';
   /** Milliseconds in `ms` mode, work units in `nodes` mode. */
   readonly budget: number;
@@ -1570,7 +1642,16 @@ const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
 
 export function summaryOf(
   metrics: GameMetrics,
-  where: { label: string; scenario: string; seed: number; turnsRequested: number },
+  where: {
+    label: string;
+    scenario: string;
+    seed: number;
+    turnsRequested: number;
+    /** The opponent's catalog name, or absent for a mirror run — see
+     *  `RunSummary.opponent`. Threaded through rather than re-derived: an
+     *  `Evaluator` exposes nothing a name could be read back off. */
+    opponent?: string;
+  },
   budget: DecisionBudget
 ): RunSummary {
   const ut = metrics.unitTurns;
@@ -1581,6 +1662,11 @@ export function summaryOf(
     label: where.label,
     scenario: where.scenario,
     seed: where.seed,
+    // Absent when `where.opponent` is: `JSON.stringify` drops an
+    // `undefined`-valued property exactly as it would drop a key that was
+    // never set, which is what keeps a mirror run's JSON byte-identical to a
+    // build that never heard of `--opponent`.
+    opponent: where.opponent,
     mode: budget.kind,
     budget: budget.kind === 'ms' ? budget.ms : budget.nodes,
     turnsRequested: where.turnsRequested,
@@ -1650,7 +1736,13 @@ async function summarise(
   turns: number,
   seeds: number,
   budget: DecisionBudget,
-  out: { label: string; json: ((line: string) => void) | null; say: (line: string) => void }
+  out: {
+    label: string;
+    json: ((line: string) => void) | null;
+    say: (line: string) => void;
+    /** Absent: every team mirrors the default profile, as always. */
+    opponent?: Opponent;
+  }
 ): Promise<void> {
   const totals: Record<string, number> = {
     unitTurns: 0,
@@ -1682,7 +1774,7 @@ async function summarise(
         seed,
         ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
       },
-      { scores: false }
+      { scores: false, opponent: out.opponent }
     );
     for (const k of Object.keys(totals)) {
       totals[k] = (totals[k] as number) + ((r.metrics as unknown as Record<string, number>)[k] ?? 0);
@@ -1693,7 +1785,11 @@ async function summarise(
     addLoud(loud, r.metrics.loud);
     out.json?.(
       JSON.stringify(
-        summaryOf(r.metrics, { label: out.label, scenario, seed, turnsRequested: turns }, budget)
+        summaryOf(
+          r.metrics,
+          { label: out.label, scenario, seed, turnsRequested: turns, opponent: out.opponent?.name },
+          budget
+        )
       )
     );
     if (r.metrics.crashed !== null) out.say(`seed ${seed} CRASHED: ${r.metrics.crashed}`);
@@ -1701,7 +1797,8 @@ async function summarise(
   const ut = totals.unitTurns as number;
   const per = (n: number): string => (ut === 0 ? '0.00' : ((100 * n) / ut).toFixed(2));
   out.say(
-    `${scenario} seeds=${seeds} unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
+    `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''} seeds=${seeds} ` +
+      `unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
       `stationary%=${per(totals.stationary as number)} seedKept%=${per(totals.seedKept as number)} ` +
       `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
@@ -1759,10 +1856,22 @@ Flags
                  FILE. Two builds' files are what scripts/ab-compare.js diffs.
                  Human output moves to stderr when this writes to stdout.
   --label=NAME   Names the arm inside the JSON (default: "local").
+  --opponent=NAME  STRATEGY DIVERSITY. Team 0 — the first team in the
+                 scenario's own roster — keeps the default profile; every
+                 other team plays NAME instead of mirroring it. NAME is a
+                 member of the bot-binding catalog (src/config/bot-binding.ts,
+                 BUILTIN_BOTS): ${Object.keys(BUILTIN_BOTS).sort().join(', ')}.
+                 No others exist yet — a "greedy-food" or "cautious" profile
+                 is not one of them, and this flag refuses anything not in
+                 that list by name rather than inventing a second catalog.
+                 Absent: every team mirrors the default profile, exactly as
+                 before this flag existed. The JSON summary then carries
+                 \`opponent\` with NAME; a mirror run carries no such field.
 
 Examples
   node dist/tests/local-game.js mixed 30 1 150
   node dist/tests/local-game.js sum all 60 3 --nodes --json=before.jsonl
+  node dist/tests/local-game.js sum mixed 30 3 --nodes --opponent=material-only --json=vs-material.jsonl
   node scripts/ab-compare.js before.jsonl after.jsonl
 `;
 
@@ -1770,6 +1879,7 @@ interface Flags {
   readonly nodes: number | null;
   readonly json: string | boolean;
   readonly label: string;
+  readonly opponent: string | null;
   readonly positional: string[];
 }
 
@@ -1778,6 +1888,7 @@ function parseFlags(argv: readonly string[]): Flags {
   let nodes: number | null = null;
   let json: string | boolean = false;
   let label = 'local';
+  let opponent: string | null = null;
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -1796,6 +1907,12 @@ function parseFlags(argv: readonly string[]): Flags {
       case 'label':
         label = value ?? 'local';
         break;
+      case 'opponent':
+        if (value === null || value === '') {
+          throw new Error('--opponent requires a name, e.g. --opponent=material-only');
+        }
+        opponent = value;
+        break;
       case 'help':
         console.log(HELP);
         process.exit(0);
@@ -1804,7 +1921,7 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, positional };
+  return { nodes, json, label, opponent, positional };
 }
 
 function scenariosNamed(which: string): Array<[string, GameSpec]> {
@@ -1836,6 +1953,10 @@ async function main(): Promise<void> {
   const finish = (): void => {
     if (jsonToFile) writeFileSync(flags.json as string, `${lines.join('\n')}\n`);
   };
+  // Resolved once, through the bot-binding catalog seam, and reused for
+  // every scenario/seed this invocation plays. Absent when `--opponent` is,
+  // which is the state the byte-identity gate measures.
+  const opponent = flags.opponent === null ? undefined : resolveOpponent(flags.opponent);
 
   if (argv[0] === 'sum') {
     const turns = Number(argv[2] ?? 60);
@@ -1849,6 +1970,7 @@ async function main(): Promise<void> {
         label: flags.label,
         json: emitJson,
         say,
+        opponent,
       });
     }
     finish();
@@ -1871,17 +1993,20 @@ async function main(): Promise<void> {
       seed,
       ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
     },
-    { onTurn: say }
+    { onTurn: say, opponent }
   );
   emitJson?.(
     JSON.stringify(
       summaryOf(
         result.metrics,
-        { label: flags.label, scenario: which, seed, turnsRequested: turns },
+        { label: flags.label, scenario: which, seed, turnsRequested: turns, opponent: opponent?.name },
         budget
       )
     )
   );
+  if (opponent !== undefined) {
+    say(`opponent: ${opponent.name} (team 0, "${spec.teams[0]?.id}", keeps the default profile)`);
+  }
   say('--- metrics ---');
   say(JSON.stringify(result.metrics, null, 2));
   const perHundred =

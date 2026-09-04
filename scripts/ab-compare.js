@@ -99,7 +99,17 @@ function readRuns(target) {
     });
 }
 
-const keyOf = (run) => `${run.scenario}|${run.seed}`;
+// THE OPPONENT IS PART OF THE PAIR, exactly like the board class and the
+// seed: `mixed` mirror-self-play and `mixed` against `material-only` are
+// different experiments over the same board, and pooling them would average
+// a change's effect against a mirror with its effect against a diversified
+// field — two different questions with two different answers. A run with no
+// `opponent` field (a mirror run, from before this flag existed or from a
+// build that never passed it) keys on the literal string 'none' rather than
+// on `undefined`, so it prints and pairs like any other named arm instead of
+// vanishing from a `Map` key.
+const opponentOf = (run) => run.opponent ?? 'none';
+const keyOf = (run) => `${run.scenario}|${run.seed}|${opponentOf(run)}`;
 const pick = (run, dotted) =>
   dotted.split('.').reduce((o, k) => (o === undefined || o === null ? undefined : o[k]), run);
 
@@ -200,87 +210,106 @@ function main() {
 
   const verdicts = [];
   for (const scenario of scenarios) {
-    const seeds = before
-      .filter((r) => r.scenario === scenario)
-      .map((r) => r.seed)
-      .filter((seed) => byKeyB.has(`${scenario}|${seed}`))
-      .sort((a, b) => a - b);
-    process.stdout.write(`\n=== ${scenario}  (${seeds.length} paired seeds) ===\n`);
-    if (seeds.length === 0) continue;
+    // OPPONENTS ARE NEVER POOLED, same rule as board classes: a mirror run
+    // ('none') and a run against 'material-only' are different experiments
+    // over the same board, so each gets its own block below rather than a
+    // shared mean across both.
+    const opponents = [
+      ...new Set(before.filter((r) => r.scenario === scenario).map(opponentOf)),
+    ].sort();
+    for (const opponent of opponents) {
+      const pairKey = (seed) => `${scenario}|${seed}|${opponent}`;
+      const seeds = before
+        .filter((r) => r.scenario === scenario && opponentOf(r) === opponent)
+        .map((r) => r.seed)
+        .filter((seed) => byKeyB.has(pairKey(seed)))
+        .sort((a, b) => a - b);
+      const label = opponent === 'none' ? scenario : `${scenario} / opponent=${opponent}`;
+      process.stdout.write(`\n=== ${label}  (${seeds.length} paired seeds) ===\n`);
+      if (seeds.length === 0) continue;
 
-    for (const seed of seeds) {
-      const a = byKeyA.get(`${scenario}|${seed}`);
-      const b = byKeyB.get(`${scenario}|${seed}`);
-      for (const field of ['budget', 'mode', 'turnsRequested']) {
-        if (a[field] !== b[field]) {
-          process.stdout.write(
-            `  !! seed ${seed}: ${field} differs (${a[field]} vs ${b[field]}) — not a pair\n`
-          );
+      for (const seed of seeds) {
+        const a = byKeyA.get(pairKey(seed));
+        const b = byKeyB.get(pairKey(seed));
+        for (const field of ['budget', 'mode', 'turnsRequested']) {
+          if (a[field] !== b[field]) {
+            process.stdout.write(
+              `  !! seed ${seed}: ${field} differs (${a[field]} vs ${b[field]}) — not a pair\n`
+            );
+          }
+        }
+        if (a.crashed || b.crashed) {
+          process.stdout.write(`  !! seed ${seed} crashed: A=${a.crashed} B=${b.crashed}\n`);
         }
       }
-      if (a.crashed || b.crashed) {
-        process.stdout.write(`  !! seed ${seed} crashed: A=${a.crashed} B=${b.crashed}\n`);
-      }
-    }
 
-    // Deaths by cause is a per-board dictionary and belongs to the board, so it
-    // is printed per scenario rather than folded into a rate.
-    const causes = [
-      ...new Set(
-        seeds.flatMap((seed) => [
-          ...Object.keys(byKeyA.get(`${scenario}|${seed}`).deathsByCause ?? {}),
-          ...Object.keys(byKeyB.get(`${scenario}|${seed}`).deathsByCause ?? {}),
-        ])
-      ),
-    ].sort();
+      // Deaths by cause is a per-board dictionary and belongs to the board, so
+      // it is printed per scenario/opponent rather than folded into a rate.
+      const causes = [
+        ...new Set(
+          seeds.flatMap((seed) => [
+            ...Object.keys(byKeyA.get(pairKey(seed)).deathsByCause ?? {}),
+            ...Object.keys(byKeyB.get(pairKey(seed)).deathsByCause ?? {}),
+          ])
+        ),
+      ].sort();
 
-    const rows = [
-      ...metrics.map((m) => ({ name: m, get: (r) => pick(r, m) })),
-      ...causes.map((c) => ({
-        name: `deaths.${c}`,
-        get: (r) => (r.deathsByCause ?? {})[c] ?? 0,
-        lowerIsBetter: true,
-      })),
-    ];
+      const rows = [
+        ...metrics.map((m) => ({ name: m, get: (r) => pick(r, m) })),
+        ...causes.map((c) => ({
+          name: `deaths.${c}`,
+          get: (r) => (r.deathsByCause ?? {})[c] ?? 0,
+          lowerIsBetter: true,
+        })),
+      ];
 
-    const head = ['metric'.padEnd(34), ...seeds.map((s) => `seed${s}`.padStart(9))].join(' ');
-    process.stdout.write(`${head}      mean A    mean B       delta   sign(p)\n`);
-    for (const row of rows) {
-      const as = seeds.map((s) => byKeyA.get(`${scenario}|${s}`)).map(row.get);
-      const bs = seeds.map((s) => byKeyB.get(`${scenario}|${s}`)).map(row.get);
-      if (as.some((v) => v === undefined) && bs.some((v) => v === undefined)) continue;
-      const A = as.map((v) => v ?? 0);
-      const B = bs.map((v) => v ?? 0);
-      const deltas = A.map((v, i) => B[i] - v);
-      const st = signTest(deltas);
-      const lower = row.lowerIsBetter ?? LOWER_IS_BETTER.has(row.name);
-      const md = mean(deltas);
-      const mark = md === 0 ? ' ' : (md > 0) === !lower ? '+' : '-';
-      process.stdout.write(
-        [
-          row.name.padEnd(34),
-          ...deltas.map((d) => fmt(d)),
-          fmt(mean(A), 11),
-          fmt(mean(B), 10),
-          fmt(md, 11),
-          ` ${st.up}/${st.down} p=${st.p.toFixed(3)} ${mark}`,
-        ].join(' ') + '\n'
-      );
-      if (row.name === 'rates.mealsPer100' || row.name === 'rates.deathsPer100') {
-        verdicts.push({ scenario, metric: row.name, delta: md, p: st.p });
+      const head = ['metric'.padEnd(34), ...seeds.map((s) => `seed${s}`.padStart(9))].join(' ');
+      process.stdout.write(`${head}      mean A    mean B       delta   sign(p)\n`);
+      for (const row of rows) {
+        const as = seeds.map((s) => byKeyA.get(pairKey(s))).map(row.get);
+        const bs = seeds.map((s) => byKeyB.get(pairKey(s))).map(row.get);
+        if (as.some((v) => v === undefined) && bs.some((v) => v === undefined)) continue;
+        const A = as.map((v) => v ?? 0);
+        const B = bs.map((v) => v ?? 0);
+        const deltas = A.map((v, i) => B[i] - v);
+        const st = signTest(deltas);
+        const lower = row.lowerIsBetter ?? LOWER_IS_BETTER.has(row.name);
+        const md = mean(deltas);
+        const mark = md === 0 ? ' ' : (md > 0) === !lower ? '+' : '-';
+        process.stdout.write(
+          [
+            row.name.padEnd(34),
+            ...deltas.map((d) => fmt(d)),
+            fmt(mean(A), 11),
+            fmt(mean(B), 10),
+            fmt(md, 11),
+            ` ${st.up}/${st.down} p=${st.p.toFixed(3)} ${mark}`,
+          ].join(' ') + '\n'
+        );
+        if (row.name === 'rates.mealsPer100' || row.name === 'rates.deathsPer100') {
+          verdicts.push({ scenario, opponent, metric: row.name, delta: md, p: st.p });
+        }
       }
     }
   }
 
-  process.stdout.write('\n=== across board classes (a COUNT, never a mean) ===\n');
-  for (const metric of [...new Set(verdicts.map((v) => v.metric))]) {
-    const vs = verdicts.filter((v) => v.metric === metric);
-    const up = vs.filter((v) => v.delta > 0).length;
-    const down = vs.filter((v) => v.delta < 0).length;
+  // A COUNT, never a mean — and grouped by opponent for the same reason every
+  // block above is: a board that flips one way under a mirror and the other
+  // way against `material-only` is two facts, not one averaged-away number.
+  for (const opponent of [...new Set(verdicts.map((v) => v.opponent))].sort()) {
     process.stdout.write(
-      `${metric.padEnd(24)} up on ${up}/${vs.length} boards, down on ${down}, ` +
-        `flat on ${vs.length - up - down}\n`
+      `\n=== across board classes${opponent === 'none' ? '' : ` / opponent=${opponent}`} (a COUNT, never a mean) ===\n`
     );
+    const forOpponent = verdicts.filter((v) => v.opponent === opponent);
+    for (const metric of [...new Set(forOpponent.map((v) => v.metric))]) {
+      const vs = forOpponent.filter((v) => v.metric === metric);
+      const up = vs.filter((v) => v.delta > 0).length;
+      const down = vs.filter((v) => v.delta < 0).length;
+      process.stdout.write(
+        `${metric.padEnd(24)} up on ${up}/${vs.length} boards, down on ${down}, ` +
+          `flat on ${vs.length - up - down}\n`
+      );
+    }
   }
   if (unmatched.length > 0) {
     process.stdout.write(`\nunpaired runs (excluded):\n  ${unmatched.join('\n  ')}\n`);
