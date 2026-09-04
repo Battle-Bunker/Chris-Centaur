@@ -1000,6 +1000,36 @@ function policyPrunes(
 }
 
 /**
+ * KEEP THE BEST CLASS, applied to the SET rather than to each candidate:
+ * partition by `rank`, keep only the minimum-rank class, and record a prune
+ * for everything else — unless that would empty or no-op the set, in which
+ * case nothing is dropped. Monotone by construction (the keeper set is
+ * non-empty before anything is dropped) and it can never hand back fewer
+ * options than it was given when they are all equally bad — which is exactly
+ * the property a per-candidate safety filter lacks.
+ *
+ * This is the emptiness guarantee's unit of work: every lossy prune it makes
+ * is reversible, because the class it keeps is never empty when the input
+ * wasn't.
+ */
+function keepBestClass(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  rank: (a: AssessedCandidate) => number,
+  prune: PruneId
+): AssessedCandidate[] {
+  let best = Number.POSITIVE_INFINITY;
+  for (const a of assessed) best = Math.min(best, rank(a));
+  const kept = assessed.filter((a) => rank(a) === best);
+  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
+  for (const a of assessed) {
+    if (rank(a) === best) continue;
+    pruned.push({ candidate: a.candidate, prune, exact: false });
+  }
+  return kept;
+}
+
+/**
  * THE TIER FILTER, applied to the SET rather than to each candidate.
  *
  * A contest is decided on TIER FIRST and weight second, so a unit that steps
@@ -1009,10 +1039,9 @@ function policyPrunes(
  * a material advantage that is otherwise the whole point of having it.
  *
  * The filter drops exactly that class, and only when the unit has somewhere
- * else to be. It is monotone by construction (the keeper set is non-empty
- * before anything is dropped) and it is INERT on a board with no live tier,
- * because `gradePath` returns `clear` for every candidate when nothing
- * outranks the unit — which is every decision in a game with potions off.
+ * else to be. It is INERT on a board with no live tier, because `gradePath`
+ * returns `clear` for every candidate when nothing outranks the unit — which
+ * is every decision in a game with potions off.
  *
  * It is DECLARED LOSSY, not exact. What it can cost is a trade: accepting a
  * tier loss to take a piece, block a line, or shield a king. The ledger names
@@ -1024,17 +1053,7 @@ function keepTierSafe(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!knobs.tierSafeStaging) return [...assessed];
-  const kept: AssessedCandidate[] = [];
-  const dropped: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.tierGrade === 'decisive') dropped.push(a);
-    else kept.push(a);
-  }
-  if (dropped.length === 0 || kept.length === 0) return [...assessed];
-  for (const a of dropped) {
-    pruned.push({ candidate: a.candidate, prune: PRUNE.tierDecisive, exact: false });
-  }
-  return kept;
+  return keepBestClass(assessed, pruned, (a) => (a.tierGrade === 'decisive' ? 1 : 0), PRUNE.tierDecisive);
 }
 
 /**
@@ -1053,16 +1072,8 @@ function keepBestTier(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!unit.isKing || !knobs.kingHardSafety) return [...assessed];
-  for (const tier of TIERS) {
-    const kept = assessed.filter((a) => a.tier === tier);
-    if (kept.length === 0) continue;
-    for (const dropped of assessed) {
-      if (dropped.tier === tier) continue;
-      pruned.push({ candidate: dropped.candidate, prune: PRUNE.kingUnsafe, exact: false });
-    }
-    return knobs.tierSafeStaging ? keepBestKingTier(kept, pruned) : kept;
-  }
-  return [...assessed];
+  const kept = keepBestClass(assessed, pruned, (a) => TIERS.indexOf(a.tier), PRUNE.kingUnsafe);
+  return knobs.tierSafeStaging ? keepBestClass(kept, pruned, kingTierRisk, PRUNE.kingTierUnsafe) : kept;
 }
 
 /**
@@ -1074,26 +1085,9 @@ function keepBestTier(
  * moves a placement by rule rather than by association. The two things it must
  * not do are walk into reach of a higher tier and stand on a potion — the
  * second being entirely self-inflicted and needing no enemy modelling at all.
- *
- * Same shape as the filter above it: keep the best available class, whatever
- * that class is, so the set can never come back empty.
+ * `keepBestTier` applies it above, via `keepBestClass`. Tier exposure and
+ * self-debuff, folded into one comparable number:
  */
-function keepBestKingTier(
-  assessed: ReadonlyArray<AssessedCandidate>,
-  pruned: PrunedEntry[]
-): AssessedCandidate[] {
-  let best = Number.POSITIVE_INFINITY;
-  for (const a of assessed) best = Math.min(best, kingTierRisk(a));
-  const kept = assessed.filter((a) => kingTierRisk(a) === best);
-  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
-  for (const a of assessed) {
-    if (kingTierRisk(a) === best) continue;
-    pruned.push({ candidate: a.candidate, prune: PRUNE.kingTierUnsafe, exact: false });
-  }
-  return kept;
-}
-
-/** Tier exposure and self-debuff, as one comparable number for a king. */
 const kingTierRisk = (a: AssessedCandidate): number =>
   tierGradeRank(a.tierGrade) + (a.selfDebuff === 'none' ? 0 : 3);
 
