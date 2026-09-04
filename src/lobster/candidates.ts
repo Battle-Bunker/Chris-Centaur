@@ -414,6 +414,14 @@ export interface AssessedCandidate {
 // The generator
 // ---------------------------------------------------------------------------
 
+/** Everything generation reads that is a function of the BOARD, not the unit. */
+interface GenerationRig {
+  readonly knobs: Required<CandidateKnobs>;
+  readonly shadows: ReadonlySet<CellIndex>;
+  readonly regicideCells: ReadonlyMap<CellIndex, number> | null;
+  readonly victims: VictimTable;
+}
+
 export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly knobs: Required<CandidateKnobs>;
   /** Ray-shadow cells, per substrate. An ordering hint, computed once. */
@@ -447,26 +455,21 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(
-      sub,
-      unitId,
-      this.knobs,
-      this.shadowsFor(sub),
-      this.regicideFor(sub),
-      this.victimsFor(sub)
-    );
+    return generate(sub, unitId, this.rigFor(sub));
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(
-      sub,
-      unitId,
-      this.knobs,
-      this.shadowsFor(sub),
-      this.regicideFor(sub),
-      this.victimsFor(sub)
-    ).kept;
+    return generateAssessed(sub, unitId, this.rigFor(sub)).kept;
+  }
+
+  private rigFor(sub: EngineSubstrate): GenerationRig {
+    return {
+      knobs: this.knobs,
+      shadows: this.shadowsFor(sub),
+      regicideCells: this.regicideFor(sub),
+      victims: this.victimsFor(sub),
+    };
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
@@ -504,22 +507,8 @@ interface Generated {
   legalCount: number;
 }
 
-function generate(
-  sub: EngineSubstrate,
-  unitId: UnitId,
-  knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  victims: VictimTable
-): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(
-    sub,
-    unitId,
-    knobs,
-    shadows,
-    regicideCells,
-    victims
-  );
+function generate(sub: EngineSubstrate, unitId: UnitId, rig: GenerationRig): CandidateSet {
+  const { kept, pruned, legalCount } = generateAssessed(sub, unitId, rig);
   return {
     unitId,
     candidates: kept.map((k) => k.candidate),
@@ -528,14 +517,7 @@ function generate(
   };
 }
 
-function generateAssessed(
-  sub: EngineSubstrate,
-  unitId: UnitId,
-  knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  victims: VictimTable
-): Generated {
+function generateAssessed(sub: EngineSubstrate, unitId: UnitId, rig: GenerationRig): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
 
@@ -591,7 +573,7 @@ function generateAssessed(
   // can be broken by it. It only stops a move that cannot survive from being
   // the one the search starts on.
   const assessed = surviving.map((candidate) => {
-    const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells, victims);
+    const one = assessOne(sub, unit, candidate, rig, exposure);
     if (one.tier === 'doomed') return one;
     if (certainlySelfFatal(sub, unit, candidate) !== null) {
       return { ...one, tier: 'doomed' as SafetyTier };
@@ -606,10 +588,10 @@ function generateAssessed(
   });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
-  const afterQuiet = thinQuiet(sub, assessed, pruned, knobs);
-  const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
-  const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
-  const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
+  const afterQuiet = thinQuiet(sub, assessed, pruned, rig.knobs);
+  const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, rig.knobs);
+  const afterTier = keepTierSafe(afterPolicy, pruned, rig.knobs);
+  const afterKing = keepBestTier(unit, afterTier, pruned, rig.knobs);
 
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
@@ -617,7 +599,7 @@ function generateAssessed(
   // never restored, because their representatives are still in the set.
   const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
 
-  kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
+  kept.sort(rig.knobs.gainOrdering ? gainOrderKey : orderKey);
   return { kept, pruned, legalCount };
 }
 
@@ -795,16 +777,14 @@ function assessOne(
   sub: EngineSubstrate,
   unit: SubstrateUnit,
   candidate: Candidate,
-  shadows: ReadonlySet<CellIndex>,
-  exposure: TierExposure,
-  knobs: Required<CandidateKnobs>,
-  /** Enemy last-king squares, or null when `gainOrdering` is off — in which
-   * case neither gain key is computed at all, so the shipped path pays nothing
-   * for a key it does not read. */
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  /** Head cell → who is standing on it, for the capture ordering's price. */
-  victims: VictimTable
+  /** Enemy last-king squares (null when `gainOrdering` is off, so neither gain
+   *  key is computed at all — the shipped path pays nothing for a key it does
+   *  not read) and the head-cell → occupant table are both functions of the
+   *  BOARD, not the unit, and ride here with the knobs. */
+  rig: GenerationRig,
+  exposure: TierExposure
 ): AssessedCandidate {
+  const { knobs, shadows, regicideCells, victims } = rig;
   const settled = assessPathOf(sub, unit, candidate.path);
   // The stationary terrain charge is behind its own knob, and turning it off
   // reads a hold's spend as zero — the ORDERING it used to have. The risk
