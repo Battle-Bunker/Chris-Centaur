@@ -87,18 +87,6 @@ const gesture: GestureState = {
   displaced: null,
 };
 
-export function gestureState(): Readonly<GestureState> {
-  return { ...gesture };
-}
-
-/** A new turn, a new session, or a test that wants a clean slate. */
-export function resetGestureState(): void {
-  gesture.drillOpen = false;
-  gesture.lockInFlight = false;
-  gesture.lockEveryMember = false;
-  gesture.displaced = null;
-}
-
 // ---------------------------------------------------------------------------
 // Frame readers. Every one of them is a question about the frame and nothing
 // else — the cursor never reaches for a websocket message or a database row.
@@ -108,10 +96,19 @@ export function clusterOf(frame: LensFrame, unit: UnitKey): ClusterView | null {
   return frame.partition.find((c) => c.members.includes(unit)) ?? null;
 }
 
-export function boundingOf(frame: LensFrame, unit: UnitKey): BoundedUnit | null {
+/**
+ * The cluster a FIXED unit is bounding, and the bound itself — the reason it
+ * is not a member and the operator who caused it. Rule E's other half: a unit
+ * with a fixity is drawn and rostered and keeps its arrow, and the rail owes
+ * the operator the sentence that says why the bot is not choosing its move.
+ */
+export function boundingOf(
+  frame: LensFrame,
+  unit: UnitKey
+): { readonly cluster: ClusterView; readonly bound: BoundedUnit } | null {
   for (const cluster of frame.partition) {
     const found = cluster.boundedBy.find((b) => b.unit === unit);
-    if (found) return found;
+    if (found) return { cluster, bound: found };
   }
   return null;
 }
@@ -121,6 +118,27 @@ export function movesetListKey(cluster: number, unit: UnitKey, to: CellIndex): s
   return `${cluster}|${unit}|${to}`;
 }
 
+/** The reservoir's own entry for a cluster: `String(clusterId)`, the key the
+ *  `movesets` frame folds under (`store::reservoirKey`). */
+export function reservoirListKey(cluster: number): string {
+  return String(cluster);
+}
+
+/**
+ * The rows behind one `(unit, candidate)`, in the order the reservoir ranked
+ * them.
+ *
+ * THE CONDITIONAL LIST FIRST. `L(C, u↦m)` is the exact answer to *"what would
+ * a lock here stage"*, and where the kernel has answered one it is the list.
+ *
+ * FAILING THAT, THE CLUSTER'S OWN RETAINED ROWS, restricted to the ones that
+ * play `m` for `u`. That restriction is a SELECTION over rows the search
+ * really priced — not a ranking nobody computed — and without it the panel is
+ * empty exactly when nobody asked a conditional, which on the measured runs is
+ * every bot-only decision there has ever been (07 §1: zero conditional frames
+ * in 180 decisions). A replayed turn was drawing an empty table while the
+ * frame it was drawing from held the rows.
+ */
 export function rowsFor(
   frame: LensFrame,
   unit: UnitKey | null,
@@ -129,7 +147,10 @@ export function rowsFor(
   if (unit === null || to === null) return [];
   const cluster = clusterOf(frame, unit);
   if (cluster === null) return [];
-  return frame.movesets[movesetListKey(cluster.id, unit, to)] ?? [];
+  const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
+  if (conditional !== undefined) return conditional;
+  const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
+  return retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to));
 }
 
 export function rankOne(rows: ReadonlyArray<Moveset>): Moveset | null {
@@ -674,7 +695,7 @@ export function reactiveNotice(
   next: LensFrame
 ): WidenNotice | NarrowNote | null {
   for (const before of prev.partition) {
-    const after = next.partition.find((c) => c.id === before.id);
+    const after = successorOf(before, next);
     if (after === undefined) continue;
 
     const gained = after.members.filter((m) => !before.members.includes(m));
@@ -685,6 +706,10 @@ export function reactiveNotice(
         toGeneration: after.generation,
         gained,
         by: attributionFor(before.boundedBy, gained),
+        // What the cluster WAS. The banner adds the gained members to it, so
+        // "cluster α is now 4 units" is arithmetic the reader can check
+        // against the two halves of the same sentence.
+        members: before.members.length,
         autoAcceptMs: widenAutoAcceptMs(next),
         suspended: gesture.drillOpen,
         queuedBehindLock: gesture.lockInFlight,
@@ -698,12 +723,30 @@ export function reactiveNotice(
       return {
         cluster: before.id,
         lost,
-        why: bound?.why ?? 'pin',
+        // A unit leaves a cluster because somebody FIXED it — and also because
+        // it died, or resolved, or is simply not on the board any more. Only
+        // the first of those has a reason and an author in `boundedBy`, and
+        // naming the others `pin` would attribute a determination nobody made.
+        why: bound?.why ?? 'gone',
         by: bound?.by ?? null,
       };
     }
   }
   return null;
+}
+
+/**
+ * The cluster `before` BECAME, which is not always the cluster with the same
+ * id: a `ClusterId` is the smallest member's unit id (`kernel/partition.ts`),
+ * so a released unit that sorts below the anchor RENAMES the cluster it joins.
+ * Matching on the id alone missed every such widen — the owner's own reactive
+ * case, silently undrawn about half the time. `lineage` is the field that
+ * survives it and is why the kernel mints it.
+ */
+function successorOf(before: ClusterView, next: LensFrame): ClusterView | undefined {
+  const sameId = next.partition.find((c) => c.id === before.id);
+  if (sameId !== undefined) return sameId;
+  return next.partition.find((c) => c.lineage.includes(before.id));
 }
 
 /** Who caused the widen: the operator whose fixity the gained unit just lost. */

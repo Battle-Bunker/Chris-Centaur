@@ -30,21 +30,19 @@ var LensView = (() => {
   // src/lens/view/index.ts
   var index_exports = {};
   __export(index_exports, {
-    LENS_INK: () => LENS_INK,
     LensNoMovesetError: () => LensNoMovesetError,
     LensOffHeadError: () => LensOffHeadError,
     applyCursorEvent: () => applyCursorEvent,
     boundingOf: () => boundingOf,
+    bracketWidth: () => bracketWidth,
     checkDivergence: () => checkDivergence,
     clusterGlyph: () => clusterGlyph,
     clusterOf: () => clusterOf,
     cursorState: () => cursorState,
-    depthArrivals: () => depthArrivals,
     depthCell: () => depthCell,
     dominanceClause: () => dominanceClause,
     emptyStateLine: () => emptyStateLine,
     frameAtSeq: () => frameAtSeq,
-    gestureState: () => gestureState,
     incumbentCandidate: () => incumbentCandidate,
     initialCursor: () => initialCursor,
     makeLiveDecisionSource: () => makeLiveDecisionSource,
@@ -57,9 +55,8 @@ var LensView = (() => {
     reactiveNotice: () => reactiveNotice,
     renderFrame: () => renderFrame,
     renderTimeline: () => renderTimeline,
-    requestBreakdown: () => requestBreakdown,
-    requestConditional: () => requestConditional,
-    resetGestureState: () => resetGestureState,
+    replayFrameAtSeq: () => replayFrameAtSeq,
+    reservoirListKey: () => reservoirListKey,
     resolveCursor: () => resolveCursor,
     reviveEvents: () => reviveEvents,
     rowTrails: () => rowTrails,
@@ -117,6 +114,9 @@ var LensView = (() => {
       };
     });
   }
+  function quantaOf(rows) {
+    return rows.reduce((most, row) => Math.max(most, row.depth.deepest.quanta), 0);
+  }
   function reservoirKey(cluster) {
     return String(cluster);
   }
@@ -165,6 +165,7 @@ var LensView = (() => {
     const advice = [];
     const fixities = /* @__PURE__ */ new Map();
     const dead = /* @__PURE__ */ new Set();
+    const loud = {};
     let input = null;
     let emissionSeq = anchor.seq;
     let quantaSpent = 0;
@@ -179,6 +180,8 @@ var LensView = (() => {
         case "movesets": {
           const p = payloadOf(event);
           movesets[reservoirKey(p.cluster)] = p.rows;
+          if (p.loud !== null) loud[reservoirKey(p.cluster)] = p.loud;
+          quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
           noteCandidates(priced, p.rows, true);
           break;
         }
@@ -187,12 +190,12 @@ var LensView = (() => {
           for (const lock of p.locks) {
             movesets[conditionalKey(p.cluster, lock.unit, lock.to)] = p.rows;
           }
+          quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
           noteCandidates(priced, p.rows, true);
           break;
         }
         case "emission": {
           emissionSeq = event.seq;
-          quantaSpent += 1;
           break;
         }
         case "decision.begin": {
@@ -275,7 +278,11 @@ var LensView = (() => {
       gameId: anchor.gameId,
       turn: store.turn,
       seq,
-      tMono: last.atWall - anchor.atWall,
+      // THE AXIS THAT REPLAYS. `atWorkMs` is the kernel's own clock from t0 —
+      // `nodes × NODE_COST + reads × READ_COST` — and it is what the ticks
+      // carry; the wall delta is the fallback for an event nobody measured, and
+      // it is a different axis from the one the lane is laid out on.
+      tMono: last.atWorkMs ?? last.atWall - anchor.atWall,
       tWall: last.atWall,
       mode: "replay",
       isHead: false
@@ -288,6 +295,7 @@ var LensView = (() => {
       candidates: candidatesOf(priced),
       movesets,
       breakdown: {},
+      loud,
       staged,
       routes,
       waypoints,
@@ -464,33 +472,30 @@ var LensView = (() => {
     lockEveryMember: false,
     displaced: null
   };
-  function gestureState() {
-    return { ...gesture };
-  }
-  function resetGestureState() {
-    gesture.drillOpen = false;
-    gesture.lockInFlight = false;
-    gesture.lockEveryMember = false;
-    gesture.displaced = null;
-  }
   function clusterOf(frame, unit) {
     return frame.partition.find((c) => c.members.includes(unit)) ?? null;
   }
   function boundingOf(frame, unit) {
     for (const cluster of frame.partition) {
       const found = cluster.boundedBy.find((b) => b.unit === unit);
-      if (found) return found;
+      if (found) return { cluster, bound: found };
     }
     return null;
   }
   function movesetListKey(cluster, unit, to) {
     return `${cluster}|${unit}|${to}`;
   }
+  function reservoirListKey(cluster) {
+    return String(cluster);
+  }
   function rowsFor(frame, unit, to) {
     if (unit === null || to === null) return [];
     const cluster = clusterOf(frame, unit);
     if (cluster === null) return [];
-    return frame.movesets[movesetListKey(cluster.id, unit, to)] ?? [];
+    const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
+    if (conditional !== void 0) return conditional;
+    const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
+    return retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to));
   }
   function rankOne(rows) {
     return rows.reduce(
@@ -812,7 +817,7 @@ var LensView = (() => {
   }
   function reactiveNotice(prev, next) {
     for (const before of prev.partition) {
-      const after = next.partition.find((c) => c.id === before.id);
+      const after = successorOf(before, next);
       if (after === void 0) continue;
       const gained = after.members.filter((m) => !before.members.includes(m));
       if (gained.length > 0) {
@@ -822,6 +827,10 @@ var LensView = (() => {
           toGeneration: after.generation,
           gained,
           by: attributionFor(before.boundedBy, gained),
+          // What the cluster WAS. The banner adds the gained members to it, so
+          // "cluster α is now 4 units" is arithmetic the reader can check
+          // against the two halves of the same sentence.
+          members: before.members.length,
           autoAcceptMs: widenAutoAcceptMs(next),
           suspended: gesture.drillOpen,
           queuedBehindLock: gesture.lockInFlight,
@@ -834,79 +843,50 @@ var LensView = (() => {
         return {
           cluster: before.id,
           lost,
-          why: bound?.why ?? "pin",
+          // A unit leaves a cluster because somebody FIXED it — and also because
+          // it died, or resolved, or is simply not on the board any more. Only
+          // the first of those has a reason and an author in `boundedBy`, and
+          // naming the others `pin` would attribute a determination nobody made.
+          why: bound?.why ?? "gone",
           by: bound?.by ?? null
         };
       }
     }
     return null;
   }
+  function successorOf(before, next) {
+    const sameId = next.partition.find((c) => c.id === before.id);
+    if (sameId !== void 0) return sameId;
+    return next.partition.find((c) => c.lineage.includes(before.id));
+  }
   function attributionFor(boundedBy, gained) {
     return boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
   }
 
   // src/lens/view/index.ts
-  function withTransport(base, transport) {
-    return {
-      kind: base.kind,
-      get at() {
-        return base.at;
-      },
-      seek(to) {
-        base.seek(to);
-      },
-      frame() {
-        return base.frame();
-      },
-      timeline() {
-        return base.timeline();
-      },
-      breakdown(moveset) {
-        return transport === void 0 ? base.breakdown(moveset) : transport.breakdown(moveset);
-      },
-      conditional(req) {
-        return transport === void 0 ? base.conditional(req) : transport.conditional(req);
-      },
-      subscribe(fn) {
-        return base.subscribe(fn);
-      }
-    };
-  }
   function makeLiveDecisionSource(input) {
-    return withTransport(
-      makeLiveSource({ store: input.store, at: input.at, isHead: input.isHead }),
-      input.transport
-    );
+    return makeLiveSource(input);
   }
   function makeReplayDecisionSource(input) {
-    return withTransport(makeReplaySource({ store: input.store, at: input.at }), void 0);
+    return makeReplaySource(input);
   }
   function reviveEvents(events) {
     return events.map((e) => reviveLens(e));
   }
-  function frameAtSeq(events, seq, isHead) {
+  function storeOf(events) {
     const anchor = events.find((e) => e.kind === "board.arrived") ?? events[0];
     if (anchor === void 0) throw new Error("a turn with no events has no frame");
     const store = events.filter((e) => e.seq > anchor.seq).reduce((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-    return makeLiveDecisionSource({
-      store,
-      at: { gameId: anchor.gameId, turn: anchor.turn, seq },
-      isHead
-    }).frame();
+    return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
   }
-  function requestConditional(source, req) {
-    return source.conditional(req);
+  function frameAtSeq(events, seq, isHead) {
+    const { store, at } = storeOf(events);
+    return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
   }
-  function requestBreakdown(source, moveset) {
-    return source.breakdown(moveset);
+  function replayFrameAtSeq(events, seq) {
+    const { store, at } = storeOf(events);
+    return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
   }
-  var LENS_INK = {
-    lens: { light: "#7B4FE0", dark: "#B39DFF" },
-    lensWash: { light: "rgba(123,79,224,.07)", dark: "rgba(179,157,255,.12)" },
-    foil: { light: "#00897B", dark: "#4DB6AC" },
-    fixed: { light: "#6B6B6B", dark: "#9A9A9A" },
-    refuter: { light: "#D84315", dark: "#FF8A65" }
-  };
   var CLUSTER_GLYPHS = "αβγδεζηθικλμν";
   function clusterGlyph(index) {
     return CLUSTER_GLYPHS[index] ?? `c${index}`;
@@ -915,7 +895,11 @@ var LensView = (() => {
     return { op, args };
   }
   var round1 = (n) => Number(n.toFixed(1));
-  function depthCell(row) {
+  function bracketWidth(row) {
+    const { deepest } = row.depth;
+    return Number((deepest.hi - deepest.lo).toFixed(2));
+  }
+  function depthCell(row, loud = null) {
     const { h1, deepest, delta, confidence, terminal } = row.depth;
     const deepened = deepest.horizon > h1.horizon;
     const narrowed = deepest.basis !== h1.basis;
@@ -926,29 +910,15 @@ var LensView = (() => {
     if (confidence === "incomparable") marks.push("↕");
     if (narrowed) marks.push("✂");
     if (terminal !== "none") marks.push("⊤");
+    const decline = deepened || loud === null ? "·" : `· Q=${loud.q}/${loud.product}`;
     return {
       label: `h${deepest.horizon}`,
-      width: Number((deepest.hi - deepest.lo).toFixed(2)),
-      marks: marks.length > 0 || deepened ? marks : ["·"],
+      marks: marks.length > 0 || deepened ? marks : [decline],
       delta: deepened ? Number((delta.lo !== 0 ? delta.lo : delta.hi).toFixed(2)) : null,
       // A declared narrowing means `compareFloors` refuses: the row is present
       // and is NOT sorted against the others.
       sorted: !narrowed
     };
-  }
-  function depthArrivals(prev, next) {
-    const before = /* @__PURE__ */ new Map();
-    for (const rows of Object.values(prev.movesets)) {
-      for (const row of rows) before.set(row.key, row.depth.deepest.horizon);
-    }
-    const arrived = [];
-    for (const rows of Object.values(next.movesets)) {
-      for (const row of rows) {
-        const was = before.get(row.key);
-        if (was !== void 0 && row.depth.deepest.horizon > was) arrived.push(row.key);
-      }
-    }
-    return arrived;
   }
   function selectedRow(frame, cursor) {
     const rows = rowsFor(frame, cursor.unit, cursor.candidate);
@@ -959,11 +929,25 @@ var LensView = (() => {
     const rows = rowsFor(frame, cursor.unit, cursor.candidate);
     return rows.filter((r) => r.key !== selected.key).sort((a, b) => a.rank - b.rank)[0] ?? null;
   }
-  function emptyStateLine(frame) {
+  function emptyStateLine(frame, cursor = initialCursor()) {
+    const unit = cursor.unit;
+    if (unit !== null) {
+      const bound = boundingOf(frame, unit);
+      if (bound !== null) {
+        const by = bound.bound.by === null ? "" : ` by ${bound.bound.by}`;
+        return `${unit} is ${bound.bound.why}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
+      }
+      const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? "free";
+      if (dead === "dead") return `${unit} is dead — there is nothing left to choose for it`;
+    }
     const emissions = frame.events.filter((e) => e.kind === "emission").length;
-    const fastpass = frame.events.some((e) => e.kind === "stage.fastpass");
-    const staged = fastpass ? "fast-pass only" : "nothing staged yet";
-    return `${staged} — no kernel emission yet at seq ${frame.at.seq}` + (emissions > 0 ? "" : "");
+    if (emissions === 0) {
+      const fastpass = frame.events.some((e) => e.kind === "stage.fastpass");
+      const staged = fastpass ? "fast-pass only" : "nothing staged yet";
+      return `${staged} — no kernel emission yet at seq ${frame.at.seq}`;
+    }
+    if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
+    return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
   }
   function boardOps(frame, cursor, selected) {
     const ops = [];
@@ -994,20 +978,30 @@ var LensView = (() => {
     if (foil !== null && selected !== null && cursor.foil !== "off") {
       for (const move of foil.moves) {
         const same = selected.moves.find((m) => m.unit === move.unit)?.to === move.to;
-        if (!same) {
-          ops.push(call("foil.arrow", move.unit, move.to));
-          ops.push(call("foil.delta", move.unit, Number((foil.lo - selected.lo).toFixed(2))));
-        }
+        if (same) continue;
+        ops.push(call("foil.arrow", move.unit, move.to));
+        const delta = memberDelta(frame, foil, selected, move.unit);
+        if (delta !== null) ops.push(call("foil.delta", move.unit, delta));
       }
     }
     return ops;
+  }
+  function memberDelta(frame, foil, selected, unit) {
+    const of = (row) => frame.breakdown[row.key]?.marginals.find((m) => m.unit === unit)?.delta.lo ?? null;
+    const mine = of(foil);
+    const theirs = of(selected);
+    return mine === null || theirs === null ? null : Number((mine - theirs).toFixed(2));
   }
   function candidateOps(frame, cursor) {
     if (cursor.unit === null) return [];
     const rows = frame.candidates[cursor.unit] ?? [];
     const incumbent = incumbentCandidate(frame, cursor.unit);
     return [
-      call("panel.candidates", rows.length, "scored as best-of-cluster"),
+      // WHAT THE LIST IS: the destinations THIS DECISION priced, scored as the
+      // best the whole cluster can do given that candidate. It is not the unit's
+      // legal-move count, and a header that read like one invited the operator
+      // to conclude the bot had considered four moves when it had priced four.
+      call("panel.candidates", rows.length, "priced here · scored as best-of-cluster"),
       ...rows.map(
         (row) => call(
           "panel.candidates.row",
@@ -1028,9 +1022,10 @@ var LensView = (() => {
   }
   function movesetOps(frame, cursor, selected, trails) {
     const rows = rowsFor(frame, cursor.unit, cursor.candidate);
-    if (rows.length === 0) return [call("panel.movesets.empty", emptyStateLine(frame))];
+    if (rows.length === 0) return [call("panel.movesets.empty", emptyStateLine(frame, cursor))];
     const leader = rankOne(rows);
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
+    const loud = cluster === null ? null : frame.loud?.[reservoirListKey(cluster.id)] ?? null;
     const ops = [
       call(
         "panel.movesets",
@@ -1044,14 +1039,21 @@ var LensView = (() => {
       )
     ];
     for (const row of rows) {
-      const cell = depthCell(row);
+      const cell = depthCell(row, row.key === leader?.key ? loud : null);
       const trail = trails.find((t) => t.moveset === row.key) ?? null;
       ops.push(
         call(
           "panel.movesets.row",
           row.rank,
-          row.channel === "lo" ? row.lo : row.est,
-          Number((row.hi - row.lo).toFixed(2)),
+          // ONE CHANNEL PER ROW, AND IT IS THE ONE THAT ADJUDICATES. `lo` is the
+          // proved floor: the quantity the reservoir ranks on (`byBetter`), the
+          // quantity `⌈w⌉` is a width of, and the quantity Δ measures. Showing
+          // `est` here when the posture ordered by it put three numbers from two
+          // channels on one row with nothing saying which was which — and `est`
+          // is the channel that never adjudicates. It keeps its own voice in the
+          // `unless` cell, where `advisory-only` prices it and names it.
+          row.lo,
+          bracketWidth(row),
           cell,
           leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
           // THE `unless` CELL. Drawn on every row, leader included, and never
@@ -1077,7 +1079,7 @@ var LensView = (() => {
           "panel.foil",
           foil.rank,
           Number((selected.lo - foil.lo).toFixed(2)),
-          decidingRung(selected, foil),
+          whyItLost(selected, foil),
           depthCell(foil).label
         )
       );
@@ -1105,10 +1107,9 @@ var LensView = (() => {
         return "my proof rungs are silent here — your call beats my tie-break";
     }
   }
-  function decidingRung(selected, foil) {
+  function whyItLost(selected, foil) {
     const loser = selected.rank > foil.rank ? selected : foil;
-    const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
-    return dominanceClause(dominance);
+    return `#${loser.rank} ${dominanceClause(loser.dominance)}`;
   }
   function breakdownOps(frame, cursor, selected) {
     if (selected === null) return [];
@@ -1199,6 +1200,9 @@ var LensView = (() => {
     if (cursor.unit !== null) {
       const row = frame.units.find((u) => u.unit === cursor.unit);
       const cluster = clusterOf(frame, cursor.unit);
+      const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
+      const home = cluster ?? bound?.cluster ?? null;
+      const why = bound === null ? null : `${bound.bound.why}${bound.bound.by === null ? "" : ` by ${bound.bound.by}`} · a constant, not a member`;
       ops.push(
         call(
           "panel.focus",
@@ -1208,11 +1212,11 @@ var LensView = (() => {
           row?.health ?? null,
           row?.weight ?? null,
           row?.fixity ?? null,
-          cluster?.id ?? null,
-          cluster?.members.length ?? 0,
+          home?.id ?? null,
+          home?.members.length ?? 0,
           // "Locking narrows" is the word, everywhere: the header counts what is
           // still free, and a lock moves a unit into the bounded strip.
-          cluster === null ? null : `${cluster.members.length} of ${cluster.members.length + cluster.boundedBy.length} free`
+          why ?? (home === null ? null : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`)
         )
       );
     }
