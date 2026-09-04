@@ -21,7 +21,7 @@
 import { Board } from '../../types/battlesnake';
 import { marshalBoard } from '../../logic/turn-oracle';
 import { makeContext } from '../evaluate/features';
-import { HORIZON_DECAY, horizonWeights, perilRead } from '../evaluate/window';
+import { perilRead } from '../evaluate/window';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
@@ -396,43 +396,26 @@ describe('a board with no live tier pays nothing', () => {
   });
 });
 
-// ------------------------------------------------------ D4: THE HORIZON DECAY
+// ------------------------------------------------- D4: THE CONSTANT FAR HORIZONS
 
 /**
- * DEFECT CLASS D4 (`docs/design/BEHAVIOUR-AUDIT.md`): the peril half of
- * `evaluate/window.ts` read the far horizons as a CONSTANT and spent half its
- * range on them.
+ * DEFECT CLASS D4 (`docs/design/BEHAVIOUR-AUDIT.md`), PINNED RATHER THAN FIXED.
  *
- * The measurement in `docs/design/potions.md` is that horizons 2 and 3 are
- * saturated — a debuffed unit can be met everywhere by the second turn — so
- * under the old arithmetic weights `W − k + 1` the reading was
- * `0.5·beaten_1 + 0.5`: the one horizon that still discriminates carried half
- * the mass and the other half was the same number at every pickup on the board.
- * The repair is one knob: `w_k = λ^(k−1)`, `λ = HORIZON_DECAY`.
+ * The peril half of `evaluate/window.ts` weighs horizon k of the window by
+ * `W − k + 1` — 3, 2, 1 at `W = 3`. The measurement in `docs/design/potions.md`
+ * is that horizons 2 and 3 SATURATE: a debuffed unit can be met everywhere by
+ * the second turn, and 41 of 41 pickups came back fully exposed there. So the
+ * reading is `0.5·beaten_1 + 0.5` — half of it a constant, `peril` running over
+ * `[0.5, 1]` rather than `[0, 1]`, and the one horizon that still discriminates
+ * halved before it meets `PERIL_WEIGHT`.
  *
- * These two tests pin the knob and the board the audit reproduces it on.
+ * The audit's repair — geometric weights `λ^(k−1)`, `λ = 1/4` — was built and
+ * measured over `potions` seeds 1–8 and REVERTED, because both of the audit's
+ * own counters moved the wrong way (potions.md, "D4"). What is kept is this:
+ * the defect as an executable reading on the board the audit reproduces it on,
+ * so the next attempt starts from a number rather than from the idea.
  */
-describe('D4 — the far horizons are weighed, not assumed', () => {
-  it('weighs the window geometrically, so horizon 1 carries three quarters of it', () => {
-    expect(HORIZON_DECAY).toBe(1 / 4);
-    expect(horizonWeights(3)).toEqual([1, 1 / 4, 1 / 16]);
-
-    // The claim D4 is about, as a number. The arithmetic weights 3, 2, 1 gave
-    // horizon 1 exactly half the reading and the saturated tail the other half.
-    const ws = horizonWeights(3);
-    const total = ws.reduce((a, b) => a + b, 0);
-    const nearShare = (ws[0] as number) / total;
-    expect(nearShare).toBeGreaterThan(0.75); // 0.762; was 0.5
-    expect(1 - nearShare).toBeLessThan(0.25); // the constant tail; was 0.5
-
-    // Monotone and never zero: a saturated tail is a real cost — the standing
-    // price of carrying a −1 — and the knob shrinks it rather than deleting it.
-    for (let k = 1; k < ws.length; k++) {
-      expect(ws[k] as number).toBeLessThan(ws[k - 1] as number);
-      expect(ws[k] as number).toBeGreaterThan(0);
-    }
-  });
-
+describe('D4 — the far horizons are a constant, and it is measurable', () => {
   /**
    * THE REPRODUCTION, PINNED. `potions` seed 6, turn 39, exactly as the audit
    * records it:
@@ -547,40 +530,38 @@ describe('D4 — the far horizons are weighed, not assumed', () => {
     // the only horizon carrying information.
     const BEATEN = [1 / 3, 1, 1] as const;
 
-    it('reads the collector at the weighted mean of its horizons, tail included', () => {
-      const ws = horizonWeights(3);
-      const expected =
-        ws.reduce((sum, w, k) => sum + w * (BEATEN[k] as number), 0) /
-        ws.reduce((a, b) => a + b, 0);
-      expect(perilOfRedC(reproBoard())).toBeCloseTo(expected, 10);
-      expect(expected).toBeCloseTo(0.4921, 4);
+    it('reads the collector at the weighted mean of its three horizons', () => {
+      // `W − k + 1`, applied to the three shares above. Ten decimal places,
+      // because the point of the fixture is that this is the SAME arithmetic
+      // the member runs and not a second copy of it.
+      const peril = (3 * (BEATEN[0] as number) + 2 * (BEATEN[1] as number) + 1 * (BEATEN[2] as number)) / 6;
+      expect(perilOfRedC(reproBoard())).toBeCloseTo(peril, 10);
+      expect(peril).toBeCloseTo(2 / 3, 10);
     });
 
-    it('prices the pickup as RECKLESS — horizon 1 now outweighs the constant tail', () => {
+    it('spends half the reading on a constant, and a sixth of it on the exposure', () => {
       const peril = perilOfRedC(reproBoard());
-      const ws = horizonWeights(3);
-      const total = ws.reduce((a, b) => a + b, 0);
 
-      // THE FLOOR: what a collector NOTHING can catch on the first turn pays on
-      // this board, which is the saturated tail and nothing else. It was 0.5
-      // under the arithmetic weights — half the range, spent before the reading
-      // began — and it is 0.24 now.
-      const tail = 1 - (ws[0] as number) / total;
-      expect(tail).toBeCloseTo(0.238, 3);
+      // THE CONSTANT. Horizons 2 and 3 are beaten everywhere — 35 of 35 and 75
+      // of 75 cells — so `(2 + 1) / 6` of this reading is a number every pickup
+      // on this board scores, whatever its first turn looks like.
+      const tail = (2 * (BEATEN[1] as number) + 1 * (BEATEN[2] as number)) / 6;
+      expect(tail).toBeCloseTo(0.5, 10);
 
-      // red-C is caught at horizon 1 (`caught@1 EXPOSED` in the trace), and the
-      // charge for that exposure is now LARGER than the whole constant tail.
-      // Under 3/2/1 the same third of its ground bought 0.167 against a
-      // constant 0.5, so the reading was two parts constant to one part
-      // geometry — the defect, in one inequality.
-      expect(peril).toBeGreaterThan(tail);
-      expect(peril - tail).toBeGreaterThan(tail);
-      expect(0.5 * (BEATEN[0] as number)).toBeLessThan(0.5); // the old reading, for the record
+      // THE INFORMATION. red-C is caught at horizon 1 — the runner's trace at
+      // this turn reads `caught@1 EXPOSED` — on a third of its own ground, and
+      // that whole fact is worth 0.167 against the constant's 0.5. The peril
+      // half is two parts constant to one part geometry, which is the defect in
+      // one inequality, and it is why the pickup goes through on a margin of
+      // 0.03 over the next option.
+      const exposure = (3 * (BEATEN[0] as number)) / 6;
+      expect(exposure).toBeCloseTo(1 / 6, 10);
+      expect(exposure).toBeLessThan(tail);
+      expect(peril).toBeCloseTo(tail + exposure, 10);
 
-      // And the whole reading is now BELOW the old constant floor, which is
-      // what "half its range" meant: no pickup on a saturated board could read
-      // under 0.5 however safe its first turn was.
-      expect(peril).toBeLessThan(0.5);
+      // And the floor the constant sets: no pickup on this board, however safe
+      // its first turn, can read under a half.
+      expect(peril).toBeGreaterThanOrEqual(0.5);
     });
   });
 });

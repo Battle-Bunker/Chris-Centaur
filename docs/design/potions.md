@@ -290,3 +290,101 @@ on this branch before the change:
 | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed |
 |---|---|---|---|---|
 | 39 | 16 (41.0%) | 23 (**59.0%**) | 8 (**20.5%**) | 0 |
+
+## The rule that was built
+
+One knob, exactly as the audit specifies it: `w_k = λ^(k−1)` with `λ` defaulting
+to a quarter, so the three horizons of a `W = 3` window carry 76%, 19% and 5%
+instead of 50%, 33% and 17%. `λ = 1` recovers a flat reading and the arithmetic
+weights are the single point the knob replaces. Nothing else moved: the same
+claim passes, the same ground, the same `beatenAt`, and the term is still
+identically zero on a board with no potion standing.
+
+The reproduction is `potions` seed 6 turn 39, and it is now a fixture
+(`src/lobster/__tests__/tier-window.test.ts`), taken off the runner at the turn
+the decision opened on. red-C's own three horizons there are
+
+    k=1   3 of 9 cells beaten   (0.333)
+    k=2  35 of 35               (1.000)
+    k=3  75 of 75               (1.000)
+
+— the saturation, on the very board the audit reproduces. Under `3, 2, 1` that
+reads `peril = 2/3`, of which **0.5 is the constant tail and 0.167 the whole of
+the exposure the trace calls `caught@1 EXPOSED`**. Under `λ^(k−1)` it reads
+0.492: the tail is worth 0.238 and the exposure 0.254, so horizon 1 finally
+outweighs the constant. The audit's diagnosis is exactly right, and the fixture
+is kept so that it stays a number.
+
+## What was measured, and why it was reverted
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, paired by seed
+(`scripts/ab-compare.js`, per board class, never pooled). Two arms of the one
+rule: `λ = 1/4` at the shipped `PERIL_WEIGHT = 2`, and — since the first arm's
+failure is a LEVEL failure — a second at `PERIL_WEIGHT = 3`, the largest the
+calibration inequality tolerates (`2 × 3 = 6` against a cliff ceiling of 10;
+raising the profile weight instead is not available, since `potion` must stay
+under `contest` at 3).
+
+| arm | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths |
+|---|---|---|---|---|---|---|
+| BEFORE (`3, 2, 1`) | 39 | 16 | 23 (**59.0%**) | 8 (**20.5%**) | 0 | 26 |
+| `λ = 1/4`, PERIL_WEIGHT 2 | 63 | 15 | 50 (**79.4%**) | 5 (**7.9%**) | 1 | 22 |
+| `λ = 1/4`, PERIL_WEIGHT 3 | 49 | 9 | 35 (**71.4%**) | 2 (**4.1%**) | 0 | 19 |
+
+The pre-registered prediction was reckless **59% → ≤40%**, profitable-and-safe
+**20.5% → ≥30%**, pickups **≥20**, `deathsWhileDebuffed` **0**. Scored honestly:
+
+* **reckless share down — NO**, and by a wide margin: 59% → 79%. Per seed the
+  reckless rate rises on 7 of 8 (sign test p = 0.070).
+* **profitable-and-safe up — NO**: 20.5% → 7.9%, down on 6 of the 7 seeds that
+  move. In the `PERIL_WEIGHT = 3` arm it is down on 7 of 7, p = 0.016 — the one
+  statistically clean result in the whole experiment, and it is a refutation.
+* **pickups ≥ 20 — yes**, 39 → 63. Too many, not too few.
+* **`deathsWhileDebuffed` 0 — NO** in the first arm (one, on seed 5), 0 in the
+  second. Total deaths fell in both (26 → 22 → 19), and deaths did not rise on
+  any board class.
+* **potion-free classes byte-identical — YES.** `mixed`, `snakes` and `sparse`,
+  seeds 1–3 at 30 turns, are identical run summaries in both arms;
+  `collectorsOf` gates the whole member exactly as the audit says.
+* **Bound soundness — CLEAN.** Sixteen arms under `CENTAUR_DEBUG_INVERSION=1`
+  (`mixed`/`snakes`/`sparse`/`potions` seeds 1–3 at 30 turns, plus `potions`
+  seeds 4, 5, 6, 8 at 60) print no INVERSION line at all. The rule is sound; it
+  is simply not the repair.
+
+**Reverted.** The knob, the geometric weights and the `PERIL_WEIGHT` arm are all
+backed out; the file ships the arithmetic weights it always had.
+
+## Why it fails, which is the part worth keeping
+
+**Renormalising a saturated tail is a price cut, not a re-sort.** With
+`beaten_2 = beaten_3 = 1`, any weighting that gives horizon 1 more mass gives
+the tail less, so `peril` drops for EVERY pickup — the tail's contribution goes
+from 0.5 to 0.238 — and the two readings meet only at `beaten_1 = 1`. A pickup
+priced 2/3 before is priced 0.49 after. Cheaper potions mean more potions: 39
+became 63. And the pickups a price cut admits are the MARGINAL ones, which on
+this board are the exposed ones, so the extra 24 pickups were 27 more reckless
+ones and three fewer profitable-and-safe ones. Widening the discriminating range
+by 0.26 bought less than lowering the level by 0.26 cost.
+
+**`reckless` and `peril` still disagree about what danger is** — §4 item 1 of
+the section above, now with a measurement behind it. `reckless` is a BOOLEAN on
+one beatable cell at horizon 1; `peril` is a SHARE of the ground. red-C at the
+reproduction is `EXPOSED` on three of nine cells, and the geometric reading
+charges it 0.49 — under a half, less than the arithmetic reading charged the
+safest pickup on the board. A term that charges shares cannot be steered into
+refusing a boolean by re-weighting the shares, at any λ.
+
+## What the next attempt should do differently
+
+1. **Separate the level from the shape.** The audit's rule changes both at once
+   and the level dominated. A repair that widens the range must hold the mean
+   cost of the corpus fixed — measure the peril of every pickup in the BEFORE
+   arm first, then choose the weights and the scale together so the median
+   pickup is priced where it was.
+2. **Fix the counter or the term, but make them the same question.** Either
+   `reckless` becomes a share with a threshold, or the peril half gains a floor
+   term that fires on `beaten_1 > 0` at all. The second is a cliff and wants the
+   bounds bank's opinion; the first is an instrument change and costs nothing.
+3. **Do not re-derive the horizon weights alone.** They are measured now, at
+   `λ ∈ {1/4}` against `3, 2, 1`, on eight seeds and 39 → 63 pickups. Another λ
+   moves the level in the same direction as this one did.

@@ -269,6 +269,30 @@ weights are the single point the knob replaces. No new geometry, no new claim pa
   total pickups **≥20** (not a collapse to zero); `deathsWhileDebuffed` **stays 0**.
 * `mixed`, `snakes`, `sparse`: **byte-identical** — `collectorsOf` gates the whole member.
 
+### STATUS: BUILT, MEASURED, REVERTED — the prediction fails in direction
+
+The rule above was implemented exactly as written (`λ = 1/4`, and a second arm at
+`PERIL_WEIGHT = 3` to answer the level objection), measured over the same corpus, and
+backed out. `potions` seeds 1–8, 60 turns, `--nodes`, paired by seed:
+
+| arm | pickups | reckless | profitable AND safe | deathsWhileDebuffed | deaths |
+|---|---|---|---|---|---|
+| before | 39 | 23 (**59.0%**) | 8 (**20.5%**) | 0 | 26 |
+| `λ = 1/4` | 63 | 50 (**79.4%**) | 5 (**7.9%**) | 1 | 22 |
+| `λ = 1/4`, peril ×3 | 49 | 35 (**71.4%**) | 2 (**4.1%**) | 0 | 19 |
+
+Both counters move the WRONG way, and the profitable-and-safe fall is the one clean
+signal in the experiment (down on 7 of 7 moving seeds, p = 0.016). The diagnosis in this
+section is right — half the reading really is a constant, and the reproduction board now
+carries a fixture proving it (red-C's horizons read 1/3, 1, 1 at seed 6 turn 39) — but
+the repair is wrong: with the tail saturated, ANY reweighting toward horizon 1 lowers the
+tail's contribution from 0.5 to 0.24, which cuts the price of every pickup, and the extra
+pickups a price cut admits are the exposed ones. `reckless` is also a boolean on ONE
+beatable cell where `peril` is a share of the ground, so no choice of λ can make the term
+refuse what the counter counts. The three potion-free classes were byte-identical and all
+sixteen inversion arms were clean, so the rule is sound and merely ineffective.
+`docs/design/potions.md`, "D4", carries the mechanism and what a next attempt must fix.
+
 ---
 
 ## D5 — `room` saturates on any board with a slider, and the instrument saturates with it
