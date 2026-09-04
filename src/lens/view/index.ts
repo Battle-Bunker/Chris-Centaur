@@ -20,7 +20,7 @@
  * and are re-exported here so the whole U surface has one import path.
  */
 
-import { applyEvent, emptyStore, reviveLens } from '../store';
+import { anchorWithSettlement, applyEvent, emptyStore, reviveLens } from '../store';
 import { makeLiveSource, makeReplaySource } from '../store/sources';
 import {
   boundingOf,
@@ -49,6 +49,7 @@ import type {
   TurnEventKind,
   UnitKey,
 } from '../types';
+import type { BoardSnapshot } from '../../types/battlesnake';
 
 export * from './cursor';
 
@@ -125,9 +126,20 @@ export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<Tu
 /** The turn's events, folded onto their own `board.arrived` anchor. Shared by
  *  both entry points below, because the fold is the half that must not differ
  *  between a live turn and a recorded one. */
-function storeOf(events: ReadonlyArray<TurnEvent>): { store: FrameStore; at: Cursor } {
-  const anchor = events.find((e) => e.kind === 'board.arrived') ?? events[0];
-  if (anchor === undefined) throw new Error('a turn with no events has no frame');
+function storeOf(
+  events: ReadonlyArray<TurnEvent>,
+  settlement?: BoardSnapshot | null
+): { store: FrameStore; at: Cursor } {
+  const found = events.find((e) => e.kind === 'board.arrived') ?? events[0];
+  if (found === undefined) throw new Error('a turn with no events has no frame');
+  // A STORED ANCHOR HAS NO BOARD. `logStoredEvent` drops the settlement on the
+  // way to Postgres — `turn_boards` holds it — so a caller folding rows read
+  // back out of `turn_events` must hand the board over, exactly as
+  // `storeFromRows` does. Without it the frame's board is 0×0, and every unit
+  // row it derives comes back nameless: kind `snake`, letter blank, hp 0, wt 0,
+  // for pieces at full health. That is the same turn rendering DIFFERENTLY
+  // live and in replay, which is the one thing Law C forbids.
+  const anchor = settlement ? anchorWithSettlement(found, settlement) : found;
   const store = events
     .filter((e) => e.seq > anchor.seq)
     .reduce<FrameStore>((acc, e) => applyEvent(acc, e), emptyStore(anchor));
@@ -154,8 +166,12 @@ export function frameAtSeq(
  * The fold, the frame and the transcript are identical; the three badge fields
  * are the whole of the difference, which is Law C exactly as it is written.
  */
-export function replayFrameAtSeq(events: ReadonlyArray<TurnEvent>, seq: number): LensFrame {
-  const { store, at } = storeOf(events);
+export function replayFrameAtSeq(
+  events: ReadonlyArray<TurnEvent>,
+  seq: number,
+  settlement: BoardSnapshot | null = null
+): LensFrame {
+  const { store, at } = storeOf(events, settlement);
   return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
 }
 

@@ -352,6 +352,9 @@ var LensView = (() => {
       kind: "observed"
     };
   }
+  function anchorWithSettlement(anchor, settlement) {
+    return { ...anchor, payload: { ...anchor.payload, settlement } };
+  }
   function reviveLens(value) {
     return revive(value);
   }
@@ -471,6 +474,7 @@ var LensView = (() => {
   // src/lens/view/cursor.ts
   var WIDEN_AUTO_ACCEPT_CAP_MS = 6e3;
   var WIDEN_AUTO_ACCEPT_SHARE = 0.25;
+  var WIDEN_AUTO_ACCEPT_FLOOR_MS = 1500;
   var TRAIL_DECAY_EMISSIONS = 2;
   var gesture = {
     drillOpen: false,
@@ -813,13 +817,18 @@ var LensView = (() => {
   function turnExpiryOf(frame) {
     const anchor = frame.events.find((e) => e.kind === "board.arrived");
     const payload = anchor?.payload;
-    return typeof payload?.turnExpiryTime === "number" ? payload.turnExpiryTime : null;
+    const expiry = payload?.turnExpiryTime;
+    return typeof expiry === "number" && expiry > 0 ? expiry : null;
   }
   function widenAutoAcceptMs(frame) {
     const expiry = turnExpiryOf(frame);
     if (expiry === null) return WIDEN_AUTO_ACCEPT_CAP_MS;
     const remaining = expiry - frame.at.tWall;
-    return Math.max(0, Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining)));
+    const scaled = Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining);
+    return Math.max(
+      WIDEN_AUTO_ACCEPT_FLOOR_MS,
+      Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, scaled)
+    );
   }
   function reactiveNotice(prev, next) {
     for (const before of prev.partition) {
@@ -879,9 +888,10 @@ var LensView = (() => {
   function reviveEvents(events) {
     return events.map((e) => reviveLens(e));
   }
-  function storeOf(events) {
-    const anchor = events.find((e) => e.kind === "board.arrived") ?? events[0];
-    if (anchor === void 0) throw new Error("a turn with no events has no frame");
+  function storeOf(events, settlement) {
+    const found = events.find((e) => e.kind === "board.arrived") ?? events[0];
+    if (found === void 0) throw new Error("a turn with no events has no frame");
+    const anchor = settlement ? anchorWithSettlement(found, settlement) : found;
     const store = events.filter((e) => e.seq > anchor.seq).reduce((acc, e) => applyEvent(acc, e), emptyStore(anchor));
     return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
   }
@@ -889,8 +899,8 @@ var LensView = (() => {
     const { store, at } = storeOf(events);
     return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
   }
-  function replayFrameAtSeq(events, seq) {
-    const { store, at } = storeOf(events);
+  function replayFrameAtSeq(events, seq, settlement = null) {
+    const { store, at } = storeOf(events, settlement);
     return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
   }
   var CLUSTER_GLYPHS = "αβγδεζηθικλμν";

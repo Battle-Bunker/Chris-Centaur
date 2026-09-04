@@ -51,6 +51,19 @@ import type {
 /** 04 §3 Q8: the 6 s constant became a CAP on a deadline-scaled value. */
 const WIDEN_AUTO_ACCEPT_CAP_MS = 6_000;
 const WIDEN_AUTO_ACCEPT_SHARE = 0.25;
+/**
+ * AND A FLOOR, because a zero-second countdown is not a countdown.
+ *
+ * A widen is STAGED behind one gesture — that is the whole of 02 §1.6, and the
+ * banner is the gesture. Scaled by the deadline alone the value goes to zero
+ * whenever the deadline has passed, and a zero-ms timer auto-accepts on the
+ * next macrotask: the banner paints once and is gone, so the table the
+ * operator was reading is swapped out from under them with no gesture and no
+ * announcement — which is precisely the failure the policy exists to prevent,
+ * arriving exactly when the turn is under pressure. Long enough to read the
+ * one line, short enough not to hold the list stale.
+ */
+const WIDEN_AUTO_ACCEPT_FLOOR_MS = 1_500;
 /** `#3 ▲was #1` decays after two emissions (02 §1.5). */
 const TRAIL_DECAY_EMISSIONS = 2;
 
@@ -667,19 +680,29 @@ function predecessorRank(
 function turnExpiryOf(frame: LensFrame): number | null {
   const anchor = frame.events.find((e) => e.kind === 'board.arrived');
   const payload = anchor?.payload as { turnExpiryTime?: unknown } | undefined;
-  return typeof payload?.turnExpiryTime === 'number' ? payload.turnExpiryTime : null;
+  const expiry = payload?.turnExpiryTime;
+  // `0` is the anchor's NOT-REPORTED sentinel (`turnExpiryTime ?? 0` where the
+  // manager holds null), not an epoch time in 1970. Treated as a deadline it
+  // makes every remaining interval hugely negative, which is a different
+  // answer from "we do not know when this turn ends".
+  return typeof expiry === 'number' && expiry > 0 ? expiry : null;
 }
 
 /**
- * `min(6 s, 0.25 × (turnExpiryTime − now))` (04 §3 Q8): the constant is a CAP
- * on a deadline-scaled value, because a six-second banner on a turn with two
- * seconds left is a banner that expires after the turn does.
+ * `clamp(1.5 s, 0.25 × (turnExpiryTime − now), 6 s)` (04 §3 Q8): the constant
+ * is a CAP on a deadline-scaled value, because a six-second banner on a turn
+ * with two seconds left is a banner that expires after the turn does — and the
+ * floor is what keeps it a banner at all once the deadline is behind us.
  */
 export function widenAutoAcceptMs(frame: LensFrame): number {
   const expiry = turnExpiryOf(frame);
   if (expiry === null) return WIDEN_AUTO_ACCEPT_CAP_MS;
   const remaining = expiry - frame.at.tWall;
-  return Math.max(0, Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining)));
+  const scaled = Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining);
+  return Math.max(
+    WIDEN_AUTO_ACCEPT_FLOOR_MS,
+    Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, scaled)
+  );
 }
 
 /**

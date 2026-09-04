@@ -37,10 +37,19 @@ const LensPanel = (() => {
     );
   }
 
+  /**
+   * A bound, as text. `+∞` is the lattice TOP — nothing is proved above the
+   * incumbent yet — and `−∞` is the bottom this bot proves floors against;
+   * both are ordinary readings here. Rendering them as `—` collapsed them into
+   * "unmeasured", which is the exact distinction `lensStringify` / `reviveLens`
+   * carry across the wire and the jsonb column to preserve. `—` is now reserved
+   * for a number that genuinely is not there.
+   */
   function num(value, places) {
-    return typeof value === 'number' && Number.isFinite(value)
-      ? value.toFixed(places == null ? 2 : places)
-      : '—';
+    if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+    if (value === Infinity) return '∞';
+    if (value === -Infinity) return '−∞';
+    return value.toFixed(places == null ? 2 : places);
   }
 
   function boundText(bound) {
@@ -198,7 +207,9 @@ const LensPanel = (() => {
           // drawn on the leader too, where it reads "leads on the proved
           // floor": a blank cell and a row that leads are different states.
           `<td class="lens-unless">${escapeHTML(unless || '')}</td>` +
-          `<td>${escapeHTML((assignment || []).join(' · '))}${trailHTML(trail, staged)}</td></tr>`
+          `<td>${(assignment || [])
+            .map((m) => `<span class="lens-move">${escapeHTML(m)}</span>`)
+            .join(' · ')}${trailHTML(trail, staged)}</td></tr>`
         );
       })
       .join('');
@@ -274,9 +285,17 @@ const LensPanel = (() => {
     const [botId, behaviourId, evalVersion, guidanceId, emissionSeq, quanta] = ARGS(call);
     // A number without its evalVersion and its guidanceId is a cross-fiber
     // comparison waiting to happen, so this line is small and always.
+    //
+    // AND THE ABSENCE IS DRAWN. `provenanceOf` reads `evalVersion` out of the
+    // kernel-options digest, and `TeamDecisionEngine.kernelOptions()` does not
+    // carry one — so on every shipped frame this field is the empty string. It
+    // used to render as a bare `·  ·`, a blank the reader has no reason to
+    // notice, which is the same silence the depth column was told off for in
+    // 09 §C1. `eval —` says the version is missing; a gap says nothing.
     return (
       `<div class="lens-provenance">${escapeHTML(botId)} · ${escapeHTML(behaviourId)} · ` +
-      `${escapeHTML(evalVersion)}${guidanceId ? ` · ${escapeHTML(guidanceId)}` : ''} · ` +
+      `${evalVersion ? escapeHTML(evalVersion) : 'eval \u2014'}` +
+      `${guidanceId ? ` · ${escapeHTML(guidanceId)}` : ''} · ` +
       `e${escapeHTML(emissionSeq)} · ${escapeHTML(quanta)}q</div>`
     );
   }
@@ -367,7 +386,14 @@ const LensPanel = (() => {
           );
         })
         .join('');
-      return `<div class="lens-lane" data-lane="${lane}"><span class="lens-lane-name">${lane}</span>${ticks}</div>`;
+      // The ticks live in their OWN positioned track: `left: X%` is a position
+      // in the turn, and with the lane's name sharing that box the first ticks
+      // were drawn on top of the label.
+      return (
+        `<div class="lens-lane" data-lane="${lane}">` +
+        `<span class="lens-lane-name">${lane}</span>` +
+        `<span class="lens-lane-track">${ticks}</span></div>`
+      );
     }).join('');
 
     const here = list.filter((e) => e.seq <= seq).length;

@@ -161,18 +161,33 @@ export class GameWebSocketServer {
     this.broadcastToGame(gameId, { type: 'lens-frames', gameId, turn, events, head });
   }
 
-  /** The turn-so-far's beginning, to a client that arrived after it. Sent as
-   *  an ordinary `lens-frames` envelope, because it IS one — the same event,
-   *  the same fold, `head: false` since this is not new news. */
+  /**
+   * The turn-so-far's beginning, to a client that arrived after it. Sent as an
+   * ordinary `lens-frames` envelope, because it IS one — the same event and the
+   * same fold.
+   *
+   * `head` IS COMPUTED, NOT ASSERTED, and it is the same predicate the
+   * manager's own flush uses: `head` says whether these events belong to the
+   * turn the board is currently on, and it is the client's licence to offer a
+   * determination. It was hardcoded `false` on the reasoning that a replayed
+   * anchor "is not new news" — but the anchor of the CURRENT turn is the head,
+   * and the client latches the flag, so every operator who subscribed to a
+   * live game was put permanently into `live-scrub`: the rail badged itself
+   * `⏸ SCRUBBED · read-only`, the playhead stopped following the head (so the
+   * whole turn's rail stayed on the anchor's `seq 0` empty state), and `Space`
+   * was unreachable behind `[N] return to now`. Off-head is a fact about the
+   * turn, and it is asked here rather than assumed.
+   */
   private sendLensAnchor(client: WSClient, gameId: string): void {
     const anchor = this.lensAnchors.get(gameId);
     if (anchor === undefined) return;
+    const head = this.gameManager.getGame(gameId)?.boardStateTurn === anchor.turn;
     this.send(client.ws, {
       type: 'lens-frames',
       gameId,
       turn: anchor.turn,
       events: [anchor],
-      head: false,
+      head,
     });
   }
 
@@ -752,9 +767,26 @@ export class GameWebSocketServer {
         if (!client.gameId || !client.userId || pins.length === 0) break;
 
         const game = this.gameManager.getGame(client.gameId);
+        // WHAT A LOCK MAY TOUCH. Two refusals, and only two: a unit this
+        // centaur does not control at all, and a unit ANOTHER operator holds
+        // (02 §1.4 — "never issue a cross-owner determination without an
+        // explicit takeover"). A member under bot control, held by nobody, is
+        // exactly what the gesture exists to pin: `P*` is the operator's unit
+        // plus every member whose implied move differs from what is staged,
+        // and those members are by construction ones nobody selected.
+        //
+        // The test used to be `selectedBy !== client.userId`, which refused
+        // every unowned member — and since a user may hold ONE selection at a
+        // time (`selectSnake` / `deselectSnake`), that made every lock over a
+        // cluster of two or more impossible. The rail counted `pins 3 of 3`,
+        // the press went out, and the answer came back "not yours to
+        // determine: red-B, red-C" — the affordance promising a determination
+        // the server would never make, which is the display contract failing
+        // at the one gesture it is written for.
         const refused = pins.filter((pin) => {
           const controlled = game?.controlledSnakes.get(pin.unit);
-          return !controlled || controlled.selectedBy !== client.userId;
+          if (!controlled) return true;
+          return controlled.selectedBy !== null && controlled.selectedBy !== client.userId;
         });
         const shaped = pins.every(
           (pin) =>
