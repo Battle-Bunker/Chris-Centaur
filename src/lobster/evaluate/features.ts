@@ -48,7 +48,7 @@
 import { isPieceType, leavesTrail } from '../../engine-vendor/engine/moveGrammar';
 import type { UnitType } from '../../engine-vendor/shared/types/Game';
 import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
-import { boardOf } from '../bits';
+import { boardOf, popcount32 } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
 import {
@@ -61,7 +61,7 @@ import {
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
-import { type Bound, type Feature, bound, envelope, ourUnitTerm, point } from './bound';
+import { type Bound, type Feature, envelope, ourUnitTerm, perReading, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
@@ -572,8 +572,8 @@ export function pieceScaleOf(sub: EngineSubstrate): number {
 }
 
 export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
-  lo: { ours: (s) => s.worstAlive && !s.held, theirs: (s) => s.worstAlive },
-  hi: { ours: (s) => s.bestAlive, theirs: (s) => s.bestAlive && !s.held },
+  lo: { admits: (s, mine) => (mine ? s.worstAlive && !s.held : s.worstAlive) },
+  hi: { admits: (s, mine) => (mine ? s.bestAlive : s.bestAlive && !s.held) },
 };
 
 /**
@@ -583,11 +583,9 @@ export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
  * such subject is enough to make the two sweeps different questions.
  */
 function sameAdmission(standing: ReadonlyArray<Standing>, asTeam: number): boolean {
-  const lo = ADMISSION.lo;
-  const hi = ADMISSION.hi;
   for (const s of standing) {
     const mine = s.team === asTeam;
-    if ((mine ? lo.ours(s) : lo.theirs(s)) !== (mine ? hi.ours(s) : hi.theirs(s))) return false;
+    if (ADMISSION.lo.admits(s, mine) !== ADMISSION.hi.admits(s, mine)) return false;
   }
   return true;
 }
@@ -620,7 +618,7 @@ export const materialFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     const { worst, best } = materialBounds(ctx);
-    return bound(worst, (worst + best) / 2, best);
+    return envelope(worst, best);
   },
 };
 
@@ -680,10 +678,7 @@ export const reachFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    if (ctx.horizonTurns <= 0) return point(0);
-    const lo = ctx.partition('lo').balance;
-    const hi = ctx.partition('hi').balance;
-    return envelope(lo, hi);
+    return perReading(ctx, (c, reading) => c.partition(reading).balance);
   },
 };
 
@@ -961,10 +956,8 @@ export const commandFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     const knobs = ctx.command;
-    if (knobs === null || ctx.horizonTurns <= 0) return point(0);
-    const lo = commandSum(ctx, 'lo', knobs);
-    const hi = commandSum(ctx, 'hi', knobs);
-    return envelope(lo, hi);
+    if (knobs === null) return point(0);
+    return perReading(ctx, (c, reading) => commandSum(c, reading, knobs));
   },
 };
 
@@ -1031,7 +1024,7 @@ function commandSum(
     // A royal unit is not paid for activity: see CommandKnobs.royal.
     if (s.isKing && !knobs.royal) continue;
     const mine = s.team === ctx.asTeam;
-    if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
+    if (!admit.admits(s, mine)) continue;
     const sh = ctx.shells().get(s.unitId);
     if (sh === undefined) continue;
     const front = sh.frontAt(nextTurn);
@@ -1050,13 +1043,6 @@ function commandSum(
     total += mine ? c : -c;
   }
   return total / ctx.pieceScale;
-}
-
-function popcount32(x: number): number {
-  let v = x - ((x >>> 1) & 0x55555555);
-  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
-  v = (v + (v >>> 4)) & 0x0f0f0f0f;
-  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,9 +1126,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
       hi = Math.min(hi, (king.weightMax - bestThreat) / cap);
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return point(0);
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return envelope(lo, hi);
   },
 };
 

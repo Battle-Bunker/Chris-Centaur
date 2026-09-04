@@ -185,6 +185,22 @@ export function ourUnitTerm<S extends { readonly team: number; readonly held: bo
   return envelope(lo, hi);
 }
 
+/**
+ * A term that is one scalar per READING, with the horizon guard the three
+ * members that have one all write identically.
+ *
+ * The endpoint choice is `envelope`'s and so the constructor's, not the
+ * caller's — see `envelope` above — and the guard is here because a term whose
+ * horizon is zero has no reading to take, not because each member decided so.
+ */
+export function perReading<C extends { readonly horizonTurns: number }>(
+  ctx: C,
+  of: (ctx: C, reading: 'lo' | 'hi') => number
+): Bound {
+  if (ctx.horizonTurns <= 0) return point(0);
+  return envelope(of(ctx, 'lo'), of(ctx, 'hi'));
+}
+
 // ---------------------------------------------------------------------------
 // The admission contract
 // ---------------------------------------------------------------------------
