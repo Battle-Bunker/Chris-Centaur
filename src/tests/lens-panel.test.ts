@@ -312,6 +312,25 @@ describe('the rail says what the design says it must', () => {
     expect(html).toContain('[ and ] have nowhere to go');
   });
 
+  /**
+   * 10 §4 O3. §3.5 says the panel-side foil is ALWAYS visible; it was drawn
+   * only where the list held a rank 2, which by O1 is the uncommon case — so
+   * the highest-value cheap signal on the surface was silently absent in the
+   * ordinary case.
+   */
+  test('the foil line is on screen even when there is no runner-up', () => {
+    const withFoil = LensPanel.movesetsHTML(renderFrame(frame(), FOCUSED(frame())));
+    expect(withFoil).toContain('foil #2');
+
+    const one: ReadonlyArray<Moveset> = [
+      moveset({ key: 'o1', rank: 1, lo: 12.4, hi: 15.3, units: [C, Q], staged: true }),
+    ];
+    const f = frame({ movesets: { [`0|${C}|10`]: one } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    expect(html).toContain('no runner-up');
+    expect(html).toContain('the conditional list has one row');
+  });
+
   test('provenance is on every rail, small and always', () => {
     const html = LensPanel.railHTML(renderFrame(frame()));
     expect(html).toContain('bot:lens-fixture');

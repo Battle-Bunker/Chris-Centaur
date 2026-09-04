@@ -22,6 +22,7 @@
 
 import { anchorWithSettlement, applyEvent, emptyStore, reviveLens } from '../store';
 import { makeLiveSource, makeReplaySource } from '../store/sources';
+import type { MovesetList } from './cursor';
 import {
   boundingOf,
   clusterOf,
@@ -527,20 +528,43 @@ function movesetOps(
     ops.push(call('panel.movesets.fixed', bound.unit, bound.to, bound.why, bound.by));
   }
 
-  const foil = foilRow(frame, cursor, selected);
-  if (foil !== null && selected !== null) {
+  // THE FOIL LINE IS ALWAYS ON SCREEN (§3.5: *"Panel side: always visible as
+  // one line under the moveset table"*). It used to be drawn only when the
+  // list held a rank 2 — which by O1 is the uncommon case — so the highest-
+  // value cheap signal on the surface was absent in the ordinary case and its
+  // absence was silent. An absence is drawn WITH ITS REASON, exactly as the
+  // depth cell draws `Q=0/33` rather than a bare `h1`.
+  if (selected !== null) {
+    const foil = foilRow(frame, cursor, selected);
     ops.push(
-      call(
-        'panel.foil',
-        foil.rank,
-        Number((selected.lo - foil.lo).toFixed(2)),
-        whyItLost(selected, foil),
-        depthCell(foil).label
-      )
+      foil === null
+        ? call('panel.foil', null, null, noFoilReason(list), null)
+        : call(
+            'panel.foil',
+            foil.rank,
+            Number((selected.lo - foil.lo).toFixed(2)),
+            whyItLost(selected, foil),
+            depthCell(foil).label
+          )
     );
   }
 
   return ops;
+}
+
+/**
+ * Why there is no runner-up, in the list's own terms. A conditional list of
+ * one is the kernel saying this lock has one answer; a restricted list of one
+ * is the reservoir having retained a single row that plays this candidate —
+ * two different facts, and the operator is owed the difference.
+ */
+function noFoilReason(list: MovesetList): string {
+  if (list.source === 'conditional') {
+    return 'no runner-up — the conditional list has one row';
+  }
+  return list.retained <= 1
+    ? 'no runner-up — the reservoir retained one row for this cluster'
+    : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
 }
 
 /**

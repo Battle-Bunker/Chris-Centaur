@@ -1115,10 +1115,10 @@ var LensView = (() => {
     for (const bound of cluster?.boundedBy ?? []) {
       ops.push(call("panel.movesets.fixed", bound.unit, bound.to, bound.why, bound.by));
     }
-    const foil = foilRow(frame, cursor, selected);
-    if (foil !== null && selected !== null) {
+    if (selected !== null) {
+      const foil = foilRow(frame, cursor, selected);
       ops.push(
-        call(
+        foil === null ? call("panel.foil", null, null, noFoilReason(list), null) : call(
           "panel.foil",
           foil.rank,
           Number((selected.lo - foil.lo).toFixed(2)),
@@ -1128,6 +1128,12 @@ var LensView = (() => {
       );
     }
     return ops;
+  }
+  function noFoilReason(list) {
+    if (list.source === "conditional") {
+      return "no runner-up — the conditional list has one row";
+    }
+    return list.retained <= 1 ? "no runner-up — the reservoir retained one row for this cluster" : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
   }
   var RESIDUE_KEY = "#-1";
   var namedUnit = (key) => key === RESIDUE_KEY ? "the evaluator residue" : key;

@@ -244,10 +244,17 @@ const LensPanel = (() => {
       })
       .join(' ');
 
+    // ALWAYS ONE LINE UNDER THE TABLE (§3.5). Where there is no rank 2 the
+    // line says so and says why, rather than vanishing: the foil is the
+    // highest-value cheap signal on the surface and a silent absence reads as
+    // "there is nothing to compare", which is a different claim.
     const foilCall = firstOf(transcript, 'panel.foil');
-    const foil = foilCall
-      ? `<div class="lens-foil">foil #${escapeHTML(ARGS(foilCall)[0])} · margin ${num(ARGS(foilCall)[1], 1)} · ${escapeHTML(ARGS(foilCall)[2])} · at ${escapeHTML(ARGS(foilCall)[3])}</div>`
-      : '';
+    const foilArgs = ARGS(foilCall);
+    const foil = !foilCall
+      ? ''
+      : foilArgs[0] == null
+        ? `<div class="lens-foil lens-foil-absent">${escapeHTML(foilArgs[2])}</div>`
+        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])} · margin ${num(foilArgs[1], 1)} · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
     const lock = firstOf(transcript, 'affordance.lock');
     return (
