@@ -7,8 +7,9 @@
  */
 
 import { TurnData } from '../server/active-game-manager';
-import { GameState, Snake, Coord, CentaurMove } from '../types/battlesnake';
+import { GameState, Snake, Coord, CentaurMove, Board } from '../types/battlesnake';
 import type { LensFrame } from '../lens/types';
+import { marshalBoard } from '../logic/turn-oracle';
 
 /** The body-list form: caller states the full body. */
 export function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
@@ -53,6 +54,18 @@ export function makeSnakeAt(id: string, head: Coord, length = 3, extra: Partial<
     ...extra,
   } as Snake;
 }
+
+/** A piece: one cell of occupancy, `length` carrying the WEIGHT. */
+export const piece = (id: string, at: Coord, unitType: string, weight: number, extra: Partial<Snake> = {}): Snake =>
+  makeSnake(id, [at], { unitType, length: weight, ...extra });
+
+/** The 9×9 default the evaluate suites drive; `extra` carries food, hazards, size. */
+export const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
+  ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
+
+/** A coord as the marshalled full-board index, at a suite's own TURN. */
+export const cellAt = (board: Board, turn: number, c: Coord): number =>
+  marshalBoard(board, turn).toIndex(c);
 
 export function makeGameState(
   gameId: string,

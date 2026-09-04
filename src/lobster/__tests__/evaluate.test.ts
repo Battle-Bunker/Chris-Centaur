@@ -14,7 +14,6 @@
  */
 
 import { Board, Coord, Snake } from '../../types/battlesnake';
-import { marshalBoard } from '../../logic/turn-oracle';
 import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
@@ -48,41 +47,19 @@ import {
   royalCommandEvaluator,
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
+import { makeSnake, piece, cellAt } from '../../tests/board-fixtures';
 
 // --------------------------------------------------------------------- fixtures
 
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
+// NOT converted to the shared `boardOf`: every one of this file's 36 call
+// sites relies on the 7×7 default, unlike the shared factory's 9×9 — see
+// SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({ width: 7, height: 7, food: [], hazards: [], snakes, ...extra }) as Board;
 
 const TURN = 40;
 
-const at = (board: Board, cell: Coord): number =>
-  marshalBoard(board, TURN).toIndex(cell);
+const at = (board: Board, cell: Coord): number => cellAt(board, TURN, cell);
 
 
 /** Every unit named with its own default — the zero-assumption joint plan. */
