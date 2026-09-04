@@ -86,7 +86,7 @@
  */
 
 import type { EngineSubstrate } from '../substrate';
-import { type Feature, envelope, point } from './bound';
+import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
 
 /**
@@ -231,23 +231,11 @@ export const contestFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let ours = 0;
-    for (const s of ctx.standing) if (s.team === ctx.asTeam && !s.held) ours++;
-    if (ours === 0) return point(0);
-
-    const field = contestField(ctx.sub, ctx.asTeam);
-    let worst = 0;
-    let best = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      if (!s.bestAlive && !s.worstAlive) continue;
-      const cost = costOf(ctx, s, field);
-      if (cost === 0) continue;
-      if (s.bestAlive) worst -= cost;
-      if (s.worstAlive) best -= cost;
-    }
-    const lo = worst / ours;
-    const hi = best / ours;
-    return envelope(lo, hi);
+    let field: ContestField | undefined;
+    return ourUnitTerm(ctx, (s) => {
+      if (field === undefined) field = contestField(ctx.sub, ctx.asTeam);
+      const c = costOf(ctx, s, field);
+      return [-c, -c];
+    });
   },
 };

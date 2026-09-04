@@ -80,7 +80,7 @@
 import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
-import { type Feature, envelope, point } from './bound';
+import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
 
 /** Per substrate: the cell each unit occupied BEFORE its last move. */
@@ -142,23 +142,12 @@ export const momentumFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let worst = 0;
-    let best = 0;
-    let ours = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      ours++;
-      const cost = costOf(ctx, s);
-      if (cost === 0) continue;
-      // Charged where the unit is ALIVE to have made the move. Our best world
-      // keeps more units standing, so it carries at least as much cost — hence
-      // it is the LO endpoint of a term that is never positive.
-      if (s.bestAlive) worst -= cost;
-      if (s.worstAlive) best -= cost;
-    }
-    if (ours === 0) return point(0);
-    const lo = worst / ours;
-    const hi = best / ours;
-    return envelope(lo, hi);
+    // Charged where the unit is ALIVE to have made the move. Our best world
+    // keeps more units standing, so it carries at least as much cost — hence
+    // it is the LO endpoint of a term that is never positive.
+    return ourUnitTerm(ctx, (s) => {
+      const c = costOf(ctx, s);
+      return [-c, -c];
+    });
   },
 };
