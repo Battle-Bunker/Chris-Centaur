@@ -63,7 +63,6 @@ import { frameAtSeq, makeReplayDecisionSource } from '../lens/view';
 import { makeSubstrate } from '../lobster/substrate';
 import type {
   LensEvent,
-  LensFrame,
   TurnBoardRow,
   TurnEvent,
   TurnEventRow,
@@ -71,6 +70,8 @@ import type {
 } from '../lens/types';
 import type { BoardSnapshot, Game } from '../types/battlesnake';
 import { MIXED_SCENARIO, buildBoard } from './local-game';
+/** The three fields the two sources are entitled to disagree about, removed. */
+import { comparableFrame as comparable } from './board-fixtures';
 
 const GAME = 'gate-g-l1';
 const TURN = 1;
@@ -310,16 +311,6 @@ function firstDifference(a: unknown, b: unknown, path = ''): string | null {
     if (found !== null) return found;
   }
   return null;
-}
-
-/** The three fields the two sources are entitled to disagree about, removed. */
-function comparable(frame: LensFrame): unknown {
-  const at: Record<string, unknown> = { ...frame.at };
-  delete at.mode;
-  delete at.isHead;
-  const provenance: Record<string, unknown> = { ...frame.provenance };
-  delete provenance.kind;
-  return { ...frame, at, provenance };
 }
 
 describe('G-L1 — a recorded session replays to identical frames', () => {

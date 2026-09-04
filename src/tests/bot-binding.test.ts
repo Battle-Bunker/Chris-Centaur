@@ -41,7 +41,8 @@ import { clearGeometryCache } from '../lobster/substrate';
 import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
 import type { LensDecision } from '../lens/types';
 import type { TurnData } from '../server/active-game-manager';
-import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import type { Board, CentaurMove, GameState } from '../types/battlesnake';
+import { makeSnake } from './board-fixtures';
 
 // ------------------------------------------------------------------ identity
 
@@ -351,23 +352,6 @@ describe('the binding source: most specific wins, default is the floor', () => {
 
 // -------------------------------------------------------------- the seam
 
-function makeSnake(id: string, body: Coord[], teamID: string): Snake {
-  return {
-    id,
-    name: `Snake ${id}`,
-    latency: '0',
-    health: 90,
-    body,
-    head: body[0] as Coord,
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#cc2222', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    teamID,
-  } as Snake;
-}
-
 const TURN = 5;
 
 const board = (): Board =>
@@ -377,8 +361,8 @@ const board = (): Board =>
     food: [{ x: 3, y: 3 }],
     hazards: [],
     snakes: [
-      makeSnake('s1', [{ x: 1, y: 1 }, { x: 1, y: 0 }], 'red'),
-      makeSnake('e1', [{ x: 5, y: 5 }, { x: 5, y: 6 }], 'blue'),
+      makeSnake('s1', [{ x: 1, y: 1 }, { x: 1, y: 0 }], { name: 'Snake s1', health: 90, teamID: 'red', customizations: { color: '#cc2222', head: 'default', tail: 'default' } }),
+      makeSnake('e1', [{ x: 5, y: 5 }, { x: 5, y: 6 }], { name: 'Snake e1', health: 90, teamID: 'blue', customizations: { color: '#cc2222', head: 'default', tail: 'default' } }),
     ],
   }) as Board;
 
@@ -386,7 +370,7 @@ const viewFor = (b: Board, id: string): GameState => ({
   game: { id: 'g1', ruleset: { name: 't', version: 'v', settings: {} }, map: 'm', timeout: 500, source: 't' },
   turn: TURN,
   board: b,
-  you: b.snakes.find((s) => s.id === id) as Snake,
+  you: b.snakes.find((s) => s.id === id)!,
 });
 
 interface Staged {

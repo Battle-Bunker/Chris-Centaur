@@ -18,6 +18,7 @@
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
+import { recordingContext, type Op } from './board-fixtures';
 
 const BoardRenderer = require('../web/board-renderer.js');
 
@@ -25,29 +26,6 @@ const BoardRenderer = require('../web/board-renderer.js');
 (globalThis as unknown as { Path2D: unknown }).Path2D = class {
   constructor(public d?: string) {}
 };
-
-type Op = { op: string; args: unknown[] };
-
-function recordingContext(ops: Op[]) {
-  const state: Record<string, unknown> = {
-    measureText: (t: string) => ({ width: String(t).length * 6 }),
-    createLinearGradient: () => ({ addColorStop: () => {} }),
-  };
-  return new Proxy(state, {
-    get(target, prop: string) {
-      if (prop in target) return target[prop];
-      return (...args: unknown[]) => {
-        ops.push({ op: prop, args });
-        return undefined;
-      };
-    },
-    set(target, prop: string, value) {
-      ops.push({ op: `set:${prop}`, args: [value] });
-      target[prop] = value;
-      return true;
-    },
-  }) as unknown as CanvasRenderingContext2D;
-}
 
 const CSS_SIZE = 550;
 const BOARD = 11;

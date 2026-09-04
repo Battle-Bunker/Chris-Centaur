@@ -23,28 +23,12 @@
  */
 
 import { marshalBoard } from '../logic/turn-oracle';
-import { Board, Coord, Snake } from '../types/battlesnake';
+import { Board, Snake } from '../types/battlesnake';
 import type { ActiveEffect } from '@shared/types/Game';
+import { makeSnake } from './board-fixtures';
 
 const TURN = 10;
 const ARRIVAL = TURN + 1;
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: 'A',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
 
 const board = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({

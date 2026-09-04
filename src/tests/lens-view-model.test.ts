@@ -30,6 +30,8 @@ import {
 } from '../lens/view';
 import type { FrameStore, LensFrame, Moveset, TurnEvent } from '../lens/types';
 import { FIXTURE_GAME, anchorEvent } from './lens-fixtures';
+/** The three fields that are ALLOWED to differ, and nothing else. */
+import { comparableFrame as comparable } from './board-fixtures';
 
 const TURN = 1;
 const ANCHOR = anchorEvent();
@@ -51,16 +53,6 @@ function pair(store: FrameStore, seq: number): { live: LensFrame; replay: LensFr
     live: makeLiveDecisionSource({ store, at, isHead: false }).frame(),
     replay: makeReplayDecisionSource({ store, at }).frame(),
   };
-}
-
-/** The three fields that are ALLOWED to differ, and nothing else. */
-function comparable(frame: LensFrame): unknown {
-  const at: Record<string, unknown> = { ...frame.at };
-  delete at.mode;
-  delete at.isHead;
-  const provenance: Record<string, unknown> = { ...frame.provenance };
-  delete provenance.kind;
-  return { ...frame, at, provenance };
 }
 
 describe('the two sources produce the same frame', () => {

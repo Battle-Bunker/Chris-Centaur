@@ -124,6 +124,25 @@ interface PieceCandidateScore {
   score: number;
 }
 
+// The six weighted terms a piece candidate's score is made of — the score
+// sum, `breakdown`'s raw values, `breakdown.weights` and `breakdown.weighted`
+// each independently restated this same list; this is that list, once. The
+// waypoint term (`weight × stat`, keyed `${kind}Progress`) is not here: its
+// key is dynamic per candidate, so it stays a separate, named term at each of
+// the four sites below.
+const PIECE_TERMS: ReadonlyArray<{
+  readonly key: 'healthLoss' | 'deaths' | 'kills' | 'allyCasualty' | 'regicide' | 'enemyRegicide';
+  readonly weight: number;
+  readonly of: (c: Pick<PieceCandidateScore, 'healthCost' | 'fatal' | 'casualties'>) => number;
+}> = [
+  { key: 'healthLoss', weight: DEFAULT_CONFIG.healthLoss, of: (c) => c.healthCost },
+  { key: 'deaths', weight: DEFAULT_CONFIG.deaths, of: (c) => (c.fatal ? 1 : 0) },
+  { key: 'kills', weight: DEFAULT_CONFIG.kills, of: (c) => c.casualties.kills },
+  { key: 'allyCasualty', weight: DEFAULT_CONFIG.allyCasualty, of: (c) => c.casualties.allyCasualty },
+  { key: 'regicide', weight: DEFAULT_CONFIG.regicide, of: (c) => c.casualties.regicide },
+  { key: 'enemyRegicide', weight: DEFAULT_CONFIG.enemyRegicide, of: (c) => c.casualties.enemyRegicide },
+];
+
 export interface TurnData {
   gameState: GameState;
   moveEvaluations: MoveEvaluation[];
@@ -2997,6 +3016,12 @@ export class ActiveGameManager {
       const healthCost = outcome?.cost ?? 0;
       const fatal = outcome?.fatal ?? false;
       const casualties = outcome?.casualties ?? emptyCasualtyContext();
+      // Same left-to-right accumulation the six terms used to spell out by
+      // hand: weight × stat, then each PIECE_TERMS entry in table order.
+      const score = PIECE_TERMS.reduce(
+        (sum, term) => sum + term.weight * term.of({ healthCost, fatal, casualties }),
+        weight * stat
+      );
       return {
         move: dest,
         action,
@@ -3008,13 +3033,7 @@ export class ActiveGameManager {
         healthCost,
         fatal,
         casualties,
-        score: weight * stat
-          + DEFAULT_CONFIG.healthLoss * healthCost
-          + DEFAULT_CONFIG.deaths * (fatal ? 1 : 0)
-          + DEFAULT_CONFIG.kills * casualties.kills
-          + DEFAULT_CONFIG.allyCasualty * casualties.allyCasualty
-          + DEFAULT_CONFIG.regicide * casualties.regicide
-          + DEFAULT_CONFIG.enemyRegicide * casualties.enemyRegicide,
+        score,
       };
     });
   }
@@ -3098,37 +3117,23 @@ export class ActiveGameManager {
   private computePieceMoveEvaluations(gameId: string, snakeId: string): MoveEvaluation[] {
     return this.computePieceCandidates(gameId, snakeId).map(candidate => {
       const progressScore = candidate.weight * candidate.stat;
-      const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
-      const deaths = candidate.fatal ? 1 : 0;
-      const { allyCasualty, regicide, kills, enemyRegicide } = candidate.casualties;
+      const values = PIECE_TERMS.map(term => ({ term, value: term.of(candidate) }));
       return {
         move: candidate.move,
         score: candidate.score,
         breakdown: {
-          healthLoss: candidate.healthCost,
-          deaths,
           // The casualty terms report on EVERY candidate, zero included, so a
           // ray that kills nothing is visibly a ray that kills nothing.
-          kills,
-          allyCasualty,
-          regicide,
-          enemyRegicide,
+          ...Object.fromEntries(values.map(({ term, value }) => [term.key, value])),
           weights: {
-            healthLoss: DEFAULT_CONFIG.healthLoss,
-            deaths: DEFAULT_CONFIG.deaths,
-            kills: DEFAULT_CONFIG.kills,
-            allyCasualty: DEFAULT_CONFIG.allyCasualty,
-            regicide: DEFAULT_CONFIG.regicide,
-            enemyRegicide: DEFAULT_CONFIG.enemyRegicide,
+            ...Object.fromEntries(PIECE_TERMS.map(term => [term.key, term.weight])),
             ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
           },
           weighted: {
-            healthLossScore,
-            deathsScore: deaths === 1 ? DEFAULT_CONFIG.deaths : 0,
-            killsScore: DEFAULT_CONFIG.kills * kills,
-            allyCasualtyScore: DEFAULT_CONFIG.allyCasualty * allyCasualty,
-            regicideScore: DEFAULT_CONFIG.regicide * regicide,
-            enemyRegicideScore: DEFAULT_CONFIG.enemyRegicide * enemyRegicide,
+            // `|| 0` only ever fires on -0 (a negative weight times a zero
+            // stat) — the original hand-written table avoided that sign for
+            // `deathsScore` alone; here every term gets the same treatment.
+            ...Object.fromEntries(values.map(({ term, value }) => [`${term.key}Score`, term.weight * value || 0])),
             ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
           },
           ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),

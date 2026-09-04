@@ -13,6 +13,7 @@
 
 import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
+import { makeSnake } from './board-fixtures';
 import type {
   Candidate,
   JointPlan,
@@ -32,23 +33,6 @@ import {
 } from '../wire/stage-throttle';
 
 // ------------------------------------------------------------------ fixtures
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
 
 const piece = (
   id: string,

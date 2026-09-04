@@ -17,6 +17,7 @@ import type {
   UnitId,
 } from '../lobster/contracts';
 import type { Board as ApiBoard, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import { makeSnake as makeSnakeUnit } from './board-fixtures';
 import { LobsterKernel, type KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { GrammarCandidateGenerator } from '../lobster/candidates';
@@ -41,23 +42,6 @@ class StepClock {
     return v;
   };
   readonly peek = (): number => this.t;
-}
-
-function makeSnakeUnit(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
 }
 
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>

@@ -27,7 +27,7 @@ import {
   wireIdOf,
   type BoardSpec,
 } from '../bounds/testkit';
-import { promotedContextKey, rankConditional } from '../../lens/kernel';
+import { planPartsOf, promotedContextKey, rankConditional } from '../../lens/kernel';
 import { LENS_INSPECTION_MS, type MovesetMove, type UnitKey } from '../../lens/types';
 
 const OURS = 0;
@@ -45,6 +45,22 @@ const PAIR: BoardSpec = {
   ],
 };
 
+/** A third unit, ISOLATED from PAIR's rook pair — a knight in the far corner,
+ *  whose own landing squares fall on neither rook's row nor column, so it is
+ *  its own single-member cluster. Locking IT leaves the rook pair's two
+ *  candidates — unit ids 3 and 10, chosen for different digit counts — in the
+ *  complement together, which is the shape §5.2's two producers disagreed on. */
+const PAIR_PLUS_ISOLATED: BoardSpec = {
+  width: 9,
+  height: 9,
+  units: [
+    { id: 2, team: OURS, type: 'knight', occupancy: [8 * 9 + 8], energy: 60 },
+    { id: 3, team: OURS, type: 'rook', occupancy: [4 * 9 + 1], energy: 60 },
+    { id: 10, team: OURS, type: 'rook', occupancy: [4 * 9 + 5], energy: 60 },
+    { id: 20, team: THEIRS, type: 'queen', occupancy: [6 * 9 + 3, 6 * 9 + 3, 6 * 9 + 3], energy: 60 },
+  ],
+};
+
 interface Harness {
   readonly ctx: SearchContext;
   readonly sub: ReturnType<typeof makeSubstrate>;
@@ -52,8 +68,8 @@ interface Harness {
   close(): void;
 }
 
-function harness(pins: PinSet = []): Harness {
-  const sub = makeSubstrate(makeTestBoard(PAIR), OURS);
+function harnessFor(spec: BoardSpec, pins: PinSet = []): Harness {
+  const sub = makeSubstrate(makeTestBoard(spec), OURS);
   const gen = makeGenerator();
   const evaluate = makeEvaluator();
   const ctx: SearchContext = {
@@ -69,6 +85,10 @@ function harness(pins: PinSet = []): Harness {
   };
   const wirePlan = makeSearchCore().conform({ ...ctx, pins: [] }, new Map());
   return { ctx, sub, wirePlan, close: () => sub.release() };
+}
+
+function harness(pins: PinSet = []): Harness {
+  return harnessFor(PAIR, pins);
 }
 
 /** The row is WIRE-keyed: a stored record carrying a substrate number is a
@@ -267,6 +287,118 @@ describe('an unserved request says so (04 §4.5)', () => {
       expect(answer.ok).toBe(false);
       if (answer.ok) return;
       expect(answer.refusal).toBe('generation-superseded');
+    } finally {
+      base.close();
+    }
+  });
+});
+
+/**
+ * §5.2 — THE TWO `complementKey` PRODUCERS SORT DIFFERENTLY (SIMPLIFY-PLAN-2).
+ *
+ * `Moveset.complementKey` is the second half of the reservoir's grouping key
+ * (Law E, `reservoir.ts:143`'s `keyOf(cluster, complementKey)`): two spellings
+ * of one complement are two groups. `lobster/kernel.ts`'s `cutPlan`
+ * (2546-2557, the reservoir's actual producer, out of this change's reach —
+ * owned elsewhere in this pass) sorts a plan's parts LEXICOGRAPHICALLY once
+ * and splits that sorted list per cluster, so a cluster's `key` and
+ * `complementKey` are always two contiguous slices of ONE sorted list.
+ * `conditional.ts`'s `complementKey` used to sort by `unitId` instead — a
+ * different order whenever the plan spans unit ids of different digit counts
+ * (unit 2 and unit 10: lexicographic gives `10…|2…`, numeric gives `2…|10…`)
+ * — disagreeing with `cutPlan`, and with its OWN `key`/`witness` in the same
+ * row, on one field of three.
+ *
+ * The fix folds `complementKey` and `witness` into one producer,
+ * `planPartsOf`, sorted the way `cutPlan` already sorts. The two tests below
+ * are the two halves of that claim: the sort order itself, and — on a real
+ * fixture board, for every cluster it has — that `witness`, `key` and
+ * `complementKey` are one sorted list split at the membership boundary, which
+ * is the exact relationship `cutPlan` guarantees for the reservoir's own
+ * `key`/`complementKey` pair.
+ */
+describe('§5.2 — complementKey is one producer, sorted the way the reservoir sorts', () => {
+  it('sorts LEXICOGRAPHICALLY, not by unitId — the digit-count case that used to disagree', () => {
+    const partAt = (unitId: UnitId): Candidate => ({ unitId, from: 0, to: 5, path: [1] });
+    const parts: ReadonlyArray<[UnitId, Candidate]> = [
+      [2, partAt(2)],
+      [10, partAt(10)],
+    ];
+    // Lexicographic: '1' < '2', so unit 10's part sorts FIRST.
+    expect(planPartsOf(parts)).toBe('10>5:1|2>5:1');
+    // The numeric-unitId spelling this file used to produce, and cutPlan never did.
+    expect(planPartsOf(parts)).not.toBe('2>5:1|10>5:1');
+  });
+
+  it("witness splits into key and complementKey at the membership boundary, for EVERY cluster — the reservoir's own key/complementKey relationship (cutPlan), reproduced here", () => {
+    const base = harness();
+    const search = makeSearchCore();
+    let exercised = 0;
+    try {
+      for (const unitId of base.sub.commandable(OURS)) {
+        for (const candidate of candidatesOf(base, unitId)) {
+          const answer = rankConditional({
+            ctx: base.ctx,
+            search,
+            cluster: unitId,
+            generation: 0,
+            locks: [{ unit: wireIdOf(unitId) as UnitKey, to: candidate.to }],
+            reserveMs: LENS_INSPECTION_MS,
+          });
+          if (!answer.ok || answer.rows.length === 0) continue;
+          const row = answer.rows[0]!;
+          const memberIds = new Set(
+            row.moves.map((m) => base.ctx.sub.unitIdOf(m.unit)).filter((id): id is UnitId => id !== undefined)
+          );
+          const parts = row.witness.length === 0 ? [] : row.witness.split('|');
+          const isMember = (part: string): boolean => memberIds.has(Number(part.slice(0, part.indexOf('>'))));
+          // The reservoir's own guarantee (cutPlan): key and complementKey
+          // are the member/non-member halves of witness's ALREADY-SORTED
+          // list, split in place — never independently re-derived.
+          expect(parts.filter(isMember).join('|')).toBe(row.key);
+          expect(parts.filter((p) => !isMember(p)).join('|')).toBe(row.complementKey);
+          exercised++;
+        }
+      }
+      // The property holds vacuously for zero clusters; make sure the fixture
+      // board actually exercised it.
+      expect(exercised).toBeGreaterThan(0);
+    } finally {
+      base.close();
+    }
+  });
+
+  it('reproduces the exact digit-count case, on a real board: locking unit 2 leaves units 3 and 10 in the complement, unit 10 first', () => {
+    // Unit 2 (the corner knight) is its own single-member cluster: its
+    // landing squares fall on neither rook's row nor column. Locking it
+    // leaves rooks 3 and 10 — clustered with EACH OTHER, not with 2 — as the
+    // complement, together, in one plan: exactly the shape where the old
+    // by-unitId sort (`3…` then `10…`) and the lexicographic sort (`10…`
+    // then `3…`) used to name two different groups for one complement.
+    const base = harnessFor(PAIR_PLUS_ISOLATED);
+    const search = makeSearchCore();
+    let exercised = 0;
+    try {
+      for (const candidate of candidatesOf(base, 2)) {
+        const answer = rankConditional({
+          ctx: base.ctx,
+          search,
+          cluster: 2,
+          generation: 0,
+          locks: [{ unit: wireIdOf(2) as UnitKey, to: candidate.to }],
+          reserveMs: LENS_INSPECTION_MS,
+        });
+        if (!answer.ok || answer.rows.length === 0) continue;
+        const row = answer.rows[0]!;
+        expect(row.key).toBe(`2>${candidate.to}:${candidate.path.join('.')}`);
+        // Lexicographic: '10' < '3' ('1' < '3'), so unit 10 sorts BEFORE
+        // unit 3 — the reverse of numeric order, and the reverse of what
+        // this file's complementKey produced before this fix.
+        expect(row.complementKey.startsWith('10>')).toBe(true);
+        expect(row.complementKey).toMatch(/^10>\d+:[\d.]*\|3>\d+:[\d.]*$/);
+        exercised++;
+      }
+      expect(exercised).toBeGreaterThan(0);
     } finally {
       base.close();
     }

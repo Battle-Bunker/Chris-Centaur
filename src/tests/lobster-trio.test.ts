@@ -19,6 +19,7 @@
  */
 
 import type { Board, Coord, Snake } from '../types/battlesnake';
+import { makeSnake } from './board-fixtures';
 import type {
   Assumption,
   BudgetHandle,
@@ -46,23 +47,6 @@ import { DEFAULT_DEAD_BELOW } from '../lobster/postures';
 import { LobsterKernel, deadlineFromWallClock } from '../lobster/kernel';
 
 // ------------------------------------------------------------------ fixtures
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
 
 const piece = (
   id: string,

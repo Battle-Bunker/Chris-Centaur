@@ -17,6 +17,7 @@ import { ActiveGameManager } from '../server/active-game-manager';
 import { GameState, Snake, Coord, CentaurMove, Direction } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
+import { makeGameState as makeGameStateBase } from './board-fixtures';
 
 // Piece commands flow through the same command-event log as snake commands;
 // mock the logger so no DB writes leak out of the unit tests (same pattern as
@@ -73,13 +74,10 @@ function makeGameState(
   food: Coord[] = [],
   hazards: Coord[] = []
 ): GameState {
-  const you = snakes.find((s) => s.id === youId)!;
-  return {
+  return makeGameStateBase(gameId, turn, snakes, youId, {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
     board: { width: 11, height: 11, food, hazards, snakes },
-    you,
-  };
+  });
 }
 
 interface Published {
