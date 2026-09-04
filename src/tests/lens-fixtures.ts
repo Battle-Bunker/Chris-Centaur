@@ -212,6 +212,7 @@ export function depthColumn(over: Partial<DepthColumn> = {}): DepthColumn {
     rankAtH1: 1,
     confidence: 'equal',
     terminal: 'none',
+    ply: null,
     delta: {
       lo: deepest.lo - h1.lo,
       hi: deepest.hi - h1.hi,

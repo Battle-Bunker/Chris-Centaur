@@ -264,8 +264,43 @@ export interface DepthCell {
   readonly sorted: boolean;
 }
 
+/**
+ * WHY A ROW IS STILL AT ONE PLY, in the fewest characters that say it (08 §4.5,
+ * gate G-D6).
+ *
+ * `Q=<n>` for the two refusals `Q` explains — the cap, and a gate with no loud
+ * reply in it — because that is the number §4.5 draws and the number §4.4 says
+ * the whole member turns on. The others are a WORD, because a number would be
+ * a false precision: `no-piece` is a scope, `crossed-floor` is a disagreement
+ * between two premises, and neither has a magnitude.
+ */
+function declineNote(ply: Moveset['depth']['ply']): string | null {
+  if (ply === null || ply.declined === null) return null;
+  switch (ply.declined) {
+    case 'off':
+    case 'no-model':
+      return null;
+    case 'cap':
+      return `Q=${ply.q}`;
+    case 'no-gate':
+      return 'Q=0';
+    case 'no-piece':
+      return 'no piece';
+    case 'plan-incomplete':
+      return 'partial';
+    case 'no-leaf':
+      return 'clock';
+    case 'not-tighter':
+      return `Q=${ply.q} no gain`;
+    case 'crossed-floor':
+      return `Q=${ply.q} crossed`;
+    default:
+      return null;
+  }
+}
+
 export function depthCell(row: Moveset): DepthCell {
-  const { h1, deepest, delta, confidence, terminal } = row.depth;
+  const { h1, deepest, delta, confidence, terminal, ply } = row.depth;
   const deepened = deepest.horizon > h1.horizon;
   const narrowed = deepest.basis !== h1.basis;
   const marks: string[] = [];
@@ -275,10 +310,22 @@ export function depthCell(row: Moveset): DepthCell {
   if (confidence === 'incomparable') marks.push('↕');
   if (narrowed) marks.push('✂');
   if (terminal !== 'none') marks.push('⊤');
+  // THE ABSENCE OF DEPTH IS DRAWN, AND NOW IT IS DRAWN WITH ITS REASON. `·`
+  // still holds the column so the table never loses a cell, and the reason
+  // rides beside it: `h1 · Q=340` says the member looked and could not pay,
+  // which is strictly more than `h1 ·` ever said.
+  const note = deepened ? null : declineNote(ply);
   return {
     label: `h${deepest.horizon}`,
     width: Number((deepest.hi - deepest.lo).toFixed(2)),
-    marks: marks.length > 0 || deepened ? marks : ['·'],
+    marks:
+      marks.length > 0 || deepened
+        ? note === null
+          ? marks
+          : [...marks, note]
+        : note === null
+          ? ['·']
+          : ['·', note],
     delta: deepened ? Number((delta.lo !== 0 ? delta.lo : delta.hi).toFixed(2)) : null,
     // A declared narrowing means `compareFloors` refuses: the row is present
     // and is NOT sorted against the others.

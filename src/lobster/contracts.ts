@@ -33,6 +33,7 @@
 import type { Claim, Divergence, Fate, PartialSettlement } from "../engine-vendor/engine/settlePartial"
 import type { MaterialBounds } from "./bounds/material"
 import type { LoudReading } from "./bounds/loud"
+import type { DeepReading } from "./bounds/bank"
 // THE ONE UPWARD REFERENCE, and it is type-only. `KernelInput.lens` names the
 // lens's own sink type rather than re-declaring its shape here: two
 // declarations of one function type is exactly the drift the lens exists to
@@ -668,6 +669,14 @@ export interface TrialObservation {
    * no comparison on this path reads it.
    */
   readonly loud?: LoudReading | null
+  /**
+   * THE CEILING PLY'S READING of this trial, or null where the rung did not
+   * run at all (`08-DEPTH-VERDICT` §4.2). Where it ran and DECLINED, this
+   * still arrives — carrying `Q` and the refusal — because §4.5's whole rule
+   * for the depth column is that the absence of depth is drawn, and drawn with
+   * its reason, rather than omitted.
+   */
+  readonly deep?: DeepReading | null
 }
 
 export type TrialSink = (trial: TrialObservation) => void

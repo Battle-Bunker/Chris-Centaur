@@ -274,11 +274,63 @@ export interface DepthColumn {
   /** `'cap'` is unreachable while F-7 stands. */
   readonly terminal: 'none' | 'elimination' | 'cap';
   readonly delta: DepthDelta;
+  /** THE CEILING PLY'S OWN ACCOUNT of this row (08 §4.5, gate G-D6). Null
+   *  where the rung never ran on it at all. */
+  readonly ply: DepthPly | null;
+}
+
+/**
+ * WHY THIS ROW IS AT THE DEPTH IT IS — the decline, with its number.
+ *
+ * `08-DEPTH-VERDICT` §4.5: *"`h1 · Q=340` on row 4 is the decline, naming the
+ * number that caused it. The absence of depth is drawn, never omitted, and now
+ * it is drawn WITH ITS REASON — which is strictly better than today's `h1 ·`,
+ * even on the rows the member never touches."* That is gate G-D6's own
+ * acceptance test, so the reason is DATA on the row rather than a string the
+ * view invents.
+ */
+export interface DepthPly {
+  /** The loud product this row was priced at. */
+  readonly q: number;
+  /** Loud leaves actually settled. Zero on a decline. */
+  readonly leaves: number;
+  /**
+   * Null when the ply deepened this row. Otherwise which refusal:
+   * `no-gate` nothing held is entangled with the staged footprint ·
+   * `no-piece` the cluster holds no piece, so the member is out of scope ·
+   * `plan-incomplete` the plan left one of our own units unnamed, so no leaf
+   * would be a board · `cap` `Q` exceeded `LOUD_CAP` · `no-leaf` the clock cut
+   * the sweep before a leaf · `not-tighter` the deep ceiling did not beat the
+   * shallow one · `crossed-floor` it came in below this plan's proved floor
+   * and was refused rather than clamped.
+   */
+  readonly declined:
+    | null
+    | 'off'
+    | 'no-model'
+    | 'no-gate'
+    | 'no-piece'
+    | 'plan-incomplete'
+    | 'cap'
+    | 'no-leaf'
+    | 'not-tighter'
+    | 'crossed-floor';
 }
 
 // ------------------------------------------------------------------ moveset
 
-export type MovesetRung = 'seed' | 'sweep' | 'pair' | 'polish' | 'restart' | 'conform';
+/** Where in the search a row was priced. `deepen` is the ceiling ply's own
+ *  rung (08 §4.2): a row at `deepen` was not compared against anything — it is
+ *  the SAME plan re-read one ply further out, which is why it is a rung of its
+ *  own rather than a polish that happened to go deep. */
+export type MovesetRung =
+  | 'seed'
+  | 'sweep'
+  | 'pair'
+  | 'polish'
+  | 'restart'
+  | 'conform'
+  | 'deepen';
 
 /** Whether this row's complement is still the incumbent's. Rows from two
  *  generations of complement are never in one list (Law E). */

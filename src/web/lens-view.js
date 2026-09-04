@@ -915,8 +915,32 @@ var LensView = (() => {
     return { op, args };
   }
   var round1 = (n) => Number(n.toFixed(1));
+  function declineNote(ply) {
+    if (ply === null || ply.declined === null) return null;
+    switch (ply.declined) {
+      case "off":
+      case "no-model":
+        return null;
+      case "cap":
+        return `Q=${ply.q}`;
+      case "no-gate":
+        return "Q=0";
+      case "no-piece":
+        return "no piece";
+      case "plan-incomplete":
+        return "partial";
+      case "no-leaf":
+        return "clock";
+      case "not-tighter":
+        return `Q=${ply.q} no gain`;
+      case "crossed-floor":
+        return `Q=${ply.q} crossed`;
+      default:
+        return null;
+    }
+  }
   function depthCell(row) {
-    const { h1, deepest, delta, confidence, terminal } = row.depth;
+    const { h1, deepest, delta, confidence, terminal, ply } = row.depth;
     const deepened = deepest.horizon > h1.horizon;
     const narrowed = deepest.basis !== h1.basis;
     const marks = [];
@@ -926,10 +950,11 @@ var LensView = (() => {
     if (confidence === "incomparable") marks.push("↕");
     if (narrowed) marks.push("✂");
     if (terminal !== "none") marks.push("⊤");
+    const note = deepened ? null : declineNote(ply);
     return {
       label: `h${deepest.horizon}`,
       width: Number((deepest.hi - deepest.lo).toFixed(2)),
-      marks: marks.length > 0 || deepened ? marks : ["·"],
+      marks: marks.length > 0 || deepened ? note === null ? marks : [...marks, note] : note === null ? ["·"] : ["·", note],
       delta: deepened ? Number((delta.lo !== 0 ? delta.lo : delta.hi).toFixed(2)) : null,
       // A declared narrowing means `compareFloors` refuses: the row is present
       // and is NOT sorted against the others.

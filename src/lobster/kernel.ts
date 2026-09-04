@@ -112,6 +112,7 @@ import type {
   MovesetBreakdown,
   MovesetKey,
   MovesetMove,
+  PlyStep,
   FeatureDelta,
   RankConditionalResult,
   UnitKey,
@@ -2622,29 +2623,12 @@ export class LobsterKernel implements Kernel {
       tie: trial.tie,
       staged: false,
       dominance: null,
-      // HORIZON 1 IS THE ONLY READING THIS BUILD HAS (06 F-2). The column is
-      // carried as DATA now — two readings, a line and a three-way delta —
-      // so that depth, when it lands, fills fields rather than adding them:
-      // `deepest === h1`, the line is empty, and every delta is zero, which
-      // is the truth about a search that has not deepened.
-      depth: {
-        h1: reading,
-        deepest: reading,
-        derived: true,
-        line: [],
-        lineTruncated: false,
-        rankAtH1: 0,
-        confidence: "equal",
-        terminal: "none",
-        delta: {
-          lo: 0,
-          hi: 0,
-          width: 0,
-          rank: 0,
-          attribution: { width: 0, terminal: 0, residual: 0 },
-          voided: false,
-        },
-      },
+      // THE DEPTH COLUMN, filled from the reading the ceiling ply actually
+      // took (08 §4.5). Where the ply did not run or declined, the two
+      // readings are one and the column says `h1 ·` with the number that
+      // caused the decline beside it — the absence of depth is DRAWN, and now
+      // it is drawn with its reason.
+      depth: depthColumnOf(reading, sub, trial),
     }
   }
 
@@ -3176,6 +3160,110 @@ export class LobsterKernel implements Kernel {
   /** Test/integrator seam: the live basis, with no way to reach a previous one. */
   basisSnapshot(): BasisSnapshot | null {
     return this.run === null ? null : basisSnapshot(this.run.basis)
+  }
+}
+
+/**
+ * THE DEPTH COLUMN OF ONE ROW (08 §4.5, 06 §2.2).
+ *
+ * TWO READINGS OF ONE PLAN, and the asymmetry between them is the member's own
+ * signature rather than an accident of the drawing. The ceiling ply may lower a
+ * ceiling and may never move a floor, so:
+ *
+ *   · `h1` and `deepest` share a floor, bit for bit. `delta.lo` is therefore
+ *     structurally zero and `▲` — the glyph for a risen floor — can never be
+ *     drawn on this build. Its absence says *depth here removes optimism; it
+ *     does not add proof.*
+ *   · `delta.hi` is the whole delta, and `delta.width` equals it, because a
+ *     bracket that lost height from the top lost exactly that much width.
+ *   · `derived` is true: `deepest` is the INTERSECTION of `h1`'s bracket with
+ *     a ceiling backed up from the leaves, not a hull of two independent
+ *     readings. The line's ply-2 layer carries a LARGER ledger than its ply-1
+ *     layer, and that is not a hull either — it is what holding our own side
+ *     costs, and it is drawn rather than hidden.
+ *
+ * THE LINE IS ONE MIN LAYER AND ONE MAX LAYER. Ply 1 is the argmin loud reply,
+ * a concrete joint reply, drawn with its moves because we picked it out of a
+ * set the enemy owns. Ply 2 carries NO MOVES AT ALL — our continuation was
+ * held, not chosen, so there is nothing to point an arrow at, and the honest
+ * picture of a bound over a set we never enumerated is a row with no arrow.
+ */
+function depthColumnOf(
+  reading: Moveset["depth"]["h1"],
+  sub: KernelInput["sub"],
+  trial: TrialObservation,
+): Moveset["depth"] {
+  const deep = trial.deep ?? null
+  const line: PlyStep[] = []
+  let deepest = reading
+  if (deep !== null && deep.horizon > 1 && deep.argmin !== null) {
+    // `h1` is the reading BEFORE the ply spoke; the row's own numbers are the
+    // deep ones, because the bracket the search is holding is the deep one.
+    const h1: Moveset["depth"]["h1"] = { ...reading, horizon: 1, hi: deep.shallowCeiling }
+    deepest = { ...reading, horizon: deep.horizon }
+    const argmin = deep.argmin
+    line.push({
+      ply: 1,
+      side: "theirs",
+      moves: argmin.replies.map((r) => ({ unit: unitKeyOf(sub, r.unitId), to: r.to })),
+      lo: argmin.lo,
+      hi: argmin.hi,
+      ledgerSize: argmin.ledgerSize,
+      // The loud subset, and the default named for every quiet unit: both are
+      // licensed WHICH-narrowings of the reply set, and the layer says so.
+      narrowed: true,
+      witnessSeq: null,
+    })
+    line.push({
+      ply: 2,
+      side: "ours",
+      moves: [],
+      lo: argmin.lo,
+      hi: argmin.above ?? argmin.hi,
+      // Everything is held one turn on, so every unit on the board is a claim
+      // the ledger could name. A rise here is the cover, not a loss of proof.
+      ledgerSize: reading.ledgerSize,
+      narrowed: false,
+      witnessSeq: null,
+    })
+    return {
+      h1,
+      deepest,
+      derived: true,
+      line,
+      lineTruncated: false,
+      rankAtH1: 0,
+      confidence: "equal",
+      terminal: "none",
+      delta: {
+        lo: 0,
+        hi: deepest.hi - h1.hi,
+        width: deepest.hi - h1.hi,
+        rank: 0,
+        attribution: { width: deepest.hi - h1.hi, terminal: 0, residual: 0 },
+        voided: false,
+      },
+      ply: { q: deep.q, leaves: deep.leaves, declined: null },
+    }
+  }
+  return {
+    h1: reading,
+    deepest: reading,
+    derived: true,
+    line: [],
+    lineTruncated: false,
+    rankAtH1: 0,
+    confidence: "equal",
+    terminal: "none",
+    delta: {
+      lo: 0,
+      hi: 0,
+      width: 0,
+      rank: 0,
+      attribution: { width: 0, terminal: 0, residual: 0 },
+      voided: false,
+    },
+    ply: deep === null ? null : { q: deep.q, leaves: deep.leaves, declined: deep.declined },
   }
 }
 

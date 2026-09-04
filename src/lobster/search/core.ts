@@ -552,6 +552,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // bank's own B3 preamble; this is the seam it travels to the lens on,
       // and no comparison below reads it.
       loud: trial.loud,
+      // AND SO DOES THE PLY'S OWN READING (08 §4.5). Both halves travel: the
+      // horizon it reached, and — where it declined — the number that made it
+      // decline. Nothing below reads either; the depth column does.
+      deep: trial.deep,
     });
   };
 
@@ -1149,12 +1153,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       leaderIdx,
       slack,
       horizon: leader.horizon,
-      // HOW DEEP THIS CORE CAN GO. One ply: there is no continuation layer,
-      // so the orchestrator's depth ration finds every target already at its
-      // maximum, falls through, and returns `stop` — which is the kernel's
-      // plain `improve()` slice. The seam is real and the answer through it is
-      // an honest no.
-      depthMax: 1,
+      // HOW DEEP THIS CORE CAN GO (08 §4.2, §4.4).
+      //
+      // Two plies where the ceiling ply is built, one where it is not. The
+      // second ply is CEILING-ONLY — a MIN over the loud subset of the enemy's
+      // replies, then one settlement of the turn after with everything held —
+      // so `depthMax: 2` is a claim about the ceiling channel and about
+      // nothing else. The ration reads it to pick at most two targets a slice
+      // (the leader and the highest-`hi` un-refuted rival), and where the
+      // member is off it finds every target already at its maximum, falls
+      // through, and returns `stop`, which is the kernel's plain `improve()`.
+      depthMax: cfg.bank.b4 === false ? 1 : 2,
       units: [],
       interiorCells: 0,
       epsilon: 0,
@@ -1165,14 +1174,72 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /**
    * Apply one lever.
    *
-   * The only lever with a producer here is depth, and `refinementView` offers
-   * it only where it can be paid for — so anything that arrives is a lever this
-   * core has no way to pull, and the honest response is the work the slice
-   * would have done anyway rather than a no-op that burns it.
+   * `deepen` HAS A PRODUCER NOW (08 §4.2 step 4): the bank's B4 rung, asked
+   * for on ONE named plan. That is the whole of the ration's contract — "the
+   * leader, whose `lo` must survive depth, and the un-refuted rival with the
+   * highest `hi`, whose optimism must be confronted" — and it is why the cost
+   * is `4Q` a decision rather than `Q` a priced plan.
+   *
+   * WHAT A DEEPENED READING DOES ON RETURN. It is a strictly TIGHTER bracket
+   * of the SAME plan: the floor is bit-for-bit the one ply 1 proved (the
+   * member may not move it, and asserts so about itself), and the ceiling is
+   * the lower of the two. So it is remembered as that plan's reading, the
+   * plan's horizon becomes 2, and the score handed back is the priced plan —
+   * never an improvement claim, because nothing was compared. Where the member
+   * declines, the reading is the shallow one and the horizon stays 1, which is
+   * a fact the row draws rather than an absence it omits.
+   *
+   * Any other lever is one this core has no way to pull, and the honest
+   * response is the work the slice would have done anyway rather than a no-op
+   * that burns it.
    */
   const refine = (ctx: SearchContext, lever: Lever): PlanScore => {
-    void lever;
+    if (lever.kind === "deepen") deepenOne(ctx, lever.planKey);
+    // AND THEN THE SLICE DOES ITS WORK. A deepen is a handful of settlements,
+    // not a slice's worth of them, and a slice that spent its whole budget on
+    // one is a slice the search did not get — measured, on `mixed`: with the
+    // deepen owning the slice the loop ran 241 slices a decision and priced a
+    // QUARTER of the plans it prices now. The ration says which plan gets the
+    // ply; it does not say the ply is all a slice may do.
     return improve(ctx);
+  };
+
+  /**
+   * ONE PLAN, ONE ANSWER. `priceDeep` is asked at most once per plan per
+   * session, and the guard is a property of the SEARCH rather than of the
+   * ration: a plan the member DECLINED keeps a horizon of 1, honestly, so the
+   * ration would otherwise offer it again on every slice for ever — a spin
+   * whose cost is invisible because each turn of it is cheap.
+   */
+  const deepAsked = new WeakSet<object>();
+  const deepenOne = (ctx: SearchContext, key: string): void => {
+    const s = sessionFor(ctx);
+    const target = s.rivals.get(key);
+    if (target === undefined || deepAsked.has(target.plan as object)) return;
+    deepAsked.add(target.plan as object);
+    const previous = trials;
+    trials = ctx.trials ?? null;
+    const priorRung = rung;
+    rung = "deepen";
+    try {
+      const deep = s.bank.priceDeep(target.plan);
+      // THE HORIZON IS THE READING'S, and it is claimed only where the member
+      // actually deepened: a plan the ply declined stays at one ply, so
+      // `better()`'s two horizon guards keep seeing the truth rather than a
+      // depth that was asked for and not delivered.
+      if (deep.deep !== null && deep.deep.horizon > 1) {
+        deepHorizon.set(target.plan as object, deep.deep.horizon);
+      }
+      remember(s, deep);
+      // THE DEEPENED ROW IS A TRIAL. It is offered against ITSELF, because it
+      // is not a comparison: the lens's depth column needs both readings of
+      // one plan, and a trial compared against something else would put the
+      // wrong incumbent in the row.
+      observe(deep, deep, ACCEPT);
+    } finally {
+      rung = priorRung;
+      trials = previous;
+    }
   };
 
   return { improve, conform, refinementView, refine, drainRefusals, release };

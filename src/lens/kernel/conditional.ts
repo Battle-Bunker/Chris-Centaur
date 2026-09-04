@@ -370,4 +370,7 @@ const HORIZON_1: Moveset['depth'] = {
     attribution: { width: 0, terminal: 0, residual: 0 },
     voided: false,
   },
+  // `conform` returns a plan, not a price, so no rung has spoken about this
+  // row yet — the ceiling ply included.
+  ply: null,
 };
