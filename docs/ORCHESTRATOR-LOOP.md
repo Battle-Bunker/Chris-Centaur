@@ -15,19 +15,17 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~12:20Z
-Merged this cycle: goto fix (c1a3e2c); bot SIMPLIFY items 3,4,8,9,2m (348988c) and 1,5,13 (c3928e3); TT SIMPLIFY items 1-9 (pushed on the TT branch). Head c3928e3; full suite re-run pending on the merged head.
+## Active wave (update on every launch/merge) — 2026-09-04 ~13:10Z
+Merged: depth preconditions F-1..F-9 (439bec4, byte-identical A/B; depth 2 built, measured, NOT engaged — see the merge message). Checkpoints: CC `stable/one-engine-lens-v2` = 439bec4; TT `stable/one-engine-v2` = 526ff4f (TT SIMPLIFY-PLAN complete, processor 1478→639 lines).
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| depth (CC) | opus | F-1..F-9 depth preconditions, then depth 2 for piece clusters, gated | merge preconditions; engagement only if A/B not worse per board class |
-| (TT checkout) | opus | TT SIMPLIFY judgement items 10, 12 (+ a gate for 11 if cheap) | goldens unchanged + suite green |
-Deferred until depth lands (same files): bot items 10 (board memo), 11 (bank sweep), 12 (contracts hub), 6 (decision rig), 7 (tier-freeze).
-Watch: the executors' net line deltas were near zero on candidates/evaluate (+200/−179) — helpers added; judge the NEXT audit on special cases removed, not lines.
+| simp-c (CC) | sonnet | SIMPLIFY-PLAN items 6, 7, 10, 11, 12 (mechanical parts) | byte-identical runner + suite green; item 11 also zero inversions |
+| lookahead (CC) | opus | docs/design/decision-lens/08-DEPTH-VERDICT.md: what lookahead is affordable and legible after the depth-2 measurement (abstract plies over claims / selective / quiescence / threat map / reply model) | merge doc; queue its first step |
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
-2. Depth preconditions F-1..F-9 (docs/design/decision-lens/06-LOOKAHEAD.md), then depth on for pieces, gated.
+2. Lookahead: follow 08-DEPTH-VERDICT.md's recommendation (depth preconditions done; chained depth 2 does not pay at production budgets).
 3. goto weight defect (docs/design/drives/01, M1) — fix on the working branch.
 4. TacticToes server/frontend simplification now the engine owns the turn.
 5. Entrapment with a horizon; potion member v2 (must change WHICH pickups).
