@@ -1166,24 +1166,53 @@ function spendRank(a: AssessedCandidate): number {
   return Math.max(COST_PER_CELL, a.energySpent.hi);
 }
 
-function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  // TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made
-  // by walking into something that outranks us is not a capture, it is a
-  // donation. Both terms are identically zero on a board with no live
-  // invulnerability effect, so this comparison is a no-op wherever potions are
-  // off and the order below it is byte-for-byte what it always was.
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const spend = spendRank(a) - spendRank(b);
-  if (spend !== 0) return spend;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
-}
+/** One comparator term: a signed lexicographic tie-break, zero meaning "next". */
+type Term = (a: AssessedCandidate, b: AssessedCandidate) => number;
+
+/** Chain terms into one comparator: the first non-zero term decides. */
+const compareBy =
+  (terms: ReadonlyArray<Term>): Term =>
+  (a, b) => {
+    for (const term of terms) {
+      const d = term(a, b);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+
+const byTier: Term = (a, b) => TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
+// TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made by
+// walking into something that outranks us is not a capture, it is a donation.
+// Both terms are identically zero on a board with no live invulnerability
+// effect, so this comparison is a no-op wherever potions are off and the order
+// below it is byte-for-byte what it always was.
+const byTierRisk: Term = (a, b) => tierRisk(a) - tierRisk(b);
+const byCapture: Term = (a, b) => captureOrder(a, b);
+const byShadow: Term = (a, b) => b.shadowBonus - a.shadowBonus;
+const bySpend: Term = (a, b) => spendRank(a) - spendRank(b);
+const byContingencies: Term = (a, b) => a.contingencies - b.contingencies;
+const byTo: Term = (a, b) => a.candidate.to - b.candidate.to;
+const byRegicideShot: Term = (a, b) => b.regicideShot - a.regicideShot;
+const byFoodGain: Term = (a, b) => b.foodGain - a.foodGain;
+// The gain order's own version of `bySpend`: a move that ate is charged
+// nothing, per the note above `spendRank`.
+const bySpendRefundingFood: Term = (a, b) =>
+  (a.foodGain === 1 ? 0 : spendRank(a)) - (b.foodGain === 1 ? 0 : spendRank(b));
+
+const BASE_ORDER: ReadonlyArray<Term> = [byTier, byTierRisk, byCapture, byShadow, bySpend, byContingencies, byTo];
+const GAIN_ORDER: ReadonlyArray<Term> = [
+  byTier,
+  byTierRisk,
+  byRegicideShot,
+  byCapture,
+  byFoodGain,
+  byShadow,
+  bySpendRefundingFood,
+  byContingencies,
+  byTo,
+];
+
+const orderKey: Term = compareBy(BASE_ORDER);
 
 /**
  * THE CAPTURE ORDER — expected captured weight first, certainty second.
@@ -1257,22 +1286,7 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  * food-and-king boards I3 measured this comparator is byte-for-byte the one it
  * measured.
  */
-function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const ha = a.foodGain === 1 ? 0 : spendRank(a);
-  const hb = b.foodGain === 1 ? 0 : spendRank(b);
-  if (ha !== hb) return ha - hb;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
-}
+const gainOrderKey: Term = compareBy(GAIN_ORDER);
 
 /**
  * The one ordering number for everything tier.
