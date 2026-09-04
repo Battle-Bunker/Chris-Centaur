@@ -262,3 +262,31 @@ but it is written down here because "zero inversions" is not a gate the
    the potion cell would make the peril per-plan rather than per-collector, and
    would cost a claim pass per candidate destination. Whether that buys anything
    is unmeasured.
+
+---
+
+# D4: the far horizons were a constant, and ate half the peril's range
+
+`docs/design/BEHAVIOUR-AUDIT.md` D4. The peril half reads the whole window and
+weights horizon k by `W − k + 1` — 3, 2, 1 at `W = 3`. Section 1 above records
+why the far horizons are read at all and also why they say nothing: 41 of 41
+pickups came back fully exposed at k = 2 and k = 3, because by the second turn
+every unit on an 11x11 board can meet every other. So under arithmetic weights
+`beaten_2 = beaten_3 = 1` almost always, and
+
+    peril = (3·beaten_1 + 2 + 1) / 6 = 0.5·beaten_1 + 0.5
+
+— half the term's mass is a constant and the usable range is `[0.5, 1]`, not
+`[0, 1]`. The one horizon that still discriminates is halved before it meets
+`PERIL_WEIGHT`, and the audit's reproduction is what that buys: `potions`
+seed 6 turn 39, `red-C` pays a tier to give its ONE surviving ally a tier, while
+EXPOSED at horizon 1, on a margin of 0.03 over the next option.
+
+## The baseline this section is measured against
+
+`potions`, 60 turns, seeds 1–8, `--nodes` — the audit's own corpus, reproduced
+on this branch before the change:
+
+| pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed |
+|---|---|---|---|---|
+| 39 | 16 (41.0%) | 23 (**59.0%**) | 8 (**20.5%**) | 0 |
