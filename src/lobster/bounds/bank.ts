@@ -243,6 +243,15 @@ interface View {
 
 const isFinite_ = (n: number): boolean => Number.isFinite(n);
 
+/** The best item by `better`'s strict order. `items` must be non-empty. */
+function pickBy<T>(items: ReadonlyArray<T>, better: (candidate: T, incumbent: T) => boolean): T {
+  let pick = items[0] as T;
+  for (const item of items) {
+    if (better(item, pick)) pick = item;
+  }
+  return pick;
+}
+
 export class BoundBank {
   private readonly cfg: BankConfig;
   private readonly memo: MemoizedSubstrate;
@@ -659,26 +668,20 @@ export class BoundBank {
     // are allowed to come from different members. Only the WINNER's basis
     // conditions the result — a losing conditional member asserted something
     // the answer does not use.
-    let floorPick = floorMembers[0] as { bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement };
-    for (const m of floorMembers) {
-      if (m.bounds.worst > floorPick.bounds.worst) floorPick = m;
-      else if (
-        m.bounds.worst === floorPick.bounds.worst &&
-        m.bounds.ledger.length < floorPick.bounds.ledger.length
-      ) {
-        floorPick = m;
-      }
-    }
-    let ceilPick = ceilingBranches[0] as Branch;
-    for (const b of ceilingBranches) {
-      if (b.bounds.best < ceilPick.bounds.best) ceilPick = b;
-      else if (
-        b.bounds.best === ceilPick.bounds.best &&
-        b.bounds.ledger.length < ceilPick.bounds.ledger.length
-      ) {
-        ceilPick = b;
-      }
-    }
+    const floorPick = pickBy(
+      floorMembers,
+      (m, incumbent) =>
+        m.bounds.worst > incumbent.bounds.worst ||
+        (m.bounds.worst === incumbent.bounds.worst &&
+          m.bounds.ledger.length < incumbent.bounds.ledger.length)
+    );
+    const ceilPick = pickBy(
+      ceilingBranches,
+      (b, incumbent) =>
+        b.bounds.best < incumbent.bounds.best ||
+        (b.bounds.best === incumbent.bounds.best &&
+          b.bounds.ledger.length < incumbent.bounds.ledger.length)
+    );
 
     // A CONDITIONAL floor and an UNCONDITIONAL ceiling are statements about
     // two different games, and the conditional one may legitimately sit above
