@@ -68,7 +68,6 @@ function makeTurnData(gs: GameState, move: CentaurMove | null): TurnData {
     gameState: gs,
     moveEvaluations: [],
     territoryCells: {},
-    safeMoves: [],
     botRecommendation: move,
     timestamp: Date.now(),
   };

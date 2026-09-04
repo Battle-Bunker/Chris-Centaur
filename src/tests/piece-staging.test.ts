@@ -507,7 +507,6 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
       gameState: gsSnake,
       moveEvaluations: [],
       territoryCells: {},
-      safeMoves: ['up', 'down', 'left', 'right'],
       botRecommendation: 'right',
       timestamp: Date.now(),
     });
@@ -592,7 +591,6 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const stay = fullIdx({ x: 5, y: 5 });
     for (const e of evals) {
       expect(typeof e.move).toBe('number');
-      expect(e.numStates).toBe(0);
       expect(e.dest).toBeDefined();
       expect(e.kind).toBe(e.move === stay ? 'stay' : 'move');
       // No waypoint is active, so the projected health cost — squares
@@ -624,7 +622,6 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const stayEval = evals.find((e) => e.move === stay)!;
     expect(stayEval.dest).toEqual({ x: 5, y: 5 });
     // Other turn-data fields keep the snake contract shape.
-    expect(cs.latestTurnData!.safeMoves).toEqual([]);
     expect(cs.latestTurnData!.botRecommendation).toBeNull();
 
     // The previously-missing broadcast: the piece's turn intake notifies.

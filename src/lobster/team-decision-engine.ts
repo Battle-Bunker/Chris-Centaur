@@ -33,7 +33,7 @@
  * per-game state on this engine, never module scope.
  */
 
-import type { Board as ApiBoard, CentaurMove, Direction, GameState } from '../types/battlesnake';
+import type { Board as ApiBoard, CentaurMove, GameState } from '../types/battlesnake';
 import type { TurnData } from '../server/active-game-manager';
 import type { BotIdentity, BotSpec } from '../config/bot-identity';
 import { botIdentityOf } from '../config/bot-identity';
@@ -1129,7 +1129,6 @@ export class TeamDecisionEngine {
         gameState: view,
         moveEvaluations: [],
         territoryCells: {},
-        safeMoves: [],
         botRecommendation: move,
         timestamp: this.now(),
         bot,
@@ -1174,25 +1173,17 @@ export class TeamDecisionEngine {
     pins: PinSet;
     bot: BotIdentity;
   }): void {
-    const { input, sub, asTeam, gen, evaluate, report, finalPlan, views, lastForwarded } = args;
+    const { input, sub, asTeam, gen, evaluate, finalPlan, views, lastForwarded } = args;
     let rows: UnitDecisionRow[];
     try {
       rows = buildDecisionRows({
         gameId: input.gameId,
-        turn: input.turn,
         sub,
         asTeam,
         gen,
         evaluate,
-        report,
         finalPlan,
         views,
-        forwarded: lastForwarded,
-        assumptions: args.assumptions,
-        modelled: args.modelled,
-        pins: args.pins,
-        engineName: 'lobster',
-        bot: args.bot,
         moveOf: (unit, candidate) => this.moveOf(sub, unit, candidate),
       });
     } catch (err) {
@@ -1214,9 +1205,6 @@ export class TeamDecisionEngine {
           gameState: view,
           moveEvaluations: row.moveEvaluations,
           territoryCells: {},
-          // Sound only because this branch is snakes-only: a snake's offerable
-          // set IS its direction words. A piece's would be destination ids.
-          safeMoves: row.safeMoves as Direction[],
           botRecommendation: move,
           timestamp: this.now(),
           bot: args.bot,

@@ -48,7 +48,6 @@ function makeEvaluations(best: Direction): MoveEvaluation[] {
   return (['up', 'down', 'left', 'right'] as Direction[]).map((move) => ({
     move,
     score: move === best ? 500 : 10,
-    numStates: 1,
     breakdown: {
       trapped: 0,
       weights: { gotoProgress: 300, nearProgress: 250 },
@@ -62,7 +61,6 @@ function makeTurnData(gs: GameState, botMove: Direction): TurnData {
     gameState: gs,
     moveEvaluations: [],
     territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
     botRecommendation: botMove,
     timestamp: Date.now(),
   };

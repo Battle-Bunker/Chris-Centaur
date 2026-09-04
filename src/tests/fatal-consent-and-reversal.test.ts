@@ -51,7 +51,6 @@ function makeTurnData(gs: GameState, botMove: Direction): TurnData {
     gameState: gs,
     moveEvaluations: [],
     territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
     botRecommendation: botMove,
     timestamp: Date.now(),
   };
@@ -197,7 +196,6 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     const evaluations: MoveEvaluation[] = (['down', 'up', 'left'] as Direction[]).map((move) => ({
       move,
       score: move === 'down' ? 500 : 10,
-      numStates: 1,
       breakdown: {
         trapped: 0,
         weights: { gotoProgress: 300, nearProgress: 250 },

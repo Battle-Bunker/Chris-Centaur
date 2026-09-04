@@ -44,7 +44,6 @@ function makeTurnData(gs: GameState, botMove: Direction): TurnData {
     gameState: gs,
     moveEvaluations: [],
     territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
     botRecommendation: botMove,
     timestamp: Date.now(),
   };
