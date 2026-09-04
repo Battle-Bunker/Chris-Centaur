@@ -82,6 +82,7 @@ import {
 } from './staging-safety';
 import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
 import { makeSearchCore } from './search/core';
+import { perBoard } from './evaluate/memo';
 import type {
   Candidate,
   CandidateGenerator,
@@ -469,28 +470,18 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
-    const hit = this.shadows.get(sub);
-    if (hit !== undefined) return hit;
-    const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
-    this.shadows.set(sub, made);
-    return made;
+    return perBoard(this.shadows, sub, () =>
+      this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>()
+    );
   }
 
   private regicideFor(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> | null {
     if (!this.knobs.gainOrdering) return null;
-    const hit = this.regicideCells.get(sub);
-    if (hit !== undefined) return hit;
-    const made = enemyRegicideCells(sub);
-    this.regicideCells.set(sub, made);
-    return made;
+    return perBoard(this.regicideCells, sub, () => enemyRegicideCells(sub));
   }
 
   private victimsFor(sub: EngineSubstrate): VictimTable {
-    const hit = this.victims.get(sub);
-    if (hit !== undefined) return hit;
-    const made = victimTable(sub);
-    this.victims.set(sub, made);
-    return made;
+    return perBoard(this.victims, sub, () => victimTable(sub));
   }
 }
 

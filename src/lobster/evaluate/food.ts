@@ -68,6 +68,7 @@ import { bbTest } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, bound, point } from './bound';
 import type { EvalContext, Standing } from './features';
+import { perBoard } from './memo';
 
 /** No path from this cell to any meal. */
 const UNREACHABLE = -1;
@@ -103,9 +104,10 @@ const DISTANCE = new WeakMap<EngineSubstrate, Int32Array>();
  * Cached per substrate: one flood per decision, not one per evaluation.
  */
 export function foodDistance(sub: EngineSubstrate): Int32Array {
-  const hit = DISTANCE.get(sub);
-  if (hit !== undefined) return hit;
+  return perBoard(DISTANCE, sub, () => computeFoodDistance(sub));
+}
 
+function computeFoodDistance(sub: EngineSubstrate): Int32Array {
   const grid = sub.grid;
   const width = grid.width;
   const dist = new Int32Array(grid.cells).fill(UNREACHABLE);
@@ -136,7 +138,6 @@ export function foodDistance(sub: EngineSubstrate): Int32Array {
       queue[tail++] = next;
     }
   }
-  DISTANCE.set(sub, dist);
   return dist;
 }
 

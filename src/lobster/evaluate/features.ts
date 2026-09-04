@@ -65,6 +65,7 @@ import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
+import { perBoard } from './memo';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
 import { contestFeature } from './contest';
@@ -508,16 +509,12 @@ const rosterConstants = new WeakMap<EngineSubstrate, RosterConstants>();
 
 /** `teams`, `trailScaleOf` and `pieceScaleOf` — one roster walk, memoised. */
 function rosterConstantsOf(sub: EngineSubstrate): RosterConstants {
-  const hit = rosterConstants.get(sub);
-  if (hit !== undefined) return hit;
-  const made: RosterConstants = {
+  return perBoard(rosterConstants, sub, () => ({
     teams: new Set(sub.roster().map((u) => u.team)),
     roomScale: trailScaleOf(sub),
     pieceScale: pieceScaleOf(sub),
     royalReachers: royalMargin(),
-  };
-  rosterConstants.set(sub, made);
-  return made;
+  }));
 }
 
 export function trailScaleOf(sub: EngineSubstrate): number {

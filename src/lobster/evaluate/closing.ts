@@ -51,6 +51,7 @@ import { DEFAULT_WEIGHTS, TERRITORY_PROFILE } from './calibration';
 import { ADMISSION, FEATURES } from './features';
 import type { EvalContext } from './features';
 import { BoundEvaluator } from './index';
+import { perBoard } from './memo';
 import type { EngineSubstrate } from '../substrate';
 
 
@@ -70,13 +71,11 @@ import type { EngineSubstrate } from '../substrate';
 const foodCache = new WeakMap<EngineSubstrate, Int32Array>();
 
 function foodCellsOf(sub: EngineSubstrate): Int32Array {
-  const hit = foodCache.get(sub);
-  if (hit !== undefined) return hit;
-  const cells: number[] = [];
-  for (let c = 0; c < sub.grid.cells; c++) if (sub.foodAt(c)) cells.push(c);
-  const made = Int32Array.from(cells);
-  foodCache.set(sub, made);
-  return made;
+  return perBoard(foodCache, sub, () => {
+    const cells: number[] = [];
+    for (let c = 0; c < sub.grid.cells; c++) if (sub.foodAt(c)) cells.push(c);
+    return Int32Array.from(cells);
+  });
 }
 
 /**
@@ -90,13 +89,11 @@ function foodCellsOf(sub: EngineSubstrate): Int32Array {
 const scaleCache = new WeakMap<EngineSubstrate, number>();
 
 function unitScaleOf(sub: EngineSubstrate): number {
-  const hit = scaleCache.get(sub);
-  if (hit !== undefined) return hit;
-  const byTeam = new Map<number, number>();
-  for (const u of sub.roster()) byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
-  const made = Math.max(1, ...byTeam.values());
-  scaleCache.set(sub, made);
-  return made;
+  return perBoard(scaleCache, sub, () => {
+    const byTeam = new Map<number, number>();
+    for (const u of sub.roster()) byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
+    return Math.max(1, ...byTeam.values());
+  });
 }
 
 /** Credit for a unit that can be on food in `d` turns. Linear, saturating at

@@ -94,6 +94,7 @@ import type { EngineSubstrate } from '../substrate';
 import { type Feature, envelope, point } from './bound';
 import { type ContestField, contestField, frozenTier, winsContest } from './contest';
 import type { EvalContext, Standing } from './features';
+import { perBoard } from './memo';
 
 /**
  * Is there any tier to price on this board at all?
@@ -112,19 +113,18 @@ import type { EvalContext, Standing } from './features';
 const LIVE = new WeakMap<object, boolean>();
 
 export function tierIsLive(sub: EngineSubstrate): boolean {
-  const hit = LIVE.get(sub.marshalled);
-  if (hit !== undefined) return hit;
-  let live = sub.potionsEnabled() && sub.marshalled.potions.length > 0;
-  if (!live) {
-    for (const unit of sub.roster()) {
-      if (unit.tier !== 0) {
-        live = true;
-        break;
+  return perBoard(LIVE, sub.marshalled, () => {
+    let live = sub.potionsEnabled() && sub.marshalled.potions.length > 0;
+    if (!live) {
+      for (const unit of sub.roster()) {
+        if (unit.tier !== 0) {
+          live = true;
+          break;
+        }
       }
     }
-  }
-  LIVE.set(sub.marshalled, live);
-  return live;
+    return live;
+  });
 }
 
 /**
