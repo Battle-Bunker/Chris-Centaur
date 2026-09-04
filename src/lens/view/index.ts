@@ -33,6 +33,7 @@ import {
 import type {
   CandidateRow,
   ConditionalHandle,
+  DominanceCondition,
   ConditionalRequest,
   Cursor,
   DecisionSource,
@@ -242,6 +243,10 @@ function call(op: string, ...args: ReadonlyArray<unknown>): DrawCall {
   return { op, args };
 }
 
+/** One decimal, the rail's own resolution. A margin printed at float width is
+ *  a number nobody reads and a false claim about how well it is known. */
+const round1 = (n: number): number => Number(n.toFixed(1));
+
 // ---------------------------------------------------------------------------
 // The depth cell (06 §2.2)
 //
@@ -448,6 +453,11 @@ function movesetOps(
         Number((row.hi - row.lo).toFixed(2)),
         cell,
         leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
+        // THE `unless` CELL. Drawn on every row, leader included, and never
+        // omitted: a row with no clause and a row that leads on the proved
+        // floor are two different states and only "always draw it" tells them
+        // apart (Law A, applied to the reduction).
+        dominanceClause(row.dominance),
         row.moves.map((m) => `${m.unit}→${m.to}`),
         row.complement,
         row.key === selected?.key,
@@ -480,11 +490,67 @@ function movesetOps(
 }
 
 /**
+ * THE THREAT/OPPORTUNITY MAP, one clause per row (03 §2.4, 08 §3.4).
+ *
+ * `better()`'s six refusal branches ARE the set-valued reduction: every one of
+ * them already knows why it refused, the reservoir turns the reason into a
+ * `DominanceCondition` at the barrier, and until now it reached the operator
+ * for exactly one pair of rows — the selected row and its foil. This renders it
+ * for EVERY retained row, which is what makes the table a map rather than a
+ * ranking: per row it says what that moveset is BETTING ON, named by unit and
+ * priced in the aggregate's own units.
+ *
+ * COST: ZERO SETTLEMENTS. Every input is a value the comparison already
+ * produced, read in the order it was already produced in. Nothing here asks
+ * the bank a question, so no node count moves and no frame changes.
+ *
+ * The clause is written to complete the sentence *"this moveset wins unless
+ * …"*, which is why `contingent` reads as a condition and `dominated` as its
+ * denial. `atStake` and the margins are rounded like every other number on the
+ * rail: an unrounded float in a sentence is a number nobody can read.
+ */
+/**
+ * The ledger's residue entry, as a `UnitKey`. `unitKeyOf` falls back to
+ * `#${unitId}` for a number the wire cannot name, and the bounds layer's
+ * `EVALUATOR_RESIDUE_UNIT` is `-1` — the gap the evaluator itself declares
+ * when no held unit accounts for it. Naming it in the row is the whole point
+ * of the clause; printing `#-1` at the operator would not be naming it.
+ */
+const RESIDUE_KEY = '#-1';
+
+const namedUnit = (key: string): string => (key === RESIDUE_KEY ? 'the evaluator residue' : key);
+
+export function dominanceClause(dominance: DominanceCondition | null): string {
+  if (dominance === null) return 'unsealed — the barrier has not run';
+  switch (dominance.kind) {
+    case 'leader':
+      return 'leads on the proved floor';
+    case 'refuted-by-witness':
+      // A CERTIFICATE, not an opinion: a concrete joint reply holds this plan
+      // below the leader's PROVED floor, and it survives restarts by contract.
+      return 'refuted by a witness';
+    case 'incomparable-basis':
+      return 'incomparable basis — not sorted against the leader';
+    case 'contingent':
+      // The owner's own row: what this moveset rides on, and what it is worth.
+      // An empty `onUnits` is the honest case where the bracket is the
+      // evaluator's own residue rather than any held unit, and it says so.
+      return dominance.onUnits.length === 0
+        ? `wins on nothing named — ${round1(dominance.atStake)} at stake`
+        : `${dominance.onUnits.map(namedUnit).join(', ')} resolve against us · ` +
+            `${round1(dominance.atStake)} at stake`;
+    case 'dominated':
+      return `cannot win — dominated by ${round1(dominance.by)}`;
+    case 'advisory-only':
+      return `floors equal — advisory ${round1(dominance.estMargin)}`;
+    case 'indifferent':
+      return 'my proof rungs are silent here — your call beats my tie-break';
+  }
+}
+
+/**
  * WHY this row is not the leader, taken from `better()`'s own branch read
- * backwards. When the deciding rung is a TIE rather than a term, the line
- * changes to the ask form: the proof rungs are silent and the operator's call
- * beats a salted coin-flip, which is the one place the lens actively asks for
- * attention.
+ * backwards — the same clause every row now carries, read for the PAIR.
  */
 function decidingRung(selected: Moveset, foil: Moveset): string {
   // The interesting half of the pair is the LOSER: `better()`'s branch is the
@@ -492,23 +558,7 @@ function decidingRung(selected: Moveset, foil: Moveset): string {
   // "leads on the proved floor" back at the operator answers nothing.
   const loser = selected.rank > foil.rank ? selected : foil;
   const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
-  if (dominance === null) return 'unsealed — the barrier has not run';
-  switch (dominance.kind) {
-    case 'leader':
-      return 'leads on the proved floor';
-    case 'refuted-by-witness':
-      return 'refuted by a witness';
-    case 'incomparable-basis':
-      return 'incomparable basis — not sorted against this row';
-    case 'contingent':
-      return `contingent on ${dominance.onUnits.join(', ')} (${dominance.atStake} at stake)`;
-    case 'dominated':
-      return `dominated by ${dominance.by}`;
-    case 'advisory-only':
-      return `floors equal — advisory margin ${dominance.estMargin}`;
-    case 'indifferent':
-      return 'my proof rungs are silent here — your call beats my tie-break';
-  }
+  return dominanceClause(dominance);
 }
 
 function breakdownOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): DrawCall[] {

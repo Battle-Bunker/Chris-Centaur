@@ -171,6 +171,103 @@ describe('dominance is filled at the barrier and not before', () => {
   });
 });
 
+/**
+ * THE THREAT/OPPORTUNITY MAP (03 §2.4, 08 §3.4).
+ *
+ * `better()`'s refusal branch is the whole content of the set-valued
+ * reduction, and the reservoir is where it becomes a statement about a row.
+ * Every branch is asserted here, because the panel now draws one clause PER
+ * ROW rather than one per decision: a branch that mapped to the wrong
+ * condition used to be invisible on four rows out of five.
+ *
+ * The leader is offered with a floor nothing else reaches, so every other
+ * row's condition is a statement about the same leader.
+ */
+describe('every retained row carries the condition its refusal branch names', () => {
+  const LEADER = moveset({ key: 'lead', lo: 20, est: 20, hi: 24, tie: 9 });
+
+  /** One rival, offered with `because`, sealed against that leader. */
+  function conditionOf(row: Moveset, refusal: Parameters<MovesetReservoir['offer']>[1]) {
+    const r = makeReservoir();
+    r.offer(LEADER);
+    r.offer(row, refusal);
+    r.seal(LIVE);
+    return r.rows(0, LIVE)[1]?.dominance;
+  }
+
+  it('the witness branch carries the certificate itself, when one was banked', () => {
+    const witness = { replies: new Map(), note: 'B1 minimiser for unit 3' };
+    expect(conditionOf(moveset({ key: 'w', lo: 5, est: 5, hi: 9 }), { because: 'witness', witness })).toEqual(
+      { kind: 'refuted-by-witness', witness }
+    );
+  });
+
+  it('the witness branch with NO certificate says `dominated`, not a fabricated one', () => {
+    // `refutedAt` is arithmetic — this plan's ceiling under the leader's proved
+    // floor — and that is exactly what `dominated` claims. A witness nobody
+    // holds would be a certificate nobody can check.
+    expect(conditionOf(moveset({ key: 'w2', lo: 5, est: 5, hi: 9 }), { because: 'witness' })).toEqual({
+      kind: 'dominated',
+      by: 20 - 9,
+    });
+  });
+
+  it('a basis mismatch is INCOMPARABLE and carries the assumptions that made it so', () => {
+    const assumptions = [{ kind: 'narrowing' as const, unitId: 3, note: 'option list unproved' }];
+    const row = { ...moveset({ key: 'b', lo: 5, est: 5, hi: 9 }), assumptions };
+    expect(conditionOf(row, { because: 'basis' })).toEqual({
+      kind: 'incomparable-basis',
+      theirs: assumptions,
+    });
+  });
+
+  it('an est refusal is ADVISORY-ONLY — the floors are equal and est never adjudicates', () => {
+    const row = moveset({ key: 'e', lo: 20, est: 14, hi: 24, tie: 1 });
+    expect(conditionOf(row, { because: 'est' })).toEqual({ kind: 'advisory-only', estMargin: 6 });
+  });
+
+  it('a tie refusal is INDIFFERENT — the proof rungs are silent and a coin decided', () => {
+    const row = moveset({ key: 't', lo: 20, est: 20, hi: 24, tie: 1 });
+    expect(conditionOf(row, { because: 'tie' })).toEqual({ kind: 'indifferent' });
+  });
+
+  it('a floor refusal whose CEILING clears the leader floor is CONTINGENT, named and priced', () => {
+    // The row can still lead — but only if everything it cites resolves its
+    // way, and `atStake` is what that resolution is worth.
+    const row = { ...moveset({ key: 'c', lo: 12, est: 12, hi: 26 }), citedUnits: ['B-r3', 'B-q1'] };
+    expect(conditionOf(row, { because: 'floor' })).toEqual({
+      kind: 'contingent',
+      onUnits: ['B-r3', 'B-q1'],
+      atStake: 6,
+    });
+  });
+
+  it('a floor refusal whose ceiling does NOT is DOMINATED — it cannot win under any resolution', () => {
+    const row = moveset({ key: 'd', lo: 12, est: 12, hi: 18 });
+    expect(conditionOf(row, { because: 'floor' })).toEqual({ kind: 'dominated', by: 2 });
+  });
+
+  it('a row retained with NO refusal recorded still gets a condition, on the same rule', () => {
+    // A trial that was ACCEPTED when it was offered is still a row the operator
+    // reads at the barrier, and "no clause" and "leads" are different states.
+    const row = { ...moveset({ key: 'n', lo: 12, est: 12, hi: 26 }), citedUnits: ['B-r3'] };
+    expect(conditionOf(row, null)).toEqual({
+      kind: 'contingent',
+      onUnits: ['B-r3'],
+      atStake: 6,
+    });
+  });
+
+  it('fills a condition on EVERY retained row, not just the pair the foil draws', () => {
+    const r = makeReservoir();
+    offerAll(r, SPREAD);
+    r.seal(LIVE);
+    const rows = r.rows(0, LIVE);
+    expect(rows.length).toBe(LENS_TOPK);
+    expect(rows.filter((m) => m.dominance !== null)).toHaveLength(LENS_TOPK);
+  });
+});
+
 describe('slack is re-derived from the reservoir (04 §5.2 #12)', () => {
   it('is max over retained rivals of (rᵢ.hi − leader.lo), not the leader own gap', () => {
     const rows = [...SPREAD].sort(byBetter).slice(0, LENS_TOPK);
