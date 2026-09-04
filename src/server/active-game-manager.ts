@@ -1,4 +1,4 @@
-import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
+import { GameState, BoardSnapshot, Direction, Coord, CentaurMove, Snake } from '../types/battlesnake';
 // Type-only: the wire layer's staged-unit shape, so the team path speaks one
 // vocabulary end to end. Erased at compile time, so there is no module cycle
 // with src/wire/team-submitter.ts (which imports IntendedMoveSource from here,
@@ -952,6 +952,30 @@ export class ActiveGameManager {
     }
   }
 
+  /** Learn every unit on a snapshot. First write wins: a name is never regressed. */
+  private rememberSnakes(game: ActiveGame, snakes: ReadonlyArray<Snake>): void {
+    for (const snake of snakes) {
+      if (!game.snakes.has(snake.id)) {
+        game.snakes.set(snake.id, { id: snake.id, name: snake.name, letter: snake.letter || '' });
+      }
+    }
+  }
+
+  // The defensive board advance, which should never fire: updateBoard should
+  // always have advanced the board first. Kept so the game stays live if a
+  // transport ever feeds decisions without feeding the board — see the two
+  // callers' own comments — but flagged loudly when it does.
+  private advanceDefensively(gameId: string, game: ActiveGame, from: string, gs: GameState): boolean {
+    console.warn(
+      `[ActiveGameManager] ${from} advanced the board for ${gameId} ` +
+      `(turn ${game.boardStateTurn} -> ${gs.turn}) — updateBoard should have run first`,
+    );
+    game.boardState = gs;
+    game.boardStateTurn = gs.turn;
+    this.rememberSnakes(game, gs.board.snakes);
+    return true;
+  }
+
   // Register a controlled snake against the CANONICAL board state. One game
   // holds one shared board; the snake's own identity (name/letter) is looked
   // up on it by id — there is no per-snake board copy anywhere anymore.
@@ -991,15 +1015,7 @@ export class ActiveGameManager {
     }
     if (ourTeam && !game.ourTeam) game.ourTeam = ourTeam;
 
-    for (const snake of canonical.board.snakes) {
-      if (!game.snakes.has(snake.id)) {
-        game.snakes.set(snake.id, {
-          id: snake.id,
-          name: snake.name,
-          letter: snake.letter || '',
-        });
-      }
-    }
+    this.rememberSnakes(game, canonical.board.snakes);
 
     const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
     if (!game.controlledSnakes.has(snakeId)) {
@@ -3183,23 +3199,7 @@ export class ActiveGameManager {
 
     let boardUpdated = false;
     if (incomingTurn > game.boardStateTurn) {
-      // Defensive only: updateBoard should have advanced the board already.
-      console.warn(
-        `[ActiveGameManager] updatePieceTurn advanced the board for ${gameId} ` +
-        `(turn ${game.boardStateTurn} -> ${incomingTurn}) — updateBoard should have run first`,
-      );
-      game.boardState = gameState;
-      game.boardStateTurn = incomingTurn;
-      for (const snake of gameState.board.snakes) {
-        if (!game.snakes.has(snake.id)) {
-          game.snakes.set(snake.id, {
-            id: snake.id,
-            name: snake.name,
-            letter: snake.letter || '',
-          });
-        }
-      }
-      boardUpdated = true;
+      boardUpdated = this.advanceDefensively(gameId, game, 'updatePieceTurn', gameState);
     }
 
     // Promotion changes the unit type mid-game (pawn → queen).
@@ -3719,28 +3719,10 @@ export class ActiveGameManager {
 
     let boardUpdated = false;
     if (incomingTurn > game.boardStateTurn) {
-      // Defensive only: the canonical pipeline advances the board via
-      // updateBoard BEFORE any per-snake turn data lands, so this path firing
-      // means a transport fed decisions without feeding the board first. Keep
-      // the old advance behavior so the game stays live, but flag it.
-      console.warn(
-        `[ActiveGameManager] setBotRecommendation advanced the board for ${gameId} ` +
-        `(turn ${game.boardStateTurn} -> ${incomingTurn}) — updateBoard should have run first`,
-      );
-      game.boardState = turnData.gameState;
-      game.boardStateTurn = incomingTurn;
-
-      for (const snake of turnData.gameState.board.snakes) {
-        if (!game.snakes.has(snake.id)) {
-          game.snakes.set(snake.id, {
-            id: snake.id,
-            name: snake.name,
-            letter: snake.letter || '',
-          });
-        }
-      }
-
-      boardUpdated = true;
+      // The canonical pipeline advances the board via updateBoard BEFORE any
+      // per-snake turn data lands, so this path firing means a transport fed
+      // decisions without feeding the board first — see advanceDefensively.
+      boardUpdated = this.advanceDefensively(gameId, game, 'setBotRecommendation', turnData.gameState);
     } else if (incomingTurn === game.boardStateTurn) {
       const existingSnakeCount = game.boardState?.board.snakes.length || 0;
       const incomingSnakeCount = turnData.gameState.board.snakes.length;
@@ -3893,15 +3875,7 @@ export class ActiveGameManager {
     game.gameTimeout = canonical.game.timeout || game.gameTimeout;
     game.lastActivityAt = Date.now();
 
-    for (const snake of canonical.board.snakes) {
-      if (!game.snakes.has(snake.id)) {
-        game.snakes.set(snake.id, {
-          id: snake.id,
-          name: snake.name,
-          letter: snake.letter || '',
-        });
-      }
-    }
+    this.rememberSnakes(game, canonical.board.snakes);
 
     for (const [snakeId, controlled] of game.controlledSnakes) {
       const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
