@@ -20,6 +20,11 @@ import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
 import { marshalBoard } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
 import { computeClaims } from '../engine-vendor/engine/claims';
+import { ORTHOGONALS, leavesTrail } from '../engine-vendor/engine/moveGrammar';
+import type { Orientation } from '../engine-vendor/engine/moveGrammar';
+import { legalTargets } from '../engine-vendor/engine/queries';
+import type { BoardShape } from '../engine-vendor/engine/queries';
+import type { UnitType } from '../engine-vendor/shared/types/Game';
 import { winsContest } from '../lobster/evaluate/contest';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
@@ -1033,6 +1038,185 @@ function readPickup(
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// THE ENTRAPMENT INSTRUMENT — docs/design/entrapment.md §7.2
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT A UNIT CAN KEEP, read off the concrete board the turn LEFT.
+ *
+ * This is the barred flood of `docs/design/entrapment.md` §3, run with nothing
+ * uncertain: every unit is held at `observedTurn = arrivalTurn − t` for
+ * `t = 1 … k`, so `computeClaims` — the rules' own dilation — answers where
+ * each unit's head could be by each turn of the horizon, and the schedule
+ * clause reads the occupancies standing in front of it. It is the COLLAPSED
+ * reading, `lo === hi`, which is what a concrete board admits.
+ *
+ * It follows `bounds/loud.ts`'s rule for what an instrument may do: it counts.
+ * It settles nothing, evaluates nothing, reads no clock and makes no evaluator
+ * call, so under the runner's node clock (`nodes × NODE_COST + reads ×
+ * READ_COST`) it cannot move a counter — which is what lets it be merged on a
+ * gate that says "byte-identical" and means it.
+ *
+ * THE THREE BARRIER CLASSES, and the middle one is the whole finding:
+ *
+ *  (a) TERRAIN. `walls`, at every `t`. A trail unit may legally STAGE the
+ *      perimeter (`moveGrammar.planUnitAction`), so the step relation offers
+ *      it and this is what refuses it.
+ *  (b/c) EVERY TRAIL UNIT'S BODY, ON ITS OWN VACATING SCHEDULE — its own
+ *      included. `O^v[i]` is barred at `t` iff `i ≤ L_v − 1 − t`: the neck
+ *      argument (`claims.ts`'s `certainIfAlive`) generalised from one turn to
+ *      `t`. At `t = 1` that is exactly `occupancy[0 .. len-2]`; at `t = L_v` it
+ *      is empty. A SNAKE CANNOT TRAP ITSELF: its own coil opens behind it one
+ *      cell per turn, so a region bounded by its own trail is always at least
+ *      its own length. A static own-body barrier says the opposite and is a
+ *      false alarm generator (§3.2, §7.1).
+ *  (d) GROUND SOMEBODY ELSE CAN HOLD FIRST. `c` is barred at `t` iff some
+ *      OTHER unit's head can be on `c` at or before `t` — the claim cloud,
+ *      unbarred and over-approximating, which is the only direction a claim
+ *      may be wrong in. `at or before`, not `strictly before`: a tie kills
+ *      both, so a cell we tie for is not a cell we keep.
+ *
+ * A PIECE has no trail and no schedule and contributes only through (d), whose
+ * `t = 0` seed already holds its own cell. Nothing branches on a kind name;
+ * `leavesTrail` decides, exactly as it decides which plane of the territory
+ * partition a unit is on.
+ */
+export interface EntrapmentReading {
+  readonly id: string;
+  /** Cells the unit can keep over its own horizon, capped at `need`. */
+  readonly kept: number;
+  /** `max(4, L + 2)`: a region of exactly `L` is survivable only if it admits
+   *  a Hamiltonian cycle; `+1` buys a meal's growth, `+2` one cell lost to a
+   *  crowder. It is also the horizon — a horizon shorter than the body cannot
+   *  see the tail stop feeding the head (§3.1). */
+  readonly need: number;
+}
+
+/** `need(u)`, and therefore `k_u`. One place, read by the runner and the tests. */
+export const entrapmentNeed = (length: number): number => Math.max(4, length + 2);
+
+export function entrappedAt(board: Board, turn: number): EntrapmentReading[] {
+  const m = marshalBoard(board, turn);
+  const trails = m.units.filter((u) => leavesTrail(u.type));
+  if (trails.length === 0) return [];
+  let kMax = 0;
+  for (const u of trails) kMax = Math.max(kMax, entrapmentNeed(u.occupancy.length));
+
+  // (d) — the cumulative head cloud per unit, per horizon turn. `t = 0` is the
+  // cell it stands on, which is why a piece needs no other clause at all.
+  const cloud = new Map<string, Set<number>[]>();
+  for (const u of m.units) cloud.set(u.id, [new Set<number>([u.occupancy[0] as number])]);
+  for (let t = 1; t <= kMax; t++) {
+    const claims = computeClaims({
+      ...m.config,
+      units: m.units,
+      turn: m.arrivalTurn,
+      teamOf: Object.fromEntries(m.teamOf),
+      effects: m.effects,
+      potions: m.potions,
+      potionsEnabled: m.potionsEnabled,
+      potionWindowTurns: m.potionWindowTurns,
+      pawnPromotionWeight: m.pawnPromotionWeight,
+      maxTurns: m.maxTurns,
+      // `input.turn - observedTurn` is the span a claim dilates over, so this
+      // is every unit's reach t turns on with nothing else assumed — asked of
+      // the rules rather than reconstructed, exactly as `readPickup` asks them.
+      held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - t })),
+    });
+    const seen = new Set<string>();
+    for (const claim of claims) {
+      const per = cloud.get(claim.id);
+      if (per === undefined) continue;
+      seen.add(claim.id);
+      const next = new Set<number>(per[t - 1] as Set<number>);
+      for (const c of claim.headPossible[claim.headPossible.length - 1] ?? []) next.add(c);
+      per.push(next);
+    }
+    // A unit the claim pass dropped keeps the cloud it had: never smaller, so
+    // never an under-count of what somebody else can hold.
+    for (const [id, per] of cloud) {
+      if (!seen.has(id)) per.push(per[t - 1] as Set<number>);
+    }
+  }
+
+  // (b)/(c) — one barrier board per horizon turn, shared by every unit, because
+  // the schedule is a property of the body being vacated and not of who is
+  // looking at it.
+  const bodyBarred: Set<number>[] = [];
+  for (let t = 0; t <= kMax; t++) {
+    const barred = new Set<number>();
+    for (const v of trails) {
+      const last = v.occupancy.length - 1 - t;
+      for (let i = 0; i <= last; i++) barred.add(v.occupancy[i] as number);
+    }
+    bodyBarred.push(barred);
+  }
+
+  const walls = new Set<number>(m.config.walls);
+  const shape: BoardShape = {
+    boardWidth: m.config.boardWidth,
+    boardHeight: m.config.boardHeight,
+    walls: m.config.walls,
+    hazards: m.config.hazards,
+    occupancy: m.units.map((u) => ({ id: u.id, cells: u.occupancy })),
+    food: m.config.food,
+  };
+  // The engine's own step relation, memoised per (kind, cell) for the handful
+  // of cells a capped flood ever visits. Nothing here decides what a unit may
+  // do — `legalTargets` does, and this only iterates it.
+  const steps = new Map<string, number[]>();
+  const stepOf = (type: UnitType, cell: number): number[] => {
+    const key = `${type}|${cell}`;
+    const hit = steps.get(key);
+    if (hit !== undefined) return hit;
+    const made = legalTargets(
+      { type, occupancy: [cell], orientation: ORTHOGONALS[0] as Orientation },
+      shape
+    );
+    steps.set(key, made);
+    return made;
+  };
+
+  const out: EntrapmentReading[] = [];
+  for (const u of trails) {
+    const need = entrapmentNeed(u.occupancy.length);
+    const region = new Set<number>([u.occupancy[0] as number]);
+    for (let t = 1; t <= need && region.size < need; t++) {
+      const add: number[] = [];
+      const barred = bodyBarred[Math.min(t, kMax)] as Set<number>;
+      for (const from of region) {
+        for (const to of stepOf(u.type, from)) {
+          if (region.has(to) || walls.has(to) || barred.has(to)) continue;
+          let taken = false;
+          for (const [id, per] of cloud) {
+            if (id === u.id) continue;
+            if ((per[Math.min(t, per.length - 1)] as Set<number>).has(to)) {
+              taken = true;
+              break;
+            }
+          }
+          if (!taken) add.push(to);
+        }
+      }
+      // THE LOITER CARRY, AND WHERE IT STOPS. `R_t = R_{t-1} ∪ …` is what lets
+      // the region grow through a cell that only opens later — the head can
+      // wait while its own body clears — and it is suppressed at a SINGLETON:
+      // a unit with one cell and no unbarred step has nowhere to wait, it must
+      // move, and every move it has is barred. Carrying there would credit it
+      // with an escape it cannot walk to (§3.3).
+      if (add.length === 0) {
+        if (region.size === 1) break;
+        continue;
+      }
+      for (const c of add) region.add(c);
+    }
+    out.push({ id: u.id, kept: Math.min(region.size, need), need });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // The game loop, and the counters a gate reads
 // ---------------------------------------------------------------------------
@@ -1111,6 +1295,23 @@ export interface GameMetrics {
   deathsWhileDebuffed: number;
   /** Deaths of a unit adjudicated at a positive tier — invulnerability is not immunity. */
   deathsWhileBuffed: number;
+  // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ----------
+  // Five counters, computed post hoc on the concrete board the turn left. They
+  // read the rules; they never touch the decision, so they cannot move any
+  // counter above them.
+  /** Living trail unit-turns reading `kept < need`. */
+  entrappedUnitTurns: number;
+  /** Transitions free → entrapped: a unit stuck for five turns counts once. */
+  entrapmentEpisodes: number;
+  /** Episodes ending in that unit's death, while entrapped or on the next turn. */
+  fatalEntrapments: number;
+  /** Episodes ending with the unit free again. */
+  escapedEntrapments: number;
+  /** Σ over fatal episodes of (death turn − first entrapped turn). The mean
+   *  warning in turns is `entrapmentLeadSum / fatalEntrapments`, and it is the
+   *  number that decides whether any member can act on the horizon at all. */
+  entrapmentLeadSum: number;
+  // --- end entrapment instrument -----------------------------------------
   /** Health of every living unit at the end. */
   endHealth: number[];
   /** Wall time of the slowest single team decision, ms. NOT reproducible. */
@@ -1232,6 +1433,13 @@ export async function runGame(
     potionTierDowns: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    // --- entrapment instrument ---------------------------------------------
+    entrappedUnitTurns: 0,
+    entrapmentEpisodes: 0,
+    fatalEntrapments: 0,
+    escapedEntrapments: 0,
+    entrapmentLeadSum: 0,
+    // --- end entrapment instrument -----------------------------------------
     endHealth: [],
     worstDecisionMs: 0,
     nodes: 0,
@@ -1262,6 +1470,9 @@ export async function runGame(
   const previousCell = new Map<string, string>();
   /** wireId -> the destination it staged last turn, for the dither signature. */
   const previousStage = new Map<string, string>();
+  // --- entrapment instrument: one open episode per unit, keyed by wireId ----
+  const entrapmentOpen = new Map<string, number>();
+  // --- end entrapment instrument -------------------------------------------
   const key = (c: Coord): string => `${c.x},${c.y}`;
   // TEAM 0, per the scenario's OWN roster (`spec.teams[0]`) — a fact about the
   // board, fixed for the whole game, and independent of the alphabetical
@@ -1423,6 +1634,45 @@ export async function runGame(
           (readings.length === 0 ? '' : `  [${readings.join('; ')}]`)
       );
     }
+
+    // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ---------
+    //
+    // Read off the board the turn LEFT, after the deaths this turn produced are
+    // in hand. A death CLOSES an open episode as fatal — "while entrapped or on
+    // the next turn" is exactly "an episode was open when the turn that killed
+    // it began" — and the lead is how many turns of warning the shortfall gave.
+    // Nothing here can reach the decision: it runs after `stepGame` and makes no
+    // evaluator call.
+    for (const d of outcome.deaths) {
+      const opened = entrapmentOpen.get(d.id);
+      if (opened === undefined) continue;
+      metrics.fatalEntrapments++;
+      metrics.entrapmentLeadSum += turn - opened;
+      entrapmentOpen.delete(d.id);
+    }
+    const readingsNow = entrappedAt(board, turn);
+    const shortfall = new Set<string>();
+    for (const r of readingsNow) {
+      if (r.kept >= r.need) continue;
+      shortfall.add(r.id);
+      metrics.entrappedUnitTurns++;
+      if (entrapmentOpen.has(r.id)) continue;
+      entrapmentOpen.set(r.id, turn);
+      metrics.entrapmentEpisodes++;
+      emit(`  ENTRAPPED ${r.id} kept=${r.kept}/${r.need}`);
+    }
+    const standing = new Set(readingsNow.map((r) => r.id));
+    for (const [id, opened] of [...entrapmentOpen]) {
+      if (shortfall.has(id)) continue;
+      // Still on the board and no longer short: it walked out of the pocket.
+      // Gone without a death entry closes nothing — it is neither escape nor
+      // fatality, and inventing one would flatter whichever counter got it.
+      if (standing.has(id)) metrics.escapedEntrapments++;
+      void opened;
+      entrapmentOpen.delete(id);
+    }
+    // --- end entrapment instrument -----------------------------------------
+
     clearGeometryCache();
   }
 
@@ -1614,6 +1864,13 @@ export interface RunSummary {
     readonly potionTierDowns: number;
     readonly deathsWhileDebuffed: number;
     readonly deathsWhileBuffed: number;
+    // --- entrapment instrument (docs/design/entrapment.md §7.2) ------------
+    readonly entrappedUnitTurns: number;
+    readonly entrapmentEpisodes: number;
+    readonly fatalEntrapments: number;
+    readonly escapedEntrapments: number;
+    readonly entrapmentLeadSum: number;
+    // --- end entrapment instrument -----------------------------------------
     readonly survivors: number;
     readonly healthTotal: number;
   };
@@ -1692,6 +1949,13 @@ export function summaryOf(
       potionTierDowns: metrics.potionTierDowns,
       deathsWhileDebuffed: metrics.deathsWhileDebuffed,
       deathsWhileBuffed: metrics.deathsWhileBuffed,
+      // --- entrapment instrument ---------------------------------------------
+      entrappedUnitTurns: metrics.entrappedUnitTurns,
+      entrapmentEpisodes: metrics.entrapmentEpisodes,
+      fatalEntrapments: metrics.fatalEntrapments,
+      escapedEntrapments: metrics.escapedEntrapments,
+      entrapmentLeadSum: metrics.entrapmentLeadSum,
+      // --- end entrapment instrument -----------------------------------------
       survivors: metrics.endHealth.length,
       healthTotal: metrics.endHealth.reduce((a, b) => a + b, 0),
     },
@@ -1708,6 +1972,10 @@ export function summaryOf(
       recklessPickupsPer100: per(metrics.recklessPickups),
       profitableSafePickupsPer100: per(metrics.profitableSafePickups),
       potionTierUpsPer100: per(metrics.potionTierUps),
+      // --- entrapment instrument ---------------------------------------------
+      entrappedUnitTurnsPer100: per(metrics.entrappedUnitTurns),
+      entrapmentEpisodesPer100: per(metrics.entrapmentEpisodes),
+      // --- end entrapment instrument -----------------------------------------
     },
     deathsByCause: Object.fromEntries(
       Object.entries(metrics.deathsByCause).sort(([a], [b]) => (a < b ? -1 : 1))
@@ -1761,6 +2029,13 @@ async function summarise(
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    // --- entrapment instrument ---------------------------------------------
+    entrappedUnitTurns: 0,
+    entrapmentEpisodes: 0,
+    fatalEntrapments: 0,
+    escapedEntrapments: 0,
+    entrapmentLeadSum: 0,
+    // --- end entrapment instrument -----------------------------------------
   };
   const causes: Record<string, number> = {};
   const loud = emptyLoudHistogram();
@@ -1812,6 +2087,20 @@ async function summarise(
       `nodes=${nodes} ` +
       (budget.kind === 'ms' ? `worstMs=${worst.toFixed(0)}` : 'deterministic')
   );
+  // --- THE ENTRAPMENT INSTRUMENT, on its own line (docs/design/entrapment.md
+  // §7.2). `lead` is the mean warning in turns over the fatal episodes, which
+  // is the number P-1 is read off.
+  const fatal = totals.fatalEntrapments as number;
+  out.say(
+    `${scenario} E: entrappedUnitTurns=${totals.entrappedUnitTurns} ` +
+      `episodes=${totals.entrapmentEpisodes} fatal=${fatal} ` +
+      `escaped=${totals.escapedEntrapments} ` +
+      `leadSum=${totals.entrapmentLeadSum} ` +
+      `lead=${fatal === 0 ? 'n/a' : ((totals.entrapmentLeadSum as number) / fatal).toFixed(2)} ` +
+      `entrapped/100=${per(totals.entrappedUnitTurns as number)} ` +
+      `episodes/100=${per(totals.entrapmentEpisodes as number)}`
+  );
+  // --- end entrapment instrument -------------------------------------------
   // THE LOUD PRODUCT, on its own line and only where there was one to measure.
   // `open` is the subset that matters: B3 declined there, so the bracket is
   // open and a ceiling ply would have something to remove.
