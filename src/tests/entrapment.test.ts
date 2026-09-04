@@ -243,6 +243,91 @@ describe('P2 — a length-4 snake with one survivable option and one tomb', () =
 });
 
 // ---------------------------------------------------------------------------
+// D3 — WHAT THE NORMALISER DOES TO A LONG SNAKE, and what replacing it did
+// ---------------------------------------------------------------------------
+
+/**
+ * `docs/design/BEHAVIOUR-AUDIT.md` D3 says `room`'s fear falls as the snake
+ * grows at equal absolute shortfall, because `fearsOf` divides the shortfall by
+ * the snake's own `need = max(4, L + 2)` (`features.ts`). This block pins that
+ * READING off the evaluator — not off the formula — and then pins what the
+ * repair D3 proposed would have done to the same readings.
+ *
+ * The board is P2's, and the unit is P2's own boxed `A` with a longer tail: the
+ * head stays at (1,1), `E` still walls column 0 and `F` still walls row 0, so
+ * the flood reads the same one-cell tomb at every length. The SHORTFALL grows
+ * from 4 cells to 15; the FEAR moves 0.894 → 0.968. Eleven more cells of
+ * missing room buy 0.07 of fear, because the divisor grew with the numerator.
+ * A length-14 snake with nowhere to go is charged 8% more than a length-3 one
+ * that is two cells short of comfortable.
+ *
+ * THE REPAIR WAS BUILT AND MEASURED AND IT IS NOT KEPT — see D3's STATUS
+ * section for the numbers. The last assertion here is why, in one line of
+ * arithmetic: dividing by a constant six cells does separate the lengths, and
+ * then it SATURATES — every unit from length 6 up reads exactly 1, so a term
+ * that was compressed becomes flat, and a flat term orders nothing between a
+ * unit's options (the "already-boxed unit is priced flat" case above, arriving
+ * now at every length instead of only in a tomb). That is the mechanism behind
+ * the measured deaths, and it is D5's saturation reached through D3's door.
+ */
+describe('D3 — the fear of a one-cell tomb barely moves with the snake\'s length', () => {
+  /** P2's board with `A` grown along a spine that stays out of its own tomb. */
+  const spine: Coord[] = [
+    ...Array.from({ length: 10 }, (_, i) => P(1, i + 1)),
+    ...Array.from({ length: 5 }, (_, i) => P(2, 10 - i)),
+  ];
+  const boxedAt = (len: number): { kept: number; need: number } => {
+    const board = boardOf([
+      makeSnake('A', spine.slice(0, len), { teamID: 'red' }),
+      trapE(),
+      trapF(),
+    ]);
+    const row = entrappedAt(board, TURN).find((r) => r.id === 'A');
+    return { kept: (row as { kept: number }).kept, need: (row as { need: number }).need };
+  };
+  /** The shipped reading, `features.ts` `fearsOf`. */
+  const fear = (kept: number, need: number): number => Math.sqrt((need - kept) / need);
+
+  test('the tomb is one cell at every length, and the shortfall is what grows', () => {
+    expect(boxedAt(3)).toEqual({ kept: 1, need: 5 });
+    expect(boxedAt(4)).toEqual({ kept: 1, need: 6 });
+    expect(boxedAt(12)).toEqual({ kept: 1, need: 14 });
+    expect(boxedAt(14)).toEqual({ kept: 1, need: 16 });
+  });
+
+  test('and the fear moves 0.894 to 0.968 across it — 11 cells for 0.07', () => {
+    const short = boxedAt(3);
+    const long = boxedAt(14);
+    expect(long.need - long.kept - (short.need - short.kept)).toBe(11);
+    expect(fear(short.kept, short.need)).toBeCloseTo(0.8944, 4);
+    expect(fear(long.kept, long.need)).toBeCloseTo(0.9682, 4);
+    expect(fear(long.kept, long.need) - fear(short.kept, short.need)).toBeLessThan(0.08);
+  });
+
+  test('at EQUAL absolute shortfall it falls outright, which is D3\'s sentence', () => {
+    // Three cells short: `need` is the only thing that differs.
+    expect(fear(3, 6)).toBeCloseTo(0.7071, 4); // length 4
+    expect(fear(11, 14)).toBeCloseTo(0.4629, 4); // length 12
+    expect(fear(11, 14)).toBeLessThan(fear(3, 6));
+  });
+
+  test('and the constant-denominator repair separates them by saturating', () => {
+    // `short = clamp01((need - kept) / 6)`, the rule D3 proposed.
+    const d3 = (kept: number, need: number): number =>
+      Math.sqrt(Math.min(1, Math.max(0, (need - kept) / 6)));
+    // At equal shortfall it is length-independent, which is what it was for.
+    expect(d3(3, 6)).toBe(d3(11, 14));
+    // In the tomb it is a constant from length 6 up: the readings the shipped
+    // term still ranks (0.935, 0.949, 0.957, 0.964) all become exactly 1.
+    for (const len of [6, 8, 10, 12, 14]) {
+      const { kept, need } = boxedAt(len);
+      expect(fear(kept, need)).toBeLessThan(1);
+      expect(d3(kept, need)).toBe(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The admission laws, over P2's real world set
 // ---------------------------------------------------------------------------
 

@@ -366,6 +366,65 @@ Length-independent by construction, so it is a rule and not a case.
   (`entrapment.md` §4.4), which is D5.
 * `sparse`: unchanged (2–4 entrapped unit-turns per game, 0 fatal).
 
+### STATUS: BUILT, MEASURED, REVERTED — the counter it names moves the wrong way
+
+The rule was implemented exactly as written: one profile knob `roomCells`, default 6,
+replacing `need` as `fearsOf`'s denominator (`features.ts`), validated at construction
+beside the command knobs and parsed by `bot-binding.ts`. `tsc`, `eslint`, `soundness`,
+`territory-acceptance`, `entrapment` and `law-sweep` all green on it — it is SOUND, and
+it is still wrong.
+
+Measured against this branch's head (D2 in, which is byte-identical to the working-branch
+head on `snakes` and `sparse`), all four classes, seeds 1–3, 60 turns, `--nodes --json`,
+`scripts/ab-compare.js` per class:
+
+| board | deaths | fatalEntrapments | `self`+`bodyBlock` | escaped | episodes | meals |
+|---|---|---|---|---|---|---|
+| `snakes` before | 7 | 7 | 7 | 45 | 56 | 157 |
+| `snakes` after | **8** | **8** | 6 | 48 | 59 | 151 |
+| `potions` before | 9 | 4 | 1 | 15 | 24 | 232 |
+| `potions` after | **12** | 5 | 3 | 7 | 16 | 229 |
+| `mixed` | 10 | 3 | 6 | 0 | 9 | 233 |
+| `sparse` | 0 | 0 | 0 | 7 | 7 | 52 |
+
+**THE PREDICTION FAILS ON ITS OWN PRIMARY COUNTER.** `fatalEntrapments` on `snakes` was
+predicted **7 → ≤4** and measured **7 → 8**. `self` + `bodyBlock` was predicted 7 → ≤4 and
+reached 6 — but the two body deaths it saved came back as two `contest` deaths on the same
+seed, so total `snakes` deaths went 7 → 8. `potions` deaths went 9 → 12, all three on
+seed 1. Deaths rise on two classes; the rule is out.
+
+`mixed` and `sparse` are behaviourally IDENTICAL — every counter, every seed; `mixed` seed
+3's summaries differ in one `work.reads` and in nothing else. D3 predicted "within noise"
+there and got exact equality, which is a sharper confirmation of D5 than D5 has itself: on
+a board with a slider the term is already saturated, so changing its normaliser changes no
+decision at all.
+
+**WHY, and it is one line of arithmetic.** With `D = 6` fixed, ANY unit whose shortfall
+reaches six cells reads `fear = 1` exactly. `need = L + 2`, so every snake from length 6
+up that is more than six cells short is pinned at the maximum — and on `snakes` that is
+most of an entrapment episode. The old normaliser compressed the reading (a one-cell tomb
+reads 0.894 at length 3 and 0.968 at length 14 — eleven cells of shortfall for 0.07 of
+fear, which is the defect); the new one SATURATES it, and a saturated term orders nothing
+between a unit's options, so `material`'s cliff picks and the unit walks into the pocket
+anyway. `entrapment.md` §4.4 lists the flood's cap at `need` as one of three saturation
+guards; this rule removes the guard's effect while leaving the cap in place. The trade was
+a compressed signal for no signal, and the deaths are what it cost.
+
+**The boundary test is kept**, in `src/tests/entrapment.test.ts` ("D3 — the fear of a
+one-cell tomb barely moves with the snake's length"), because the DEFECT is real and this
+pins it off the evaluator rather than off the formula: P2's boxed unit at seven lengths,
+`kept = 1` at every one, shortfall 4 → 15 cells, fear 0.894 → 0.968. Its last case pins
+the failed repair's saturation on the same readings, so whoever comes back to this — most
+likely through D5, which is the same saturation from the other side — starts from the
+measurement and not from the prediction.
+
+**What would be worth trying next, stated so it is not re-derived.** The two candidates
+the measurement leaves standing are (a) a denominator that grows SUBLINEARLY in `L`
+(`sqrt(need)`, say) — length-sensitive without either compressing or saturating — and
+(b) raising the flood's cap above `need` so a long snake's region has somewhere to be
+ranked, which is D5's repair and would give any normaliser something to work with. Both
+are guesses. Neither is measured. `roomCells` at 6 IS measured, and it costs deaths.
+
 ---
 
 ## D4 — the potion peril's far horizons are a constant, and eat half its range
