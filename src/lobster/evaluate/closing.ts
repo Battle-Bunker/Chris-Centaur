@@ -45,7 +45,7 @@
  */
 
 import type { Bound, Feature } from './bound';
-import { bound, point } from './bound';
+import { perReading } from './bound';
 import type { CriterionProfile } from './calibration';
 import { DEFAULT_WEIGHTS, TERRITORY_PROFILE } from './calibration';
 import { ADMISSION, FEATURES } from './features';
@@ -114,7 +114,7 @@ function approachSum(ctx: EvalContext, reading: 'lo' | 'hi'): number {
   let total = 0;
   for (const s of ctx.standing) {
     const mine = s.team === ctx.asTeam;
-    if (!(mine ? admit.ours(s) : admit.theirs(s))) continue;
+    if (!admit.admits(s, mine)) continue;
     const sh = shells.get(s.unitId);
     if (sh === undefined) continue;
     const grid = sh.earliest();
@@ -155,13 +155,7 @@ export const approachFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx): Bound {
-    if (ctx.horizonTurns <= 0) return point(0);
-    const scale = unitScaleOf(ctx.sub);
-    const lo = approachSum(ctx, 'lo') / scale;
-    const hi = approachSum(ctx, 'hi') / scale;
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return perReading(ctx, (c, reading) => approachSum(c, reading) / unitScaleOf(c.sub));
   },
 };
 

@@ -66,7 +66,7 @@
 
 import { bbTest } from '../bits';
 import type { EngineSubstrate } from '../substrate';
-import { type Feature, bound, point } from './bound';
+import { type Feature, envelope, point } from './bound';
 import type { EvalContext, Standing } from './features';
 import { perBoard } from './memo';
 
@@ -201,6 +201,6 @@ export const foodFeature: Feature<EvalContext> = {
     if (ours === 0) return point(0);
     lo /= ours;
     hi /= ours;
-    return bound(lo, (lo + hi) / 2, hi);
+    return envelope(lo, hi);
   },
 };

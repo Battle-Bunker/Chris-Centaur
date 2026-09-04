@@ -59,15 +59,17 @@ export function bbForEach(board: Bitboard, words: number, fn: (cell: number) => 
   }
 }
 
+/** Set bits in ONE 32-bit word. The whole-board count below is this, folded. */
+export function popcount32(x: number): number {
+  let v = x - ((x >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
+}
+
 export function bbPopcount(board: Bitboard, words: number): number {
   let total = 0;
-  for (let w = 0; w < words; w++) {
-    let bits = (board[w] as number) >>> 0;
-    bits -= (bits >>> 1) & 0x55555555;
-    bits = (bits & 0x33333333) + ((bits >>> 2) & 0x33333333);
-    bits = (bits + (bits >>> 4)) & 0x0f0f0f0f;
-    total += (bits * 0x01010101) >>> 24;
-  }
+  for (let w = 0; w < words; w++) total += popcount32((board[w] as number) >>> 0);
   return total;
 }
 

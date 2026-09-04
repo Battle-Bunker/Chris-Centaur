@@ -98,7 +98,7 @@
 import { NEVER } from '../../engine-vendor/engine/claims';
 import { leavesTrail } from '../../engine-vendor/engine/moveGrammar';
 import { outranks } from '../../engine-vendor/engine/turnEngine';
-import { bbPopcount, bbSet, bbTest } from '../bits';
+import { bbPopcount, bbSet, bbTest, popcount32 } from '../bits';
 import type { Grid, Terrain } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
@@ -141,10 +141,14 @@ export interface TerritorySubject {
   readonly bestAlive: boolean;
 }
 
-/** Which units each side admits, in one reading. */
+/**
+ * Which units each side admits, in one reading.
+ *
+ * ONE method, not two: every reader dispatches on the same `mine` boolean, so
+ * the dispatch is the type's and the caller writes the test one way only.
+ */
 export interface Admission<S> {
-  ours(s: S): boolean;
-  theirs(s: S): boolean;
+  admits(s: S, mine: boolean): boolean;
 }
 
 export interface TrailRoom<S> {
@@ -495,7 +499,7 @@ export function partitionOf<S extends TerritorySubject>(
     const sh = shells.get(s.unitId);
     if (sh === undefined) continue;
     const mine = s.team === asTeam;
-    if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
+    if (!admit.admits(s, mine)) continue;
     if (sh.fromTurn < tMin) tMin = sh.fromTurn;
     if (sh.horizonTurn > tMax) tMax = sh.horizonTurn;
     (leavesTrail(s.kind) ? trails : pieces).push(ws.takeEntry(s, sh, mine));
@@ -1005,11 +1009,4 @@ function keptOf(
     if (region.length === before && before === 1) break;
   }
   return Math.min(region.length, need);
-}
-
-function popcount32(x: number): number {
-  let v = x - ((x >>> 1) & 0x55555555);
-  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
-  v = (v + (v >>> 4)) & 0x0f0f0f0f;
-  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
 }
