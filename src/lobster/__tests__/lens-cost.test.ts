@@ -49,15 +49,23 @@ const SEED = 1;
  *  is what it always said: these are the counters with the sink ABSENT, taken
  *  on this build, and a lens change that touched the hot loop would move them.
  *  The claim that the lens does not move the PLAY is a different test and lives
- *  in `src/tests/lens-inspection-cost.test.ts`. */
+ *  in `src/tests/lens-inspection-cost.test.ts`.
+ *
+ *  AND THE `mixed` PAIR ONCE MORE, for the third time and the same class of
+ *  reason: the B1 floor repair on this branch narrows terms that were reading
+ *  outside their own worlds (`command`'s food board, a displaced mover's
+ *  front, the piece contest's endpoint, a contingent mover's weight interval),
+ *  so a plan on a board with HELD units is worth something different and the
+ *  search visits different plans. `snake` is byte-identical to the previous
+ *  recording, which is again the evidence that nothing about the LENS moved. */
 const RECORDED = {
   snake: {
     550: { nodes: 6932, reads: 297514, slices: 6430, decisions: 18 },
     1100: { nodes: 13639, reads: 615890, slices: 13137, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7330, reads: 218566, slices: 1356, decisions: 18 },
-    1100: { nodes: 11396, reads: 769163, slices: 3201, decisions: 18 },
+    550: { nodes: 7408, reads: 209381, slices: 1383, decisions: 18 },
+    1100: { nodes: 11996, reads: 697910, slices: 3203, decisions: 18 },
   },
 } as const;
 

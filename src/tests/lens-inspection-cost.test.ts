@@ -266,7 +266,33 @@ async function decide(watched: boolean): Promise<Run> {
  * the same reason it spends fewer nodes. Holding it to equality here would be
  * asserting that the reserve is not taken, which is the opposite of what the
  * block below proves; so it is compared as a bound, in the same direction.
+ *
+ * AND SO IS `seedKept`, for exactly that reason and no other. It counts the
+ * unit-turns whose emitted move CAME FROM THE SEED rather than from a step the
+ * search took off it — the provenance of a move, not the move. Two runs that
+ * play the same board to the same cells, the same meals and the same health
+ * can still disagree about it, because the run with less clock reached the
+ * same answer without having to improve on the seed; measured on `mixed`
+ * seed 3, where every other counter in the summary is identical and this one
+ * reads 23 open against 24 watched. Holding a provenance counter to equality
+ * is asserting that the reserve is not taken, which is the claim the `work`
+ * block below exists to disprove — so it is compared in the direction the
+ * reserve implies: LESS search keeps the seed at least as often.
  */
+/**
+ * Take `seedKept` out of a parsed summary and return it. Mutates, because the
+ * caller's next line stringifies what is left and the point is that this
+ * counter is not in it.
+ */
+function seedProvenance(play: Record<string, unknown>): number {
+  const counters = play['counters'] as Record<string, number> | undefined;
+  const rates = play['rates'] as Record<string, number> | undefined;
+  const kept = counters?.['seedKept'] ?? 0;
+  if (counters !== undefined) delete counters['seedKept'];
+  if (rates !== undefined) delete rates['seedKeptPer100'];
+  return kept;
+}
+
 describe('the sink does not move a decision', () => {
   const SEEDS = [1, 2, 3] as const;
   const TURNS = 6;
@@ -331,6 +357,10 @@ describe('the sink does not move a decision', () => {
         const watched = JSON.parse(await play(scenario[1], scenario[0], seed, true));
         const { work: openWork, loud: openLoud, ...openPlay } = open;
         const { work: watchedWork, loud: watchedLoud, ...watchedPlay } = watched;
+        // `seedKept` is provenance, not play — see the header. Lifted out of
+        // both summaries before the equality and compared as a bound below.
+        const openSeed = seedProvenance(openPlay);
+        const watchedSeed = seedProvenance(watchedPlay);
         expect(JSON.stringify(watchedPlay)).toBe(JSON.stringify(openPlay));
         // The counters are not vacuously equal: the bot really played.
         expect(openPlay.counters.unitTurns).toBeGreaterThan(0);
@@ -348,6 +378,11 @@ describe('the sink does not move a decision', () => {
         expect(openLoud.occasions).toBeGreaterThan(0);
         expect(watchedLoud.occasions).toBeGreaterThan(0);
         expect(watchedLoud.occasions).toBeLessThanOrEqual(openLoud.occasions);
+
+        // Provenance moves with the search, and only one way: the run that
+        // searched less cannot have stepped off the seed more often.
+        expect(openSeed).toBeGreaterThan(0);
+        expect(watchedSeed).toBeGreaterThanOrEqual(openSeed);
       }, 300_000);
     }
   }

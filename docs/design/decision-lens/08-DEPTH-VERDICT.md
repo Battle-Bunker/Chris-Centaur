@@ -809,9 +809,10 @@ plan, enumerates every held unit's complete option list out of the engine's own
 enumerator, names them all at once and settles: each leaf is a concrete world,
 and a floor above one is a refutation no comparison between rungs can produce.
 Run on all sixteen gate arms at one plan in ten — four scenarios × seeds 1–3 at
-thirty turns, `potions` at sixty on seeds 4, 5, 6 and 8 — it settles tens of
-millions of concrete worlds and reports **zero** floors above one, on `potions`
-seed 4 included, and zero ceilings below a complete reply space. The same
+thirty turns, `potions` at sixty on seeds 4, 5, 6 and 8 — it makes **432 148
+checks over 44 859 582 concrete worlds** and reports **zero** floors above one,
+on `potions` seed 4 (37 098 checks, 4 741 712 worlds) included, and zero
+ceilings below a complete reply space. The same
 sixteen arms print no `INVERSION` line under `CENTAUR_DEBUG_INVERSION=1`. The
 B4 harness's 485 were a fact about `origin/ceiling`'s own reading, not about the
 bank the ladder ships.
