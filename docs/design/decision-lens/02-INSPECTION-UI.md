@@ -70,7 +70,6 @@ its move, full stop.
 type LensCursor = {
   unit:      UnitId  | null;   // focus
   candidate: MoveKey | null;   // requires unit
-  cluster:   ClusterId | null; // requires candidate; unit ∈ cluster
   moveset:   MovesetId | null; // requires cluster; ∈ L(cluster, unit↦candidate)
   drill:     UnitId  | null;   // requires moveset; which member's terms are open
   foil:      'off' | 'peek' | 'latched';
@@ -131,7 +130,6 @@ transition table can name the drill.
 | T2 | `blur` | `Esc`, click empty board | — | cursor ← all null; emits `clearPinConsideration` |
 | T3 | `candidate(m)` | arrow-pad / numpad (`keynav-machine.js`) / click candidate cell | m ∈ candidates(u) | `candidate←m` explicit, ⟳ below. Re-emits consideration |
 | T4 | `candidate.hover(m)` | pointer over a candidate cell | — | **no cursor change.** Draws a peek of `L(C,u↦m)` rank 1 at alpha .4 and shows its aggregate in the candidate row. Emits consideration. Hover never commits the cursor: the board is a place to look, and a lens that re-ranks under the pointer is unusable |
-| T5 | `cluster.cycle` | `\` | u ∈ >1 cluster | `cluster←next`, ⟳ below |
 | T6 | `moveset(i)` | `[` / `]` / click row | i ∈ L | `moveset←i` explicit, `drill←null` |
 | T7 | `drill(v)` | `B` / click member row | v ∈ members(moveset) ∪ {constants} | toggles `drill` |
 | T8 | `foil(mode)` | `F` tap / hold | rank 2 exists | sets `foil`; board draws §3.5 |
@@ -162,13 +160,19 @@ is the moveset that is staged.** Two facts make that non-trivial:
    units the operator never looked at, and A4 outranks every standing
    guidance any other operator has given those units.
 
-**Resolution — minimum-pin lock.** `Space` issues the smallest set of pins
-that makes the displayed moveset the kernel's conditional argmax:
+**Resolution — minimum-pin lock.** `Space` issues the set of pins that makes
+the displayed moveset the one that is staged:
 
 ```
-P* = minimalPinSet(C, K)      // smallest P ⊆ members(C), u ∈ P,
-                              // s.t. argmax L(C, P) = K
+P* = {u} ∪ {v ∈ members(C) : K(v) ≠ staged(v)}
 ```
+
+That is not an upper bound and there is no `≤` anywhere near it. `conform`
+splices pins and repairs legality without searching, so the members that
+already agree with `K` need no pin and the set is EXACT — which is why the
+count can be rendered before the press. (This was written as a fallback for a
+`minimalPinSet` the kernel might not answer; 04 §2.4 settled it the other way,
+the kernel is never asked, and the affordance is exact rather than bounded.)
 
 - `K` = rank 1 ⇒ `P* = {u}`. The overwhelmingly common case, and the cheap
   one: one determination, the bot keeps authority over the rest.
@@ -181,10 +185,6 @@ P* = minimalPinSet(C, K)      // smallest P ⊆ members(C), u ∈ P,
 - `Shift+Space` = pin every member, unconditionally. For the operator who
   wants the whole cluster nailed down regardless of what the kernel would
   have inferred.
-
-If the kernel cannot answer `minimalPinSet` (see §5, Q2), the client falls
-back to `P* = {u} ∪ {v : K(v) ≠ incumbent(v)}` and the affordance says
-`pins ≤ 3` with the `≤` visible. Never silently guess a smaller set.
 
 **Ownership guard.** `P*` may contain units another operator owns
 (`selections` / `owners`, `websocket-server.ts:901`). Lock is then **refused
@@ -659,7 +659,6 @@ Ctrl+Enter, Ctrl+/, Alt are taken; the following are not.
 | key | action |
 |---|---|
 | `[` / `]` | previous / next **moveset** in the conditional list |
-| `\` | cycle **cluster** when the unit belongs to more than one |
 | `F` | **foil** — tap latches, hold peeks |
 | `B` | toggle the **breakdown drill** on the highlighted member |
 | `Shift+B` | expand every member's terms |
@@ -794,16 +793,13 @@ roster, `CommandTurnState` (demoted to fold checkpoint), the shortcuts pane.
 ### Demands on the kernel lens
 
 - **Q1 → D-a** above (it is the kernel that must mint the id).
-- **Q2. `minimalPinSet(C, K)`.** Can the kernel answer "the smallest pin set
-  making moveset K the conditional argmax"? If yes, §1.4 is exact. If no,
-  the UI falls back to pinning every differing member and must display
-  `pins ≤ n`. Either answer is workable; silence is not.
-- **Q3. Do clusters overlap?** The owner says "the cluster(s) that unit is a
-  member of" and `search/02-DECOMPOSITION` notes a cloud spanning components
-  (line 122). If a unit can be in two clusters, `\` cycles them (§1.3 T5) —
-  but then: are the two clusters' movesets jointly consistent, and what does
-  locking in one do to the other? Currently unspecified and the UI has no
-  honest way to draw it.
+- **Q2. `minimalPinSet(C, K)`. CLOSED (04 §2.4): never asked.** The client's
+  own set is exact, so the kernel is not asked for a smaller one and the
+  affordance carries no `≤`. §1.4 rewritten.
+- **Q3. Do clusters overlap? CLOSED (04 §3): no.** Components of one graph
+  partition the vertex set, so a unit is in exactly one cluster, there is
+  nothing to cycle, and T5 and its `\` binding are deleted rather than left
+  in the table as a transition the machine does not have.
 - **Q4. Does focus/hover really fund compute?** `notePinConsideration` exists
   and is documented as "a hint the search may speculate on". If the kernel
   acts on it, the operator is owed the A0 echo (`operator-signals` §6: every

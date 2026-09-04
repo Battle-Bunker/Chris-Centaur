@@ -40,9 +40,11 @@ and sends `lens-lock` with pins computed from a recorded frame.
 production caller: the browser has never run the replay source. "Two sources,
 one reducer" is true of the tests and half-true of the product.
 
-*Fix (this branch):* export `replayFrameAtSeq(events, seq)` — the same fold,
-stamped by the replay source. *Fix (page owner, one token):*
-`view.frameAtSeq(events, last.seq, false)` → `view.replayFrameAtSeq(events, last.seq)`.
+*Fix (this branch):* `replayFrameAtSeq(events, seq)` — the same fold, the same
+frame, stamped by the replay source. *Fix (page owner, one token):*
+`view.frameAtSeq(events, last.seq, false)` → `view.replayFrameAtSeq(events, last.seq)`
+in `historicFrameFor`, which also stops `lensNow` from being able to mark a
+recorded frame as the head.
 
 ### A2. The retained movesets are folded under a key no reader ever asks for
 
@@ -228,10 +230,15 @@ never omitted, and now it is drawn with its reason."* Today every row reads
 It is the leader's row and only the leader's, because that is the plan the
 reading was taken on.
 
-### C2. `PartitionPayload.changes` — the kernel's own widen/narrow verdicts
+### C2. `PartitionPayload.changes` — and why the fold is right to drop it
 
-Derived by `diffPartitions` with lineage, emitted on every partition frame,
-dropped by the fold, and re-derived less correctly by `reactiveNotice` (A4).
+`diffPartitions` derives `split | merge | narrowed | widened` with lineage and
+puts them on every partition frame; the fold keeps only `clusters`. That is the
+correct call and it stays: a `ClusterEvent` is *"DERIVED by diffing successive
+partitions, never asserted"* (`types.ts`), and the diff the operator is owed is
+between the two frames THEY saw, not between two the kernel saw. The defect was
+never the drop — it was that the view's own derivation keyed on an id that
+moves (A4). Recorded here so the next reader does not fix the wrong half.
 
 ### C3. The depth column's evidence
 
@@ -263,7 +270,8 @@ text is its kind.
 | D5 | `gestureState` / `resetGestureState` | accessors on module-level gesture state that nothing outside the module reads; the state is reset by the turn-boundary transition, `planLock` and `checkDivergence` |
 | D6 | `DepthCell.width` | computed from the deepest reading and never rendered; the row's own width arg was `row.hi − row.lo`, which is the *current* bracket rather than the deepest one (they are equal today and diverge the day depth lands) |
 | D7 | `emptyStateLine`'s `+ (emissions > 0 ? '' : '')` | appends the empty string either way; the `emissions` count it was computed for was never used |
-| D8 | `08-DEPTH-VERDICT.md` §4.6's `depthArrivals` citation | describes a function this commit deletes |
+| D8 | `08-DEPTH-VERDICT.md` §3.4 and §4.6 | cited `decidingRung` and `depthArrivals` by name and line: one is renamed and now drawn per row, the other is deleted |
+| D9 | `02-INSPECTION-UI.md` §1.2 `cursor.cluster`, §1.3 T5, §3.8 `\`, §1.4's `minimalPinSet` fallback and §5 Q2/Q3 | a cursor level, a transition, a key binding and a `pins ≤ n` affordance that the shipped machine does not have and a test forbids. 04 closed Q2 and Q3; the design text still put them open |
 
 ---
 
@@ -315,6 +323,14 @@ text is its kind.
 
 ## What this branch changes
 
-Every Band A and Band B finding whose code is in `src/lens/**`, plus the whole
-of Band D, plus C1 and C2. A6, C3, C4 and the page-side items above are
-reported and unfixed, because their fix is in a file this worker does not own.
+Every Band A and Band B finding whose code is in `src/lens/**`, the whole of
+Band D, and C1. C2 is answered rather than changed — the fold is right and the
+view's derivation was wrong, which A4 fixes. A6, C3, C4 and the page-side items
+above are reported and unfixed, because their fix is in a file this worker does
+not own: they are the shortest list of one-line changes I can hand over, and
+every one of them is named with its file and its function.
+
+Two exports are kept deliberately though nothing calls them yet:
+`modeBadge` / `provenanceBadge`, which are the sanctioned home of the three
+fields that may differ between live and replay and the fix for the second half
+of A1, and `replayFrameAtSeq`, which is the landing pad for its first half.

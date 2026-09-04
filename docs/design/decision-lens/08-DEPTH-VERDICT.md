@@ -341,9 +341,11 @@ plan-building change, because omitting a unit from the plan is what makes it hel
   never before (`src/lens/kernel/reservoir.ts:56-95`, `:246-250`);
 - it is persisted as `dominance_kind` + `dominance` jsonb
   (`src/database/schema.ts:205-206`, `src/lens/store/index.ts:948-949`);
-- and it reaches the operator through exactly one function, `decidingRung`, which
-  renders **one pair of rows** — the selected row and its foil
-  (`src/lens/view/index.ts:481-512`).
+- and when this was written it reached the operator through one function, for
+  **one pair of rows** — the selected row and its foil. It is drawn on every
+  retained row since `8ca6338` (`dominanceClause`, `src/lens/view/index.ts`),
+  which is step 2 of §5; the pair's own line names the LOSER's condition
+  (`whyItLost`).
 
 **Cost: zero settlements.** `03` §2.4 says it in as many words: *"This is the
 threat/opportunity map and it is free. Every input is a value the comparison
@@ -669,9 +671,12 @@ Four things, in the order an operator would notice them.
    certificate** — which is precisely the conservatism the owner asked for, and
    it is a property of the construction rather than of a threshold.
 4. **The timeline lane gains `▲e3ʰ²` badges** on the kernel ticks that carried a
-   deepening (`06` §4.2, `depthArrivals`, `src/lens/view/index.ts:283-297`), and
-   scrubbing across one shows the bracket close. No new event kind, no schema
-   change, because the frames are whole.
+   deepening (`06` §4.2), and scrubbing across one shows the bracket close. No
+   new event kind, no schema change, because the frames are whole. The
+   predicate that found those ticks was written, called by nothing, and deleted
+   with the rest of the dead view code (`09` §D4): on a build where every
+   horizon is 1 it can only ever answer "none", and the lane has no badge to
+   draw until this member is merged.
 
 ---
 
