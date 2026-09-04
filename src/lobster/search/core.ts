@@ -33,8 +33,12 @@
 import type {
   Candidate,
   CandidateSet,
+  CandidateView,
   JointPlan,
+  Lever,
+  LeverView,
   PlanScore,
+  ScoreBounds,
   SearchContext,
   SearchCore,
   TrialSink,
@@ -62,6 +66,12 @@ import {
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
 import { resolveStagingSafety, stagingSafety } from "../staging-safety";
+import { DEFAULT_DEAD_BELOW, detectVacuity } from "../postures";
+// The KERNEL's plan key, not the bank's. The two spell a plan differently
+// (`to#path` against `to:path`) and the view's rows are handed to the kernel,
+// which compares them against `run.plans`; a key that is nearly the same is
+// worse than one that is obviously different.
+import { planKey as viewPlanKey } from "../voc";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -155,7 +165,38 @@ interface Session {
    * reference must stay fixed on the emission path too). Never swept,
    * repaired, polished or perturbed. */
   readonly references: ReadonlyMap<UnitId, Candidate>;
+  /**
+   * THE RIVAL SET THE LEVER VIEW IS ABOUT — the handful of priced plans that
+   * define this decision, kept across slices because the session is.
+   *
+   * Not every trial: a decision prices tens of thousands and the view needs
+   * the ones that could still be the answer. What is remembered is what the
+   * search itself KEEPS — the seed, each phase's winner, each restart's local
+   * optimum — which is exactly the set whose ceilings bound how open the
+   * decision still is.
+   */
+  readonly rivals: Map<string, Rival>;
+  /** Views built for this session. `LeverView.round` — the orchestrator's own
+   * sense of how long it has been looking at this decision. */
+  round: number;
 }
+
+/** One priced plan, as the lever view shows it. */
+interface Rival {
+  readonly key: string;
+  readonly plan: JointPlan;
+  bounds: ScoreBounds;
+  est: number;
+  /** The horizon THIS plan's reading was proved at (06 F-2). */
+  horizon: number;
+}
+
+/**
+ * Rivals kept per session. Small on purpose: the view exists to name the
+ * leader and the un-refuted rival with the highest ceiling, and a longer list
+ * buys the orchestrator nothing while costing every slice a walk.
+ */
+const LEVER_ROWS = 8;
 
 /** The two shapes `better()` returns, allocated once: a comparison in the
  *  hottest function in the search must not allocate to say "no". */
@@ -174,6 +215,19 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
+
+  /**
+   * THE HORIZON OF ONE PLAN'S READING, keyed on the plan itself (06 F-2).
+   *
+   * A depth is a property of a proof about a particular joint assignment, so it
+   * is stored against that assignment and nothing else — not against the slice,
+   * not against the session, not against the leader. One ply unless something
+   * deepened it, and the only thing that ever does is `refine`. Weak, because a
+   * plan the search dropped takes its reading with it, and O(1), because it is
+   * read on the retention path once per observed trial.
+   */
+  const deepHorizon = new WeakMap<object, number>();
+  const horizonOfPlan = (plan: JointPlan): number => deepHorizon.get(plan as object) ?? 1;
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -306,7 +360,43 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       sets,
       pins,
       references,
+      rivals: new Map<string, Rival>(),
+      round: 0,
     };
+  };
+
+  /**
+   * Keep a priced plan as a rival. Idempotent on the key, so a plan re-priced
+   * at a deeper horizon UPDATES its reading rather than arriving twice.
+   *
+   * Eviction drops the lowest ceiling, ties by key — deterministic, and the
+   * right endpoint to drop on: a rival is interesting because its optimism has
+   * not been confronted yet, and the least optimistic one is the one whose
+   * confrontation would tell us least.
+   */
+  const remember = (s: Session, result: BankResult): void => {
+    const horizon = horizonOfPlan(result.plan);
+    const key = viewPlanKey(result.plan);
+    const hit = s.rivals.get(key);
+    if (hit !== undefined) {
+      hit.bounds = result.bounds;
+      hit.est = result.est;
+      hit.horizon = Math.max(hit.horizon, horizon);
+      return;
+    }
+    s.rivals.set(key, { key, plan: result.plan, bounds: result.bounds, est: result.est, horizon });
+    if (s.rivals.size <= LEVER_ROWS) return;
+    let worst: Rival | null = null;
+    for (const r of s.rivals.values()) {
+      if (
+        worst === null ||
+        r.bounds.best < worst.bounds.best ||
+        (r.bounds.best === worst.bounds.best && r.key > worst.key)
+      ) {
+        worst = r;
+      }
+    }
+    if (worst !== null) s.rivals.delete(worst.key);
   };
 
   /**
@@ -448,6 +538,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       rung,
       accepted: verdict.accept,
       because: verdict.accept ? null : verdict.because,
+      // THE READING'S HORIZON, on the reading (06 F-2). The lens's depth column
+      // is sourced from here and never from `EmitRecord.horizon`.
+      horizon: horizonOfPlan(trial.plan),
       // THE CERTIFICATE, or nothing. `refutedAt` is a numeric test — this
       // plan's ceiling sits below the incumbent's proved floor — and the
       // concrete reply that put it there is in the bank's own witness set. A
@@ -614,11 +707,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // whole slice never touched would have no row at all, and the operator
       // would read an empty table for the units the search is happiest about.
       observe(best, best, ACCEPT);
+      remember(s, best);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
         best = sweep(s, ctx.budget, best);
         best = pairRepair(s, ctx.budget, best);
+        remember(s, best);
         if (best === before) {
           // Converged unit-wise. Polish first — it is cheap and it is the
           // escape a sweep cannot make — then spend what is left on perturbed
@@ -627,6 +722,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           const polished = jointPolish(s, ctx.budget, best);
           if (polished !== best) {
             best = polished;
+            remember(s, best);
             continue;
           }
           let restarted = false;
@@ -636,6 +732,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             let local = s.bank.price(seed);
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
+            // A LOSING RESTART IS STILL A RIVAL. Its ceiling is what root slack
+            // is a maximum over, so throwing it away is throwing away the one
+            // number that says the decision is still open.
+            remember(s, local);
             rung = "restart";
             const verdict = better(local, best);
             observe(local, best, verdict);
@@ -648,7 +748,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           if (!restarted) break;
         }
       }
-      return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
+      return {
+        plan: best.plan,
+        bounds: best.bounds,
+        witnesses: s.bank.witnesses,
+        // THE READING'S OWN HORIZON (06 F-2), so the kernel stamps the plan's
+        // depth on the plan rather than the slice's depth on everything.
+        horizon: horizonOfPlan(best.plan),
+      };
     } finally {
       trials = null;
     }
@@ -713,6 +820,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
         if (scored === null || !repairing) return seed;
         observe(scored, scored, ACCEPT);
+        remember(s, scored);
         return repairSelfHarm(s, ctx, scored).plan;
       }
 
@@ -724,6 +832,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (disturbed.length > 0) {
         let scored = s.bank.price(plan);
         observe(scored, scored, ACCEPT);
+        remember(s, scored);
         for (const unitId of disturbed) {
           if (ctx.budget.shouldStop()) break;
           const set = s.sets.get(unitId) as CandidateSet;
@@ -742,6 +851,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (!ctx.budget.shouldStop()) {
         const scored = s.bank.price(plan);
         observe(scored, scored, ACCEPT);
+        remember(s, scored);
         plan = pairRepair(s, ctx.budget, scored).plan;
       }
       return plan;
@@ -869,5 +979,141 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return out;
   };
 
-  return { improve, conform, drainRefusals, release };
+  // ------------------------------------------------------- the lever surface
+
+  /**
+   * THE REFINER SEAM GETS A PRODUCER (06 F-1).
+   *
+   * `asRefiner` narrows a core that implements BOTH `refinementView` and
+   * `refine`, and this one implemented neither — so `run.lastView` was never
+   * assigned, `absorb` stamped `run.lastView?.horizon ?? 1` onto every plan, and
+   * `EmitRecord.horizon` read 1 on all 125 956 decisions ever measured. A
+   * constant column that looks like a measurement is worse than an absent one,
+   * because three of this program's instrument artifacts came from reading one.
+   *
+   * WHAT THE VIEW CLAIMS. Real rivals (the plans the search kept), a real
+   * leader on the same ladder `better()` uses, a real root slack, and a
+   * per-plan horizon that is the plan's own.
+   *
+   * WHAT IT DOES NOT. Three of the orchestrator's four levers — `catchup`,
+   * `narrow`, `advance` — refine a HELD unit's claim, and this build has a
+   * producer for none of them: a narrowing is a marshalling-time input to the
+   * substrate, staleness is a fact about an observation a decision cannot go
+   * back and take, and `advanced` is decided by the bank's own entanglement
+   * gating rather than by a caller asking. So `units` is EMPTY, deliberately.
+   * Reporting units no lever can move would make `leverOrderBinding: true` a
+   * claim about an order that does not bind, which is the same defect as the
+   * constant horizon column wearing a different hat.
+   */
+  const leaderOf = (rows: ReadonlyArray<Rival>): number => {
+    // The acceptance ladder, restricted to what a row carries: floor first,
+    // under basis comparability, then est, then ceiling, then the key. A basis
+    // mismatch is a REFUSAL — the incumbent keeps its place — exactly as in
+    // `better()`, because two plans priced under different assumption sets are
+    // not two answers to one question.
+    let best = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i] as Rival;
+      const b = rows[best] as Rival;
+      const cmp = compareFloors(a.bounds, b.bounds);
+      if (!cmp.comparable) continue;
+      if (cmp.order !== 0) {
+        if (cmp.order > 0) best = i;
+        continue;
+      }
+      if (a.est !== b.est) {
+        if (a.est > b.est) best = i;
+        continue;
+      }
+      if (a.bounds.best !== b.bounds.best) {
+        if (a.bounds.best > b.bounds.best) best = i;
+        continue;
+      }
+      // The same salted, indifferent order `better()` breaks ties on, so the
+      // view's leader and the search's incumbent cannot disagree about a coin.
+      if (planTieKey(a.plan, cfg.seed) > planTieKey(b.plan, cfg.seed)) best = i;
+    }
+    return best;
+  };
+
+  const refinementView = (ctx: SearchContext): LeverView => {
+    const s = sessionFor(ctx);
+    s.round++;
+    // Sorted by key: the view is read by an orchestrator whose choices must
+    // replay identically, and a Map's insertion order is a function of which
+    // trials happened to win.
+    const rows = [...s.rivals.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    if (rows.length === 0) {
+      return {
+        candidates: [],
+        leaderIdx: -1,
+        slack: 0,
+        horizon: 1,
+        depthMax: 1,
+        units: [],
+        interiorCells: 0,
+        epsilon: 0,
+        round: s.round,
+      };
+    }
+    const leaderIdx = leaderOf(rows);
+    const leader = rows[leaderIdx] as Rival;
+    let slack = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (i === leaderIdx) continue;
+      slack = Math.max(slack, (rows[i] as Rival).bounds.best - leader.bounds.worst);
+    }
+    const candidates: CandidateView[] = rows.map((r, i) => {
+      const loCite = new Set<UnitId>();
+      const hiCite = new Set<UnitId>();
+      for (const e of r.bounds.ledger) {
+        (e.polarity === "if_present" ? loCite : hiCite).add(e.unitId);
+      }
+      return {
+        key: r.key,
+        plan: r.plan,
+        lo: r.bounds.worst,
+        est: r.est,
+        hi: r.bounds.best,
+        horizon: r.horizon,
+        vacuity: detectVacuity(r.bounds, DEFAULT_DEAD_BELOW).cause,
+        loCite,
+        hiCite,
+        // The witness veto, as a certificate rather than as an opinion: this
+        // plan's SOUND ceiling sits at or below the leader's PROVED floor.
+        refuted: i !== leaderIdx && refutedAt(r.bounds.best, leader.bounds.worst),
+      };
+    });
+    return {
+      candidates,
+      leaderIdx,
+      slack,
+      horizon: leader.horizon,
+      // HOW DEEP THIS CORE CAN GO. One ply: there is no continuation layer,
+      // so the orchestrator's depth ration finds every target already at its
+      // maximum, falls through, and returns `stop` — which is the kernel's
+      // plain `improve()` slice. The seam is real and the answer through it is
+      // an honest no.
+      depthMax: 1,
+      units: [],
+      interiorCells: 0,
+      epsilon: 0,
+      round: s.round,
+    };
+  };
+
+  /**
+   * Apply one lever.
+   *
+   * The only lever with a producer here is depth, and `refinementView` offers
+   * it only where it can be paid for — so anything that arrives is a lever this
+   * core has no way to pull, and the honest response is the work the slice
+   * would have done anyway rather than a no-op that burns it.
+   */
+  const refine = (ctx: SearchContext, lever: Lever): PlanScore => {
+    void lever;
+    return improve(ctx);
+  };
+
+  return { improve, conform, refinementView, refine, drainRefusals, release };
 }

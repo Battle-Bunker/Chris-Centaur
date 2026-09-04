@@ -942,6 +942,53 @@ describe("the operator's queue: arrival, survival, and the two frozen gates", ()
   })
 })
 
+describe("the horizon field has one meaning (06 F-2, F-3)", () => {
+  it("stamps the PLAN's horizon, not the slice's view", async () => {
+    // The old `absorb` read `run.lastView?.horizon` — the view's leader's depth
+    // — and wrote it onto every plan the slice happened to absorb, while
+    // `deepen` names ONE plan. Here the view claims horizon 7 and the returned
+    // reading claims nothing, so the honest answer is 1 and the leak is 7.
+    const viewOf = (): LeverView => ({
+      candidates: [],
+      leaderIdx: -1,
+      slack: 0,
+      horizon: 7,
+      depthMax: 1,
+      units: [],
+      interiorCells: 0,
+      epsilon: 0,
+      round: 0,
+    })
+    const script = [step({ plan: P2, worst: 10, best: 20 })]
+    const r = rig(
+      script,
+      {},
+      { core: (c) => new ScriptedRefinerCore(c, script, viewOf, { baseline: P1 }) }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    expect(reportOf(r.kernel).leverOrderBinding).toBe(true)
+    expect(out.every((rec) => rec.horizon === 1)).toBe(true)
+  })
+
+  it("reports the STAGED row's horizon, not the table's shallowest", async () => {
+    // `stageAndGate` used to pass `min over rows` while the forced path passed
+    // the staged row's own, so one field meant two things on two paths into it.
+    // The table here is shallowest at 1 and the row that reaches the wire was
+    // proved at 3; the emission is about the plan on the wire.
+    const r = rig([
+      step({ plan: P2, worst: 1, best: 9, horizon: 1 }),
+      step({ plan: P3, worst: 5, best: 6, horizon: 3 }),
+    ])
+    const out = await collect(r.kernel.decide(r.input()))
+    const last = out[out.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    expect(last.horizon).toBe(3)
+    // The shallow rival is still in the table — this is not "the table went
+    // deep", it is "the staged row did".
+    expect(out.some((rec) => rec.horizon === 1)).toBe(true)
+  })
+})
+
 describe("root slack is a rival quantity (06 F-9)", () => {
   it("reports max_R(R.hi − L.lo) from `run.plans`, with no lever surface at all", async () => {
     // THE RIVAL SET WAS NEVER MISSING. `rows()` builds its table from

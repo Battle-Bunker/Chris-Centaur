@@ -281,6 +281,15 @@ export interface StagingDecision {
   readonly switched: boolean
   readonly reason: "initial" | "collapse" | "improved" | "gradient" | "sticky"
   readonly slack: number
+  /**
+   * THE HORIZON OF THE ROW THAT IS ACTUALLY STAGED (06 F-3).
+   *
+   * It used to be `min over rows` — the table's SHALLOWEST — while the kernel's
+   * forced path stamped the staged row's own, so `EmitRecord.horizon` meant two
+   * different things on two paths into the same field. A depth of the table is
+   * not a property of the plan on the wire, and the field the emission carries
+   * is about the plan on the wire. One meaning, and it is this one.
+   */
   readonly horizon: number
 }
 
@@ -310,12 +319,14 @@ export class StickyStager {
     const leaderIdx = pickLeader(rows, policy)
     const leader = rows[leaderIdx]
     const slack = rootSlack(rows, leaderIdx)
-    const horizon = Math.min(...rows.map((r) => r.horizon))
     const incumbent = rows.find((r) => r.key === this.stagedKey)
+    // The decision's horizon is the STAGED row's, whichever row that turns out
+    // to be — see the field's own note.
+    const at = (staged: StagingCandidate): number => staged.horizon
 
     if (this.stagedKey === null || incumbent === undefined) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "initial", slack, horizon }
+      return { staged: leader, leader, switched: true, reason: "initial", slack, horizon: at(leader) }
     }
 
     // A dead incumbent is dethroned only by a LIVING leader. When everything
@@ -326,7 +337,7 @@ export class StickyStager {
     const leaderLiving = leader.vacuity === "alive"
     if (incumbentMaterialDead && leaderLiving) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "collapse", slack, horizon }
+      return { staged: leader, leader, switched: true, reason: "collapse", slack, horizon: at(leader) }
     }
 
     // F2: a cloud-contingent-DEAD (vacuous) incumbent stays staged while the
@@ -337,24 +348,59 @@ export class StickyStager {
     // (est, over an lo-vetoed set) may dethrone by the same margin rule.
     const incumbentVacuous = incumbent.vacuity === "cloud-contingent-dead"
     if (incumbentVacuous && !policy.vacuousMayWin) {
-      return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+      return {
+        staged: incumbent,
+        leader,
+        switched: false,
+        reason: "sticky",
+        slack,
+        horizon: at(incumbent),
+      }
     }
     if (incumbentVacuous && policy.vacuousMayWin) {
       const better =
         leader.horizon >= incumbent.horizon && leader.est > incumbent.est + this.margin
       if (better) {
         this.stagedKey = leader.key
-        return { staged: leader, leader, switched: true, reason: "gradient", slack, horizon }
+        return {
+          staged: leader,
+          leader,
+          switched: true,
+          reason: "gradient",
+          slack,
+          horizon: at(leader),
+        }
       }
-      return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+      return {
+        staged: incumbent,
+        leader,
+        switched: false,
+        reason: "sticky",
+        slack,
+        horizon: at(incumbent),
+      }
     }
 
     // F1: a ≥margin lo improvement at an equal-or-deeper horizon.
     if (leader.horizon >= incumbent.horizon && leader.lo > incumbent.lo + this.margin) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "improved", slack, horizon }
+      return {
+        staged: leader,
+        leader,
+        switched: true,
+        reason: "improved",
+        slack,
+        horizon: at(leader),
+      }
     }
-    return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+    return {
+      staged: incumbent,
+      leader,
+      switched: false,
+      reason: "sticky",
+      slack,
+      horizon: at(incumbent),
+    }
   }
 
   /** Exposed so callers can name the cliff they are staging against. */

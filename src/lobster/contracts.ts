@@ -276,6 +276,17 @@ export interface PlanScore {
   readonly plan: JointPlan
   readonly bounds: ScoreBounds
   readonly witnesses: ReadonlyArray<Witness>
+  /**
+   * THE HORIZON THIS PLAN'S READING WAS PROVED AT (06 F-2).
+   *
+   * A property of THIS plan's proof, not of the slice that produced it. The
+   * kernel used to stamp the refinement view's horizon onto every plan it
+   * absorbed in a slice, which attributes one plan's depth to every plan that
+   * happened to be priced beside it — and `deepen` names ONE plan. Absent ⇒ 1:
+   * a search that says nothing about depth searched one ply, which is the
+   * honest default and the one every reading on this build actually has.
+   */
+  readonly horizon?: number
 }
 
 // ---------------------------------------------------------------- pins/epochs
@@ -672,6 +683,10 @@ export interface TrialObservation {
   readonly because: VerdictReason | null
   /** The certificate, when the branch that refused was the witness veto. */
   readonly witness: Witness | null
+  /** The horizon THIS trial's reading was proved at (06 F-2). Absent ⇒ 1. The
+   * lens's depth column reads it here — from the reading — and never from
+   * `EmitRecord.horizon`, which is a property of an emission. */
+  readonly horizon?: number
 }
 
 export type TrialSink = (trial: TrialObservation) => void

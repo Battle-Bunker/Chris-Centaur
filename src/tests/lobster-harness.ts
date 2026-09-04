@@ -98,12 +98,16 @@ export function score(
     ledger?: ReadonlyArray<LedgerEntry>
     assumptions?: ReadonlyArray<Assumption>
     witnesses?: ReadonlyArray<Witness>
+    /** The horizon THIS reading was proved at. Absent ⇒ the field is absent,
+     * which is what a search that says nothing about depth returns. */
+    horizon?: number
   } = {},
 ): PlanScore {
   return {
     plan: p,
     bounds: bounds(worst, best, opts),
     witnesses: opts.witnesses ?? [],
+    ...(opts.horizon === undefined ? {} : { horizon: opts.horizon }),
   }
 }
 
@@ -230,6 +234,8 @@ export interface ScriptStep {
   readonly ledger?: ReadonlyArray<LedgerEntry>
   readonly assumptions?: ReadonlyArray<Assumption>
   readonly witnesses?: ReadonlyArray<Witness>
+  /** The horizon this step's reading was proved at (06 F-2). */
+  readonly horizon?: number
 }
 
 export interface CallSnapshot {
@@ -282,6 +288,7 @@ export class ScriptedSearchCore implements SearchCore {
       ledger: step.ledger,
       assumptions: step.assumptions,
       witnesses: step.witnesses,
+      horizon: step.horizon,
     })
   }
 
