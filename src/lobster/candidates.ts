@@ -584,7 +584,7 @@ function generateAssessed(
   });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
-  const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
+  const afterQuiet = thinQuiet(sub, assessed, pruned, knobs);
   const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
   const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
   const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
@@ -604,6 +604,33 @@ function generateAssessed(
 // ---------------------------------------------------------------------------
 
 /**
+ * Bucket items by the first cell of their path, path-length-zero items passed
+ * straight through as `loose`, and each bucket ("ray") sorted by path length
+ * ascending. This is the preamble `collapseSuffixes` and `thinQuiet` share:
+ * both process one ray of prefixes at a time, nearest first.
+ */
+function byRay<T>(
+  items: ReadonlyArray<T>,
+  pathOf: (t: T) => ReadonlyArray<CellIndex>
+): { rays: Map<CellIndex, T[]>; loose: T[] } {
+  const rays = new Map<CellIndex, T[]>();
+  const loose: T[] = [];
+  for (const item of items) {
+    const path = pathOf(item);
+    if (path.length === 0) {
+      loose.push(item);
+      continue;
+    }
+    const first = path[0] as CellIndex;
+    const group = rays.get(first);
+    if (group === undefined) rays.set(first, [item]);
+    else group.push(item);
+  }
+  for (const group of rays.values()) group.sort((a, b) => pathOf(a).length - pathOf(b).length);
+  return { rays, loose };
+}
+
+/**
  * First-contact termination, applied per ray.
  *
  * Actions that share a first path cell are prefixes of one ray. If the mover
@@ -621,21 +648,10 @@ function collapseSuffixes(
   raw: ReadonlyArray<Candidate>,
   pruned: PrunedEntry[]
 ): Candidate[] {
-  const rays = new Map<CellIndex, Candidate[]>();
-  const kept: Candidate[] = [];
-  for (const candidate of raw) {
-    if (candidate.path.length === 0) {
-      kept.push(candidate);
-      continue;
-    }
-    const first = candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [candidate]);
-    else group.push(candidate);
-  }
+  const { rays, loose } = byRay(raw, (c) => c.path);
+  const kept: Candidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.path.length - b.path.length);
     if (group.length === 1) {
       kept.push(group[0] as Candidate);
       continue;
@@ -868,27 +884,15 @@ function assessOne(
  */
 function thinQuiet(
   sub: EngineSubstrate,
-  unit: SubstrateUnit,
   assessed: ReadonlyArray<AssessedCandidate>,
   pruned: PrunedEntry[],
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!Number.isFinite(knobs.keepQuiet)) return [...assessed];
-  const rays = new Map<CellIndex, AssessedCandidate[]>();
-  const out: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.candidate.path.length === 0) {
-      out.push(a);
-      continue;
-    }
-    const first = a.candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [a]);
-    else group.push(a);
-  }
+  const { rays, loose } = byRay(assessed, (a) => a.candidate.path);
+  const out: AssessedCandidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.candidate.path.length - b.candidate.path.length);
     if (group.length <= 1) {
       out.push(...group);
       continue;
@@ -918,7 +922,6 @@ function thinQuiet(
       pruned.push({ candidate: a.candidate, prune: PRUNE.quietThinning, exact: false });
     });
   }
-  void unit;
   return out;
 }
 
