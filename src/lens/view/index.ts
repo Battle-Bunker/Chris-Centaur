@@ -299,7 +299,7 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
     if (bound !== null) {
       const by = bound.bound.by === null ? '' : ` by ${bound.bound.by}`;
       return (
-        `${unit} is ${bound.bound.why}${by} — it is a constant of cluster ` +
+        `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ` +
         `${bound.cluster.id}, not a variable the bot is solving`
       );
     }
@@ -320,6 +320,19 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
     `${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`
   );
 }
+
+/**
+ * A FIXITY REASON, AS A SENTENCE SAYS IT. `FixityReason` is a tag —
+ * `pin | commit | reference | pin-unreachable` — and the rail was dropping the
+ * tag straight into prose: "red-A is pin". The reason is worth saying in
+ * words; it is the whole content of the UNIT-terminal state.
+ */
+const FIXITY_VERB: Readonly<Record<string, string>> = {
+  pin: 'pinned',
+  commit: 'committed',
+  reference: 'held as a reference',
+  'pin-unreachable': 'pinned at a cell it cannot reach',
+};
 
 function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): DrawCall[] {
   const ops: DrawCall[] = [];
@@ -728,7 +741,8 @@ export function renderFrame(
     const why =
       bound === null
         ? null
-        : `${bound.bound.why}${bound.bound.by === null ? '' : ` by ${bound.bound.by}`} · a constant, not a member`;
+        : `a constant of cluster ${bound.cluster.id}` +
+          `${bound.bound.by === null ? '' : `, by ${bound.bound.by}`} — not a member`;
     ops.push(
       call(
         'panel.focus',
@@ -737,7 +751,14 @@ export function renderFrame(
         row?.letter ?? null,
         row?.health ?? null,
         row?.weight ?? null,
-        row?.fixity ?? null,
+        // THE UNIT'S OWN FIXITY, AND THE PARTITION'S, ARE ONE ANSWER. `frameAt`
+        // derives `UnitRow.fixity` from the turn's `pin` / `commit` events —
+        // which nothing on the wire writes today — while the partition frame
+        // carries the same fact as `boundedBy`. Reading only the first, the
+        // rail printed `free · pin · a constant, not a member` on one line: a
+        // unit that is simultaneously a free variable and a constant. The
+        // partition wins, because it is the statement the kernel actually made.
+        bound === null ? (row?.fixity ?? null) : FIXITY_VERB[bound.bound.why],
         home?.id ?? null,
         home?.members.length ?? 0,
         // "Locking narrows" is the word, everywhere: the header counts what is
@@ -778,11 +799,23 @@ export function renderFrame(
   return ops;
 }
 
-const LOCK_AFFORDANCE = {
-  true: (pins: number, members: number) => `[Space] lock — pins ${pins} of ${members}`,
-  false: () => '[N] return to now and lock',
-} as const;
-
+/**
+ * THE DETERMINATION AFFORDANCE NEVER VANISHES — a greyed control teaches
+ * nothing — so it RE-LABELS on `isHead`, which is the one field of the three
+ * badge fields the transcript is allowed to read.
+ *
+ * IT CANNOT TELL `replay` FROM `live-scrub`, and that is a real gap rather
+ * than an oversight: a recorded turn is offered `[N] return to now and lock`,
+ * naming a `now` a closed turn does not have, where 02 §1.4 asks for
+ * `locked by Ada at +812ms → [jump]` or `— read-only —`. Distinguishing them
+ * inside `renderFrame` means branching on `at.mode`, and `lens-panel.test.ts`
+ * forbids that structurally — the transcript is the object the boundary test
+ * compares between a live frame and a replayed one, and the three fields that
+ * may legitimately differ are rendered by the BADGE component below and
+ * nowhere else. The replay label therefore belongs beside `modeBadge`, which
+ * is a surface the page composes rather than a call in the transcript, and
+ * moving it there is a design call above this walk.
+ */
 function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): string {
   const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
   const members = cluster?.members ?? [];
@@ -794,7 +827,9 @@ function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | nul
             v === cursor.unit ||
             (selected.moves.find((m) => m.unit === v)?.to ?? null) !== stagedCellOf(frame, v)
         ).length;
-  return LOCK_AFFORDANCE[`${frame.at.isHead}`](pins, members.length);
+  return frame.at.isHead
+    ? `[Space] lock — pins ${pins} of ${members.length}`
+    : '[N] return to now and lock';
 }
 
 // ---------------------------------------------------------------------------

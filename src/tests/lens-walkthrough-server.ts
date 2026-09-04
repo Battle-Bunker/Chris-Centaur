@@ -146,7 +146,6 @@ function directionOf(board: Board, head: Coord, to: number): Direction | null {
 interface RecordedTurn {
   readonly turn: number;
   readonly settlement: BoardSnapshot;
-  readonly rows: ReadonlyArray<TurnEventRow>;
 }
 
 async function main(): Promise<void> {
@@ -229,10 +228,20 @@ async function main(): Promise<void> {
   app.get('/api/logs', (req, res) => {
     const start = req.query.startTurn == null ? -Infinity : Number(req.query.startTurn);
     const end = req.query.endTurn == null ? Infinity : Number(req.query.endTurn);
+    // Read at request time, not frozen at the end of the turn: storage keeps
+    // accumulating (an operator's lock lands after the board moved on), and a
+    // replay that stopped at the turn's last DECISION event would be a
+    // different prefix from the one the live client ended on — which is a
+    // difference in the harness, not in the product, and would show up as one.
     const events = log
       .filter((t) => t.turn >= start && t.turn <= end)
-      .flatMap((t) => t.rows.map((row) => row.payload));
-    res.json({ events });
+      .flatMap((t) => (captured.get(t.turn) ?? []).map((e) => storedRow(e).payload));
+    // `lensStringify`, exactly as `turn_events.payload` is written: `hi: +∞` is
+    // the lattice top before anything is proved above the incumbent, and plain
+    // `JSON.stringify` flattens it to `null`. Postgres holds the NAMED form and
+    // hands it back, so a stub that re-encoded with the wrong serialiser would
+    // have the replay path reading `—` where production reads `∞`.
+    res.type('application/json').send(lensStringify({ events }));
   });
 
   app.get('/api/logs/commands', (_req, res) => res.json([]));
@@ -406,11 +415,7 @@ async function main(): Promise<void> {
     manager.applyResolvedMoves(opts.gameId, turn, directions);
 
     const outcome = stepGame(board, turn, staged, rng, foodTarget);
-    log.push({
-      turn,
-      settlement,
-      rows: (captured.get(turn) ?? []).map(storedRow),
-    });
+    log.push({ turn, settlement });
     console.log(
       `[walkthrough] turn ${turn} — ${events.length} events, ` +
         `${staged.size} staged, ${outcome.deaths.length} deaths`

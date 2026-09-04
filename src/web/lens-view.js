@@ -951,7 +951,7 @@ var LensView = (() => {
       const bound = boundingOf(frame, unit);
       if (bound !== null) {
         const by = bound.bound.by === null ? "" : ` by ${bound.bound.by}`;
-        return `${unit} is ${bound.bound.why}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
+        return `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
       }
       const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? "free";
       if (dead === "dead") return `${unit} is dead — there is nothing left to choose for it`;
@@ -965,6 +965,12 @@ var LensView = (() => {
     if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
     return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
   }
+  var FIXITY_VERB = {
+    pin: "pinned",
+    commit: "committed",
+    reference: "held as a reference",
+    "pin-unreachable": "pinned at a cell it cannot reach"
+  };
   function boardOps(frame, cursor, selected) {
     const ops = [];
     const board = frame.board.board;
@@ -1219,7 +1225,7 @@ var LensView = (() => {
       const cluster = clusterOf(frame, cursor.unit);
       const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
       const home = cluster ?? bound?.cluster ?? null;
-      const why = bound === null ? null : `${bound.bound.why}${bound.bound.by === null ? "" : ` by ${bound.bound.by}`} · a constant, not a member`;
+      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${bound.bound.by === null ? "" : `, by ${bound.bound.by}`} — not a member`;
       ops.push(
         call(
           "panel.focus",
@@ -1228,7 +1234,14 @@ var LensView = (() => {
           row?.letter ?? null,
           row?.health ?? null,
           row?.weight ?? null,
-          row?.fixity ?? null,
+          // THE UNIT'S OWN FIXITY, AND THE PARTITION'S, ARE ONE ANSWER. `frameAt`
+          // derives `UnitRow.fixity` from the turn's `pin` / `commit` events —
+          // which nothing on the wire writes today — while the partition frame
+          // carries the same fact as `boundedBy`. Reading only the first, the
+          // rail printed `free · pin · a constant, not a member` on one line: a
+          // unit that is simultaneously a free variable and a constant. The
+          // partition wins, because it is the statement the kernel actually made.
+          bound === null ? row?.fixity ?? null : FIXITY_VERB[bound.bound.why],
           home?.id ?? null,
           home?.members.length ?? 0,
           // "Locking narrows" is the word, everywhere: the header counts what is
@@ -1256,17 +1269,13 @@ var LensView = (() => {
     );
     return ops;
   }
-  var LOCK_AFFORDANCE = {
-    true: (pins, members) => `[Space] lock — pins ${pins} of ${members}`,
-    false: () => "[N] return to now and lock"
-  };
   function lockLabel(frame, cursor, selected) {
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
     const members = cluster?.members ?? [];
     const pins = selected === null || cursor.unit === null ? 0 : members.filter(
       (v) => v === cursor.unit || (selected.moves.find((m) => m.unit === v)?.to ?? null) !== stagedCellOf(frame, v)
     ).length;
-    return LOCK_AFFORDANCE[`${frame.at.isHead}`](pins, members.length);
+    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : "[N] return to now and lock";
   }
   var MODE_BADGE = {
     "live-head": "LIVE",

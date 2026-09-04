@@ -140,6 +140,56 @@ async function clickTick(page, lane, which) {
   return seq;
 }
 
+/** Two PNGs, differenced in the browser that drew them: same size?, how many
+ *  pixels differ, and the bounding box of the difference so the report can say
+ *  WHERE rather than only how much. */
+async function diffPngs(page, a, b) {
+  const toUri = (f) => `data:image/png;base64,${fs.readFileSync(f).toString('base64')}`;
+  return page.evaluate(
+    async ([ua, ub]) => {
+      const load = (src) =>
+        new Promise((res, rej) => {
+          const i = new Image();
+          i.onload = () => res(i);
+          i.onerror = rej;
+          i.src = src;
+        });
+      const [ia, ib] = await Promise.all([load(ua), load(ub)]);
+      if (ia.width !== ib.width || ia.height !== ib.height) {
+        return { sameSize: false, a: [ia.width, ia.height], b: [ib.width, ib.height] };
+      }
+      const draw = (img) => {
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        return c.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+      };
+      const [da, db] = [draw(ia), draw(ib)];
+      let differing = 0;
+      let top = Infinity;
+      let bottom = -1;
+      for (let i = 0; i < da.length; i += 4) {
+        if (da[i] !== db[i] || da[i + 1] !== db[i + 1] || da[i + 2] !== db[i + 2]) {
+          differing++;
+          const y = Math.floor(i / 4 / ia.width);
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+        }
+      }
+      return {
+        sameSize: true,
+        width: ia.width,
+        height: ia.height,
+        differingPixels: differing,
+        percent: Number(((differing / (ia.width * ia.height)) * 100).toFixed(3)),
+        differingRows: differing === 0 ? null : [top, bottom],
+      };
+    },
+    [toUri(a), toUri(b)]
+  );
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
@@ -234,12 +284,19 @@ async function main() {
       e.getAttribute('title')
     )
   );
+  // The operator tick is the kernel's `operator` frame; the PARTITION it
+  // produces is the next event, and the playhead snaps to events, so the pin's
+  // effect is one step on from the tick.
   report.notes.pinnedSeq = await clickTick(page, 'operator', 0);
+  await page.keyboard.press('.');
+  await sleep(700);
   await shot(page, '13-pinned', 'the frame after the operator pin — Rule E, drawn', '.lens-rail');
   await shot(page, '13b-pinned-board', 'the pinned unit on the board — padlock, no tether', '#gameCanvas');
 
   at = 'live/widen';
   report.notes.widenSeq = await clickTick(page, 'operator', 'last');
+  await page.keyboard.press('.');
+  await sleep(700);
   await shot(page, '14-released-widen', 'the frame at the release — the cluster widens again', '.lens-rail');
 
   at = 'live/now';
@@ -263,6 +320,12 @@ async function main() {
   report.notes.banner = banner;
   if (banner) {
     await shot(page, '16-widen-banner', 'the widen banner — additive uncertainty is staged', '.lens-rail');
+    const show = await page.$('[data-lens-accept]');
+    if (show) {
+      await show.click();
+      await sleep(900);
+      await shot(page, '16b-widen-accepted', 'after [Show] — the wider list lands', '.lens-rail');
+    }
   }
   await sleep(WAIT);
 
@@ -307,6 +370,39 @@ async function main() {
   });
   await sleep(WAIT);
   await shot(replay, '20-replay-scrub', 'the turn slider scrubbed back one turn');
+
+  // ── THE SAME TURN, BOTH WAYS ────────────────────────────────────────────
+  // Law C, as a picture: one turn at one seq, folded from the socket and
+  // folded from `/api/logs`, rendered by the same renderer. The two rails are
+  // diffed pixel for pixel; what may legitimately differ is the mode badge and
+  // the determination affordance, and nothing else.
+  at = 'diff/live';
+  await focusUnit(page, 0);
+  await page.keyboard.press('End');
+  await sleep(900);
+  const liveAt = await page.evaluate(() => ({ turn: lensTurn, seq: lensSeq }));
+  await shot(page, '21a-live-frame', `live rail, turn ${liveAt.turn} seq ${liveAt.seq}`, '.lens-rail');
+
+  at = 'diff/replay';
+  await replay.evaluate((t) => {
+    const s = document.getElementById('playTurnSlider');
+    if (!s) return;
+    s.value = String(t);
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  }, liveAt.turn);
+  await sleep(WAIT * 2);
+  await focusUnit(replay, 0);
+  await replay.keyboard.press('End');
+  await sleep(900);
+  const replayAt = await replay.evaluate(() => ({ turn: lensTurn, seq: lensSeq }));
+  await shot(replay, '21b-replay-frame', `replay rail, turn ${replayAt.turn} seq ${replayAt.seq}`, '.lens-rail');
+
+  report.notes.diff = {
+    liveAt,
+    replayAt,
+    ...(await diffPngs(page, path.join(OUT, '21a-live-frame.png'), path.join(OUT, '21b-replay-frame.png'))),
+  };
 
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);

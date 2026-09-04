@@ -982,11 +982,31 @@
      *  not of this frame, so repeating it every render would bury everything
      *  else in the console without adding a word. */
     let lensFoldComplaint = null;
+    /**
+     * WHICH SOURCE STAMPED THIS FRAME, and it is not a detail.
+     *
+     * `frameAtSeq` builds through the LIVE source, so its `at.mode` can only be
+     * `live-head` or `live-scrub` — and the rail is what an operator reads the
+     * mode off. 09 §A1 fixed the replay half in `historicFrameFor`, but the
+     * RAIL does not go through `historicFrameFor`: it renders `lensFrame()`,
+     * which was the live fold over the recorded array. A replayed turn
+     * therefore still badged itself `⏸ SCRUBBED · read-only`, still offered
+     * `[N] return to now and lock`, and `lensNow` still set `lensAtHead` on a
+     * RECORDED event array — the exact keypress-to-lock path A1 describes.
+     *
+     * `lensReplay` says where the array came from. Set by `adoptHistoricLens`,
+     * cleared by the next socket batch, and it also carries the settlement,
+     * because a stored anchor has had its board dropped (`logStoredEvent`).
+     */
+    let lensReplay = false;
+    let lensReplaySettlement = null;
     function lensFrame() {
       const view = lensView();
       if (!view || lensEvents.length === 0) return null;
       try {
-        return view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
+        return lensReplay
+          ? view.replayFrameAtSeq(lensEvents, lensSeq, lensReplaySettlement)
+          : view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
       } catch (e) {
         const said = e && e.message ? e.message : String(e);
         if (lensFoldComplaint !== said) {
@@ -1107,6 +1127,8 @@
       if (msg.turn !== lensTurn) {
         lensTurn = msg.turn;
         lensEvents = [];
+        lensReplay = false;
+        lensReplaySettlement = null;
         // THE PLAYHEAD FOLLOWS A NEW TURN. `live-scrub` is defined as an
         // earlier seq OF THE CURRENT TURN (02 §2.2); once the board moves on,
         // the seq the operator was parked at names an event that no longer
@@ -1292,6 +1314,7 @@
     function lensHandleKey(e) {
       const binding = LensPanel.keyBinding(e);
       if (!binding) return false;
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       switch (binding.action) {
@@ -1362,9 +1385,27 @@
     }
 
     function lensSeekTo(seq) {
+      lensReleaseHold();
       lensSeq = seq;
       const head = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
       lensAtHead = seq >= head;
+    }
+
+    /**
+     * A WIDEN IS HELD AGAINST INCOMING DATA, NEVER AGAINST THE OPERATOR.
+     *
+     * `lensRender` draws the HELD transcript while a widen banner is up — that
+     * is the point of §1.6: the table under a reader is not swapped out from
+     * beneath them. But the hold was also swallowing the reader's own gestures:
+     * focus a unit, walk the moveset list or scrub the lane while the banner
+     * was up and the rail went on drawing the frozen picture, so the page
+     * looked dead until the timer expired. T1/T3/T6/T13 are unconditional in
+     * the transition table. An operator who moves the cursor has left the list
+     * the hold was protecting, so the widen is accepted and the fresh frame is
+     * what they see.
+     */
+    function lensReleaseHold() {
+      if (lensHeld) lensAcceptWiden();
     }
 
     function lensNow() {
@@ -1379,6 +1420,7 @@
      *  milliseconds away. */
     let lensPendingFocus = null;
     function lensFocus(unitId) {
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       if (!view || !frame) {
@@ -1396,6 +1438,7 @@
     }
 
     function lensSelectCandidate(unitId, to) {
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       if (!view || !frame || !lensCursor) return;
@@ -4230,6 +4273,11 @@
       lensTurn = turn;
       lensEvents = events;
       lensAtHead = false;
+      // The rail is now reading STORED rows: it must be stamped by the replay
+      // source, and it must be handed the board the log does not carry.
+      lensReplay = true;
+      const row = turnTimeline.get(turn) || timelineFloorRow(turn);
+      lensReplaySettlement = (row && row.game_state) || null;
       lensSeq = events.length > 0 ? events[events.length - 1].seq : 0;
       lensHeld = null;
       lensNarrowNote = null;
