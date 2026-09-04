@@ -27,7 +27,7 @@ Lessons: a dead agent cannot be resumed by SendMessage, relaunch; Sonnet stalls 
 | beh-contest (CC) | opus | D1 in contest.ts (instrument first), D6, `--food-energy` runner option | prediction holds in direction; no class worse on deaths; 16 arms zero |
 | beh-potion (CC) | opus | D4 in window.ts | reckless share down, profitable-safe up on potions; no class worse; 16 arms zero |
 Queued: D2 (momentum/command in features.ts), D3 and D5 (room in territory.ts) after b1-sound; PLAN-3 items 6, 11, and PLAN-2 item 7 after b1-sound and p3-c; full jest + 16 arms on the head after p3-* merge, then checkpoint v4; PR #17 body refresh after plan 3 lands; TacticToes: plan-2 item 4 (owner), a third audit only if the second's "not worth it" list changes; drives rebase after #17.
-Ping: send_later 55 min, re-armed on each firing (current trig_018d2Xx6STCqxWDm67Js8SnS, fires 20:16Z).
+Ping: send_later 55 min, re-armed on each firing (re-armed at 20:40Z for 21:35Z).
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
