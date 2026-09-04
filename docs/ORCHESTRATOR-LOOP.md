@@ -15,12 +15,14 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~13:10Z
-Merged: depth preconditions F-1..F-9 (439bec4, byte-identical A/B; depth 2 built, measured, NOT engaged — see the merge message). Checkpoints: CC `stable/one-engine-lens-v2` = 439bec4; TT `stable/one-engine-v2` = 526ff4f (TT SIMPLIFY-PLAN complete, processor 1478→639 lines).
+## Active wave (update on every launch/merge) — 2026-09-04 ~14:00Z
+Merged: 08-DEPTH-VERDICT (290dbe0): chained depth refused with the sharper reason (chainable exactly when B3 already closed the bracket); recommendation = threat/opportunity map per row now (0 settlements), then a CEILING PLY on the loud subset (~10% of budget); F-10 found (better()'s ceiling rung penalises having measured).
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| simp-c (CC) | sonnet | SIMPLIFY-PLAN items 6, 7, 10, 11, 12 (mechanical parts) | byte-identical runner + suite green; item 11 also zero inversions |
-| lookahead (CC) | opus | docs/design/decision-lens/08-DEPTH-VERDICT.md: what lookahead is affordable and legible after the depth-2 measurement (abstract plies over claims / selective / quiescence / threat map / reply model) | merge doc; queue its first step |
+| simp-c (CC) | sonnet | SIMPLIFY-PLAN items 6, 7, 10, 11, 12 (mechanical parts) | byte-identical runner + suite; 11 also zero inversions |
+| potion (CC) | opus | potion member v2: instrument (profitable/reckless at pickup) then the member; keep only if WHICH pickups changes | A/B potions 60t×5 seeds; potion-free boards byte-identical |
+| threatmap (CC) | opus | 08 §5 steps 1–3: measure Q; threat map per row; F-10 behind G2 | step 2 byte-identical decisions; step 3 A/B vs stable v2 |
+Next after threatmap: 08 §5 step 4 (B4 + ceiling ply), gated on Q.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
