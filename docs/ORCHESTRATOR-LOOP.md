@@ -15,8 +15,15 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge)
-(see git log of this file for history)
+## Active wave (update on every launch/merge) — launched 2026-09-04 ~09:50Z
+| worktree/branch | model | task | merge rule |
+|---|---|---|---|
+| audit (CC) | opus | read-only simplification plan → docs/design/SIMPLIFY-PLAN.md | merge doc; spawn Sonnet executors per MECHANICAL item |
+| depth (CC) | opus | F-1..F-9 depth preconditions, then depth 2 for piece clusters, gated | merge preconditions; engagement only if A/B not worse per board class |
+| telemetry-rm (CC) | sonnet | delete unconsumed src/lobster/telemetry.ts and orphans | ff-merge if full suite green |
+| goto-fix (CC) | sonnet | goto weight defect (drives/01 M1), minimal fix + real fixture | merge if suite green |
+| (TT checkout) | opus | read-only simplification plan → TacticToes docs/SIMPLIFY-PLAN.md | merge doc; spawn Sonnet executors |
+Ping: send_later 55 min, re-armed on each firing (trigger name "Orchestrator 55-minute loop ping").
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
