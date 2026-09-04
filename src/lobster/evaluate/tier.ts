@@ -92,7 +92,7 @@
 
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, envelope, point } from './bound';
-import { type ContestField, contestField, winsContest } from './contest';
+import { type ContestField, contestField, frozenTier, winsContest } from './contest';
 import type { EvalContext, Standing } from './features';
 
 /**
@@ -125,16 +125,6 @@ export function tierIsLive(sub: EngineSubstrate): boolean {
   }
   LIVE.set(sub.marshalled, live);
   return live;
-}
-
-/**
- * The tier a unit still holds at an absolute turn, given the tier it carries
- * into the arrival turn. `tierExpiresAtTurn` is EXCLUSIVE — the first turn at
- * which the tier no longer governs — and the conversion from the wire's
- * inclusive figure happens once, in `marshalBoard`.
- */
-function heldAt(tier: number, expiresAtTurn: number | null, turn: number): number {
-  return expiresAtTurn !== null && turn >= expiresAtTurn ? 0 : tier;
 }
 
 /**
@@ -260,8 +250,8 @@ export const tierFeature: Feature<EvalContext> = {
 
       // The tier interval, read at both ends. `winsContest` is monotone in our
       // tier, so the ends of the interval are the ends of the value.
-      const tLo = heldAt(s.tierMin, expiry, arrival);
-      const tHi = heldAt(s.tierMax, expiry, arrival);
+      const tLo = frozenTier(s.tierMin, expiry, arrival);
+      const tHi = frozenTier(s.tierMax, expiry, arrival);
       const settled = after === null ? null : after.get(s.unitId);
 
       const noPickupLo = windowValue(tLo, null, hold, window, weight, field, s.cell);

@@ -124,8 +124,13 @@ export interface ContestField {
  */
 const FIELDS = new WeakMap<object, Map<number, ContestField>>();
 
-/** The tier a unit still carries at the turn its arrival is adjudicated on. */
-function frozenTier(tier: number, expiresAtTurn: number | null, turn: number): number {
+/**
+ * The tier a unit still carries at the turn its arrival is adjudicated on.
+ * `expiresAtTurn` is EXCLUSIVE — the first turn at which the tier no longer
+ * governs — and the conversion from the wire's inclusive figure happens once,
+ * in `marshalBoard`.
+ */
+export function frozenTier(tier: number, expiresAtTurn: number | null, turn: number): number {
   return expiresAtTurn !== null && turn >= expiresAtTurn ? 0 : tier;
 }
 

@@ -63,20 +63,6 @@ import type { Claim } from '../engine-vendor/engine/claims';
 import type { EngineSubstrate, SubstrateUnit } from './substrate';
 import type { CellIndex } from './contracts';
 
-/**
- * The invulnerability tier a unit carries into the arrival turn.
- *
- * For a CLAIM this is `Claim.tierAtArrival`: the engine lapses the effect
- * schedule itself, inside the settlement that knows the turn, which is the
- * whole reason this file no longer walks a frozen record and re-derives an
- * expiry. For one of OUR units the marshalling has already done it — a
- * `SubstrateUnit.tier` is exact at the arrival turn — so there is nothing left
- * to lapse and the two readings agree by construction.
- */
-export function heldTierAt(subject: { readonly tier: number }): number {
-  return subject.tier;
-}
-
 /** One claim that outranks the subject at the arrival turn. */
 export interface TierThreat {
   readonly claim: Claim;
@@ -130,7 +116,9 @@ const NO_THREATS: ReadonlyArray<TierThreat> = [];
  */
 export function exposureOf(sub: EngineSubstrate, unit: SubstrateUnit): TierExposure {
   const arrivalTurn = sub.arrivalTurn;
-  const ownTier = heldTierAt(unit);
+  // `SubstrateUnit.tier` is already exact at the arrival turn — the
+  // marshalling has lapsed it — so there is nothing left to derive here.
+  const ownTier = unit.tier;
   // What a pickup would leave this unit at is settlement's answer, asked once
   // per unit and only where a pickup is possible at all. On a board with
   // potions off, or none on it, there is nothing to ask and nothing to pay for.
@@ -355,12 +343,7 @@ function anyAllyGains(sub: EngineSubstrate, unit: SubstrateUnit): boolean {
     if (other.team !== unit.team) continue;
     const settled = after.get(other.unitId);
     if (settled === undefined) continue;
-    if (settled > heldTierAt(other)) return true;
+    if (settled > other.tier) return true;
   }
   return false;
-}
-
-/** Do any of these claims carry a live tier? A cheap whole-decision gate. */
-export function claimsHaveTier(claims: ReadonlyArray<Claim>): boolean {
-  return claims.some((claim) => claim.tierAtArrival !== 0);
 }
