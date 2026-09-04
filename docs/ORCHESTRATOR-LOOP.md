@@ -16,13 +16,14 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 - Inversion gate, 16 arms, every one must print no `INVERSION` line: `for s in mixed snakes sparse potions; do for d in 1 2 3; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js $s 30 $d --nodes; done; done` and then `for d in 4 5 6 8; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js potions 60 $d --nodes; done` — the four potion arms run to sixty turns because the two soundness classes fixed in 6e7b7d0 (a death in the optimistic timeline read as a proof; `room`'s maximised side read off a crowd containing a held cloud) fire on seeds 5 and 8 only past turn thirty, where the twelve 30-turn arms never looked.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~18:30Z
-Merged: PLAN-2 items 1, 4 and the complementKey fix (cd29cdc; −507 test-harness lines; one piece term table; one key producer). Head cd29cdc.
+## Active wave (update on every launch/merge) — 2026-09-04 ~20:00Z
+Merged: potion-board soundness (295e772; gate = 16 arms). NOT merged: the ceiling ply (origin/ceiling 72f2fc6) — sound but vacuous, shipped inert; verdict recorded in 08-DEPTH-VERDICT §7. Head 1c60d8a.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| potion-sound (CC) | opus | potion-board inversions (60t, seeds 1–10); extend the standing gate | zero inversions on the extended arms; A/B reported |
-| ceiling (CC) | opus | 08 §5 step 4: B4 rung + ceiling ply; lens depth column | soundness vs exhaustive depth-2; A/B per board class; snakes/sparse byte-identical |
-Queued after those land: PLAN-2 items 2, 3, 5, 7 and §5.1 (leaderOf est across horizons) — Sonnet for 3/5/7, Opus for 2 and §5.1; runner `--opponent=<profile>` (Sonnet); entrapment with the ceiling-ply horizon (Opus).
+| b1-sound (CC) | opus | port the exact-reply oracle from origin/ceiling (G-D3) as a standing check; fix the B1-floor-vs-exact-reply classes (485 on potions s4) | seed 4 reads zero; sweep green; A/B reported |
+| simp2-b (CC) | sonnet | PLAN-2 items 3 (one arrival field), 5 (one unit-ascent step) | byte-identical + suite + G1/G2 |
+| opponent (CC) | sonnet | runner `--opponent=<profile>`; ab-compare pairs by opponent; material-only baseline recorded | byte-identical without the flag |
+Queued: PLAN-2 item 7 (B1/B3 fold — after b1-sound), item 2 (ourUnitTerm absorbs tier+potion — Opus, after simp2-b), §5.1 leaderOf est-across-horizons (Opus, after simp2-b); entrapment (needs a horizon: with the ceiling ply refused, design it on the one-ply bracket + claims over the window — Opus design first).
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
