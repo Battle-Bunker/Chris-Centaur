@@ -37,10 +37,8 @@
 import type { Board } from '../../types/battlesnake';
 import type { JointPlan, KernelInput, PinEvent, UnitId } from '../../lobster/contracts';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../../lobster/kernel';
-import { GrammarCandidateGenerator, knobsForSafety } from '../../lobster/candidates';
+import { rigFor } from '../../lobster/candidates';
 import { defaultEvaluator } from '../../lobster/evaluate';
-import { makeSearchCore } from '../../lobster/search';
-import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../../lobster/staging-safety';
 import { clearGeometryCache, makeSubstrate } from '../../lobster/substrate';
 import {
   DecisionClock,
@@ -170,13 +168,7 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
   try {
     const asTeam = sub.teamNumber(teamId);
     const clock = new DecisionClock(true);
-    const safety = resolveStagingSafety(stagingSafety(), boardBearsPiece(sub));
-    const gen = new GrammarCandidateGenerator(knobsForSafety(safety));
-    const search = makeSearchCore({
-      rungZeroRepair: safety === 'full',
-      seedDeconflict: safety !== 'off',
-      seed: spec.seed,
-    });
+    const { gen, search } = rigFor(sub, { seed: spec.seed });
     const kernel = new LobsterKernel({
       ...DEFAULT_KERNEL_OPTIONS,
       crossfade: 'teammate',

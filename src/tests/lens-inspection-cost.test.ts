@@ -37,10 +37,8 @@ import { unitKeyOf } from '../lens/kernel';
 import { ingestLensEvents, makeSeqWriter, projectMovesets, encodeEventRow } from '../lens/store';
 import { makeInspectionPort } from '../lens/store/sources';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
-import { GrammarCandidateGenerator, knobsForSafety } from '../lobster/candidates';
+import { rigFor } from '../lobster/candidates';
 import { defaultEvaluator } from '../lobster/evaluate';
-import { makeSearchCore } from '../lobster/search';
-import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
 import { EngineSubstrate, clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { Evaluator, KernelInput } from '../lobster/contracts';
 import type {
@@ -112,12 +110,7 @@ async function decide(watched: boolean): Promise<Run> {
   try {
     const asTeam = sub.teamNumber(teamId);
     const clock = new DecisionClock(true);
-    const safety = resolveStagingSafety(stagingSafety(), boardBearsPiece(sub));
-    const gen = new GrammarCandidateGenerator(knobsForSafety(safety));
-    const search = makeSearchCore({
-      rungZeroRepair: safety === 'full',
-      seedDeconflict: safety !== 'off',
-    });
+    const { gen, search } = rigFor(sub);
     const kernel = new LobsterKernel({
       ...DEFAULT_KERNEL_OPTIONS,
       crossfade: 'teammate',

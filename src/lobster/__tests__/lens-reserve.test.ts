@@ -23,10 +23,8 @@
 import { LENS_INSPECTION_MS, type LensEvent, type UnitKey } from '../../lens/types';
 import { carveReserve } from '../../lens/kernel/reserve';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../kernel';
-import { GrammarCandidateGenerator, knobsForSafety } from '../candidates';
+import { rigFor } from '../candidates';
 import { defaultEvaluator } from '../evaluate';
-import { makeSearchCore } from '../search';
-import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../staging-safety';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Evaluator, KernelInput } from '../contracts';
 import {
@@ -131,9 +129,7 @@ async function decide(watched: boolean): Promise<Watched> {
   try {
     const asTeam = sub.teamNumber(teamId);
     const clock = new DecisionClock(true);
-    const safety = resolveStagingSafety(stagingSafety(), boardBearsPiece(sub));
-    const gen = new GrammarCandidateGenerator(knobsForSafety(safety));
-    const search = makeSearchCore({ rungZeroRepair: safety === 'full', seedDeconflict: safety !== 'off' });
+    const { gen, search } = rigFor(sub);
     const kernel = new LobsterKernel({
       ...DEFAULT_KERNEL_OPTIONS,
       crossfade: 'teammate',
