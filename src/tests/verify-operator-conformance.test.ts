@@ -28,7 +28,7 @@ import type {
   UnitId,
 } from '../lobster/contracts';
 import type { Board as ApiBoard, Coord, Snake } from '../types/battlesnake';
-import { makeSnake } from './board-fixtures';
+import { makeSnake, piece as sharedPiece } from './board-fixtures';
 import type { LensEvent } from '../lens/types';
 import { LobsterKernel, type KernelOptions, type KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
@@ -55,8 +55,10 @@ class StepClock {
   readonly peek = (): number => this.t;
 }
 
+// Local adapter: this file's `piece` takes `teamID` as a fifth positional,
+// not in `extra` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>
-  makeSnake(id, [at], { unitType, length: weight, teamID } as Partial<Snake>);
+  sharedPiece(id, at, unitType, weight, { teamID });
 
 const boardOf = (snakes: Snake[], size: number): ApiBoard =>
   ({ width: size, height: size, food: [], hazards: [], snakes }) as ApiBoard;

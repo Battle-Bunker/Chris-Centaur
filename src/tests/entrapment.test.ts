@@ -31,14 +31,16 @@ import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
 import { ORTHOGONALS } from '../engine-vendor/engine/moveGrammar';
 import { legalTargets } from '../engine-vendor/engine/queries';
 import { marshalBoard } from '../logic/turn-oracle';
-import { makeSnake } from './board-fixtures';
+import { makeSnake, cellAt } from './board-fixtures';
 import { entrappedAt, stepGame } from './local-game';
 
 const P = (x: number, y: number): Coord => ({ x, y });
 const TURN = 20;
+// NOT converted to the shared `boardOf`: this board is 11×11, not the shared
+// factory's 9×9 — see SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[]): Board =>
   ({ width: 11, height: 11, food: [], hazards: [], snakes }) as Board;
-const at = (board: Board, cell: Coord): number => marshalBoard(board, TURN).toIndex(cell);
+const at = (board: Board, cell: Coord): number => cellAt(board, TURN, cell);
 
 afterEach(() => clearGeometryCache());
 

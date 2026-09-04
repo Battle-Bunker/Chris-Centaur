@@ -18,8 +18,8 @@
  *    inversion, and refuses an unreachable pin on a named channel.
  */
 
-import type { Board, Coord, Snake } from '../types/battlesnake';
-import { makeSnake } from './board-fixtures';
+import type { Board, Snake } from '../types/battlesnake';
+import { piece } from './board-fixtures';
 import type {
   Assumption,
   BudgetHandle,
@@ -48,14 +48,9 @@ import { LobsterKernel, deadlineFromWallClock } from '../lobster/kernel';
 
 // ------------------------------------------------------------------ fixtures
 
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
+// NOT converted to the shared `boardOf`: five of this file's six call sites
+// rely on the 7×7 default, unlike the shared factory's 9×9 — see
+// SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({ width: 7, height: 7, food: [], hazards: [], snakes, ...extra }) as Board;
 

@@ -91,16 +91,13 @@
  * need re-measuring before anything here is believed again.
  */
 
-import type { Board, Coord, Snake } from '../types/battlesnake';
+import type { Board, Snake } from '../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { worldsOf } from '../lobster/evaluate';
 import { moverSurvival } from '../lobster/bounds/material';
 import type { LawCase } from '../lobster/evaluate';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
-import { makeSnake } from './board-fixtures';
-
-const piece = (id: string, at: Coord, unitType: string, weight: number, extra: Partial<Snake>): Snake =>
-  makeSnake(id, [at], { unitType, length: weight, ...extra });
+import { makeSnake, piece } from './board-fixtures';
 
 const TURN = 40;
 
