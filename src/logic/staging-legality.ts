@@ -47,8 +47,8 @@ import {
   toIndex,
   toXY,
 } from '../engine-vendor/engine/moveGrammar';
-import type { Board, Coord, Snake } from '../types/battlesnake';
-import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
+import type { Board, Snake } from '../types/battlesnake';
+import { apiCoordToIndex } from '../firebase/translate';
 
 // The engine's movement surface, re-exported so a consumer has ONE import
 // site for "what may this unit do" — the same reason `queries.ts` re-exports
@@ -227,12 +227,6 @@ export function stagingRotations(
 ): { target: number; orientation: Orientation }[] {
   return rotationTargets(unit, board);
 }
-
-/** A full-board destination index as an api coord on this board. */
-export const destCoordOf = (dest: number, board: Board): Coord => {
-  const { fullW, fullH } = fullDims(board);
-  return toApiCoord(dest, fullW, fullH);
-};
 
 // ---------------------------------------------------------------------------
 // The fast staging pass's refusal

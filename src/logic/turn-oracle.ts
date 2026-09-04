@@ -814,42 +814,6 @@ export function evaluatePathOnBoard(
   return evaluateCandidatePath(marshalled, ourID, apiPath.map(marshalled.toIndex));
 }
 
-/**
- * The health a unit has left after ENTERING `cell`, asked of the engine with
- * nothing else on the board.
- *
- * The solo board is the point: with no other unit present nothing can contest
- * anything, so the only things that can touch the answer are the movement
- * cost, the hazard dose, exhaustion and the end-of-turn meal — which is
- * exactly the question callers want when they are layering health-awareness on
- * top of a separate wall/body passability check (MoveAnalyzer's hazard-step
- * classification, the staged-move fatality probe). Asking the engine keeps
- * even this small a rule out of the bot.
- *
- * <= 0 means the step kills. Note that a step onto FOOD comes back at the
- * unit's type max however low it started, because exhaustion only halts and
- * the food phase runs at the halt cell.
- */
-export function healthAfterEntering(board: Board, currentTurn: number, unit: Snake, cell: Coord): number {
-  const solo: Board = { ...board, snakes: [unit] };
-  const marshalled = marshalBoard(solo, currentTurn);
-  const path = [marshalled.toIndex(cell)];
-  const result = resolvePartialTurn(marshalled, new Map([[unit.id, { path }]]));
-  // Dead means the engine took it to zero or below; report the shortfall the
-  // registry implies rather than inventing a number.
-  return result.board[unit.id]?.energy ?? 0;
-}
-
-/** The projected health cost of a path — the name every scoring caller reads. */
-export function projectedHealthCost(
-  board: Board,
-  currentTurn: number,
-  ourID: string,
-  apiPath: Coord[]
-): number {
-  return evaluatePathOnBoard(board, currentTurn, ourID, apiPath).cost;
-}
-
 /** Re-exported so callers need not reach into the vendored tree themselves. */
 export type { ResolveUnit, ResolveTurnInput, TurnResolution, Settlement };
 export { resolveTurn, settleTurn, DEFAULT_POTION_WINDOW_TURNS };

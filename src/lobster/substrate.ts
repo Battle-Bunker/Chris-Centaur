@@ -81,11 +81,6 @@ import type {
  */
 export { NO_ORDER_MOVE };
 
-/** A `Candidate`-shaped explicit default for `unitId`. */
-export function noOrderCandidate(unitId: UnitId, from: CellIndex = NO_ORDER_MOVE): Candidate {
-  return { unitId, from, to: NO_ORDER_MOVE, path: [] };
-}
-
 /** What one bounded settlement produces — the contract's own shape. */
 export type BoundedResolve = BoundedResolution;
 
