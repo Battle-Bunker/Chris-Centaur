@@ -68,8 +68,8 @@ export interface MoveEvaluation {
   // CentaurMove value staging puts on the wire.
   move: CentaurMove;
   score: number;
-  numStates: number;
-  breakdown: any;
+  numStates?: number;
+  breakdown?: any;
   projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
   // The candidate's destination cell (api coords). Always present on piece
   // rows (the enumerator computes it); present on snake rows when the engine's

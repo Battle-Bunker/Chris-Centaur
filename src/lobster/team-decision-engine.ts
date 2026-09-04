@@ -1174,25 +1174,17 @@ export class TeamDecisionEngine {
     pins: PinSet;
     bot: BotIdentity;
   }): void {
-    const { input, sub, asTeam, gen, evaluate, report, finalPlan, views, lastForwarded } = args;
+    const { input, sub, asTeam, gen, evaluate, finalPlan, views, lastForwarded } = args;
     let rows: UnitDecisionRow[];
     try {
       rows = buildDecisionRows({
         gameId: input.gameId,
-        turn: input.turn,
         sub,
         asTeam,
         gen,
         evaluate,
-        report,
         finalPlan,
         views,
-        forwarded: lastForwarded,
-        assumptions: args.assumptions,
-        modelled: args.modelled,
-        pins: args.pins,
-        engineName: 'lobster',
-        bot: args.bot,
         moveOf: (unit, candidate) => this.moveOf(sub, unit, candidate),
       });
     } catch (err) {
