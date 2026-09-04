@@ -111,3 +111,154 @@ pickups 36 → 22 and moved the share by −0.5 points.
 game, it costs nothing on a potion-free board, and it is the number any future
 attempt has to move. `src/lobster/__tests__/evaluate.test.ts` keeps the `tier`
 suite it always had; the potion suite went with the member.
+
+---
+
+# The second attempt: `evaluate/potion.ts`, seated
+
+Everything above is the record of the FIRST attempt and stands unedited. This
+section is the second one, built from the three repairs the section above asks
+for, and it is a keep rather than a delete.
+
+## 1. The instrument, and the measurement that changed its definition
+
+`profitablePickups` stayed exactly as it was, because it is the number the
+history is written in. Three counters joined it in `src/tests/local-game.ts`
+(`readPickup`), taken AT the pickup off the board it left behind rather than
+three turns later:
+
+* the collector's energy;
+* the best enemy tier that shares its ground inside the window;
+* `catchTurn`, the earliest turn of the window at which an enemy that OUTRANKS
+  the debuffed collector can stand where the collector can stand.
+
+Both sides come from `computeClaims` with every unit held and
+`input.turn − observedTurn` set to k, which is the engine's own answer to "where
+could this be, and how strong could it be, after k turns". Nothing walks the
+movement grammar twice.
+
+`exposed` (and so `reckless`) is `catchTurn === 1`, and the first repair the
+section above asks for — read the peril over the WINDOW's dilation — is the
+reason it is not the whole span. Done literally, the reading is VACUOUS. The
+per-horizon beaten share of the collector's own ground, on seed 1:
+
+    k=1  1/6   2/6   2/5   4/5   1/9   0/5   0/9   1/5   0/1
+    k=2  13/13 10/13 12/13 13/13 9/16  13/13 10/16 13/13 0/3
+    k=3  24/25 24/25 20/24 24/25 25/27 25/25 25/26 23/25 1/7
+
+By the second turn every unit on an 11x11 board can meet every other, and a
+debuffed unit loses to all of them on tier alone, so "could an enemy that
+outranks me share my ground inside the window" was true of 41 pickups out of 41.
+What the span carries is WHEN, not WHETHER. So the term reads the whole window
+and weights horizon k by `W − k + 1`: the near turns are where the geometry
+still discriminates, and they are also the turns the collector has had no chance
+to walk away from — a claim at horizon k grants the enemy k free turns and the
+collector none.
+
+**This is the correction to point 1 of "What a future attempt would have to
+fix", and it is a correction and not an implementation of it.**
+
+The instrument draws nothing from the rng and runs only where a potion was
+collected, so the three potion-free scenarios were verified byte-identical
+against a pre-instrument build (nine runs, 60 turns, seeds 1–3, zero
+differences outside the new fields, which are zero).
+
+## 2. The member
+
+`profit` is each ally's own tier against the tier the pickup gives it,
+`winsContest` asked twice, AT THE CELL THE PLAN PUTS THE ALLY (point 2, fixed)
+and against the enemy field at each turn of the window rather than at one.
+`peril` is the share of the collector's OWN GROUND — not its landing square —
+that a beating enemy can occupy, at the debuffed tier settlement leaves it on,
+absolute rather than marginal (the B1/B2 lesson above), horizon-weighted as
+described. `potion = (Σ profit − 2 × peril) / |ours|`, so peril dominates.
+
+The collector's ground is read from where it stands as the turn opens, not from
+the potion cell: a superset of the truth, conservative in the direction the
+brief asks for, and it is what keeps the peril half memoisable per collector
+instead of per plan.
+
+### The soundness fix the bank found
+
+The first cut of the member named ONE collector — the first of ours resting on a
+potion — and priced only that one. Two of our units can rest on two potions in
+the same turn, and a unit that might die might not collect at all, so *which
+unit is the collector* is itself world-dependent and a floor that named one of
+them is a floor a world with a different one falls through. The term now walks
+the candidates in roster order and takes the union: a candidate alive in every
+world closes the walk, a contingent one is admitted and the walk goes on, and
+running off the end admits the no-pickup world at zero. Three potion boards
+joined `LAW_CASES`, including a slider taking a potion a held rook can contest,
+and R1/R2/R3 hold over all of them.
+
+## 3. What was measured
+
+`potions`, 60 turns, seeds 1–5, `--nodes` (deterministic). BEFORE is HEAD plus
+the instrument; AFTER adds the member at weight 2.
+
+| | pickups | profitable(ally clash) | profitable AND safe | reckless | deathsWhileDebuffed | deaths | meals/100 |
+|---|---|---|---|---|---|---|---|
+| BEFORE | 41 | 12 (29.3%) | 3 (**7.3%**) | 30 (**73.2%**) | 2 | 16 | 17.85 |
+| AFTER  | 24 | 11 (45.8%) | 4 (**16.7%**) | 18 (**75.0%**) | 3 | 12 | 18.26 |
+
+Per seed, pickups went 9→1, 4→8, 12→4, 9→2, 7→9: the member is not a uniform
+brake, it re-sorts. The pre-registration was "profitable share up, reckless
+share down, pickups may fall, deathsWhileDebuffed 0, meals not down beyond
+noise, potion-free boards byte-identical". Scored honestly:
+
+* **profitable share up — YES.** 7.3% → 16.7% on the conjunction, 29.3% → 45.8%
+  on the older ally-clash counter alone. Four events against three, so this is
+  a direction and not a measurement of size.
+* **reckless share down — NO.** 73.2% → 75.0%, flat. The term charges a SHARE of
+  the collector's ground and `reckless` fires on a single beatable cell, so the
+  two are not the same threshold; a pickup with one bad square out of six costs
+  almost nothing and still counts reckless. That mismatch is the honest reading
+  and it is the next thing to fix, in the counter or in the term.
+* **pickups may fall — yes**, 41 → 24, and not to zero.
+* **deathsWhileDebuffed 0 — NO**, 2 → 3. Against 16 → 12 total deaths, which is
+  the counter that matters more and moved the right way.
+* **meals not down — held**, 17.85 → 18.26 per 100 unit-turns.
+* **potion-free byte-identical — YES**, nine runs, zero differences.
+
+The keep rule was "profitable share rises OR reckless falls, pickups not
+collapsing". The first disjunct holds and pickups are 24. **Kept.**
+
+### The transcript, seed 1
+
+Turn 2. `green-A`, a snake at (5,1) with the potion at (5,2) one step north.
+BEFORE, (5,2) is its best option at floor −74.09 and it takes it; the instrument
+reads `enemyTier+0 caught@1 EXPOSED`. AFTER, the same three options are ordered
+(6,1) = −74.14, (4,1) = −74.19, (5,2) = −74.33 — the pickup has fallen from
+first to third by about two tenths, and the snake steps sideways instead. It is
+the same board, the same seed and the same turn; the whole difference is the
+peril half.
+
+The one pickup the AFTER arm did take on that seed is turn 42, `blue-A` onto
+(2,5) at floor 161.05 against 161.01 for the next option — a four-hundredth of a
+point. Blue had TWO allies to arm (a queen and a pawn) where green-A had one,
+and that is the entire margin.
+
+### Bound inversions: pre-existing on this board
+
+The `potions` scenario inverts the bank's floor against its ceiling with the
+member OFF: 875 `ScoreBounds` inversions on seed 7 over seeds 1–10, 60 turns.
+With the member ON the same sweep gives 103 (26 on seed 5, 77 on seed 8, none
+elsewhere). So inversions are a property of this board rather than of this term
+— it moves which trajectories reach them, and over ten seeds it reaches them
+less. That latent unsoundness is somewhere else and is not this member's to fix,
+but it is written down here because "zero inversions" is not a gate the
+`potions` scenario can currently pass in either arm.
+
+## 4. What the next attempt should look at
+
+1. **`reckless` and the peril half disagree about what "danger" is.** One is a
+   boolean on a single beatable cell at horizon 1, the other a share over the
+   whole ground. Make the counter a share too, or make the term refuse on the
+   first turn's boolean, but do not leave them measuring different things.
+2. **Four profitable-and-safe pickups is still not a sample.** Sixty turns and
+   five seeds gives 24–41 pickups; resolving a ten-point shift wants an order of
+   magnitude more. Twenty seeds, or a board with more potions and more units.
+3. **The collector's ground is read from its turn-start cell.** Reading it from
+   the potion cell would make the peril per-plan rather than per-collector, and
+   would cost a claim pass per candidate destination. Whether that buys anything
+   is unmeasured.

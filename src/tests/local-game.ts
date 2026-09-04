@@ -19,6 +19,8 @@ import type { Board, Coord, Snake } from '../types/battlesnake';
 import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
 import { marshalBoard } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
+import { computeClaims } from '../engine-vendor/engine/claims';
+import { winsContest } from '../lobster/evaluate/contest';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
@@ -765,6 +767,136 @@ export function stepGame(
 }
 
 // ---------------------------------------------------------------------------
+// THE PICKUP INSTRUMENT — what the collector walked into, read over the WINDOW
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT ONE PICKUP LOOKED LIKE AT THE MOMENT IT HAPPENED.
+ *
+ * The first potion member was deleted because the counter that judged it could
+ * not tell the pickups apart (`docs/design/potions.md`, "The instrument has
+ * almost no power"): `profitablePickups` waits for an ally to be in a clash,
+ * which is a fact about the next three turns rather than about the decision,
+ * and it fires on 27-29% of pickups whatever the bot does. This reading is the
+ * fix that post-mortem asks for — the enemy tier RECORDED AT THE PICKUP, and
+ * the collector's own exposure while it is debuffed, both asked of the rules
+ * rather than reconstructed.
+ *
+ * THE GROUND IS THE ENGINE'S OWN DILATION. A `Claim` over a span of `k` turns
+ * is exactly "where could this unit be, and how strong could it be, after that
+ * many turns of unknown movement" — `everPossible` is the cell set and
+ * `tierAtArrival`/`weightMax` the strength — so both sides are `computeClaims`'
+ * answer and neither is a second encoding of the movement grammar. Every unit
+ * is held, which makes the reading a pure function of the settled board.
+ *
+ * ── WHY `exposed` IS THE WINDOW'S FIRST TURN AND NOT ITS WHOLE SPAN ────────
+ *
+ * The post-mortem's first repair was "read the peril over the WINDOW's
+ * dilation, not one turn". Done literally — a claim at span 3 for the collector
+ * against claims at span 3 for the enemies — it was measured on `potions`,
+ * seeds 1-5, and it is VACUOUS: 41 pickups out of 41 came back exposed. The
+ * per-horizon counts say why. On seed 1, the beaten share of the collector's
+ * own ground reads
+ *
+ *     k=1  1/6   2/6   2/5   4/5   1/9   0/5   0/9   1/5   0/1
+ *     k=2  13/13 10/13 12/13 13/13 9/16  13/13 10/16 13/13 0/3
+ *     k=3  24/25 24/25 20/24 24/25 25/27 25/25 25/26 23/25 1/7
+ *
+ * — by the second turn of the window every unit on an 11x11 board can meet
+ * every other, so "could an enemy that outranks me share my ground inside the
+ * window" is true of every pickup ever made and discriminates nothing. A
+ * debuffed unit loses to EVERYTHING (tier is read before weight), so the
+ * saturation is total rather than a matter of degree.
+ *
+ * What the span does carry is WHEN. So the verdict is the earliest horizon at
+ * which a beating enemy can share the collector's ground, and `exposed` is that
+ * horizon being the very first turn of the window — the turn the collector has
+ * had no chance to walk away from yet. Danger that only arrives as the window
+ * lapses is not the danger the brief is about, and the claim at k=3 over-states
+ * it anyway, because it grants the enemy three free turns and the collector
+ * none.
+ */
+interface PickupReading {
+  /** The collector's energy as the pickup turn closed. */
+  readonly energy: number;
+  /** The highest tier any enemy sharing its window ground could bring. */
+  readonly enemyTier: number;
+  /** The first turn of the window at which a beating enemy can share its
+   *  ground, or 0 for "not inside the window at all". */
+  readonly catchTurn: number;
+  /** `catchTurn === 1`: caught on the window's first turn. */
+  readonly exposed: boolean;
+}
+
+/**
+ * Read one pickup off the board it left behind.
+ *
+ * `board` is the SETTLED board — the collector already carries its -1 and its
+ * allies their +1 — and `turn` is the turn that produced it, so the next turn
+ * adjudicated is `turn + 1` and the window runs `window` turns from there.
+ */
+function readPickup(
+  board: Board,
+  turn: number,
+  collectorId: string,
+  window: number
+): PickupReading | null {
+  const m = marshalBoard(board, turn);
+  if (m.units.length === 0) return null;
+  const span = Math.max(1, window);
+  let enemyTier = 0;
+  let catchTurn = 0;
+  for (let k = 1; k <= span; k++) {
+    const claims = computeClaims({
+      ...m.config,
+      units: m.units,
+      turn: m.arrivalTurn,
+      teamOf: Object.fromEntries(m.teamOf),
+      effects: m.effects,
+      potions: m.potions,
+      potionsEnabled: m.potionsEnabled,
+      potionWindowTurns: m.potionWindowTurns,
+      pawnPromotionWeight: m.pawnPromotionWeight,
+      maxTurns: m.maxTurns,
+      // `input.turn - observedTurn` is the span a claim dilates over, so this
+      // is the board k turns into the window with nothing else assumed.
+      held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })),
+    });
+    const mine = claims.find((c) => c.id === collectorId);
+    if (mine === undefined) return null;
+    const ground = new Set(mine.everPossible);
+    for (const claim of claims) {
+      if (claim.teamID === mine.teamID) continue;
+      let meets = false;
+      for (const cell of claim.everPossible) {
+        if (ground.has(cell)) {
+          meets = true;
+          break;
+        }
+      }
+      if (!meets) continue;
+      if (claim.tierAtArrival > enemyTier) enemyTier = claim.tierAtArrival;
+      // CONSERVATIVE, both ends: our lightest against their heaviest, at the
+      // tier the pickup left each of them on. `winsContest` is
+      // `strictMaximum`'s own tier-then-weight order, not a paraphrase.
+      if (
+        catchTurn === 0 &&
+        !winsContest(mine.tierAtArrival, mine.weightMin, claim.tierAtArrival, claim.weightMax)
+      ) {
+        catchTurn = k;
+      }
+    }
+  }
+  const record = m.units.find((u) => u.id === collectorId);
+  return {
+    energy: record?.energy ?? 0,
+    enemyTier,
+    catchTurn,
+    exposed: catchTurn === 1,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The game loop, and the counters a gate reads
 // ---------------------------------------------------------------------------
 
@@ -812,6 +944,28 @@ export interface GameMetrics {
    * every clash from the turn after the pickup up to and including that turn.
    */
   profitablePickups: number;
+  /**
+   * THE BRIEF'S TWO VERDICTS, taken at the moment of the pickup rather than
+   * three turns later. See `readPickup`.
+   *
+   * `reckless` — the collector walked onto the potion with an enemy able, over
+   * the window it just opened, to stand where it can stand and beat it there at
+   * the tier the pickup left it on.
+   *
+   * `profitableSafe` — the pickup bought an ally a tier-decided clash inside
+   * its window AND the collector was not exposed. It is the conjunction the
+   * owner's intent names: profitable for the team, and the collector not in
+   * great danger. `profitablePickups` (above) is the older, weaker half of it
+   * and is kept unchanged so the numbers in `docs/design/potions.md` stay
+   * comparable.
+   */
+  recklessPickups: number;
+  profitableSafePickups: number;
+  /** Summed best enemy tier over the window, one term per pickup — the counter
+   *  the deleted member's post-mortem asked for. */
+  pickupEnemyTierSum: number;
+  /** Summed collector energy at pickup, one term per pickup. */
+  pickupEnergySum: number;
   /** Unit-turns that ended on a HIGHER tier: an ally of a collector, mostly. */
   potionTierUps: number;
   /** Unit-turns that ended on a lower tier: the collector, and lapsing buffs. */
@@ -888,6 +1042,10 @@ export async function runGame(
     deathsByCause: {},
     potionPickups: 0,
     profitablePickups: 0,
+    recklessPickups: 0,
+    profitableSafePickups: 0,
+    pickupEnemyTierSum: 0,
+    pickupEnergySum: 0,
     potionTierUps: 0,
     potionTierDowns: 0,
     deathsWhileDebuffed: 0,
@@ -908,7 +1066,14 @@ export async function runGame(
    * `endsTurn`, and the window is scored the first turn an ally is in a
    * tier-decided clash inside it.
    */
-  const windows: { collector: string; team: string; endsTurn: number; paid: boolean }[] = [];
+  const windows: {
+    collector: string;
+    team: string;
+    endsTurn: number;
+    paid: boolean;
+    /** The pickup's own reading, taken when the window opened. */
+    exposed: boolean;
+  }[] = [];
   const potionWindow = spec.potionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS;
   // wireId -> the cell it stood on BEFORE its last move.
   const previousCell = new Map<string, string>();
@@ -1003,16 +1168,34 @@ export async function runGame(
         if (teamOf.get(id) !== w.team) continue;
         w.paid = true;
         metrics.profitablePickups++;
+        // THE CONJUNCTION: the team got its clash AND the collector was not
+        // walking into one it loses. Either half alone is not the intent.
+        if (!w.exposed) metrics.profitableSafePickups++;
         break;
       }
     }
     for (let i = windows.length - 1; i >= 0; i--) {
       if (turn >= (windows[i] as { endsTurn: number }).endsTurn) windows.splice(i, 1);
     }
+    const readings: string[] = [];
     for (const id of outcome.collectors) {
       const team = teamOf.get(id);
       if (team === undefined) continue;
-      windows.push({ collector: id, team, endsTurn: turn + potionWindow, paid: false });
+      // The reading is taken off the board the pickup LEFT — the collector is
+      // already carrying its −1 there, which is the tier its exposure is about.
+      const reading = readPickup(outcome.board, turn, id, potionWindow);
+      const exposed = reading?.exposed ?? false;
+      if (reading !== null) {
+        metrics.pickupEnemyTierSum += reading.enemyTier;
+        metrics.pickupEnergySum += reading.energy;
+        if (reading.exposed) metrics.recklessPickups++;
+        readings.push(
+          `${id} hp${reading.energy} enemyTier${reading.enemyTier >= 0 ? '+' : ''}` +
+            `${reading.enemyTier} caught@${reading.catchTurn === 0 ? 'never' : reading.catchTurn}` +
+            ` ${reading.exposed ? 'EXPOSED' : 'clear'}`
+        );
+      }
+      windows.push({ collector: id, team, endsTurn: turn + potionWindow, paid: false, exposed });
     }
     metrics.potionTierUps += outcome.tierUps.length;
     metrics.potionTierDowns += outcome.tierDowns.length;
@@ -1039,7 +1222,8 @@ export async function runGame(
     if (outcome.potionsTaken > 0) {
       emit(
         `  POTION x${outcome.potionsTaken}  tier up: ${outcome.tierUps.join(', ') || '(none)'}` +
-          `  tier down: ${outcome.tierDowns.join(', ') || '(none)'}`
+          `  tier down: ${outcome.tierDowns.join(', ') || '(none)'}` +
+          (readings.length === 0 ? '' : `  [${readings.join('; ')}]`)
       );
     }
     clearGeometryCache();
@@ -1217,6 +1401,10 @@ export interface RunSummary {
     readonly otherDeaths: number;
     readonly potionPickups: number;
     readonly profitablePickups: number;
+    readonly recklessPickups: number;
+    readonly profitableSafePickups: number;
+    readonly pickupEnemyTierSum: number;
+    readonly pickupEnergySum: number;
     readonly potionTierUps: number;
     readonly potionTierDowns: number;
     readonly deathsWhileDebuffed: number;
@@ -1271,6 +1459,10 @@ export function summaryOf(
       otherDeaths: metrics.otherDeaths,
       potionPickups: metrics.potionPickups,
       profitablePickups: metrics.profitablePickups,
+      recklessPickups: metrics.recklessPickups,
+      profitableSafePickups: metrics.profitableSafePickups,
+      pickupEnemyTierSum: metrics.pickupEnemyTierSum,
+      pickupEnergySum: metrics.pickupEnergySum,
       potionTierUps: metrics.potionTierUps,
       potionTierDowns: metrics.potionTierDowns,
       deathsWhileDebuffed: metrics.deathsWhileDebuffed,
@@ -1288,6 +1480,8 @@ export function summaryOf(
       deathsPer100: per(metrics.starvationDeaths + metrics.otherDeaths),
       potionPickupsPer100: per(metrics.potionPickups),
       profitablePickupsPer100: per(metrics.profitablePickups),
+      recklessPickupsPer100: per(metrics.recklessPickups),
+      profitableSafePickupsPer100: per(metrics.profitableSafePickups),
       potionTierUpsPer100: per(metrics.potionTierUps),
     },
     deathsByCause: Object.fromEntries(
@@ -1330,6 +1524,8 @@ async function summarise(
     otherDeaths: 0,
     potionPickups: 0,
     profitablePickups: 0,
+    recklessPickups: 0,
+    profitableSafePickups: 0,
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
@@ -1370,6 +1566,7 @@ async function summarise(
       `causes=${JSON.stringify(causes)} ` +
       ((totals.potionPickups as number) > 0
         ? `potions=${totals.potionPickups} profitable=${totals.profitablePickups} ` +
+          `profitableSafe=${totals.profitableSafePickups} reckless=${totals.recklessPickups} ` +
           `tierUps=${totals.potionTierUps} ` +
           `deadDebuffed=${totals.deathsWhileDebuffed} deadBuffed=${totals.deathsWhileBuffed} `
         : '') +

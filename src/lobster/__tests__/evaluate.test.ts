@@ -40,6 +40,8 @@ import {
   commandFeature,
   worldsOf,
   tierFeature,
+  potionFeature,
+  PERIL_WEIGHT,
   materialBounds,
   materialEvaluator,
   scale,
@@ -323,7 +325,118 @@ const LAW_CASES: LawCase[] = [
       orders: new Map([['rs', at(board, { x: 1, y: 5 })]]),
     };
   })(),
+  (() => {
+    // A PICKUP UNDER A CLAIM. Our taker steps onto a potion with a held enemy
+    // close enough to reach it, so the collector is CONTINGENT in the very
+    // world set this case enumerates — which is the case both potion terms are
+    // bracketed for, and the one that is unreachable from a board with no
+    // potion on it. The ally is one square from a contest of its own, so the
+    // buff half is live too.
+    const board = boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('ally', [{ x: 3, y: 1 }, { x: 2, y: 1 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('foe', [{ x: 5, y: 1 }, { x: 6, y: 1 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+          health: 60,
+        }),
+        piece('N', { x: 3, y: 4 }, 'knight', 2, { teamID: 'blue', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+    return {
+      name: 'a taker stepping onto a potion under a held knight',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['taker', 'ally'],
+      orders: new Map([
+        ['taker', at(board, { x: 2, y: 3 })],
+        ['ally', at(board, { x: 4, y: 1 })],
+      ]),
+    };
+  })(),
+  (() => {
+    // TWO OF OURS ON TWO POTIONS IN THE SAME TURN. The rule settles both — each
+    // takes -1 and each gives the other +1 — and a term that names ONE
+    // collector has to bracket every world in which the one it named is not the
+    // one it would name once the world is determinate. Both are contingent
+    // under the held rook.
+    const board = boardOf(
+      [
+        makeSnake('a', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('b', [{ x: 1, y: 5 }, { x: 0, y: 5 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        piece('R', { x: 5, y: 4 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }, { x: 2, y: 5 }] }
+    );
+    return {
+      name: 'two of ours collecting two potions in the one turn',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['a', 'b'],
+      orders: new Map([
+        ['a', at(board, { x: 2, y: 3 })],
+        ['b', at(board, { x: 2, y: 5 })],
+      ]),
+    };
+  })(),
+  (() => {
+    // A SLIDER TAKING A POTION UNDER A CLAIM THAT CAN CONTEST THE CELL. The
+    // held rook's own grammar reaches the potion square our queen is staged to,
+    // so among the worlds this case enumerates are ones in which the queen does
+    // not arrive and collects nothing — the ONE thing that decides whether the
+    // pickup happens at all. Three teams, so the enemy field the term stamps is
+    // a union over two rosters rather than one.
+    const board = boardOf(
+      [
+        piece('q', { x: 1, y: 1 }, 'queen', 2, { teamID: 'red', health: 60 }),
+        piece('p', { x: 3, y: 3 }, 'pawn', 2, { teamID: 'red', health: 60 }),
+        piece('r', { x: 5, y: 5 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+        piece('n', { x: 0, y: 6 }, 'knight', 2, { teamID: 'green', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 5, y: 1 }] }
+    );
+    return {
+      name: 'a queen sliding onto a potion a held rook can contest',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['q', 'p'],
+      orders: new Map([
+        ['q', at(board, { x: 5, y: 1 })],
+        ['p', at(board, { x: 3, y: 2 })],
+      ]),
+    };
+  })(),
 ];
+
+/**
+ * The law cases that carry no potion. The corpus grew three potion boards when
+ * `potion.ts` was seated — the terms that must be identically zero without one
+ * are checked over these, and the laws themselves over all of them.
+ */
+const POTIONLESS_LAW_CASES = LAW_CASES.filter(
+  (c) => (c.board as { invulnerabilityPotions?: unknown }).invulnerabilityPotions === undefined
+);
 
 describe('the admission laws, over the real world set', () => {
   test('R1 soundness: every world lies inside the interval', () => {
@@ -714,7 +827,7 @@ describe('tier value prices the window, and is free without one', () => {
     // is a point at zero, so every counter measured on a potion-free board is
     // the counter that was measured before it existed. Checked over the law
     // cases — pieces, snakes, kings, held units.
-    for (const c of LAW_CASES) {
+    for (const c of POTIONLESS_LAW_CASES) {
       const sub = makeSubstrate({
         board: c.board,
         turn: c.turn,
@@ -949,6 +1062,197 @@ describe('tier value prices the window, and is free without one', () => {
     expect(DEFAULT_WEIGHTS.tier as number).toBeLessThan(DEFAULT_WEIGHTS.contest as number);
     expect(DEFAULT_WEIGHTS.tier as number).toBeLessThan(DEFAULT_WEIGHTS.food as number);
     expect(materialEvaluator.profile.weights.tier).toBe(0);
+  });
+});
+
+// --------------------------------------------------------------- the pickup
+
+describe('the pickup trade — the team’s windows against the collector’s exposure', () => {
+  /** The `potion` part of one joint plan, and the whole fold’s floor with it. */
+  function pickupOf(
+    board: Board,
+    orders: ReadonlyArray<[string, Coord]>,
+    asTeam = 'red'
+  ): { potion: { lo: number; est: number; hi: number }; total: number } {
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam,
+      modeled: orders.map(([id]) => id),
+    });
+    try {
+      const plan = new Map<UnitId, Candidate>();
+      for (const [id, to] of orders) {
+        const unit = sub.unitOfWireId(id)?.unitId as UnitId;
+        const dest = at(board, to);
+        plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+      }
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(asTeam));
+      const part = ev.parts['potion'] as { lo: number; est: number; hi: number };
+      return { potion: { lo: part.lo, est: part.est, hi: part.hi }, total: ev.bound.est };
+    } finally {
+      sub.release();
+    }
+  }
+
+  /**
+   * THE PICKUP BOARD. Our taker steps onto the potion; our ally steps into a
+   * square an enemy TIES it at, which is a square it dies on at tier 0 and
+   * survives at +1 (`strictMaximum` gives a survivor only to a unique maximum).
+   * `hunter` is the knob: absent, nothing of theirs can be where the taker can
+   * be for the first turns of the window; present, the debuffed taker is beaten
+   * on its own ground straight away.
+   */
+  const pickupBoard = (hunter: Snake | null): Board =>
+    boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('ally', [{ x: 3, y: 1 }, { x: 2, y: 1 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 5, y: 1 }, { x: 6, y: 1 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+        ...(hunter === null ? [] : [hunter]),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+
+  const TAKES: ReadonlyArray<[string, Coord]> = [
+    ['taker', { x: 2, y: 3 }],
+    ['ally', { x: 4, y: 1 }],
+  ];
+
+  test('EXACTLY zero on every board with no potion on it', () => {
+    // The seating argument, executable: with no potion standing the term is a
+    // point at zero, so every counter measured on `mixed`, `snakes` and
+    // `sparse` is the counter that was measured before this member existed.
+    for (const c of POTIONLESS_LAW_CASES) {
+      const sub = makeSubstrate({
+        board: c.board,
+        turn: c.turn,
+        asTeam: c.asTeam,
+        modeled: c.stages,
+        observedTurns: c.observedTurns,
+      });
+      try {
+        const plan = new Map<UnitId, Candidate>();
+        for (const wireId of c.stages) {
+          const unit = sub.unitOfWireId(wireId)?.unitId as UnitId;
+          const dest = c.orders.get(wireId) as number;
+          plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+        }
+        const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(c.asTeam));
+        expect([c.name, ev.parts['potion']]).toEqual([c.name, { lo: 0, est: 0, hi: 0 }]);
+      } finally {
+        sub.release();
+      }
+    }
+  });
+
+  test('and zero on a plan that collects nothing, potion or no potion', () => {
+    // The term is about the TRADE, so a board with a potion on it that nobody
+    // is stepping on is not a trade and prices at nothing.
+    const board = pickupBoard(null);
+    expect(
+      pickupOf(board, [
+        ['taker', { x: 1, y: 4 }],
+        ['ally', { x: 4, y: 1 }],
+      ]).potion
+    ).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('and zero where the rules do not collect at all', () => {
+    // `invulnerabilityPotionsEnabled: false` makes a potion inert scenery. The
+    // gate reads the FLAG and not the cells, which is what keeps a fixture that
+    // happens to carry potion coordinates from paying for a rule that is off.
+    const board = boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 5, y: 3 }, { x: 6, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }], invulnerabilityPotionsEnabled: false }
+    );
+    expect(pickupOf(board, [['taker', { x: 2, y: 3 }]]).potion).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('the ally’s window is a credit at the cell the PLAN puts it', () => {
+    // The repair the deleted member's post-mortem asked for by name: the ally
+    // is priced where this plan sends it, not where it started the turn. Its
+    // destination is a tie it loses at tier 0 and wins at +1, so the pickup
+    // buys a real contest and the ceiling says so.
+    const takes = pickupOf(pickupBoard(null), TAKES);
+    expect(takes.potion.hi).toBeGreaterThan(0);
+  });
+
+  test('and the SAME pickup is worth less where the ally walks away from it', () => {
+    // The plan-cell reading, isolated: one collector, one potion, one ally,
+    // and the only difference between the two readings is which square the
+    // ally is sent to. Walking into the tie is where the +1 buys a contest;
+    // walking off it is where it buys less.
+    //
+    // Less, and not NOTHING — the window is three turns wide and this board is
+    // 7x7, so a snake two squares away is still an arrival the ally's +1
+    // answers at a later horizon. That is the window's dilation doing exactly
+    // what it is there for, and it is why the claim here is comparative.
+    const takes = pickupOf(pickupBoard(null), TAKES);
+    const away = pickupOf(pickupBoard(null), [
+      ['taker', { x: 2, y: 3 }],
+      ['ally', { x: 3, y: 0 }],
+    ]);
+    expect(away.potion.hi).toBeLessThan(takes.potion.hi);
+  });
+
+  test('the collector’s exposure is a debit, and it dominates the credit', () => {
+    // A rook down the column the taker is standing in can be where the taker
+    // can be on the FIRST turn of the window, and a debuffed unit loses to it
+    // on tier alone. Same ally, same credit, same everything else — so the
+    // whole difference between the two readings is the peril half.
+    const hunter = piece('hunter', { x: 1, y: 6 }, 'rook', 3, { teamID: 'blue' });
+    const safe = pickupOf(pickupBoard(null), TAKES);
+    const hunted = pickupOf(pickupBoard(hunter), TAKES);
+    expect(hunted.potion.lo).toBeLessThan(safe.potion.lo);
+    expect(hunted.potion.lo).toBeLessThan(0);
+    // PERIL DOMINATES: at `PERIL_WEIGHT` = 2 a single ally's flipped contest
+    // cannot pay for a collector that is beaten wherever it can go.
+    expect(hunted.potion.est).toBeLessThan(0);
+  });
+
+  test('the term is bounded by construction, on both ends', () => {
+    // Range [-PERIL_WEIGHT, 1]: the peril is a share in [0, 1] scaled by
+    // PERIL_WEIGHT and charged to one unit, each ally's profit is a share in
+    // [0, 1], and the sum is divided by our unit count. This is the inequality
+    // `calibration.ts` seats the weight on.
+    const hunter = piece('hunter', { x: 1, y: 6 }, 'rook', 3, { teamID: 'blue' });
+    for (const board of [pickupBoard(null), pickupBoard(hunter)]) {
+      const p = pickupOf(board, TAKES).potion;
+      expect(p.lo).toBeGreaterThanOrEqual(-PERIL_WEIGHT);
+      expect(p.hi).toBeLessThanOrEqual(1);
+      expect(p.lo).toBeLessThanOrEqual(p.est);
+      expect(p.est).toBeLessThanOrEqual(p.hi);
+    }
+  });
+
+  test('it is seated last, and every shipped profile names it', () => {
+    expect(FEATURES[FEATURES.length - 1]).toBe(potionFeature);
+    expect(potionFeature.key).toBe('potion');
+    expect(DEFAULT_WEIGHTS.potion).toBe(2);
+    // Under `contest` and `food`, like every other ordering term: a unit does
+    // not walk into a lost square, or past a meal, to arm somebody else.
+    expect(DEFAULT_WEIGHTS.potion as number).toBeLessThan(DEFAULT_WEIGHTS.contest as number);
+    expect(DEFAULT_WEIGHTS.potion as number).toBeLessThan(DEFAULT_WEIGHTS.food as number);
+    expect(materialEvaluator.profile.weights.potion).toBe(0);
   });
 });
 
@@ -1209,6 +1513,8 @@ describe('calibration is data', () => {
       'kingMargin',
       'material',
       'momentum',
+      // The pickup trade: the team's windows against the collector's exposure.
+      'potion',
       'reach',
       'room',
       // Tier value: what a window is worth, over the window.

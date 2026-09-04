@@ -218,6 +218,7 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     contest: 0,
     tier: 0,
     energy: 0,
+    potion: 0,
     approach: 0,
   },
   reachHorizonTurns: 0,
