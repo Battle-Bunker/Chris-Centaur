@@ -15,14 +15,13 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~14:00Z
-Merged: 08-DEPTH-VERDICT (290dbe0): chained depth refused with the sharper reason (chainable exactly when B3 already closed the bracket); recommendation = threat/opportunity map per row now (0 settlements), then a CEILING PLY on the loud subset (~10% of budget); F-10 found (better()'s ceiling rung penalises having measured).
+## Active wave (update on every launch/merge) — 2026-09-04 ~14:50Z
+Merged: SIMPLIFY-PLAN items 6,7,10,11,12 (2502ac9) — the bot plan is fully executed (13/13; net ≈ −1,000 lines across the wave; items 11/12 partially, with reasons in the merge history). Head 2502ac9.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| simp-c (CC) | sonnet | SIMPLIFY-PLAN items 6, 7, 10, 11, 12 (mechanical parts) | byte-identical runner + suite; 11 also zero inversions |
-| potion (CC) | opus | potion member v2: instrument (profitable/reckless at pickup) then the member; keep only if WHICH pickups changes | A/B potions 60t×5 seeds; potion-free boards byte-identical |
+| potion (CC) | opus | potion member v2: instrument (profitable/reckless at pickup) then the member | A/B potions 60t×5 seeds; potion-free boards byte-identical |
 | threatmap (CC) | opus | 08 §5 steps 1–3: measure Q; threat map per row; F-10 behind G2 | step 2 byte-identical decisions; step 3 A/B vs stable v2 |
-Next after threatmap: 08 §5 step 4 (B4 + ceiling ply), gated on Q.
+Queued when those land: (a) runner `--opponent=<profile>` for strategy diversity in self-play A/B (owner's caution about over-optimising against mirror play) — Sonnet, touches local-game.ts (wait for potion); (b) 08 §5 step 4 (B4 + ceiling ply) gated on Q; (c) second simplification audit after the threat map lands; (d) entrapment with the ceiling-ply horizon.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
