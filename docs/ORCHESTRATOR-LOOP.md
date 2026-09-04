@@ -22,11 +22,12 @@ Merged this cycle: lens audit (8853d9b: replay drawn from the record not the liv
 Lessons: a dead agent cannot be resumed by SendMessage, relaunch; Sonnet stalls on background jest EVERY time the brief only says "foreground": briefs must say "never pass run_in_background, never call Monitor, never wait for a notification", resume with that line when it happens; NO `git stash` anywhere (shared across worktrees); cwd persists between Bash calls, always `cd` explicitly.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
+| d1-two (CC) | opus | D1 second shape: boolean charge lightened, `1 − ε + ε·p`, enemy's own cell the only full certainty; two or three ε values | edge deaths and the counter down, deaths up on no class, meals −3% max; else revert with numbers per ε |
 | lens-3 (CC) | opus | 10-WALKTHROUGH §4 open items O1–O8 (incl. O6: a pin/unpin turn event from active-game-manager/team-decision-engine); re-run the walkthrough script as the gate | lens gates + walkthrough re-run; screenshots refreshed only where changed |
 | p3-f (CC) | opus | PLAN-3 items 6, 11 (byte-identical), then D2 (command mobility addend), then D3 (room's fear vs length) — one owner for features.ts/territory.ts | items: ab-compare all-zero; D2/D3: prediction holds, no class worse on deaths, 16 arms zero, else revert with the negative result |
 | beh-contest (CC) | opus | D1 in contest.ts (instrument first), D6, `--food-energy` runner option | prediction holds in direction; no class worse on deaths; 16 arms zero |
 Queued: PLAN-2 item 7 (B1/B3 fold; Sonnet; gate: exact-reply suite + soundness + byte-identical runner) once p3-f is done with the evaluator; D5 (room saturation under a slider) if D3 does not subsume it; and PLAN-2 item 7 after b1-sound and p3-c; full jest + 16 arms on the head after p3-* merge, then checkpoint v4; PR #17 body refresh after plan 3 lands; TacticToes: plan-2 item 4 (owner), a third audit only if the second's "not worth it" list changes; drives rebase after #17.
-Ping: send_later 55 min, re-armed on each firing (current trig_01FURVmNp5u7Duu2trn82LTV, fires 22:18Z).
+Ping: send_later 55 min, re-armed on each firing (current trig_01ErpTrNgeLm23SSBXbz9G6Y, fires 23:24Z). 22:18Z ping: p3-f at e2442c0 (items 6, 11 committed; D2 next), lens-3 at 5e70085 (O5 done), d1-two launched; the beh-contest merge chain (task bk1x78uf0) is still in its jest step under load and will create a redundant `beh-contest-2` worktree on completion — remove it..
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
