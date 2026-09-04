@@ -93,6 +93,12 @@ export const join = (a: Bound, b: Bound): Bound =>
   bound(Math.min(a.lo, b.lo), (a.est + b.est) / 2, Math.max(a.hi, b.hi));
 
 /**
+ * The two-reading envelope: which endpoint is which is a property of the
+ * term's sign, not of the reading, so the constructor decides it.
+ */
+export const envelope = (a: number, b: number): Bound => bound(Math.min(a, b), (a + b) / 2, Math.max(a, b));
+
+/**
  * Put `est` back inside `[lo, hi]`. Written so that an infinite end behaves:
  * with lo = DEAD and hi = WIN the estimate passes through untouched, and with
  * both ends at the same lattice element the estimate becomes it. A finite `e`
@@ -119,6 +125,45 @@ export const clampTo = (total: Bound, lo: number, hi: number): Bound => {
   }
   return bound(lo, clampEst(total.est, lo, hi), hi);
 };
+
+/**
+ * A term that is a mean over OUR live, non-held units of a per-unit signed
+ * reading, folded so a dead unit can never invert the bracket.
+ *
+ * Costs over the SUPERSET, credits over the subset, in the worst reading; the
+ * other way round in the best — a dead unit contributes nothing to either
+ * accumulator, whichever reading killed it. `valueOf` returns `[lo, hi]` for
+ * one unit; a term that is never positive (a straight cost) passes
+ * `[-cost, -cost]`, which is the special case of the signed rule below.
+ *
+ * `gate`, when given, may zero the whole term even though `ours` is
+ * non-empty — the board has nothing the term can price at all, not merely
+ * nothing that costs anything this decision.
+ */
+export function ourUnitTerm<S extends { readonly team: number; readonly held: boolean; readonly bestAlive: boolean; readonly worstAlive: boolean }>(
+  ctx: { readonly asTeam: number; readonly standing: ReadonlyArray<S> },
+  valueOf: (s: S) => readonly [lo: number, hi: number],
+  gate?: (ctx: { readonly asTeam: number; readonly standing: ReadonlyArray<S> }, ours: ReadonlyArray<S>) => boolean
+): Bound {
+  const ours: S[] = [];
+  for (const s of ctx.standing) if (s.team === ctx.asTeam && !s.held) ours.push(s);
+  if (ours.length === 0) return point(0);
+  if (gate !== undefined && !gate(ctx, ours)) return point(0);
+
+  let worst = 0;
+  let best = 0;
+  for (const s of ours) {
+    if (!s.bestAlive && !s.worstAlive) continue;
+    const [vLo, vHi] = valueOf(s);
+    if (vLo < 0 && s.bestAlive) worst += vLo;
+    if (vLo > 0 && s.worstAlive) worst += vLo;
+    if (vHi > 0 && s.bestAlive) best += vHi;
+    if (vHi < 0 && s.worstAlive) best += vHi;
+  }
+  const lo = worst / ours.length;
+  const hi = best / ours.length;
+  return envelope(lo, hi);
+}
 
 // ---------------------------------------------------------------------------
 // The admission contract

@@ -584,7 +584,7 @@ function generateAssessed(
   });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
-  const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
+  const afterQuiet = thinQuiet(sub, assessed, pruned, knobs);
   const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
   const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
   const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
@@ -604,6 +604,33 @@ function generateAssessed(
 // ---------------------------------------------------------------------------
 
 /**
+ * Bucket items by the first cell of their path, path-length-zero items passed
+ * straight through as `loose`, and each bucket ("ray") sorted by path length
+ * ascending. This is the preamble `collapseSuffixes` and `thinQuiet` share:
+ * both process one ray of prefixes at a time, nearest first.
+ */
+function byRay<T>(
+  items: ReadonlyArray<T>,
+  pathOf: (t: T) => ReadonlyArray<CellIndex>
+): { rays: Map<CellIndex, T[]>; loose: T[] } {
+  const rays = new Map<CellIndex, T[]>();
+  const loose: T[] = [];
+  for (const item of items) {
+    const path = pathOf(item);
+    if (path.length === 0) {
+      loose.push(item);
+      continue;
+    }
+    const first = path[0] as CellIndex;
+    const group = rays.get(first);
+    if (group === undefined) rays.set(first, [item]);
+    else group.push(item);
+  }
+  for (const group of rays.values()) group.sort((a, b) => pathOf(a).length - pathOf(b).length);
+  return { rays, loose };
+}
+
+/**
  * First-contact termination, applied per ray.
  *
  * Actions that share a first path cell are prefixes of one ray. If the mover
@@ -621,21 +648,10 @@ function collapseSuffixes(
   raw: ReadonlyArray<Candidate>,
   pruned: PrunedEntry[]
 ): Candidate[] {
-  const rays = new Map<CellIndex, Candidate[]>();
-  const kept: Candidate[] = [];
-  for (const candidate of raw) {
-    if (candidate.path.length === 0) {
-      kept.push(candidate);
-      continue;
-    }
-    const first = candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [candidate]);
-    else group.push(candidate);
-  }
+  const { rays, loose } = byRay(raw, (c) => c.path);
+  const kept: Candidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.path.length - b.path.length);
     if (group.length === 1) {
       kept.push(group[0] as Candidate);
       continue;
@@ -868,27 +884,15 @@ function assessOne(
  */
 function thinQuiet(
   sub: EngineSubstrate,
-  unit: SubstrateUnit,
   assessed: ReadonlyArray<AssessedCandidate>,
   pruned: PrunedEntry[],
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!Number.isFinite(knobs.keepQuiet)) return [...assessed];
-  const rays = new Map<CellIndex, AssessedCandidate[]>();
-  const out: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.candidate.path.length === 0) {
-      out.push(a);
-      continue;
-    }
-    const first = a.candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [a]);
-    else group.push(a);
-  }
+  const { rays, loose } = byRay(assessed, (a) => a.candidate.path);
+  const out: AssessedCandidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.candidate.path.length - b.candidate.path.length);
     if (group.length <= 1) {
       out.push(...group);
       continue;
@@ -918,7 +922,6 @@ function thinQuiet(
       pruned.push({ candidate: a.candidate, prune: PRUNE.quietThinning, exact: false });
     });
   }
-  void unit;
   return out;
 }
 
@@ -1000,6 +1003,36 @@ function policyPrunes(
 }
 
 /**
+ * KEEP THE BEST CLASS, applied to the SET rather than to each candidate:
+ * partition by `rank`, keep only the minimum-rank class, and record a prune
+ * for everything else — unless that would empty or no-op the set, in which
+ * case nothing is dropped. Monotone by construction (the keeper set is
+ * non-empty before anything is dropped) and it can never hand back fewer
+ * options than it was given when they are all equally bad — which is exactly
+ * the property a per-candidate safety filter lacks.
+ *
+ * This is the emptiness guarantee's unit of work: every lossy prune it makes
+ * is reversible, because the class it keeps is never empty when the input
+ * wasn't.
+ */
+function keepBestClass(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  rank: (a: AssessedCandidate) => number,
+  prune: PruneId
+): AssessedCandidate[] {
+  let best = Number.POSITIVE_INFINITY;
+  for (const a of assessed) best = Math.min(best, rank(a));
+  const kept = assessed.filter((a) => rank(a) === best);
+  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
+  for (const a of assessed) {
+    if (rank(a) === best) continue;
+    pruned.push({ candidate: a.candidate, prune, exact: false });
+  }
+  return kept;
+}
+
+/**
  * THE TIER FILTER, applied to the SET rather than to each candidate.
  *
  * A contest is decided on TIER FIRST and weight second, so a unit that steps
@@ -1009,10 +1042,9 @@ function policyPrunes(
  * a material advantage that is otherwise the whole point of having it.
  *
  * The filter drops exactly that class, and only when the unit has somewhere
- * else to be. It is monotone by construction (the keeper set is non-empty
- * before anything is dropped) and it is INERT on a board with no live tier,
- * because `gradePath` returns `clear` for every candidate when nothing
- * outranks the unit — which is every decision in a game with potions off.
+ * else to be. It is INERT on a board with no live tier, because `gradePath`
+ * returns `clear` for every candidate when nothing outranks the unit — which
+ * is every decision in a game with potions off.
  *
  * It is DECLARED LOSSY, not exact. What it can cost is a trade: accepting a
  * tier loss to take a piece, block a line, or shield a king. The ledger names
@@ -1024,17 +1056,7 @@ function keepTierSafe(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!knobs.tierSafeStaging) return [...assessed];
-  const kept: AssessedCandidate[] = [];
-  const dropped: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.tierGrade === 'decisive') dropped.push(a);
-    else kept.push(a);
-  }
-  if (dropped.length === 0 || kept.length === 0) return [...assessed];
-  for (const a of dropped) {
-    pruned.push({ candidate: a.candidate, prune: PRUNE.tierDecisive, exact: false });
-  }
-  return kept;
+  return keepBestClass(assessed, pruned, (a) => (a.tierGrade === 'decisive' ? 1 : 0), PRUNE.tierDecisive);
 }
 
 /**
@@ -1053,16 +1075,8 @@ function keepBestTier(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!unit.isKing || !knobs.kingHardSafety) return [...assessed];
-  for (const tier of TIERS) {
-    const kept = assessed.filter((a) => a.tier === tier);
-    if (kept.length === 0) continue;
-    for (const dropped of assessed) {
-      if (dropped.tier === tier) continue;
-      pruned.push({ candidate: dropped.candidate, prune: PRUNE.kingUnsafe, exact: false });
-    }
-    return knobs.tierSafeStaging ? keepBestKingTier(kept, pruned) : kept;
-  }
-  return [...assessed];
+  const kept = keepBestClass(assessed, pruned, (a) => TIERS.indexOf(a.tier), PRUNE.kingUnsafe);
+  return knobs.tierSafeStaging ? keepBestClass(kept, pruned, kingTierRisk, PRUNE.kingTierUnsafe) : kept;
 }
 
 /**
@@ -1074,26 +1088,9 @@ function keepBestTier(
  * moves a placement by rule rather than by association. The two things it must
  * not do are walk into reach of a higher tier and stand on a potion — the
  * second being entirely self-inflicted and needing no enemy modelling at all.
- *
- * Same shape as the filter above it: keep the best available class, whatever
- * that class is, so the set can never come back empty.
+ * `keepBestTier` applies it above, via `keepBestClass`. Tier exposure and
+ * self-debuff, folded into one comparable number:
  */
-function keepBestKingTier(
-  assessed: ReadonlyArray<AssessedCandidate>,
-  pruned: PrunedEntry[]
-): AssessedCandidate[] {
-  let best = Number.POSITIVE_INFINITY;
-  for (const a of assessed) best = Math.min(best, kingTierRisk(a));
-  const kept = assessed.filter((a) => kingTierRisk(a) === best);
-  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
-  for (const a of assessed) {
-    if (kingTierRisk(a) === best) continue;
-    pruned.push({ candidate: a.candidate, prune: PRUNE.kingTierUnsafe, exact: false });
-  }
-  return kept;
-}
-
-/** Tier exposure and self-debuff, as one comparable number for a king. */
 const kingTierRisk = (a: AssessedCandidate): number =>
   tierGradeRank(a.tierGrade) + (a.selfDebuff === 'none' ? 0 : 3);
 
@@ -1172,24 +1169,53 @@ function spendRank(a: AssessedCandidate): number {
   return Math.max(COST_PER_CELL, a.energySpent.hi);
 }
 
-function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  // TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made
-  // by walking into something that outranks us is not a capture, it is a
-  // donation. Both terms are identically zero on a board with no live
-  // invulnerability effect, so this comparison is a no-op wherever potions are
-  // off and the order below it is byte-for-byte what it always was.
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const spend = spendRank(a) - spendRank(b);
-  if (spend !== 0) return spend;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
-}
+/** One comparator term: a signed lexicographic tie-break, zero meaning "next". */
+type Term = (a: AssessedCandidate, b: AssessedCandidate) => number;
+
+/** Chain terms into one comparator: the first non-zero term decides. */
+const compareBy =
+  (terms: ReadonlyArray<Term>): Term =>
+  (a, b) => {
+    for (const term of terms) {
+      const d = term(a, b);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+
+const byTier: Term = (a, b) => TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
+// TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made by
+// walking into something that outranks us is not a capture, it is a donation.
+// Both terms are identically zero on a board with no live invulnerability
+// effect, so this comparison is a no-op wherever potions are off and the order
+// below it is byte-for-byte what it always was.
+const byTierRisk: Term = (a, b) => tierRisk(a) - tierRisk(b);
+const byCapture: Term = (a, b) => captureOrder(a, b);
+const byShadow: Term = (a, b) => b.shadowBonus - a.shadowBonus;
+const bySpend: Term = (a, b) => spendRank(a) - spendRank(b);
+const byContingencies: Term = (a, b) => a.contingencies - b.contingencies;
+const byTo: Term = (a, b) => a.candidate.to - b.candidate.to;
+const byRegicideShot: Term = (a, b) => b.regicideShot - a.regicideShot;
+const byFoodGain: Term = (a, b) => b.foodGain - a.foodGain;
+// The gain order's own version of `bySpend`: a move that ate is charged
+// nothing, per the note above `spendRank`.
+const bySpendRefundingFood: Term = (a, b) =>
+  (a.foodGain === 1 ? 0 : spendRank(a)) - (b.foodGain === 1 ? 0 : spendRank(b));
+
+const BASE_ORDER: ReadonlyArray<Term> = [byTier, byTierRisk, byCapture, byShadow, bySpend, byContingencies, byTo];
+const GAIN_ORDER: ReadonlyArray<Term> = [
+  byTier,
+  byTierRisk,
+  byRegicideShot,
+  byCapture,
+  byFoodGain,
+  byShadow,
+  bySpendRefundingFood,
+  byContingencies,
+  byTo,
+];
+
+const orderKey: Term = compareBy(BASE_ORDER);
 
 /**
  * THE CAPTURE ORDER — expected captured weight first, certainty second.
@@ -1263,22 +1289,7 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  * food-and-king boards I3 measured this comparator is byte-for-byte the one it
  * measured.
  */
-function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const ha = a.foodGain === 1 ? 0 : spendRank(a);
-  const hb = b.foodGain === 1 ? 0 : spendRank(b);
-  if (ha !== hb) return ha - hb;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
-}
+const gainOrderKey: Term = compareBy(GAIN_ORDER);
 
 /**
  * The one ordering number for everything tier.

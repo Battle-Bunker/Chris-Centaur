@@ -97,7 +97,7 @@
  */
 
 import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
-import { type Feature, bound, point } from './bound';
+import { type Feature, ourUnitTerm } from './bound';
 import { foodDistance } from './food';
 import type { EvalContext, Standing } from './features';
 
@@ -165,33 +165,23 @@ export const energyFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let ours = 0;
-    let priceable = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      ours++;
-      if (isPieceType(s.kind)) priceable++;
-    }
     // A board on which we command nothing that may decline to spend — every
     // snake-only board — is an EXACT zero here, so its fold is bit-for-bit the
     // fold it was before this member existed, and the food flood is not even
     // asked for.
-    if (ours === 0 || priceable === 0) return point(0);
-
-    const dist = foodDistance(ctx.sub);
-    const diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
-    let worst = 0;
-    let best = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      if (!s.bestAlive && !s.worstAlive) continue;
-      const cost = energyCostOf(ctx, s, dist, diameter);
-      if (cost === 0) continue;
-      if (s.bestAlive) worst -= cost;
-      if (s.worstAlive) best -= cost;
-    }
-    const lo = worst / ours;
-    const hi = best / ours;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    let dist: Int32Array | undefined;
+    let diameter = 0;
+    return ourUnitTerm(
+      ctx,
+      (s) => {
+        if (dist === undefined) {
+          dist = foodDistance(ctx.sub);
+          diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
+        }
+        const c = energyCostOf(ctx, s, dist, diameter);
+        return [-c, -c];
+      },
+      (_ctx, ours) => ours.some((s) => isPieceType(s.kind))
+    );
   },
 };

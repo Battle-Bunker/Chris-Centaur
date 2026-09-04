@@ -60,7 +60,7 @@ import {
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
-import { type Bound, type Feature, bound, point } from './bound';
+import { type Bound, type Feature, bound, envelope, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
@@ -654,7 +654,7 @@ export const reachFeature: Feature<EvalContext> = {
     if (ctx.horizonTurns <= 0) return point(0);
     const lo = ctx.partition('lo').balance;
     const hi = ctx.partition('hi').balance;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return envelope(lo, hi);
   },
 };
 
@@ -712,7 +712,7 @@ export const roomFeature: Feature<EvalContext> = {
     if (ctx.horizonTurns <= 0) return point(0);
     const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
     const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return envelope(lo, hi);
   },
 };
 
@@ -771,9 +771,7 @@ export const energyEconomyFeature: Feature<EvalContext> = {
         if (s.bestAlive && !s.held) hi -= share;
       }
     }
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return envelope(lo, hi);
   },
 };
 
@@ -884,7 +882,7 @@ export const commandFeature: Feature<EvalContext> = {
     if (knobs === null || ctx.horizonTurns <= 0) return point(0);
     const lo = commandSum(ctx, 'lo', knobs);
     const hi = commandSum(ctx, 'hi', knobs);
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return envelope(lo, hi);
   },
 };
 
