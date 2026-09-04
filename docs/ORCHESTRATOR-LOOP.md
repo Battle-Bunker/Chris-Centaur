@@ -15,13 +15,13 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~14:50Z
-Merged: SIMPLIFY-PLAN items 6,7,10,11,12 (2502ac9) — the bot plan is fully executed (13/13; net ≈ −1,000 lines across the wave; items 11/12 partially, with reasons in the merge history). Head 2502ac9.
+## Active wave (update on every launch/merge) — 2026-09-04 ~15:40Z
+Merged: potion member v2 (ef47035; kept on its numbers). Finding: the potion board at 60 turns / seeds 1–10 has ~875 bound inversions the twelve-arm gate never saw → soundness worker launched; the gate is being extended.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| potion (CC) | opus | potion member v2: instrument (profitable/reckless at pickup) then the member | A/B potions 60t×5 seeds; potion-free boards byte-identical |
 | threatmap (CC) | opus | 08 §5 steps 1–3: measure Q; threat map per row; F-10 behind G2 | step 2 byte-identical decisions; step 3 A/B vs stable v2 |
-Queued when those land: (a) runner `--opponent=<profile>` for strategy diversity in self-play A/B (owner's caution about over-optimising against mirror play) — Sonnet, touches local-game.ts (wait for potion); (b) 08 §5 step 4 (B4 + ceiling ply) gated on Q; (c) second simplification audit after the threat map lands; (d) entrapment with the ceiling-ply horizon.
+| potion-sound (CC) | opus | potion-board inversions (60t, seeds 1–10): classes, minimal boards, fixes; extend the standing gate | zero inversions on the extended arms; A/B reported |
+Queued: runner `--opponent=<profile>` (Sonnet; after potion-sound, it owns local-game.ts); 08 §5 step 4 (ceiling ply) gated on Q; second simplification audit after the threat map; entrapment with the ceiling-ply horizon.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
