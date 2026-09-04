@@ -307,19 +307,42 @@ describe('ActiveGameManager goto/near intents', () => {
     jest.useRealTimers();
   });
 
-  // Per-move evaluations shaped like the strategy's mapping: score + breakdown
-  // carrying trapped/weights/weighted, so getWaypointBiasedMove can re-bias.
-  function makeEvaluations(scores: Partial<Record<Direction, number>>): MoveEvaluation[] {
-    return (Object.keys(scores) as Direction[]).map((move) => ({
-      move,
-      score: scores[move]!,
-      numStates: 1,
-      breakdown: {
-        trapped: 0,
-        weights: { gotoProgress: 300, nearProgress: 250 },
-        weighted: { gotoProgressScore: 0, nearProgressScore: 0 },
-      },
-    }));
+  // Per-move evaluations shaped like the LOBSTER fold's own telemetry row
+  // (see lobster/telemetry.ts breakdownOf / TelemetryEvaluation): `breakdown`
+  // is keyed by the fold's OWN feature names — material, reach, room, food, …
+  // — never by `trapped` / `regicide` / `gotoProgress` / `nearProgress`, none
+  // of which a lobster row ever carries (that legacy-shaped fixture is what
+  // let the goto scale defect ship unnoticed). `bounds` is the fold's own
+  // worst/est/best triple for the candidate; `fatal: true` marks a candidate
+  // the fold's worst case reads as DEAD in both directions
+  // (`bounds.lo === bounds.hi === -Infinity`), the real signal
+  // `getWaypointBiasedMove`'s certain-fatal veto reads.
+  function makeEvaluations(
+    scores: Partial<Record<Direction, number>>,
+    fatal: Partial<Record<Direction, boolean>> = {}
+  ): MoveEvaluation[] {
+    return (Object.keys(scores) as Direction[]).map((move) => {
+      const score = scores[move]!;
+      const isFatal = fatal[move] ?? false;
+      return {
+        move,
+        score,
+        numStates: 1,
+        breakdown: {
+          engine: 'lobster',
+          profile: 'lobster-territory',
+          weights: { material: 10, reach: 1, room: 3, food: 4 },
+          weighted: { materialScore: score, reachScore: 0, roomScore: 0, foodScore: 0 },
+          material: score,
+          reach: 0,
+          room: 0,
+          food: 0,
+        },
+        bounds: isFatal
+          ? { lo: Number.NEGATIVE_INFINITY, est: Number.NEGATIVE_INFINITY, hi: Number.NEGATIVE_INFINITY }
+          : { lo: score, est: score, hi: score },
+      };
+    });
   }
 
   function makeTurnData(gs: GameState, botMove: Direction, evaluations: MoveEvaluation[]): TurnData {
@@ -354,7 +377,7 @@ describe('ActiveGameManager goto/near intents', () => {
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
     // Bot prefers 'up' on raw scores; 'right' is the shortest-path step toward
     // the target and wins once the goto weight (300) is integrated.
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     expect(cs.staged?.move).toBe('up');
     expect(cs.staged?.source).toBe('bot');
@@ -376,7 +399,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('regression: a snake still navigates in single orthogonal steps', () => {
     const gameId = 'g-goto-snake-steps';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     // A target four cells away on the diagonal is four steps of route, one
     // cell per move — a snake reads the same per-unit adjacency every piece
@@ -399,7 +422,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('the drawn route follows the move that will actually commit, not the one the target wanted', () => {
     const gameId = 'g-goto-outvoted';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    // 'up' outscores 'right' by more than the goto weight can close (300), so
+    // 'up' outscores 'right' by more than the goto weight can close, so
     // the matrix keeps 'up' even with the target dead ahead to the right. The
     // green path must start at the staged cell (5,6) and route from THERE —
     // the visual and the committed move are one mechanism.
@@ -412,25 +435,47 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.gotoRoute[cs.gotoRoute.length - 1]).toEqual({ x: 8, y: 5 });
   });
 
-  test('the goto weight cannot buy a fatally-trapped move (veto survives the bias)', () => {
+  test('the goto weight cannot buy a certain-fatal move (veto survives the bias)', () => {
     const gameId = 'g-goto-veto';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const evaluations = makeEvaluations({ up: 100, right: 90, left: 80 });
-    // Mark 'right' — the on-path move — as leading into a fatal pocket.
-    (evaluations.find(e => e.move === 'right')!.breakdown as any).trapped = 1;
+    // 'right' is the on-path move — without the veto it would win the bias
+    // (3 + 4×1 = 7 beats 'up's raw 5) — but the fold's own worst-case verdict
+    // reads it as DEAD (a real engine fact, not a synthetic breakdown flag).
+    const evaluations = makeEvaluations({ up: 5, right: 3, left: 1 }, { right: true });
     const cs = processMove(gameId, snakes, 1, 'up', evaluations);
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
 
-    // 'up' (100 + 300×0) and 'left' (80 + 300×0) keep their raw scores; both
-    // beat the vetoed 'right' (390) because the veto removes it from the pool.
+    // 'up' (5 + 4×0) and 'left' (1 + 4×0) keep their raw scores; both beat the
+    // vetoed 'right' because the veto removes it from the pool entirely,
+    // rather than merely being outscored.
     expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.source).toBe('waypoint');
+  });
+
+  test('a goto never outranks the fold recommendation by more than the fold\'s own scale allows', () => {
+    // The bias is bounded to `weight` (an order of magnitude under
+    // `material` = 10, the fold's own survival-cliff scale — see
+    // GOTO_PROGRESS_WEIGHT in active-game-manager.ts). A candidate more than
+    // that bound behind the leader can never win the bias alone, however
+    // perfectly it lines up with the target.
+    const gameId = 'g-goto-bounded';
+    const snakes = [makeSnake('A', { x: 5, y: 5 })];
+    // 'up' leads 'right' by 6, which is more than the maximum possible goto
+    // contribution (weight × stat, stat ≤ 1). 'right' is dead on the target
+    // line (stat 1), yet it must still lose.
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 10, right: 4, left: 1 }));
+
+    mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
+
+    expect(cs.staged?.move).toBe('up');
+    expect(cs.staged?.source).toBe('waypoint');
   });
 
   test('shift+alt append builds a target queue; appending a queued cell removes it', () => {
     const gameId = 'g-goto-queue';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 6, y: 5 }, userId);
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId, true);
@@ -451,7 +496,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('the route spans the WHOLE queue, chaining a leg per target', () => {
     const gameId = 'g-goto-multileg';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     // Three targets forming an L: right along y=5, then up the x=8 column.
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
@@ -489,7 +534,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('a single target still produces exactly the first leg (no behaviour change)', () => {
     const gameId = 'g-goto-singleleg';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
 
@@ -505,7 +550,7 @@ describe('ActiveGameManager goto/near intents', () => {
     // head cell (which the graph already blocks). That isolates the bug: the
     // only thing standing in the way is the body the snake WILL have.
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, left: 90, right: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, left: 3, right: 1 }));
 
     // Up the column to (5,8), then back down to (5,6). Measured against the
     // CURRENT board the return leg is simply (5,7) then (5,6) — but (5,7) is
@@ -545,7 +590,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('an unreachable leg truncates the route at the last reachable target', () => {
     const gameId = 'g-goto-truncate';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     // Second target is off-board, so its leg can never be pathed. The route
     // must still show everything up to the reachable first target rather than
@@ -565,7 +610,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('reaching the active target shifts the queue; the last arrival reverts to heuristic', () => {
     const gameId = 'g-goto-arrive';
     let snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'right', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'right', makeEvaluations({ up: 5, right: 3, left: 1 }));
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 6, y: 5 }, userId);
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 7, y: 5 }, userId, true);
 
@@ -590,7 +635,7 @@ describe('ActiveGameManager goto/near intents', () => {
     let snakes = [makeSnake('A', { x: 5, y: 5 })];
     // Bot prefers 'up' on raw scores, but the near target at (8,5) makes
     // 'right' the ideal-approach step (stat 1 → +250), overtaking it.
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     expect(mgr.setWaypoint(gameId, 'A', { type: 'blue', x: 8, y: 5 }, userId)).toBe(true);
 
@@ -621,7 +666,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('clearing removes the target, the route, and reverts to the bot recommendation', () => {
     const gameId = 'g-goto-clear';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     expect(cs.gotoRoute.length).toBeGreaterThan(0);
 
@@ -644,7 +689,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('a new command REPLACES the old one — the goto queue and its route go with it', () => {
     const gameId = 'g-goto-override';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
@@ -674,7 +719,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('a unit that DIES loses its command: no queue, no route, nothing left to draw', () => {
     const gameId = 'g-goto-death';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
@@ -698,7 +743,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('a unit still ON the board but at zero health is dead too — same clearing', () => {
     const gameId = 'g-goto-death-health';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     expect(cs.intent.kind).toBe('goto');
 
@@ -714,7 +759,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('the game ending takes every command with it', () => {
     const gameId = 'g-goto-gameend';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     expect(mgr.getWaypointsForGame(gameId)['A']).toBeDefined();
 
@@ -728,7 +773,7 @@ describe('ActiveGameManager goto/near intents', () => {
   test('only the user currently selecting the snake may change its waypoint', () => {
     const gameId = 'g-goto-perm';
     const snakes = [makeSnake('A', { x: 5, y: 5 })];
-    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 100, right: 90, left: 80 }));
+    const cs = processMove(gameId, snakes, 1, 'up', makeEvaluations({ up: 5, right: 3, left: 1 }));
 
     expect(mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, 'someone-else')).toBe(false);
     expect(cs.intent.kind).toBe('heuristic');

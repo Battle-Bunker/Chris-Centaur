@@ -33,6 +33,11 @@ import {
   waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
 import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/territory-view';
+// The lobster fold's OWN weight table — not `config/heuristics.ts`'s
+// gotoProgress/nearProgress (300/250), which are denominated on the legacy
+// scale (deaths -500, trapped -600) that no longer exists under lobster. See
+// `getWaypointBiasedMove`.
+import { DEFAULT_WEIGHTS as LOBSTER_WEIGHTS } from '../lobster/evaluate/calibration';
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
@@ -74,6 +79,17 @@ export interface MoveEvaluation {
   // candidates and route pawn arrow keys to the side-square rotations. Absent
   // on snake rows.
   kind?: 'stay' | 'move' | 'rotate';
+  // The lobster fold's own evaluation triple for this candidate (see
+  // lobster/telemetry.ts TelemetryEvaluation), when the row was explained
+  // within the telemetry budget. `lo` is the WORST-CASE reading — the
+  // adversary's best response — and it is exactly `evaluate/bound.ts`'s DEAD
+  // (`-Infinity`) when that worst case eliminates our subject team, whether
+  // by this unit dying or by ending the team outright (`evaluate/index.ts`
+  // `finish` does not distinguish the two: both are `subjectGone`). That is
+  // the one real "this is certain death" fact the fold provides, and
+  // `getWaypointBiasedMove` reads it in place of the legacy `trapped` /
+  // `regicide` breakdown keys, which a lobster row never carries.
+  bounds?: { lo: number; est: number; hi: number } | null;
 }
 
 // One legal chess-piece candidate with the waypoint bias applied: the staged
@@ -1880,17 +1896,31 @@ export class ActiveGameManager {
     }
   }
 
-  // Resolve the goto/near intent to a move by re-running the SAME selection the
-  // decision engine uses, over this turn's per-move evaluations with the
-  // waypoint progress contribution re-derived from the CURRENT target:
-  //   adjusted(move) = engineScore(move)
-  //                  - recordedWaypointContribution(move)   // bias applied at decision time
-  //                  + weight × progressStat(move)          // bias for the target as it is NOW
-  // then the trapped-veto argmax below. This makes a target set or moved
-  // MID-TURN take effect
-  // immediately, and guarantees the staged move is always "the best output of
-  // the heuristic matrix with the waypoint weight integrated" — never a hard
-  // path override.
+  // Resolve the goto/near intent to a move by re-scoring this turn's per-move
+  // evaluations with the waypoint progress bias for the CURRENT target added
+  // in:
+  //   adjusted(move) = engineScore(move) + weight × progressStat(move)
+  // then the certain-death veto argmax below. This makes a target set or
+  // moved MID-TURN take effect immediately, and guarantees the staged move is
+  // always "the fold's own recommendation with the waypoint bias added" —
+  // never a hard path override.
+  //
+  // FIX (the goto defect): under lobster `evaluation.score` is already the
+  // fold's own total for this candidate, and the fold has no goto/near member
+  // to have pre-applied — so there is nothing recorded to subtract back out,
+  // unlike the legacy strategy this function used to re-run. This function
+  // used to read `weights.gotoProgress` / `weighted.gotoProgressScore` /
+  // `breakdown.trapped` / `breakdown.regicide` off the row's breakdown, all
+  // four through `??` fallbacks — but a lobster breakdown's keys are the fold's
+  // own feature names (material, reach, room, food, …; see
+  // lobster/telemetry.ts breakdownOf) and never carries any of the four, so
+  // every read silently fell through: the weight defaulted to
+  // `DEFAULT_CONFIG.gotoProgress` (300) — denominated for a scale where deaths
+  // was -500 and trapped -600 — applied on top of a fold whose largest
+  // ordinary term is `material` at 10, and both safety vetoes defaulted to 0,
+  // filtering nothing. `weight` below is on the fold's OWN scale
+  // (`LOBSTER_WEIGHTS`, evaluate/calibration.ts), and the veto reads the
+  // fold's own worst-case verdict (`bounds.lo`) instead.
   //
   // Returns null when this turn's evaluations aren't available (turn 0, the
   // fast staging pass, error paths), letting computeIntendedMove fall through
@@ -1929,23 +1959,15 @@ export class ActiveGameManager {
         { board: new RouteBoard(gs) }
       );
 
-      return ActiveGameManager.argmaxSurvivingMove(rows.map((evaluation, i) => {
-        const breakdown: any = evaluation.breakdown || {};
-        const weighted = breakdown.weighted || {};
-        const weights = breakdown.weights || {};
-        const weight = wp.kind === 'goto'
-          ? (weights.gotoProgress ?? DEFAULT_CONFIG.gotoProgress)
-          : (weights.nearProgress ?? DEFAULT_CONFIG.nearProgress);
-        const recorded = (weighted.gotoProgressScore ?? 0) + (weighted.nearProgressScore ?? 0);
-        return {
-          move: evaluation.move,
-          score: evaluation.score - recorded + weight * progress[i].stat,
-          trapped: breakdown.trapped ?? 0,
-          // The regicide veto travels with the row: a waypoint must never
-          // re-bias us onto a move that ends our own team.
-          regicide: breakdown.regicide ?? 0,
-        };
-      }));
+      const weight = wp.kind === 'goto'
+        ? ActiveGameManager.GOTO_PROGRESS_WEIGHT
+        : ActiveGameManager.NEAR_PROGRESS_WEIGHT;
+
+      return ActiveGameManager.argmaxSurvivingMove(rows.map((evaluation, i) => ({
+        move: evaluation.move,
+        score: evaluation.score + weight * progress[i].stat,
+        fatal: ActiveGameManager.isCertainFatal(evaluation),
+      })));
     } catch (e) {
       // Never let waypoint math break staging; fall back to the bot move.
       console.error(`[ActiveGameManager] getWaypointBiasedMove failed for ${gameId}:${snakeId}:`, e);
@@ -1966,17 +1988,39 @@ export class ActiveGameManager {
     return snake?.head || snake?.body?.[0] || null;
   }
 
-  // Regicide and fatal-pocket thresholds for the waypoint re-bias below. A
-  // breakdown states these as stats, so the comparison is against the stat's
-  // own "it happened" value rather than against a weight.
-  private static readonly REGICIDE_THRESHOLD = 1;
-  private static readonly FATAL_TRAP_THRESHOLD = 1;
+  // The goto/near progress bias, on the lobster fold's OWN scale
+  // (`lobster/evaluate/calibration.ts` DEFAULT_WEIGHTS) — an order of
+  // magnitude under `material` (10, where the survival cliff lives) and the
+  // same order as the fold's own top ordinary terms, whose ranges are also
+  // bounded [0,1]/[-1,0] ramps (`food`, `contest`). NEVER
+  // `config/heuristics.ts`'s `gotoProgress`/`nearProgress` (300/250): those
+  // are read by the legacy-scale piece candidate path only and would re-create
+  // exactly the scale collision this function used to have.
+  private static readonly GOTO_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.food; // 4
+  private static readonly NEAR_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.contest; // 3, weaker than goto
 
   /**
-   * The winner among re-scored candidate rows: never one that ends our own
-   * team, then never one the row calls a fatal pocket, then the highest score.
-   * Each veto degrades to the full pool rather than to nothing, so a position
-   * in which every move is bad still stages the least-bad one.
+   * "Certain fatal" per the fold's OWN worst-case verdict for this candidate,
+   * not a stale breakdown key: `bounds.lo` is the DEAD lattice bottom
+   * (`-Infinity`, see `evaluate/bound.ts`) exactly when the adversary's best
+   * response to this candidate eliminates our subject team
+   * (`evaluate/index.ts` `finish`) — which is the single fact the legacy
+   * `trapped` and `regicide` breakdown keys were each trying to name; the fold
+   * does not distinguish "this unit dies" from "this ends our team" the way
+   * the legacy scale did. `bounds` is null when the candidate went
+   * unexplained (past the telemetry budget — effectively never for a snake's
+   * four-way choice, `MAX_CANDIDATES_PER_UNIT` is 6); absence is not evidence
+   * of safety, so it does not veto.
+   */
+  private static isCertainFatal(evaluation: MoveEvaluation): boolean {
+    return evaluation.bounds != null && evaluation.bounds.lo === Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * The winner among re-scored candidate rows: never one that is certain
+   * fatal, then the highest score. The veto degrades to the full pool rather
+   * than to nothing, so a position in which every move is fatal still stages
+   * the least-bad one.
    *
    * This is the snake counterpart of `bestPieceCandidate`'s veto ladder, and
    * it lives here because the waypoint re-bias is now its only caller — it
@@ -1984,15 +2028,11 @@ export class ActiveGameManager {
    * this re-bias could not disagree, and that engine is gone.
    */
   private static argmaxSurvivingMove(
-    candidates: Array<{ move: Direction; score: number; trapped: number; regicide?: number }>
+    candidates: Array<{ move: Direction; score: number; fatal: boolean }>
   ): Direction | null {
     if (candidates.length === 0) return null;
-    const survivingTeam = candidates.filter(
-      c => (c.regicide ?? 0) < ActiveGameManager.REGICIDE_THRESHOLD
-    );
-    const alive = survivingTeam.length > 0 ? survivingTeam : candidates;
-    const nonFatal = alive.filter(c => c.trapped < ActiveGameManager.FATAL_TRAP_THRESHOLD);
-    const pool = nonFatal.length > 0 ? nonFatal : alive;
+    const nonFatal = candidates.filter(c => !c.fatal);
+    const pool = nonFatal.length > 0 ? nonFatal : candidates;
     let best = pool[0];
     for (const c of pool) {
       if (c.score > best.score) best = c;
