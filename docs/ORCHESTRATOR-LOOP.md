@@ -16,15 +16,15 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 - Inversion gate, 16 arms, every one must print no `INVERSION` line: `for s in mixed snakes sparse potions; do for d in 1 2 3; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js $s 30 $d --nodes; done; done` and then `for d in 4 5 6 8; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js potions 60 $d --nodes; done` — the four potion arms run to sixty turns because the two soundness classes fixed in 6e7b7d0 (a death in the optimistic timeline read as a proof; `room`'s maximised side read off a crowd containing a held cloud) fire on seeds 5 and 8 only past turn thirty, where the twelve 30-turn arms never looked.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~20:00Z
-Merged: potion-board soundness (295e772; gate = 16 arms); entrapment design (eba4b94). NOT merged: the ceiling ply (origin/ceiling 72f2fc6) — sound but vacuous, shipped inert; verdict recorded in 08-DEPTH-VERDICT §7. Head 1c60d8a.
+## Active wave (update on every launch/merge) — 2026-09-04 ~22:00Z
+Merged: PLAN-2 items 3, 5 (e41708e). Head e41708e. Not merged: origin/ceiling (vacuous; §7 of 08-DEPTH-VERDICT).
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| b1-sound (CC) | opus | port the exact-reply oracle from origin/ceiling (G-D3) as a standing check; fix the B1-floor-vs-exact-reply classes (485 on potions s4) | seed 4 reads zero; sweep green; A/B reported |
-| simp2-b (CC) | sonnet | PLAN-2 items 3 (one arrival field), 5 (one unit-ascent step) | byte-identical + suite + G1/G2 |
-| opponent (CC) | sonnet | runner `--opponent=<profile>`; ab-compare pairs by opponent; material-only baseline recorded | byte-identical without the flag |
-| entrap (CC) | opus | implement docs/design/entrapment.md: instrument first, P-1 falsifier, then the repair of room (deletes crowdCertain, ownership planes, seen/multi sweep) | keep only if predictions hold in direction; sixteen arms zero inversions |
-Queued: PLAN-2 item 7 (B1/B3 fold — after b1-sound), item 2 (ourUnitTerm absorbs tier+potion — Opus, after simp2-b), §5.1 leaderOf est-across-horizons (Opus, after simp2-b); entrapment (needs a horizon: with the ceiling ply refused, design it on the one-ply bracket + claims over the window — Opus design first).
+| b1-sound (CC) | opus | exact-reply oracle from origin/ceiling as a standing check; fix B1-floor-vs-exact-reply classes | seed 4 zero; sweep green; A/B reported |
+| opponent (CC) | sonnet | runner `--opponent=<profile>`; ab-compare by opponent; material-only baseline | byte-identical without the flag |
+| entrap (CC) | opus | entrapment: instrument, P-1 falsifier, repair of room | keep only if predictions hold; sixteen arms zero |
+| simp2-c (CC) | opus | PLAN-2 item 2 (tier+potion as one member family) and §5.1 leaderOf | byte-identical + G1/G2 |
+Queued: PLAN-2 item 7 (B1/B3 fold, after b1-sound); a third audit once plan 2 is executed; PR #17 body refresh at a ping.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
