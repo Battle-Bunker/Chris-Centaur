@@ -12,6 +12,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "gate:exact": "jest src/lobster/bounds/exact-reply.gate.test.ts --testPathIgnorePatterns=/node_modules/",
     "lint": "eslint \"src/**/*.ts\"",
     "sync-engine": "node scripts/sync-engine.js",
     "db:push": "drizzle-kit push",

@@ -113,6 +113,20 @@ describe('a widen is staged, never applied under the reader', () => {
     expect(far.autoAcceptMs).toBe(6_000);
   });
 
+  /**
+   * A ZERO-SECOND COUNTDOWN IS NOT A COUNTDOWN. A widen is staged behind one
+   * gesture (§1.6) and the banner IS the gesture; a 0 ms timer auto-accepts on
+   * the next macrotask, so the list is swapped out from under a reader with no
+   * gesture at all. Past the deadline is exactly when that matters most.
+   */
+  it('floors the auto-accept timer so the banner is always readable', () => {
+    const past = widen(
+      narrowFrame({ at: lensAt({ seq: 14, tWall: TURN_EXPIRY + 5_000 }) }),
+      widenedFrame({ at: lensAt({ seq: 15, tWall: TURN_EXPIRY + 5_000 }) })
+    );
+    expect(past.autoAcceptMs).toBe(1_500);
+  });
+
   it('SUSPENDS the timer while the drill panel is open', () => {
     const prev = narrowFrame();
     const drilled = applyCursorEvent(inspecting(prev), prev, { t: 'drill', unit: Q });

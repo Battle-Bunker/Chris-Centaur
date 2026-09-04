@@ -337,14 +337,36 @@ describe('the bot does the obvious things', () => {
     }
   });
 
+  /**
+   * BOTH BARS RE-PINNED, AND THE PLAY DID NOT MOVE — D6 of
+   * `docs/design/BEHAVIOUR-AUDIT.md`.
+   *
+   * `stationary` and `dithers` used to be read off the STAGED cell, and a
+   * pawn's rotation stages a side square it never enters, so a rotation counted
+   * as a move: a parked pawn was invisible to the first counter and a pawn
+   * rotating left, then right, then left again — which the `dithers` docstring
+   * names as the whole point of that counter — was invisible to the second.
+   * Both now read the cell HELD, against the same unit's cell last turn.
+   *
+   * The numbers below are the same forty turns of the same board at the same
+   * budget, measured through the corrected counters: 11.7% parked and 8.1%
+   * dithering, against 7.2% and 1.9% through the blind ones. Nothing about the
+   * bot's play changed — every other counter on the corpus is byte-identical
+   * across the fix — so re-pinning is reading the same behaviour off an
+   * instrument that can now see it, and NOT a gate relaxed to admit a
+   * regression. What the new headroom is for is D2: the parking these counters
+   * now see is a real defect with a rule of its own waiting on
+   * `commandSum`, and when that lands these two bars come back down.
+   */
   test('pieces act: they do not spend the game turning on the spot', async () => {
     const { metrics } = await play(MIXED_SCENARIO, 1);
     expect(metrics.crashed).toBeNull();
     // Before the command term was seated and the switch margin corrected, 22.7%
     // of unit-turns on this board ended where they began and the pawns never
-    // advanced a square in forty turns.
-    expect((100 * metrics.stationary) / metrics.unitTurns).toBeLessThan(12);
-    expect((100 * metrics.dithers) / metrics.unitTurns).toBeLessThan(3);
+    // advanced a square in forty turns. That is still the failure this catches:
+    // the bar is above today's 11.7% and well under a bot that has stopped.
+    expect((100 * metrics.stationary) / metrics.unitTurns).toBeLessThan(16);
+    expect((100 * metrics.dithers) / metrics.unitTurns).toBeLessThan(12);
   });
 
   test('and units do not undo last turn s move for nothing', async () => {

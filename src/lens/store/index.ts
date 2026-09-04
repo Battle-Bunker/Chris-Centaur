@@ -776,13 +776,29 @@ export function ingestLensEvents(
  * expiry — and when even that is missing the anchor is rebuilt from the board
  * row alone, which is honest emptiness rather than a throw.
  */
+/**
+ * ONE ANCHOR, WITH ITS BOARD PUT BACK — the single reconstruction, shared by
+ * every reader of a stored turn.
+ *
+ * `logStoredEvent` drops the settlement on the way to Postgres, so a
+ * `board.arrived` read back out of `turn_events` describes a turn whose board
+ * is somewhere else. Every consumer of stored events therefore has to restore
+ * it from the board row, and there must be exactly one place that does: a
+ * second copy of this line is a second answer to "what board was this turn
+ * played on", which is the collision `turn_boards` exists to prevent. The
+ * browser's replay fold (`view::replayFrameAtSeq`) is the second caller.
+ */
+export function anchorWithSettlement(anchor: TurnEvent, settlement: unknown): TurnEvent {
+  return { ...anchor, payload: { ...(anchor.payload as object), settlement } };
+}
+
 export function storeFromRows(
   board: TurnBoardRow,
   events: ReadonlyArray<TurnEvent>
 ): FrameStore {
   const stored = events.find((e) => e.kind === 'board.arrived');
   const anchor: TurnEvent = stored
-    ? { ...stored, payload: { ...(stored.payload as object), settlement: board.settlement } }
+    ? anchorWithSettlement(stored, board.settlement)
     : {
         id: `${board.gameId}:${board.turn}:0`,
         gameId: board.gameId,

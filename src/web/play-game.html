@@ -260,6 +260,11 @@
        numbers it qualifies and never wrapped away: it is the one column that
        says what the bot does NOT know. */
     .lens-unless { color: #9FC6C0; font-size: 11px; }
+    /* One assignment per unit, unbreakable. The cell is a list joined by
+       " · ", so it wraps BETWEEN entries; without this the 380px rail broke
+       inside an identifier and the column read "red-" / "A→94 · red-" /
+       "C→118", which is a unit id nobody can match to the board. */
+    .lens-move { white-space: nowrap; }
     .lens-focus-line { font-size: 13px; color: #eee; }
     .lens-cluster { float: right; color: #B39DFF; }
     .lens-sub, .lens-provenance { font-size: 11px; color: #888; }
@@ -288,13 +293,21 @@
       padding: 2px 8px; font-weight: 700; cursor: pointer; margin-left: 8px;
     }
     /* The intra-turn lane: one row per lane, ticks at their own seq. */
+    /* The name is a COLUMN, not an overlay. Ticks are placed at `left: X%` of
+       their positioned parent, so with the name absolutely positioned over the
+       same box every tick in the first ~15% of the turn was drawn on top of the
+       lane's own label — `board.arrived` at seq 0 sat squarely on the word
+       "kernel". The track is the positioned parent now, so 0% is the start of
+       the turn rather than the start of the row. */
     .lens-lane {
-      position: relative; height: 18px; margin: 2px 0;
+      display: flex; align-items: flex-start; gap: 6px;
+      height: 18px; margin: 2px 0;
       border-bottom: 1px solid #333;
     }
     .lens-lane-name {
-      position: absolute; left: 0; top: 2px; font-size: 10px; color: #666; width: 54px;
+      flex: 0 0 54px; font-size: 10px; color: #666; line-height: 14px;
     }
+    .lens-lane-track { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
     .lens-tick {
       position: absolute; top: 0; transform: translateX(-50%);
       background: none; border: none; padding: 0; cursor: pointer;
@@ -477,7 +490,37 @@
          the column out — which is also what makes the column's width an
          honest maximum to clamp the board against. */
       .board-left { flex: 1; min-width: 0; }
-      .board-right { width: 300px; }
+    }
+    /* THE RAIL IS A RIGHT RAIL (02 §3.7), and 380px wide because the moveset
+       table has six columns and the breakdown has four. It used to sit under
+       the board AND under the whole three-team roster, so an operator reading
+       "C f7 · Q d4 · s1↑ · R b1" could not see the board those arrows are
+       drawn on — which is the entire gesture the lens is for. (The stylesheet
+       still carried a `.board-right { width: 300px }` rule for a column the
+       markup no longer had.) One scroll region, stuck to the top, so walking
+       the moveset list never scrolls the board out of view. */
+    /* `#gameUI` is shown and hidden by a CLASS, not by an inline
+       `style.display`: an inline declaration outranks any stylesheet rule, so
+       `display: block` set in script silently defeated the grid below. */
+    .is-hidden { display: none !important; }
+    @media (min-width: 1180px) {
+      #gameUI {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        grid-template-areas: "banner banner" "board rail" "roster rail";
+        gap: 0 20px;
+        align-items: start;
+      }
+      #gameOverBanner { grid-area: banner; }
+      #gameUI > .board-container { grid-area: board; }
+      #gameUI > .snake-info-container { grid-area: roster; }
+      #gameUI > .selected-snake-panel {
+        grid-area: rail;
+        position: sticky;
+        top: 12px;
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+      }
     }
   </style>
 </head>
@@ -496,7 +539,7 @@
       <p>Waiting for game data</p>
     </div>
 
-    <div id="gameUI" style="display: none;">
+    <div id="gameUI" class="is-hidden">
       <div id="gameOverBanner" style="display: none; margin: 0 0 12px; padding: 10px 14px; border-radius: 6px; background: #2a2a2a; border-left: 4px solid #888; color: #eee; font-size: 14px; line-height: 1.4;">
         <div id="gameOverTitle" style="font-weight: 700; font-size: 15px; margin-bottom: 2px;">Game Over</div>
         <div id="gameOverDetail" style="opacity: 0.85;"></div>
@@ -939,11 +982,31 @@
      *  not of this frame, so repeating it every render would bury everything
      *  else in the console without adding a word. */
     let lensFoldComplaint = null;
+    /**
+     * WHICH SOURCE STAMPED THIS FRAME, and it is not a detail.
+     *
+     * `frameAtSeq` builds through the LIVE source, so its `at.mode` can only be
+     * `live-head` or `live-scrub` — and the rail is what an operator reads the
+     * mode off. 09 §A1 fixed the replay half in `historicFrameFor`, but the
+     * RAIL does not go through `historicFrameFor`: it renders `lensFrame()`,
+     * which was the live fold over the recorded array. A replayed turn
+     * therefore still badged itself `⏸ SCRUBBED · read-only`, still offered
+     * `[N] return to now and lock`, and `lensNow` still set `lensAtHead` on a
+     * RECORDED event array — the exact keypress-to-lock path A1 describes.
+     *
+     * `lensReplay` says where the array came from. Set by `adoptHistoricLens`,
+     * cleared by the next socket batch, and it also carries the settlement,
+     * because a stored anchor has had its board dropped (`logStoredEvent`).
+     */
+    let lensReplay = false;
+    let lensReplaySettlement = null;
     function lensFrame() {
       const view = lensView();
       if (!view || lensEvents.length === 0) return null;
       try {
-        return view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
+        return lensReplay
+          ? view.replayFrameAtSeq(lensEvents, lensSeq, lensReplaySettlement)
+          : view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
       } catch (e) {
         const said = e && e.message ? e.message : String(e);
         if (lensFoldComplaint !== said) {
@@ -1064,6 +1127,16 @@
       if (msg.turn !== lensTurn) {
         lensTurn = msg.turn;
         lensEvents = [];
+        lensReplay = false;
+        lensReplaySettlement = null;
+        // THE PLAYHEAD FOLLOWS A NEW TURN. `live-scrub` is defined as an
+        // earlier seq OF THE CURRENT TURN (02 §2.2); once the board moves on,
+        // the seq the operator was parked at names an event that no longer
+        // exists, so the new turn is entered at its head. Without this a
+        // client that was ever handed a `head: false` batch stayed off-head
+        // for the rest of the game — the playhead stopped following, so the
+        // rail sat on the anchor's empty state while the turn ran.
+        lensAtHead = true;
         // T17: the old board's moves are meaningless, and FOCUS SURVIVES.
         const view = lensView();
         if (view && lensCursor) {
@@ -1083,8 +1156,12 @@
         if (!seen.has(event.seq)) lensEvents.push(event);
       }
       lensEvents.sort((a, b) => a.seq - b.seq);
-      if (lensAtHead) lensSeq = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
+      // `head: false` is the SERVER saying these events belong to a turn the
+      // board has already moved past — a late arrival, never a statement about
+      // where this operator is looking. Being off the head is otherwise the
+      // operator's own doing (`lensSeek`), and `lensNow` is what undoes it.
       lensAtHead = lensAtHead && msg.head !== false;
+      if (lensAtHead) lensSeq = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
       if (lensPendingFocus) lensFocus(lensPendingFocus);
       lensReact();
       lensRender();
@@ -1237,6 +1314,7 @@
     function lensHandleKey(e) {
       const binding = LensPanel.keyBinding(e);
       if (!binding) return false;
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       switch (binding.action) {
@@ -1307,9 +1385,27 @@
     }
 
     function lensSeekTo(seq) {
+      lensReleaseHold();
       lensSeq = seq;
       const head = lensEvents.length ? lensEvents[lensEvents.length - 1].seq : 0;
       lensAtHead = seq >= head;
+    }
+
+    /**
+     * A WIDEN IS HELD AGAINST INCOMING DATA, NEVER AGAINST THE OPERATOR.
+     *
+     * `lensRender` draws the HELD transcript while a widen banner is up — that
+     * is the point of §1.6: the table under a reader is not swapped out from
+     * beneath them. But the hold was also swallowing the reader's own gestures:
+     * focus a unit, walk the moveset list or scrub the lane while the banner
+     * was up and the rail went on drawing the frozen picture, so the page
+     * looked dead until the timer expired. T1/T3/T6/T13 are unconditional in
+     * the transition table. An operator who moves the cursor has left the list
+     * the hold was protecting, so the widen is accepted and the fresh frame is
+     * what they see.
+     */
+    function lensReleaseHold() {
+      if (lensHeld) lensAcceptWiden();
     }
 
     function lensNow() {
@@ -1324,6 +1420,7 @@
      *  milliseconds away. */
     let lensPendingFocus = null;
     function lensFocus(unitId) {
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       if (!view || !frame) {
@@ -1341,6 +1438,7 @@
     }
 
     function lensSelectCandidate(unitId, to) {
+      lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
       if (!view || !frame || !lensCursor) return;
@@ -2289,7 +2387,7 @@
 
     function showGameUI() {
       document.getElementById('waitingOverlay').style.display = 'none';
-      document.getElementById('gameUI').style.display = 'block';
+      document.getElementById('gameUI').classList.remove('is-hidden');
       const turn = currentGameState?.turn || 0;
       liveMaxTurn = Math.max(liveMaxTurn, turn);
       if (viewMode === 'live') {
@@ -4151,7 +4249,16 @@
       if (!view || !events || events.length === 0) return null;
       const last = events[events.length - 1];
       try {
-        return view.replayFrameAtSeq(events, last.seq);
+        // THE BOARD COMES FROM `turn_boards`, NOT FROM THE LOG. `logStoredEvent`
+        // drops the anchor's settlement on the way to Postgres, so a
+        // `board.arrived` fetched back out of `/api/logs` describes a turn with
+        // no board on it. Folded as-is, `frame.board` was 0x0 and every unit row
+        // derived from it came back nameless — kind `snake`, letter blank, hp 0,
+        // wt 0 — for pieces the live rail showed as `C knight hp 99 wt 3`. The
+        // timeline already holds the settlement this page is drawing, so it is
+        // handed to the same reconstruction `storeFromRows` performs server-side.
+        const row = turnTimeline.get(turn) || timelineFloorRow(turn);
+        return view.replayFrameAtSeq(events, last.seq, (row && row.game_state) || null);
       } catch (e) {
         console.error('replay fold unavailable:', e && e.message ? e.message : e);
         return null;
@@ -4166,6 +4273,11 @@
       lensTurn = turn;
       lensEvents = events;
       lensAtHead = false;
+      // The rail is now reading STORED rows: it must be stamped by the replay
+      // source, and it must be handed the board the log does not carry.
+      lensReplay = true;
+      const row = turnTimeline.get(turn) || timelineFloorRow(turn);
+      lensReplaySettlement = (row && row.game_state) || null;
       lensSeq = events.length > 0 ? events[events.length - 1].seq : 0;
       lensHeld = null;
       lensNarrowNote = null;
@@ -4306,7 +4418,7 @@
       // game UI so the error is the only thing on screen.
       if (!currentGameState) {
         const gameUI = document.getElementById('gameUI');
-        if (gameUI) gameUI.style.display = 'none';
+        if (gameUI) gameUI.classList.add('is-hidden');
       }
       const overlay = document.getElementById('waitingOverlay');
       if (!overlay) return;
