@@ -296,7 +296,9 @@ export interface DepthPly {
   readonly leaves: number;
   /**
    * Null when the ply deepened this row. Otherwise which refusal:
-   * `no-gate` nothing held is entangled with the staged footprint ·
+   * `not-rationed` the ply was never offered this row — the ration spends it on
+   * two plans a decision, and this was not one · `no-gate` nothing held is
+   * entangled with the staged footprint ·
    * `no-piece` the cluster holds no piece, so the member is out of scope ·
    * `plan-incomplete` the plan left one of our own units unnamed, so no leaf
    * would be a board · `cap` `Q` exceeded `LOUD_CAP` · `no-leaf` the clock cut
@@ -308,6 +310,7 @@ export interface DepthPly {
     | null
     | 'off'
     | 'no-model'
+    | 'not-rationed'
     | 'no-gate'
     | 'no-piece'
     | 'plan-incomplete'

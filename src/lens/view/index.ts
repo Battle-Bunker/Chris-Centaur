@@ -281,6 +281,7 @@ function declineNote(ply: Moveset['depth']['ply']): string | null {
     case 'no-model':
       return null;
     case 'cap':
+    case 'not-rationed':
       return `Q=${ply.q}`;
     case 'no-gate':
       return 'Q=0';

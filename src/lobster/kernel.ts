@@ -3194,6 +3194,17 @@ function depthColumnOf(
   trial: TrialObservation,
 ): Moveset["depth"] {
   const deep = trial.deep ?? null
+  // THE NUMBER IS ON EVERY ROW, even the ones the ply was never offered
+  // (§4.5, G-D6). `Q` is measured in the bank's B3 preamble on every priced
+  // plan, so a row the ration did not spend a ply on can still say what the
+  // ply would have cost — which is the difference between `h1 ·` and
+  // `h1 · Q=340`, and it is the whole of what the owner asked to see.
+  const ply: Moveset['depth']['ply'] =
+    deep !== null
+      ? { q: deep.q, leaves: deep.leaves, declined: deep.declined }
+      : trial.loud == null
+        ? null
+        : { q: trial.loud.q, leaves: 0, declined: 'not-rationed' }
   const line: PlyStep[] = []
   let deepest = reading
   if (deep !== null && deep.horizon > 1 && deep.argmin !== null) {
@@ -3243,7 +3254,7 @@ function depthColumnOf(
         attribution: { width: deepest.hi - h1.hi, terminal: 0, residual: 0 },
         voided: false,
       },
-      ply: { q: deep.q, leaves: deep.leaves, declined: null },
+      ply,
     }
   }
   return {
@@ -3263,7 +3274,7 @@ function depthColumnOf(
       attribution: { width: 0, terminal: 0, residual: 0 },
       voided: false,
     },
-    ply: deep === null ? null : { q: deep.q, leaves: deep.leaves, declined: deep.declined },
+    ply,
   }
 }
 
