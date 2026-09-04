@@ -29,6 +29,15 @@
  * property under test is the one about contests and deaths.
  */
 
+import type { Board, Coord, Snake } from '../../types/battlesnake';
+import { marshalBoard } from '../../logic/turn-oracle';
+import {
+  checkCollapse,
+  checkMonotone,
+  checkSoundness,
+  defaultEvaluator,
+} from '../evaluate';
+import type { LawCase } from '../evaluate';
 import type { JointPlan } from '../contracts';
 import {
   B0_ONLY,
@@ -55,6 +64,48 @@ import {
 
 const OURS = 0;
 const EPS = 1e-9;
+
+/** The law harness speaks the API board, not the engine's cells: the two law
+ *  cases below are boards a GAME produced, and the harness that checks them
+ *  (`evaluate/laws.ts`) enumerates the held unit's worlds through the same
+ *  resolver everything else here measures against. */
+const LAW_TURN = 40;
+
+function lawSnake(
+  id: string,
+  body: ReadonlyArray<Coord>,
+  teamID: string,
+  orientation: { dx: number; dy: number },
+): Snake {
+  return {
+    id,
+    name: id,
+    latency: '0',
+    health: 90,
+    body: [...body],
+    head: body[0] as Coord,
+    length: body.length,
+    shout: '',
+    squad: '',
+    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
+    orientation,
+    teamID,
+  } as unknown as Snake;
+}
+
+function lawPiece(
+  id: string,
+  at: Coord,
+  unitType: string,
+  weight: number,
+  teamID: string,
+  orientation: { dx: number; dy: number },
+): Snake {
+  return { ...lawSnake(id, [at], teamID, orientation), unitType, length: weight } as unknown as Snake;
+}
+
+const lawCell = (board: Board, x: number, y: number): number =>
+  marshalBoard(board, LAW_TURN).toIndex({ x, y } as Coord);
 
 // ------------------------------------------------------------------ boards
 
@@ -463,6 +514,245 @@ describe('a mover the ledger says could be SEVERED is not worth its uncut weight
     // Anti-vacuity: the severable plan has to be in the option list at all.
     expect(cut).toBeGreaterThan(0);
   }, 120_000);
+});
+
+/**
+ * THE SLIDER BOARD — the minimal reproduction of the `floor=B1 ceiling=B2`
+ * inversion measured 26 times on `potions` seed 5, and the plainest statement
+ * of what the optimistic timeline costs.
+ *
+ * Our rook stands at one end of a rank and our pawn at the other, with a held
+ * enemy snake's BODY lying between them. The rook is staged the whole way
+ * across. `settlePartial` settles with the held unit ABSENT, so in that
+ * timeline the rook is not stopped at the body: it runs the full rank onto the
+ * square our own pawn is standing on, ties with it, and both come off the
+ * board. In every world the snake's body IS on that square — a body does not
+ * move out of the way inside one turn — the rook is severed there, and the
+ * pawn is untouched.
+ *
+ * The optimistic timeline is optimistic about CONTACTS WITH THE HELD UNIT and
+ * pessimistic about everything downstream of a mover it thereby lets run too
+ * far, and the fold used to read the deaths it produced as certain: our whole
+ * team gone, `best` at the value of a board we do not have, and — with the
+ * full evaluator — the terminal clamp turning `hi` into −∞ on a position we
+ * survive in every world. `fates` is the engine's own proof and now decides:
+ * a death the ledger names is a death in one timeline, not in the game.
+ *
+ * Every piece is load-bearing: remove the pawn and the rook's slide hurts
+ * nobody, remove the snake and the slide really does happen, and shorten the
+ * snake off the rank and there is nothing to stop the rook.
+ */
+const SLIDER_WIDTH = 7;
+const sliderCell = (x: number, y: number): number => y * SLIDER_WIDTH + x;
+/** The far end of the rook's slide — and the square our pawn steps onto. */
+const SLIDE_END = sliderCell(1, 3);
+
+const SLIDER_BOARD: BoardSpec = {
+  width: SLIDER_WIDTH,
+  height: SLIDER_WIDTH,
+  units: [
+    {
+      id: 0,
+      team: OURS,
+      type: 'rook',
+      occupancy: [sliderCell(6, 3), sliderCell(6, 3), sliderCell(6, 3)],
+    },
+    {
+      id: 1,
+      team: OURS,
+      type: 'pawn',
+      occupancy: [sliderCell(1, 2), sliderCell(1, 2), sliderCell(1, 2)],
+      orientation: { dx: 0, dy: 1 },
+    },
+    {
+      id: 2,
+      team: 1,
+      type: 'snake',
+      // Strictly BELOW the rook, so the body is severed rather than fatal: the
+      // rook survives the world it is stopped in, and the two readings differ
+      // in what happens to our PAWN rather than in who wins the contact.
+      tier: -1,
+      occupancy: [sliderCell(5, 3), sliderCell(4, 3), sliderCell(3, 3), sliderCell(2, 3)],
+      orientation: { dx: 1, dy: 0 },
+    },
+  ],
+};
+
+describe('a mover the OPTIMISTIC TIMELINE killed is not certainly dead', () => {
+  test('the whole mixture brackets the truth on the slider board', () => {
+    const stats = freshStats();
+    const board = makeTestBoard(SLIDER_BOARD);
+    expect(replySpaceSize(board, OURS)).toBeGreaterThan(1);
+    sweepBoard(board, 0, stats);
+    report('slider', stats);
+    expect(stats.violations).toEqual([]);
+    expect(stats.checks).toBeGreaterThan(0);
+  }, 300_000);
+
+  test('the ceiling covers the world in which the body stops the slide', () => {
+    // The regression proper. B0 holds the snake and settles the timeline in
+    // which the rook crosses it; the truth is the enumeration in which it does
+    // not. Before `fates` decided, the two deaths that timeline produced were
+    // read as proofs and the ceiling fell below every world it bounds.
+    const board = makeTestBoard(SLIDER_BOARD);
+    const gen = makeGenerator();
+    const evaluate = makeEvaluator();
+    const sub = makeSubstrate(board, OURS);
+    let crossings = 0;
+    try {
+      for (const plan of allPlans(sub, gen, OURS, 32)) {
+        const truth = trueWorstCase(board, OURS, plan).value;
+        const b0 = priceWith(sub, gen, evaluate, plan, B0_ONLY, unboundedBudget());
+        const full = priceWith(sub, gen, evaluate, plan, DEFAULT_BANK_CONFIG, unboundedBudget());
+        expect(b0.ceiling).toBeGreaterThanOrEqual(truth - EPS);
+        expect(full.ceiling).toBeGreaterThanOrEqual(truth - EPS);
+        expect(full.floor).toBeLessThanOrEqual(full.ceiling + EPS);
+        // The plan that stages the rook across the body onto our own pawn is
+        // the one the timeline gets wrong: its ceiling has to cover a world in
+        // which our pawn is alive, without the snake being enumerated.
+        const rook = plan.get(0);
+        const pawn = plan.get(1);
+        if (rook?.to === SLIDE_END && pawn?.to === SLIDE_END) {
+          crossings++;
+          expect(b0.ceiling).toBeGreaterThanOrEqual(truth - EPS);
+        }
+      }
+    } finally {
+      sub.release();
+    }
+    // Anti-vacuity: the crossing plan has to be in the option list at all.
+    expect(crossings).toBeGreaterThan(0);
+  }, 120_000);
+});
+
+/**
+ * THE CROWDED-TEAM-MATE BOARD — the minimal reproduction of the `floor=B1
+ * ceiling=B2` inversion measured 77 times on `potions` seed 8, and the one
+ * defect in this file that no material-only evaluator can see.
+ *
+ * `evaluate/features.ts`'s `room` term is a SUM over trail units of the
+ * exclusive ground each one reaches first, ours positive and theirs negative.
+ * Exclusive ground is a competition, so a reading that admits a HELD unit at
+ * its whole claim cloud takes ground away from every unit in the sweep — our
+ * own, which is the direction a floor wants, and THEIRS, which is not. Here a
+ * held enemy snake's cloud crowds its own located team-mate out of most of the
+ * ground that team-mate owns in every world, the `−g` term shrinks by the
+ * difference, and our floor collects it.
+ *
+ * The bank is not involved in the mistake and cannot repair it: the floor it
+ * publishes is the evaluator's `lo`, and `lo` was above worlds the evaluator
+ * itself scores when they are handed to it whole. So the law harness is what
+ * states it — R1 over every completion of the held snake, through the same
+ * resolver — and it is stated here, beside the bank inversion it caused.
+ */
+const ROOM_BOARD: Board = {
+  width: 7,
+  height: 7,
+  food: [],
+  hazards: [],
+  snakes: [
+    lawSnake('me', [{ x: 3, y: 5 }, { x: 3, y: 6 }], 'red', { dx: 0, dy: -1 }),
+    lawSnake(
+      'e1',
+      [{ x: 5, y: 1 }, { x: 4, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 1 }],
+      'blue',
+      { dx: 1, dy: 0 },
+    ),
+    lawSnake('e2', [{ x: 5, y: 2 }, { x: 4, y: 2 }], 'blue', { dx: 1, dy: 0 }),
+  ],
+} as Board;
+
+/** `me` steps north; `e1` — the LOCATED enemy — steps east. `e2` is held. */
+const ROOM_CASE: LawCase = {
+  name: 'a held cloud crowds its located team-mate',
+  board: ROOM_BOARD,
+  turn: LAW_TURN,
+  asTeam: 'red',
+  stages: ['me', 'e1'],
+  orders: new Map([
+    ['me', lawCell(ROOM_BOARD, 3, 6)],
+    ['e1', lawCell(ROOM_BOARD, 6, 1)],
+  ]),
+};
+
+describe('a held cloud may not crowd the unit a reading MAXIMISES', () => {
+  test('R1: every completion of the held snake is inside the bracket', () => {
+    const result = checkSoundness(defaultEvaluator, ROOM_CASE);
+    // Anti-vacuity: the held snake really does have a reply space.
+    expect(result.checked).toBeGreaterThan(1);
+    expect(result.violations).toEqual([]);
+  });
+
+  test('R2 and R3 still hold on the same board', () => {
+    expect(checkMonotone(defaultEvaluator, ROOM_CASE).violations).toEqual([]);
+    expect(checkCollapse(defaultEvaluator, ROOM_CASE).violations).toEqual([]);
+  });
+});
+
+/**
+ * THE COMMANDED-GROUND BOARD — the ceiling half of a repair whose floor half
+ * was already in `commandFeature`.
+ *
+ * `command` prices a piece by how much CONTESTED ground its next-turn front
+ * covers, and the trail domain it intersects comes in two widths: `domain`,
+ * which carries a held enemy trail's whole claim cloud, and `certainDomain`,
+ * which carries only the cells that cloud cannot have left. A term the reading
+ * ADDS has to be read off the narrow board and a term it SUBTRACTS off the
+ * wide one — and which of those is ours flips between the readings, because
+ * `lo` adds our pieces and `hi` adds theirs' negation. The feature had the
+ * floor half of that and used the floor's assignment in both readings, so `hi`
+ * priced our own piece on the ground a held cloud might TAKE from it while
+ * pricing theirs on the ground that cloud might GIVE it: a ceiling below its
+ * own worlds.
+ *
+ * Here our queen slides diagonally past a held snake's body, a green knight is
+ * enumerated alongside it, and the world in which the snake goes the other way
+ * scores 2.04 against a ceiling of 1.24. A randomised R1 sweep over 2 224
+ * boards of this shape — one of our pieces, one held trail unit — carries 50
+ * violations before the flip and 37 after, with none introduced; the thirteen
+ * it closes are all of this class. (The 37 that remain are OTHER classes, on
+ * both sides of the bracket, and they are not this repair's to close.)
+ */
+const COMMAND_BOARD: Board = {
+  width: 7,
+  height: 7,
+  food: [{ x: 1, y: 1 } as Coord],
+  hazards: [],
+  snakes: [
+    lawPiece('me', { x: 2, y: 0 } as Coord, 'queen', 2, 'red', { dx: -1, dy: 0 }),
+    lawSnake(
+      'held',
+      [{ x: 2, y: 1 }, { x: 2, y: 2 }, { x: 2, y: 3 }],
+      'blue',
+      { dx: 0, dy: -1 },
+    ),
+    lawPiece('other', { x: 0, y: 5 } as Coord, 'knight', 2, 'green', { dx: -1, dy: 0 }),
+  ],
+} as Board;
+
+const COMMAND_CASE: LawCase = {
+  name: 'a piece priced on ground a held cloud might take',
+  board: COMMAND_BOARD,
+  turn: LAW_TURN,
+  asTeam: 'red',
+  stages: ['me', 'other'],
+  orders: new Map([
+    ['me', lawCell(COMMAND_BOARD, 0, 2)],
+    ['other', lawCell(COMMAND_BOARD, 2, 4)],
+  ]),
+};
+
+describe('the board a term is priced on follows the READING, not the side', () => {
+  test('R1: the ceiling covers every completion of the held snake', () => {
+    const result = checkSoundness(defaultEvaluator, COMMAND_CASE);
+    expect(result.checked).toBeGreaterThan(1);
+    expect(result.violations).toEqual([]);
+  });
+
+  test('R2 and R3 still hold on the same board', () => {
+    expect(checkMonotone(defaultEvaluator, COMMAND_CASE).violations).toEqual([]);
+    expect(checkCollapse(defaultEvaluator, COMMAND_CASE).violations).toEqual([]);
+  });
 });
 
 /**
