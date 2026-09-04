@@ -36,6 +36,7 @@ import { ActiveGameManager } from '../server/active-game-manager';
 import { apiCoordToIndex } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import { GameState, Snake, Coord } from '../types/battlesnake';
+import { makeSnake as makeSnakeBase } from './board-fixtures';
 
 jest.mock('../logic/command-logger', () => {
   const logEvent = jest.fn();
@@ -50,22 +51,10 @@ const fullIdx = (api: Coord) => apiCoordToIndex(api, FULL_W, FULL_H);
 const OURS = 'red';
 const THEIRS = 'blue';
 
+// `teamID` addresses both `squad` and `teamID` on the resulting Snake, which
+// is the one variation this suite needs from the shared harness's `makeSnake`.
 function makeSnake(id: string, teamID: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: teamID,
-    teamID,
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  };
+  return makeSnakeBase(id, body, { squad: teamID, teamID, ...extra });
 }
 
 function makePiece(

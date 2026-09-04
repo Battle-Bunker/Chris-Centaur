@@ -97,23 +97,7 @@ import { worldsOf } from '../lobster/evaluate';
 import { moverSurvival } from '../lobster/bounds/material';
 import type { LawCase } from '../lobster/evaluate';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
+import { makeSnake } from './board-fixtures';
 
 const piece = (id: string, at: Coord, unitType: string, weight: number, extra: Partial<Snake>): Snake =>
   makeSnake(id, [at], { unitType, length: weight, ...extra });

@@ -34,23 +34,7 @@ import { marshalBoard } from '../logic/turn-oracle';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { Candidate, UnitId } from '../lobster/contracts';
 import { materialEvaluator, standingOf } from '../lobster/evaluate';
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
+import { makeSnake } from './board-fixtures';
 
 const piece = (
   id: string,

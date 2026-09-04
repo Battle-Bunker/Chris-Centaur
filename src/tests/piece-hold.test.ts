@@ -47,6 +47,7 @@ import {
 import { GameState, Snake, Coord, CentaurMove } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
 import type { UnitType } from '@shared/types/Game';
+import { makeGameState as makeGameStateBase } from './board-fixtures';
 
 // Same pattern as command-logging.test.ts / piece-staging.test.ts: the logger
 // is mocked so no DB writes leak out of the unit tests, and so the emitted
@@ -97,13 +98,9 @@ function makeUnit(
 }
 
 function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
-  const you = snakes.find(s => s.id === youId)!;
-  return {
+  return makeGameStateBase(gameId, turn, snakes, youId, {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
-    board: { width: 11, height: 11, food: [], hazards: [], snakes },
-    you,
-  };
+  });
 }
 
 interface Published {

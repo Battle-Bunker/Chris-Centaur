@@ -20,25 +20,11 @@ import {
 } from '../logic/waypoint-pathing';
 import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
 import { GameState, Snake, Coord, Direction } from '../types/battlesnake';
+import { makeSnakeAt as makeSnakeBase, makeGameState, makeTurnData as makeTurnDataBase } from './board-fixtures';
 
+// not 100: a full-health snake is treated as "just ate"
 function makeSnake(id: string, head: Coord, length = 3): Snake {
-  const body: Coord[] = [];
-  for (let i = 0; i < length; i++) {
-    body.push({ x: head.x, y: head.y - i });
-  }
-  return {
-    orientation: { dx: 0, dy: -1 },
-    id,
-    name: id,
-    latency: '0',
-    health: 90, // not 100: a full-health snake is treated as "just ate"
-    body,
-    head,
-    length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-  };
+  return makeSnakeBase(id, head, length, { health: 90 });
 }
 
 /** A chess piece: a 1-cell unit whose `length` is its WEIGHT. */
@@ -47,16 +33,6 @@ function makePiece(id: string, square: Coord, unitType: string, orientation = { 
   piece.unitType = unitType;
   piece.orientation = orientation;
   return piece;
-}
-
-function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
-  const you = snakes.find((s) => s.id === youId)!;
-  return {
-    game: { id: gameId, ruleset: { name: 'standard', version: '1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
-    board: { width: 11, height: 11, food: [], hazards: [], snakes },
-    you,
-  };
 }
 
 describe('progress stat functions (pure [0,1] linear ramp, zero at double the best path)', () => {
@@ -345,13 +321,7 @@ describe('ActiveGameManager goto/near intents', () => {
   }
 
   function makeTurnData(gs: GameState, botMove: Direction, evaluations: MoveEvaluation[]): TurnData {
-    return {
-      gameState: gs,
-      moveEvaluations: evaluations,
-      territoryCells: {},
-      botRecommendation: botMove,
-      timestamp: Date.now(),
-    };
+    return makeTurnDataBase(gs, botMove, { moveEvaluations: evaluations });
   }
 
   // Drives the transport side of one snake's turn intake, the way the Firebase
