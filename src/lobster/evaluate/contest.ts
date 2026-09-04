@@ -31,20 +31,11 @@
  *
  * One pass over the enemy roster through the ENGINE'S OWN move enumerator
  * (`EngineSubstrate.enumerate`), stamping each enemy's frozen (tier, weight)
- * onto every cell that enemy could legally end this turn on, AND ONTO THE CELL
- * IT IS STANDING ON. That is the same grammar the resolver accepts, so the
- * reach set is exact rather than an estimate: a pawn's diagonal is legal only
- * onto a cell that held food or a unit at the START of the turn, and the target
- * board is frozen, so our own move cannot open one. Sliders stop where the
- * rules stop them. The enemy's own cell is not in that grammar for a trail unit
- * — a snake has no `stay` — and is added because the rules adjudicate a meeting
- * there whether the enemy holds (c4) or vacates along our edge (c1); see
- * `enemyArrivals`.
- *
- * Each stamp also carries HOW CERTAIN it is — 1 on the enemy's own cell,
- * `k/|actions|` on a cell k of its actions reach — and the charge is the flat
- * loss lightened by that certainty through one knob, `CONTEST_CERTAINTY`; see
- * `costOf`.
+ * onto every cell that enemy could legally end this turn on. That is the same
+ * grammar the resolver accepts, so the reach set is exact rather than an
+ * estimate: a pawn's diagonal is legal only onto a cell that held food or a
+ * unit at the START of the turn, and the target board is frozen, so our own
+ * move cannot open one. Sliders stop where the rules stop them.
  *
  * Computed ONCE per substrate per subject team and cached against the
  * substrate, exactly like `foodDistance` — one enumeration pass per decision,
@@ -97,7 +88,6 @@
 import type { CellIndex } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, ourUnitTerm } from './bound';
-import { CONTEST_CERTAINTY } from './calibration';
 import type { EvalContext, Standing } from './features';
 import { perBoardPerTeam } from './memo';
 
@@ -124,23 +114,6 @@ export interface ArrivalField {
   readonly reached: Uint8Array;
   readonly tier: Int32Array;
   readonly weight: Int32Array;
-  /**
-   * HOW CERTAIN the most certain arrival at this cell is, in [0, 1]: 1 where
-   * some enemy is standing on it or has no other continuation, `k/|actions|`
-   * where k of an enemy's legal actions land there. Meaningless where
-   * `reached` is 0, and left at 0 there.
-   *
-   * It is the maximum over EVERY arrival at the cell, not over the arrivals
-   * that beat the unit asking — which is what D1's rule writes, and which
-   * would need the whole per-enemy list kept per cell rather than the one
-   * best `(tier, weight)` this field collapses to. The difference is one
-   * direction only: a cell where a slower enemy is certain and a faster one
-   * merely possible is charged at the certain enemy's weight, i.e. ABOVE the
-   * rule, never below it. Over-charging a contested cell is the same
-   * conservative direction the widened field itself moves in, and the whole
-   * spread between the two readings is the certainty knob `ε`.
-   */
-  readonly certainty: Float64Array;
 }
 
 /** @deprecated use `ArrivalField` — same shape, kept so existing importers compile. */
@@ -190,13 +163,6 @@ export interface Arrival {
   readonly cells: Iterable<CellIndex>;
   readonly tier: number;
   readonly weight: number;
-  /**
-   * The share of the arriving unit's own options this arrival accounts for, in
-   * [0, 1]. Omitted means 1 — a CLAIM (`potion.ts`'s window read) is one cell
-   * the enemy is asserted to reach, not one of several guesses, so the default
-   * is the reading every producer but `enemyArrivals` wants.
-   */
-  readonly certainty?: number;
 }
 
 /**
@@ -214,17 +180,11 @@ export function arrivalField(cells: number, arrivals: Iterable<Arrival>): Arriva
   const reached = new Uint8Array(cells);
   const tier = new Int32Array(cells);
   const weight = new Int32Array(cells);
-  const certainty = new Float64Array(cells);
   for (const arrival of arrivals) {
     const t = arrival.tier;
     const w = arrival.weight;
-    const p = arrival.certainty ?? 1;
     for (const cell of arrival.cells) {
       if (cell < 0 || cell >= cells) continue;
-      // The certainty is a plain maximum and so does not follow the
-      // (tier, weight) winner: see `ArrivalField.certainty` for why that is
-      // the reading, and which way it errs.
-      if (p > (certainty[cell] as number)) certainty[cell] = p;
       if (reached[cell] === 0) {
         reached[cell] = 1;
         tier[cell] = t;
@@ -240,7 +200,7 @@ export function arrivalField(cells: number, arrivals: Iterable<Arrival>): Arriva
       }
     }
   }
-  return { reached, tier, weight, certainty };
+  return { reached, tier, weight };
 }
 
 /** True where some arrival reaches this cell and `(tier, weight)` does not beat it. */
@@ -250,47 +210,15 @@ export function beatenAt(field: ArrivalField, tier: number, weight: number, cell
   return !winsContest(tier, weight, field.tier[cell] as number, field.weight[cell] as number);
 }
 
-/**
- * Every enemy of `asTeam`'s whole action set UNION ITS OWN TURN-START CELL,
- * carrying how certain each landing is.
- *
- * THE ORIGIN CLAUSE is the rules, not a heuristic. A trail unit has no `stay`
- * in its grammar (`moveGrammar.ts`: "staging their own square is not a move"),
- * so its head cell was in no arrival set and `costOf` charged the one square on
- * the board where a meeting is CERTAIN exactly nothing — D1 of
- * `docs/design/BEHAVIOUR-AUDIT.md`, and three `edge` deaths in its corpus. The
- * enemy either holds that cell (`turnEngine.ts` c4 contest) or vacates it along
- * our edge (c1 exchange), and both adjudicate on the same frozen (tier, weight)
- * this field already carries, so the meeting is priced the same either way.
- *
- * The certainty is `k/|actions|` on a landing k of the enemy's actions reach,
- * and 1 on its own cell. It is what makes the origin clause bite: with a flat
- * charge every option inside one enemy's fan is charged alike, they cancel, and
- * the tie-break still takes the enemy's square.
- */
+/** Every enemy of `asTeam`'s whole action set, as one arrival apiece. */
 function* enemyArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arrival> {
   for (const unit of sub.roster()) {
     if (unit.team === asTeam) continue;
-    const tier = frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn);
-    const weight = unit.weight;
-    const origin = unit.cells[0];
-    if (origin !== undefined) yield { cells: [origin], tier, weight, certainty: 1 };
-    const actions = sub.actionsOf(unit.unitId);
-    if (actions.length === 0) continue;
-    // Cells first, so a cell two of the enemy's actions reach is counted twice
-    // and carries twice the certainty; then one arrival per certainty, because
-    // an `Arrival` is a set of cells at one certainty and not one cell.
-    const landings = new Map<CellIndex, number>();
-    for (const a of actions) landings.set(a.to, (landings.get(a.to) ?? 0) + 1);
-    const byHits = new Map<number, CellIndex[]>();
-    for (const [cell, hits] of landings) {
-      const group = byHits.get(hits);
-      if (group === undefined) byHits.set(hits, [cell]);
-      else group.push(cell);
-    }
-    for (const [hits, cells] of byHits) {
-      yield { cells, tier, weight, certainty: hits / actions.length };
-    }
+    yield {
+      cells: sub.actionsOf(unit.unitId).map((a) => a.to),
+      tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
+      weight: unit.weight,
+    };
   }
 }
 
@@ -305,24 +233,7 @@ export function contestField(sub: EngineSubstrate, asTeam: number): ContestField
   );
 }
 
-/**
- * The charge where this unit's destination is a contest it does not win: the
- * whole `CONTEST_LOSS`, LIGHTENED by how uncertain the meeting is —
- *
- *     CONTEST_LOSS × (1 − ε + ε · p)
- *
- * with `ε = CONTEST_CERTAINTY` and `p` the field's certainty at the cell. At
- * `ε = 0` this is the boolean charge the weight `contest: 3` was seated on, and
- * the origin clause alone; at `ε = 1` it is the certainty itself, which is the
- * shape that was measured and reverted (it divides every non-origin charge by
- * the enemy's action count and spends about three quarters of the term's seated
- * strength — see the D1 status note). In between, the enemy's own cell is the
- * only full certainty and every reachable cell keeps at least `1 − ε` of the
- * charge it has today.
- *
- * Still in [0, CONTEST_LOSS] per unit for any `ε` in [0, 1], so the term's
- * [-1, 0] range and the cliff inequality that rests on it are untouched.
- */
+/** `CONTEST_LOSS` where this unit's destination is a contest it does not win. */
 function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
   const unit = ctx.sub.unitOf(s.unitId);
   if (unit === undefined) return 0;
@@ -330,9 +241,7 @@ function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
   // tier and weight held at the START of it, so a unit that grew on a meal in
   // the position being scored still contests at the weight it set out with.
   const ourTier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
-  if (!beatenAt(field, ourTier, unit.weight, s.cell)) return 0;
-  const p = field.certainty[s.cell] as number;
-  return CONTEST_LOSS * (1 - CONTEST_CERTAINTY + CONTEST_CERTAINTY * p);
+  return beatenAt(field, ourTier, unit.weight, s.cell) ? CONTEST_LOSS : 0;
 }
 
 /**

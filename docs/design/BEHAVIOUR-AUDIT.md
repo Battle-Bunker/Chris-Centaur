@@ -181,6 +181,115 @@ attempt's are the same measurement, not two.
 0 occupied-cell entries. It is in the corpus as the arm where a meal is worth
 less than the turn it costs, and it is dark for D1 by construction.
 
+#### The shape, and what ε has to clear
+
+`enemyArrivals` yields each enemy's action set UNION its turn-start head cell,
+every stamp carries how certain it is (`1` on the enemy's own cell,
+`k/|actions|` on a cell k of its actions reach), and `costOf` charges
+
+    CONTEST_LOSS × (1 − ε + ε·p)
+
+so `ε = 0` is today's boolean term plus the origin clause, and the enemy's own
+cell is the only full certainty at any `ε`. Reproduction A sets the floor on
+`ε` exactly: the entry pays 1.00 in fold units, the two alternatives pay
+`1.00 − 0.75ε` plus `momentum`'s 0.167, so the pawn stops stepping onto the
+snake only at `ε > 0.167/0.75 = 0.222`. `ε = 0.25` clears it by 0.028; nothing
+below 0.22 can fix the reproduction at all, which is what makes the window this
+attempt had to measure in a narrow one.
+
+#### The arms, per board class, paired by seed against the baseline above
+
+60 turns, `--nodes`, `scripts/ab-compare.js` per class, never pooled.
+
+| board | arm | unit-turns | deaths (by cause) | `edge` | `lost` | meals |
+|---|---|---|---|---|---|---|
+| `mixed` 1–3 | A | 1258 | 10 — contest 7, edge 2, bodyBlock 1 | 2 | 5 | 246 |
+| | ε = 0.25 | 1239 | **10** — contest 8, bodyBlock 1, self 1 | **0** | **0** | 239 (−2.8%) |
+| | ε = 0.50 | 1201 | **8** — contest 5, bodyBlock 2, self 1 | **0** | 1 | 214 (**−13.0%**) |
+| | ε = 0.75 | 1063 | **12** — contest 11, self 1 | **0** | 1 | 211 (**−14.2%**) |
+| `potions` 1–8 | A | 3044 | 26 — contest 24, bodyBlock 1, edge 1 | 1 | 4 | 595 |
+| | ε = 0.25 | 3183 | **21** — contest 20, bodyBlock 1 | **0** | 4 | 624 (+4.9%) |
+| | ε = 0.50 | 3140 | **24** — contest 22, bodyBlock 2 | **0** | 3 | 616 (+3.5%) |
+| | ε = 0.75 | 3022 | **28** — contest 27, edge 1 | 1 | 5 | 587 (−1.3%) |
+| `snakes` 1–3 | all three | 967 | 7 — bodyBlock 4, self 3 | 0 | 0 | 157 |
+| `sparse` 1–3 | all three | 720 | 0 | 0 | 0 | 52 |
+| `sparse-lean` 1–3 | all three | 720 | 0 | 0 | 0 | 45 (38 grown) |
+
+`snakes`, `sparse` and `sparse-lean` are byte-identical to the baseline at
+every `ε` — every game counter, not only these columns.
+
+**`ε = 0.25` MEETS THE KEEP-CRITERION, and it is the first D1 arm that does.**
+`edge` deaths 3 → **0** across `mixed` + `potions`; `enemyOccupiedEntriesLost`
+9 → 4 (`mixed` 5 → **0**, `potions` 4 → 4); deaths up on no board class
+(`mixed` 10 → 10, `potions` 26 → **21**, the other three flat); meals within 3%
+everywhere (`mixed` −2.8%, `potions` +4.9%). The honest asterisks: `mixed`'s
+deaths/100 is a hair UP (0.799 → 0.820) because the same ten deaths happen over
+19 fewer unit-turns; `mixed` trades its two `edge` deaths for one `contest` and
+one `self`; `mixed`'s occupied-cell ENTRIES go 29 → 42 while the ones it loses
+go to zero, i.e. the bot takes the enemy's square more often and now takes it
+only when it wins there; and `potions` seed 3 contributes the corpus's first
+`deathsWhileDebuffed`. `ε = 0.50` and `ε = 0.75` are out on meals (−13.0% and
+−14.2% on `mixed`), and `ε = 0.75` on `potions` deaths as well (26 → 28) — the
+first attempt's failure re-appearing as `ε` → 1, which is what `ε` → 1 is.
+
+### STATUS — SECOND ATTEMPT ALSO REVERTED, on the bound and not on the play
+
+The sixteen-arm inversion gate is clean at `ε = 0.25`, `npx tsc --noEmit -p .`
+and `npx eslint "src/**/*.ts"` are clean, and `local-game-determinism` passes
+UNCHANGED — the pinned game plays the same moves, so no fixture was re-pinned.
+What it fails is `src/lobster/evaluate/law-sweep.test.ts`:
+
+    contest.lo = 34 > 30
+
+and `contest.lo` is a RATCHET class, which may only go down. Measured at
+`ε = 0.05, 0.20, 0.23, 0.25, 1`: **34 at every one of them**. At `ε = 0`
+— the origin clause alone, boolean charge — it is **30**, unchanged. So the
+origin clause is free and the LIGHTENING is what costs, in any dose.
+
+**Why, exactly.** The four extra worlds are all on the sweep's board seed 1, and
+the diagnostic prints them:
+
+    e = 0     held.lo = -0.5      real.lo = -0.5     (a tie, not counted)
+    e = 0.05  held.lo = -0.4778   real.lo = -0.5
+    e = 0.25  held.lo = -0.3889   real.lo = -0.5
+    e = 1     held.lo = -0.0556   real.lo = -0.5
+
+The world's −0.5 is one of our units settled on an enemy's own cell, charged
+the whole loss by the origin clause. The partial's floor is the average over the
+units the PARTIAL resolution settles, at the charges of the cells it settles
+them on — and a completion world can settle the same unit somewhere else. The
+per-unit charge is therefore CONTINGENT and the term reads it as a point; the
+boolean charge hid that by tying the two readings exactly, and a refinement that
+raises the floor by even 0.02 cannot. `law-sweep`'s lattice-end guard
+(`real.lo === held.lo` → skip) is what turned the tie into a non-event.
+
+That is the same defect class as the 30 already pinned (there, on board seed
+308, the partial reads 0 for a unit the world charges), so the lightening does
+not introduce a new unsoundness — it widens an old one. It is still a rise, and
+the ratchet's rule is that a class may only go down.
+
+**What was tried and did not work.** Keeping the BOOLEAN charge in the `lo`
+reading whenever one of our own units is held, and spending the certainty only
+in the discharged reading: `contest.lo` stays 34. The held units in the sweep
+— and in play — are the ENEMY claims; our own units are all staged, so the gate
+never fires. Making the floor boolean whenever ANY unit is held instead turns
+`contest` into a permanent interval, halves the lightening in `est` (the
+envelope's midpoint), and needs its own calibration and its own corpus.
+
+**So the state on disk is the instrument state again**, `contest.ts` and
+`contest-occupied-cell.test.ts` byte-identical to `d597d0b`, and the pinned test
+goes on pinning the defect.
+
+**For a third attempt.** The play is not the problem any more — `ε = 0.25`
+answers every behavioural prediction D1 registered, including the two the first
+attempt missed. The problem is that a term whose per-unit charge depends on
+where the resolution settles our unit cannot have its floor refined upward while
+that cell is contingent. Either the floor is repaired first (charge each unit at
+the worst cell its arrival could settle on, which is the loosening `b1-sound`
+declined and would need its own A/B), or the certainty is spent somewhere the
+floor does not read — the candidate ORDERING, or `momentum`'s idleness charge,
+which is the 0.167 that actually decided reproduction A.
+
 ---
 
 ## D2 — a pawn's orientation is invisible to the fold, so it parks

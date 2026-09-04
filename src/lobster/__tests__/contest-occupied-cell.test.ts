@@ -1,5 +1,5 @@
 /**
- * REPRODUCTION A, PINNED AS THE FIX IT NOW IS — D1 of
+ * REPRODUCTION A, PINNED AS THE DEFECT IT STILL IS — D1 of
  * `docs/design/BEHAVIOUR-AUDIT.md`.
  *
  * `mixed` seed 1, the board as turn 47 opened, read off the runner at the
@@ -11,35 +11,33 @@
  *
  * blue-C stepped onto the cell green-A's head occupied and `turnEngine.ts` c1
  * adjudicated the head-on exchange against it. The arithmetic that produced the
- * step is what this file used to pin: green-A's own square was in NO arrival set
- * — a trail unit has no `stay` in its grammar — so `contest` charged it NOTHING,
- * while blue-C's hold, which is one of green-A's four legal continuations, was
- * charged the whole `CONTEST_LOSS`. The term paid the pawn to walk into the one
+ * step is what this file pins: green-A's own square is in NO arrival set — a
+ * trail unit has no `stay` in its grammar — so `contest` charges it NOTHING,
+ * while blue-C's hold, which is one of green-A's four legal continuations, is
+ * charged the whole `CONTEST_LOSS`. The term pays the pawn to walk into the one
  * square on the board where a meeting is certain.
  *
- * THE TWO NUMBERS BELOW ARE NOW THE OTHER WAY ROUND, and this file says so on
- * purpose: the previous revision of it announced that "a fix INVERTS the two
- * numbers below", and this is that inversion, not a re-pinning of whatever the
- * code happens to do. `enemyArrivals` yields each enemy's action set union its
- * own turn-start cell, and the charge is the flat loss LIGHTENED by how certain
- * the meeting is, `CONTEST_LOSS x (1 - e + e x p)` with `e = CONTEST_CERTAINTY`:
- * the entry onto green-A's square pays the whole loss (`p = 1`) and the hold,
- * one of green-A's four continuations, pays `1 - 0.75 e` (`p = 1/4`).
+ * THIS IS A CHARACTERISATION TEST, NOT AN APPROVAL. D1's rule — the enemy's own
+ * turn-start cell in the field, and a certainty weight
+ * `p_e(c) = |{a : a.to = c}| / |actions(e)|` in place of the boolean charge —
+ * was implemented and measured over the audit's corpus, and REVERTED: it took
+ * `edge` deaths 3 -> 0 on `mixed` + `potions` but dividing every other charge by
+ * the enemy's action count weakened the term about fourfold, and `potions` came
+ * back at 26 -> 28 deaths (contest +1, bodyBlock +1, self +1, and the corpus's
+ * first `deathsWhileDebuffed`), `mixed` at 246 -> 215 meals with the parked
+ * share 7.2% -> 12.3% and the longest park 8 -> 49 turns. See the D1 status note
+ * in the audit for the whole reading.
  *
- * The first attempt at D1 — the same origin clause but with the charge REPLACED
- * by the certainty rather than lightened by it — took `edge` deaths 3 -> 0 and
- * was still reverted: dividing every non-origin charge by the enemy's action
- * count weakened the term about fourfold against a weight seated on the boolean
- * reading, and `potions` came back at 26 -> 28 deaths with `mixed` at 246 -> 215
- * meals. That is what `e` is for, and why it is small. See the D1 status note in
- * the audit for both arms.
-  */
+ * So a fix INVERTS the two numbers below, and it is meant to: this file exists
+ * so that the board, the arithmetic and the ordering are already written down
+ * when someone re-opens D1, and so that a change to `contest` cannot alter this
+ * position's pricing silently.
+ */
 
 import type { Board, Coord, Snake } from '../../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
-  CONTEST_CERTAINTY,
   CONTEST_LOSS,
   DEFAULT_PROFILE,
   contestFeature,
@@ -141,7 +139,7 @@ const at = (board: Board, c: Coord): number => cellAt(board, TURN, c);
 
 afterEach(() => clearGeometryCache());
 
-describe('reproduction A: the cell an enemy is standing on is the certain meeting', () => {
+describe('reproduction A: today the cell an enemy is standing on is priced at nothing', () => {
   /** The contest term alone, for one staged destination of blue-C. */
   function contestOf(board: Board, to: Coord): number {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'blue', modeled: ['blue-C'] });
@@ -162,45 +160,35 @@ describe('reproduction A: the cell an enemy is standing on is the certain meetin
     }
   }
 
-  test('green-A occupies (0,3), the grammar has no hold there, and the field reaches it anyway', () => {
+  test('green-A occupies (0,3), and the arrival field does not reach it', () => {
     const board = reproductionA();
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'blue', modeled: ['blue-C'] });
     try {
       const team = sub.teamNumber('blue');
       const greenA = sub.unitOfWireId('green-A')?.unitId as UnitId;
       // Four legal continuations, and its own square is not one of them: the
-      // grammar's `stay` is what a trail unit does not have. UNCHANGED — the
-      // repair is in the field the term reads, not in the rules it reads it
-      // from.
+      // grammar's `stay` is what a trail unit does not have.
       expect(sub.actionsOf(greenA).length).toBe(4);
       const cell = at(board, { x: 0, y: 3 });
       expect(sub.actionsOf(greenA).some((a) => a.to === cell)).toBe(false);
-      // The origin clause: reached, and reached at full certainty.
-      const field = contestField(sub, team);
-      expect(field.reached[cell]).toBe(1);
-      expect(field.certainty[cell]).toBe(1);
-      // While blue-C's own square is reached too, because green-A can step on
-      // to it — one of four continuations, so a quarter certain.
-      const held = at(board, { x: 0, y: 2 });
-      expect(field.reached[held]).toBe(1);
-      expect(field.certainty[held]).toBeCloseTo(0.25, 9);
+      expect(contestField(sub, team).reached[cell]).toBe(0);
+      // While blue-C's own square IS in the field, because green-A can step on
+      // to it — which is exactly the move that killed the pawn.
+      expect(contestField(sub, team).reached[at(board, { x: 0, y: 2 })]).toBe(1);
     } finally {
       sub.release();
     }
   });
 
-  test('so the entry costs the whole loss and the hold costs less — the right way round', () => {
+  test('so the entry costs NOTHING and the hold costs the whole loss — the wrong way round', () => {
     const board = reproductionA();
     const entry = contestOf(board, { x: 0, y: 3 });
     const hold = contestOf(board, { x: 0, y: 2 });
-    // One unit of ours is modelled, so a charge is the whole per-unit charge.
-    expect(entry).toBeCloseTo(-CONTEST_LOSS, 9);
-    expect(hold).toBeCloseTo(-CONTEST_LOSS * (1 - CONTEST_CERTAINTY + CONTEST_CERTAINTY * 0.25), 9);
-    // THE INVERTED LINE. The square where the meeting is certain is now the
-    // dear one, and the gap is `0.75 e` in the term's own units — which has to
-    // clear the 0.15 that decided the move, i.e. `e > 0.20`.
-    expect(entry).toBeLessThan(hold);
-    expect(hold - entry).toBeCloseTo(0.75 * CONTEST_CERTAINTY, 9);
-    expect(hold - entry).toBeGreaterThan(0.15);
+    // One unit of ours is modelled, so a charge is the whole `CONTEST_LOSS`.
+    expect(entry).toBe(0);
+    expect(hold).toBeCloseTo(-CONTEST_LOSS, 9);
+    // The gap the audit measured, in the term's own units: the square where the
+    // meeting is certain is the CHEAP one. A repair inverts this line.
+    expect(entry).toBeGreaterThan(hold);
   });
 });

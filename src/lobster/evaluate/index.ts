@@ -42,7 +42,6 @@ import type { Substrate } from '../contracts';
 import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
 import type { Evaluation, Feature, Weights } from './bound';
 import {
-  CONTEST_CERTAINTY,
   DEFAULT_PROFILE,
   MATERIAL_ONLY_PROFILE,
   ROYAL_COMMAND_PROFILE,
@@ -268,18 +267,6 @@ export function checkWeights(
   profile: CriterionProfile,
   features: ReadonlyArray<Feature<EvalContext>>
 ): void {
-  // THE ONE CONSTANT WITH A RANGE, checked in the one place every shipped
-  // profile passes through. `contest`'s charge is
-  // `CONTEST_LOSS x (1 - e + e x p)` with `p` in [0, 1], so an `e` outside
-  // [0, 1] puts the charge outside [0, CONTEST_LOSS], the term outside [-1, 0],
-  // and the cliff inequality that `contest: 3` rests on is no longer true — a
-  // silently unsound fold rather than a startup failure.
-  if (!(CONTEST_CERTAINTY >= 0 && CONTEST_CERTAINTY <= 1)) {
-    throw new Error(
-      `CONTEST_CERTAINTY is ${String(CONTEST_CERTAINTY)}, outside [0, 1] — ` +
-        "contest's charge would leave [0, CONTEST_LOSS] and the term its [-1, 0] range"
-    );
-  }
   const folded = new Set(features.map((f) => f.key));
   const named = new Set(Object.keys(profile.weights));
   const missing: string[] = [];
