@@ -480,15 +480,18 @@ export function partitionOf<S extends TerritorySubject>(
    * are later extended. It is also exactly §3.1's rule for a horizon that runs
    * past the shells' own — the enemy front is held at its last front.
    */
-  claimHorizonTurn: number,
-  /** Where this reading's trail domain is written. One per reading — see
-   * `Partition.domain`. Defaults to a fresh board for callers that ignore it. */
-  domain: Uint32Array = new Uint32Array(ws.grid.words),
-  /** Where the same reading's `certainDomain` is written. Same rule. */
-  certainDomain: Uint32Array = new Uint32Array(ws.grid.words)
+  claimHorizonTurn: number
 ): Partition<S> {
   const grid = ws.grid;
   const w = grid.words;
+  // THE TWO OUT BOARDS ARE THE WORKSPACE'S, ONE PER READING, AND ARE TAKEN
+  // HERE RATHER THAN PASSED. `Partition.domain` requires the two readings to
+  // hold SEPARATE boards — a context caches both partitions side by side, so a
+  // shared board would have the second reading silently overwrite the first's
+  // — and `reading` is already a parameter, so the choice is derivable and
+  // there is nothing for a caller to get wrong.
+  const domain = ws.domainFor(reading);
+  const certainDomain = ws.certainDomainFor(reading);
   ws.resetEntries();
   const trails = ws.trailScratch as unknown as Array<Entry<S>>;
   const pieces = ws.pieceScratch as unknown as Array<Entry<S>>;
@@ -585,25 +588,33 @@ export function partitionOf<S extends TerritorySubject>(
   const clouds = cloudsOf(ws, subjects, shells, reading);
   const trailRooms: Array<TrailRoom<S>> = [];
   const priced = new Set<UnitId>();
-  for (let k = 0; k < trails.length; k++) {
-    const e = trails[k] as Entry<S>;
-    const s = e.s;
-    priced.add(s.unitId);
-    // THE TWO ENDPOINTS PULL IN OPPOSITE DIRECTIONS AND THAT IS NOT A TYPO.
-    // `fear` is `1 − kept/need`, so the worst reading wants the LARGEST
-    // denominator and the SMALLEST region, and a region grows with its horizon:
-    // `lo` therefore takes `weightMax` for `need` and `weightMin` for the
-    // horizon, and `hi` the reverse. For a located mover the two weights are
-    // equal and all four numbers are one number, which is every unit this term
-    // actually prices.
+  // ONE PRICING RULE, READ FROM BOTH LOOPS BELOW.
+  //
+  // THE TWO ENDPOINTS PULL IN OPPOSITE DIRECTIONS AND THAT IS NOT A TYPO.
+  // `fear` is `1 − kept/need`, so the worst reading wants the LARGEST
+  // denominator and the SMALLEST region, and a region grows with its horizon:
+  // `lo` therefore takes `weightMax` for `need` and `weightMin` for the
+  // horizon, and `hi` the reverse. For a located mover the two weights are
+  // equal and all four numbers are one number, which is every unit this term
+  // actually prices.
+  //
+  // A unit this reading cannot flood from — one of theirs, one of ours that is
+  // held, or one with no settled head — reads `kept === need`, which is the
+  // term declining to say anything about it rather than a claim it is roomy.
+  const roomFor = (s: S, mine: boolean): TrailRoom<S> => {
     const need = needOf(reading === 'lo' ? s.weightMax : s.weightMin);
     const horizon = needOf(reading === 'lo' ? s.weightMin : s.weightMax);
     const head = s.occupancy[0];
     const kept =
-      e.mine && !s.held && head !== undefined
+      mine && !s.held && head !== undefined
         ? keptOf(ws, head, s.kind, s.unitId, clouds, bodyGen, arrivalTurn, claimHorizonTurn, need, horizon)
         : need;
-    trailRooms.push({ subject: s, mine: e.mine, kept, need });
+    return { subject: s, mine, kept, need };
+  };
+  for (let k = 0; k < trails.length; k++) {
+    const e = trails[k] as Entry<S>;
+    priced.add(e.s.unitId);
+    trailRooms.push(roomFor(e.s, e.mine));
   }
 
   // AND OUR OWN UNITS THIS READING DOES NOT ADMIT, WHICH IS NOT THE SAME
@@ -619,16 +630,8 @@ export function partitionOf<S extends TerritorySubject>(
   for (const s of subjects) {
     if (s.team !== asTeam || s.held || !s.bestAlive) continue;
     if (!leavesTrail(s.kind) || priced.has(s.unitId)) continue;
-    const head = s.occupancy[0];
-    if (head === undefined) continue;
-    const need = needOf(reading === 'lo' ? s.weightMax : s.weightMin);
-    const horizon = needOf(reading === 'lo' ? s.weightMin : s.weightMax);
-    trailRooms.push({
-      subject: s,
-      mine: true,
-      kept: keptOf(ws, head, s.kind, s.unitId, clouds, bodyGen, arrivalTurn, claimHorizonTurn, need, horizon),
-      need,
-    });
+    if (s.occupancy[0] === undefined) continue;
+    trailRooms.push(roomFor(s, true));
   }
 
   let ours = 0;

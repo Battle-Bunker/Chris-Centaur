@@ -399,9 +399,9 @@ export function makeContext(
       // ONE SWEEP WHEN THE TWO READINGS ADMIT THE SAME SUBJECTS.
       //
       // `partitionOf` is a pure function of (workspace, standing, shells,
-      // asTeam, admission) — the domain board is an OUT parameter, not an
-      // input — so two readings whose admission predicates agree on every
-      // subject compute the same sweep twice. They agree exactly when nothing
+      // asTeam, admission) — the domain boards it fills are OUTPUTS, taken
+      // from the workspace by reading — so two readings whose admission
+      // predicates agree on every subject compute the same sweep twice. They agree exactly when nothing
       // is contingent and nothing is held, which is what a FULLY MODELLED
       // board is: 30.6% of the evaluations on `mixed 20 1 --nodes`, each
       // paying twice for one answer.
@@ -429,9 +429,7 @@ export function makeContext(
         ADMISSION[reading],
         reading,
         sub.arrivalTurn,
-        sub.arrivalTurn + horizonTurns,
-        ws.domainFor(reading),
-        ws.certainDomainFor(reading)
+        sub.arrivalTurn + horizonTurns
       );
       parts[reading] = made;
       return made;
