@@ -18,7 +18,7 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - Opponent baseline (`--opponent`, against a NON-mirror field — see `resolveOpponent` in local-game.ts): `node dist/tests/local-game.js sum mixed,snakes,potions 30 3 --nodes --opponent=material-only --json=vs-material-only.jsonl --label=vs-material-only`; team 0's meals/100↑deaths/100 vs the seed-1-3 mirror baseline: mixed 7.78→13.17 / 0.00→1.23, snakes 18.33→18.33 / 0.00→0.00, potions 9.96→11.02 / 0.40→1.22 — a material-only field neither seeks food (weight 0) nor avoids a contest the way the default profile does, which is why team 0 eats more and dies more against it than it does mirroring itself.
 
 ## Active wave (update on every launch/merge) — 2026-09-04 ~23:30Z
-Merged: PLAN-2 item 2 + §5.1 (d165582: tier and potion are one window member family in evaluate/window.ts; better() and leaderOf share one comparator). Head d165582; full suite re-run pending.
+Merged: PLAN-2 item 2 + §5.1 (d165582: tier and potion are one window member family in evaluate/window.ts; better() and leaderOf share one comparator). Head d165582; full suite green on d165582 (93 suites, 1605 tests).
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
 | b1-sound (CC) | opus | exact-reply oracle as a standing check; fix B1-floor-vs-exact-reply classes | seed 4 zero; sweep green; A/B reported |
