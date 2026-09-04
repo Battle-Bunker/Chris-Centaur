@@ -2933,7 +2933,13 @@ export class LobsterKernel implements Kernel {
       const explain = evaluate.explainPlan?.bind(evaluate)
       const empty: JointResidual = { total: { lo: 0, est: 0, hi: 0 }, features: [] }
       if (explain === undefined) {
-        return { moveset: key, basis: run.basisKey, aggregate: null, marginals: [], residual: empty }
+        return this.framedBreakdown(run, {
+          moveset: key,
+          basis: run.basisKey,
+          aggregate: null,
+          marginals: [],
+          residual: empty,
+        })
       }
       const whole = explain(sub, plan, run.input.asTeam)
       const wanted = new Set(members ?? [])
@@ -2958,7 +2964,7 @@ export class LobsterKernel implements Kernel {
           against: { to: foil.to },
         })
       }
-      return {
+      return this.framedBreakdown(run, {
         moveset: key,
         basis: run.basisKey,
         aggregate: {
@@ -2970,12 +2976,26 @@ export class LobsterKernel implements Kernel {
         },
         marginals,
         residual: residualOf(whole, marginals),
-      }
+      })
     } catch {
       return { ok: false, refusal: "off-head", detail: "the explanation could not be built" }
     } finally {
       run.reserveSpent += Math.max(0, run.now() - before)
     }
+  }
+
+  /**
+   * THE ANSWER IS ALSO A FRAME. An explanation the operator asked for is a
+   * fact about this decision exactly as a conditional ranking is, so it is
+   * emitted beside it — one event, the breakdown verbatim — and the fold
+   * holds it. Without this the socket got the numbers, the log got nothing,
+   * and a replayed turn showed the drilled row as "[B] to price this row"
+   * forever (09 §A6). It is the ONE line that changes here: what the kernel
+   * decides, and every reading it takes, are untouched.
+   */
+  private framedBreakdown(run: Run, breakdown: MovesetBreakdown): MovesetBreakdown {
+    this.emitLens(run, (at) => ({ kind: "breakdown", at, moveset: breakdown.moveset, breakdown }))
+    return breakdown
   }
 
   /** Phase 1 alone: the retained rows, filtered by the lock, marked

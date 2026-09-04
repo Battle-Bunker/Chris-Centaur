@@ -16,8 +16,8 @@
  * survives in memory does not survive that.
  *
  * Then, FROM THE ROWS ALONE, the store is rebuilt with `storeFromRows` — the
- * function `loadTurnStore` is two reads away from — and folded to every
- * `(turn, seq)` the live client visited. The two frames must be deep-equal
+ * one the replay path builds through, two reads from the tables — and folded
+ * to every `(turn, seq)` the live client visited. The two frames must be deep-equal
  * except `at.mode`, `at.isHead` and `provenance.kind`, which are content the
  * operator is entitled to and are rendered as badges, never as branches.
  *
@@ -59,10 +59,21 @@ import {
   reviveLens,
   storeFromRows,
 } from '../lens/store';
-import { frameAtSeq, makeReplayDecisionSource } from '../lens/view';
+import {
+  applyCursorEvent,
+  frameAtSeq,
+  initialCursor,
+  makeReplayDecisionSource,
+  renderFrame,
+} from '../lens/view';
 import { makeSubstrate } from '../lobster/substrate';
 import type {
+  CursorEvent,
+  DrawTranscript,
+  LensCursor,
   LensEvent,
+  LensFrame,
+  Moveset,
   TurnBoardRow,
   TurnEvent,
   TurnEventRow,
@@ -123,7 +134,7 @@ function stored<T>(row: T): T {
  * reservoir frame lands. What the manager adds on top is a database queue and
  * a socket, and both of them are replaced here by a list.
  */
-async function record(): Promise<Recorded> {
+async function record(drill = false): Promise<Recorded> {
   const board = buildBoard({ ...MIXED_SCENARIO, seed: SEED });
   const settlement: BoardSnapshot = { game: META, turn: TURN, board };
   const roster = (board.snakes ?? []).map((s) => s.id);
@@ -218,6 +229,9 @@ async function record(): Promise<Recorded> {
       seed: SEED,
       nodes: NODES,
       turns: 1,
+      // The parity run does not drill; the run below does. A recorded drill
+      // is the fact 09 §A6 says the log never held.
+      drill,
       // The operator's command is written to the log FIRST and the kernel is
       // handed the id it was written under, which is the order production
       // wires: an answer cannot precede its question in a total order.
@@ -453,5 +467,103 @@ describe('G-L1 — a recorded session replays to identical frames', () => {
     const rebuilt = rebuildMovesets(`${GAME}:${TURN}`, session.eventRows);
     expect(rebuilt.length).toBeGreaterThan(0);
     expect(JSON.stringify(rebuilt)).toBe(JSON.stringify(session.projected));
+  });
+});
+
+/**
+ * THE DRILLED ROW IS A RECORDED FACT (09 §A6).
+ *
+ * `explainMoveset` used to answer the asking socket and emit nothing: the
+ * fold's `breakdown` was `{}` by construction, so the BREAKDOWN panel — and
+ * with it the MANDATORY joint-residual row (01 §3.3's Law C2) — had never been
+ * drawn in production, live or in replay, and `[B] to price this row` was the
+ * only state the panel had ever been in.
+ *
+ * The run below scripts the operator's drill, and the answer travels the whole
+ * pipe:
+ * kernel sink → the one `seq` writer → the wire envelope → the stored row →
+ * the replay reader. The claim is the panel's, not the number's: the same
+ * breakdown, with its residual, on both sides of the seam.
+ */
+describe('a recorded drill folds into the frame, live and in replay', () => {
+  let session: Recorded;
+
+  beforeAll(async () => {
+    session = await record(true);
+  }, 180_000);
+
+  it('records the drill as its own event, on the wire and in storage', () => {
+    const wire = session.envelopes.flatMap((e) => e.events);
+    expect(wire.some((e) => e.kind === 'breakdown')).toBe(true);
+    expect(session.eventRows.some((r) => r.kind === 'breakdown')).toBe(true);
+  });
+
+  it('folds it under the moveset key, with the joint residual on the row', () => {
+    const wire = session.envelopes.flatMap((e) => e.events);
+    const last = wire[wire.length - 1] as TurnEvent;
+    const live = frameAtSeq(wire, last.seq, true);
+    const keys = Object.keys(live.breakdown);
+    expect(keys.length).toBeGreaterThan(0);
+    const breakdown = live.breakdown[keys[0] as string];
+    expect(breakdown).toBeDefined();
+    // LEVEL 1, LEVEL 2 and the residual: the three the model names, and the
+    // residual is present whatever it reads — a zero cross term is a finding.
+    expect(breakdown?.aggregate).not.toBeNull();
+    expect(breakdown?.marginals.length).toBeGreaterThan(0);
+    expect(typeof breakdown?.residual.total.lo).toBe('number');
+    expect(Array.isArray(breakdown?.residual.features)).toBe(true);
+  });
+
+  it('the panel draws the same rows off the stored bytes', () => {
+    const wire = session.envelopes.flatMap((e) => e.events);
+    const last = wire[wire.length - 1] as TurnEvent;
+    const replayStore = storeFromRows(
+      session.boardRow,
+      session.eventRows.map((row) => decodeEventRow(row))
+    );
+    const live = frameAtSeq(wire, last.seq, true);
+    const replay = makeReplayDecisionSource({
+      store: replayStore,
+      at: { gameId: GAME, turn: TURN, seq: last.seq },
+    }).frame();
+    expect(JSON.stringify(replay.breakdown)).toBe(JSON.stringify(live.breakdown));
+
+    // AND IT REACHES THE TRANSCRIPT. The cursor is walked to the drilled row
+    // the way an operator walks to it — focus a member, take its destination,
+    // name the row — and the joint row must be in the ops on both sides.
+    const key = Object.keys(live.breakdown)[0] as string;
+    const row = Object.values(live.movesets)
+      .flat()
+      .find((r) => r.key === key);
+    expect(row).toBeDefined();
+    const move = (row as Moveset).moves[0] as { unit: UnitKey; to: number };
+    const walk = (frame: LensFrame): DrawTranscript =>
+      renderFrame(
+        frame,
+        [
+          { t: 'focus', unit: move.unit },
+          { t: 'candidate', to: move.to },
+          { t: 'moveset', key },
+        ].reduce<LensCursor>(
+          (c, e) => applyCursorEvent(c, frame, e as CursorEvent),
+          initialCursor()
+        )
+      );
+    for (const [side, transcript] of [
+      ['live', walk(live)],
+      ['replay', walk(replay)],
+    ] as const) {
+      expect(`${side}:${transcript.some((c) => c.op === 'panel.breakdown')}`).toBe(`${side}:true`);
+      expect(`${side}:${transcript.some((c) => c.op === 'panel.breakdown.residual')}`).toBe(
+        `${side}:true`
+      );
+      expect(transcript.some((c) => c.op === 'panel.breakdown.pending')).toBe(false);
+    }
+  });
+
+  it('leaves the movesets projection exactly as it was — a breakdown is not a row', () => {
+    const rebuilt = rebuildMovesets(`${GAME}:${TURN}`, session.eventRows);
+    expect(JSON.stringify(rebuilt)).toBe(JSON.stringify(session.projected));
+    expect(session.eventRows.some((r) => r.kind === 'breakdown')).toBe(true);
   });
 });

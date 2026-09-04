@@ -9,10 +9,17 @@ import { DEFAULT_CONFIG } from '../config/game-config';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
 import { lensStringify } from '../lens/store';
+/**
+ * THE QUERY PORT the running decision exposes to its inspectors, declared
+ * ONCE — beside `askConditional`, which enforces the two rules it carries.
+ * This layer holds one, it does not get to describe one: a second declaration
+ * of the same structure is the smallest possible version of the second
+ * implementation that file exists to prevent.
+ */
+import type { InspectionPort } from '../lens/store/sources';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import type {
   ClusterId,
-  ConditionalRequest,
   LensRefusal,
   LensRefusalReason,
   MovesetBreakdown,
@@ -80,27 +87,6 @@ interface WSMessage {
   [key: string]: any;
 }
 
-/**
- * THE QUERY PORT the running decision exposes to its inspectors, seen from
- * the wire. Both questions are served out of `LENS_INSPECTION_MS`, the reserve
- * carved BEFORE `searchDeadline`, so both can be refused — and a refusal comes
- * back TYPED, on the same channel, never as silence. A UI that cannot tell
- * "the reserve is spent" from "nothing happened" draws the second when it
- * means the first, which is the failure this port's return type prevents.
- *
- * The port is attached by whatever is running the decision. With none
- * attached every request is answered `unknown-cluster`, which is the honest
- * answer: there is no decision here to ask about.
- */
-export interface LensInspectionPort {
-  rankConditional(gameId: string, req: ConditionalRequest): RankConditionalResult;
-  explainMoveset(
-    gameId: string,
-    moveset: MovesetKey,
-    members?: ReadonlyArray<UnitKey>
-  ): Promise<Provenanced<MovesetBreakdown> | LensRefusal>;
-}
-
 function lensRefusal(refusal: LensRefusalReason, detail: string): LensRefusal {
   return { ok: false, refusal, detail };
 }
@@ -136,10 +122,13 @@ export class GameWebSocketServer {
   // The running decision's inspection port, when there is one. Null is not a
   // switch: it is the state "no decision is answering questions right now",
   // and it produces a typed refusal rather than a silence.
-  private lensPort: LensInspectionPort | null = null;
+  private lensPort: InspectionPort | null = null;
+  // The current turn's `board.arrived` per game — the anchor a mid-turn
+  // joiner never receives, because a broadcast carries only new events.
+  private lensAnchors: Map<string, TurnEvent> = new Map();
 
   /** Attached by whoever owns the running decision. */
-  attachLensPort(port: LensInspectionPort | null): void {
+  attachLensPort(port: InspectionPort | null): void {
     this.lensPort = port;
   }
 
@@ -160,7 +149,31 @@ export class GameWebSocketServer {
     head: boolean
   ): void {
     if (events.length === 0) return;
+    // THE TURN'S ANCHOR, KEPT FOR WHOEVER JOINS NEXT. Only NEW events are
+    // broadcast, so a client that subscribed mid-turn folded onto whatever
+    // arrived first: the fold treats its earliest event as the anchor, drops
+    // it, and the board comes out 0×0. `board.arrived` is the one event a
+    // late joiner cannot do without, so the last one seen per game is held
+    // here and replayed to them on subscribe.
+    for (const event of events) {
+      if (event.kind === 'board.arrived') this.lensAnchors.set(gameId, event);
+    }
     this.broadcastToGame(gameId, { type: 'lens-frames', gameId, turn, events, head });
+  }
+
+  /** The turn-so-far's beginning, to a client that arrived after it. Sent as
+   *  an ordinary `lens-frames` envelope, because it IS one — the same event,
+   *  the same fold, `head: false` since this is not new news. */
+  private sendLensAnchor(client: WSClient, gameId: string): void {
+    const anchor = this.lensAnchors.get(gameId);
+    if (anchor === undefined) return;
+    this.send(client.ws, {
+      type: 'lens-frames',
+      gameId,
+      turn: anchor.turn,
+      events: [anchor],
+      head: false,
+    });
   }
 
   broadcastFirebaseStatus(status: unknown): void {
@@ -482,6 +495,10 @@ export class GameWebSocketServer {
         });
 
         this.broadcastSelectionsUpdate(gameId);
+        // The lens's fold begins at the turn's anchor. A client that joined
+        // mid-turn has missed it, so it is replayed here — otherwise its
+        // first frame anchors on a partition and draws an empty board.
+        this.sendLensAnchor(client, gameId);
         break;
       }
 

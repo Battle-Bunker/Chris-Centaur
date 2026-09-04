@@ -220,6 +220,12 @@ const LensPanel = (() => {
       `<div class="lens-panel-head">MOVESETS · cluster ${escapeHTML(clusterId)} · ` +
       `${escapeHTML(members)} of ${escapeHTML(members + bounded)} free · seq ${escapeHTML(seq)}` +
       `${stale ? ' · <span class="lens-stale-flag">stale</span>' : ''}</div>` +
+      // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
+      // three of them mean something else elsewhere in the codebase. A reader
+      // who has to be told what a column means is reading a number they
+      // cannot check.
+      `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
+      `Q loud replies · unless what this row is betting on</div>` +
       `<table class="lens-table">${rows}</table>` +
       (fixed ? `<div class="lens-fixed-strip">${fixed}</div>` : '') +
       foil +
@@ -324,7 +330,11 @@ const LensPanel = (() => {
 
   // ------------------------------------------------------------- the lane
 
-  const LANES = ['kernel', 'operator', 'staging', 'advice'];
+  // THE ANCHOR LANE IS FIRST, because the lane is DEFINED between its two
+  // anchors: `board.arrived` opens the turn and `turn.resolved` closes it.
+  // Without it those two events had no tick at all, and the strip was drawn
+  // between two ends it never showed.
+  const LANES = ['anchor', 'kernel', 'operator', 'staging', 'advice'];
 
   /**
    * The intra-turn scrubber. Ticks are clickable and the playhead SNAPS TO
@@ -368,13 +378,12 @@ const LensPanel = (() => {
     );
   }
 
-  /** The lane's own rows, straight off the transcript's timeline ops. */
-  function laneEventsFromTranscript(transcript) {
-    return allOf(transcript, 'timeline.tick').map((call) => {
-      const [lane, seq, atWorkMs, kind, actorId, color, shape] = ARGS(call);
-      return { lane, seq, atWorkMs, kind, actorId, color, shape };
-    });
-  }
+  // THE LANE IS BUILT ONCE, and not here. A transcript's `timeline.tick` ops
+  // are truncated at the playhead — that is correct for a frame, which is a
+  // statement about one `seq` — so a lane built from them would SHRINK as the
+  // operator scrubbed back. The page builds the strip from the whole turn's
+  // events instead; the second builder that read the transcript is gone
+  // rather than kept as a shape for the two to drift between.
 
   // ------------------------------------------------------------ the keymap
 
@@ -425,7 +434,6 @@ const LensPanel = (() => {
     breakdownHTML,
     provenanceHTML,
     laneHTML,
-    laneEventsFromTranscript,
     keyBinding,
     KEYMAP,
     escapeHTML,

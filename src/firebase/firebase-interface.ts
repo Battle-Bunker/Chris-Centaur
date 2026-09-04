@@ -79,8 +79,7 @@ import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
-import { makeInspectionPort } from '../lens/store/sources';
-import type { LensInspectionPort } from '../server/websocket-server';
+import { makeInspectionPort, type InspectionPort } from '../lens/store/sources';
 import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -1127,7 +1126,7 @@ export class TacticToesFirebaseInterface {
    * silence, because a UI that cannot tell "nothing is running" from "nothing
    * happened" draws the second when it means the first.
    */
-  lensInspectionPort(): LensInspectionPort {
+  lensInspectionPort(): InspectionPort {
     return makeInspectionPort({
       // The RUNNING decision lives here — this interface owns the engine, and
       // the engine holds the live kernel per game. Null is not a switch: it is

@@ -13,27 +13,13 @@
 
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../../database/db';
-import {
-  decisions,
-  movesets as movesetsTable,
-  turnBoards,
-  turnEvents,
-  unitOutcomes,
-} from '../../database/schema';
-import {
-  decodeDecisionInput,
-  encodeDecisionInput,
-  lensStringify,
-  reviveLens,
-  storeFromRows,
-} from './index';
+import { decisions, movesets as movesetsTable, turnEvents } from '../../database/schema';
+import { encodeDecisionInput, lensStringify, reviveLens } from './index';
 import type {
   DecisionRow,
-  FrameStore,
   GameId,
   MovesetProjectionRow,
   Turn,
-  TurnBoardRow,
   TurnEvent,
   TurnEventRow,
   UnitKey,
@@ -80,27 +66,6 @@ export async function writeTurnBoard(row: {
       deadline_ms = COALESCE(turn_boards.deadline_ms, EXCLUDED.deadline_ms),
       roster = COALESCE(turn_boards.roster, EXCLUDED.roster)
   `);
-}
-
-export async function readTurnBoard(
-  gameId: GameId,
-  turn: Turn
-): Promise<TurnBoardRow | null> {
-  const rows = await db
-    .select()
-    .from(turnBoards)
-    .where(and(eq(turnBoards.gameId, gameId), eq(turnBoards.turn, turn)))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    gameId: row.gameId,
-    turn: row.turn,
-    settlement: row.settlement,
-    boardHash: row.boardHash ?? '',
-    deadlineMs: row.deadlineMs ?? 0,
-    roster: ((row.roster ?? []) as RosterEntry[]).map((r) => r.unit),
-  };
 }
 
 // ------------------------------------------------------------- turn_events
@@ -153,16 +118,6 @@ export async function readTurnEvents(
   return rows.map((r) => reviveLens(r.payload as TurnEvent));
 }
 
-/** Every event of a game, for the timeline lane and the command history. */
-export async function readGameEvents(gameId: GameId): Promise<ReadonlyArray<TurnEvent>> {
-  const rows = await db
-    .select({ payload: turnEvents.payload })
-    .from(turnEvents)
-    .where(eq(turnEvents.gameId, gameId))
-    .orderBy(turnEvents.turn, turnEvents.seq);
-  return rows.map((r) => reviveLens(r.payload as TurnEvent));
-}
-
 // --------------------------------------------------------------- decisions
 
 export async function writeDecision(row: DecisionRow): Promise<void> {
@@ -195,32 +150,6 @@ export async function writeDecision(row: DecisionRow): Promise<void> {
         endedAt: sql`EXCLUDED.ended_at`,
       },
     });
-}
-
-export async function readDecision(
-  gameId: GameId,
-  turn: Turn
-): Promise<DecisionRow | null> {
-  const rows = await db
-    .select()
-    .from(decisions)
-    .where(and(eq(decisions.gameId, gameId), eq(decisions.turn, turn)))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    id: row.id,
-    gameId: row.gameId,
-    turn: row.turn,
-    botId: row.botId,
-    behaviourId: row.behaviourId ?? '',
-    engine: row.engine ?? '',
-    profile: row.profile ?? '',
-    input: decodeDecisionInput(row.basis),
-    summary: (row.summary ?? {}) as Readonly<Record<string, number>>,
-    startedAt: row.startedAt ?? 0,
-    endedAt: row.endedAt,
-  };
 }
 
 // ---------------------------------------------------------------- movesets
@@ -324,18 +253,6 @@ export async function deleteMovesetsFor(decisionId: string): Promise<void> {
   await db.delete(movesetsTable).where(eq(movesetsTable.decisionId, decisionId));
 }
 
-/** Every decision id of a game, oldest turn first — what the rebuild walks. */
-export async function readDecisionIds(
-  gameId: GameId
-): Promise<ReadonlyArray<{ id: string; turn: Turn }>> {
-  const rows = await db
-    .select({ id: decisions.id, turn: decisions.turn })
-    .from(decisions)
-    .where(eq(decisions.gameId, gameId))
-    .orderBy(decisions.turn);
-  return rows;
-}
-
 // ----------------------------------------------------------- unit_outcomes
 
 /**
@@ -366,48 +283,4 @@ export async function writeUnitOutcome(row: UnitOutcomeRow): Promise<void> {
       fatal_consent = COALESCE(EXCLUDED.fatal_consent, unit_outcomes.fatal_consent),
       operator_id = COALESCE(EXCLUDED.operator_id, unit_outcomes.operator_id)
   `);
-}
-
-export async function readUnitOutcomes(
-  gameId: GameId,
-  turn: Turn
-): Promise<ReadonlyArray<UnitOutcomeRow>> {
-  const rows = await db
-    .select()
-    .from(unitOutcomes)
-    .where(and(eq(unitOutcomes.gameId, gameId), eq(unitOutcomes.turn, turn)));
-  return rows.map((r) => ({
-    gameId: r.gameId,
-    turn: r.turn,
-    unitKey: r.unitKey,
-    unitName: r.unitName,
-    clusterId: r.clusterId,
-    stagedMove: r.stagedMove,
-    stagedSource: r.stagedSource,
-    confirmedMove: r.confirmedMove,
-    committed: r.committed,
-    resolvedMove: r.resolvedMove,
-    fatalConsent: r.fatalConsent,
-    operatorId: r.operatorId,
-  }));
-}
-
-// ------------------------------------------------------------- replay seed
-
-/**
- * The replay source's input, read from the tables: the anchor rebuilt from
- * `turn_boards` and the events read from `turn_events`. The anchor is
- * RECONSTRUCTED rather than read out of the log, because the settlement lives
- * in one place — a board stored twice is two boards waiting to disagree.
- *
- * Returns null when the turn's board never landed: without it nothing is
- * derivable, and an honest null beats a fold over an imaginary board.
- */
-export async function loadTurnStore(gameId: GameId, turn: Turn): Promise<FrameStore | null> {
-  const [board, events] = await Promise.all([
-    readTurnBoard(gameId, turn),
-    readTurnEvents(gameId, turn),
-  ]);
-  if (!board) return null;
-  return storeFromRows(board, events);
 }

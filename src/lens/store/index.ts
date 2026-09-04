@@ -32,6 +32,7 @@ import type {
   AdviceItem,
   AdvicePayload,
   BoardArrivedPayload,
+  BreakdownPayload,
   CandidateRow,
   CellIndex,
   ClusterId,
@@ -51,6 +52,8 @@ import type {
   LensFrame,
   LoudReading,
   Moveset,
+  MovesetBreakdown,
+  MovesetKey,
   MovesetProjectionRow,
   MovesetsPayload,
   OperatorId,
@@ -277,6 +280,10 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
 
   let partition: ReadonlyArray<ClusterView> = [];
   const movesets: Record<string, ReadonlyArray<Moveset>> = {};
+  // THE DRILLED ROWS, by moveset key. A breakdown is a recorded answer to a
+  // question the operator asked, so it folds like every other event and the
+  // panel draws the same rows live and in replay.
+  const breakdown: Record<MovesetKey, MovesetBreakdown> = {};
   const priced = new Map<UnitKey, Map<CellIndex, CandidateRow>>();
   const staged: Record<UnitKey, StagedMoveView> = {};
   const routes: Record<UnitKey, RouteView> = {};
@@ -321,6 +328,11 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
         }
         quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
         noteCandidates(priced, p.rows, true);
+        break;
+      }
+      case 'breakdown': {
+        const p = payloadOf<BreakdownPayload>(event);
+        breakdown[p.moveset] = p;
         break;
       }
       case 'emission': {
@@ -425,7 +437,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     partition,
     candidates: candidatesOf(priced),
     movesets,
-    breakdown: {},
+    breakdown,
     loud,
     staged,
     routes,
@@ -716,6 +728,21 @@ export function ingestLensEvents(
           source: r.source,
           cursor: r.cursor,
           final: r.final,
+        };
+        payload = p;
+        break;
+      }
+      case 'breakdown': {
+        // THE ANSWER VERBATIM, field for field. The drill is a fact about the
+        // decision once it has been taken, and a row that arrived re-encoded
+        // would be a second shape for the panel to read (01 §3.3).
+        const b = event.breakdown;
+        const p: BreakdownPayload = {
+          moveset: b.moveset,
+          basis: b.basis,
+          aggregate: b.aggregate,
+          marginals: b.marginals,
+          residual: b.residual,
         };
         payload = p;
         break;

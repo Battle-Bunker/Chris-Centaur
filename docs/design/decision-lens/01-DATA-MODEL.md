@@ -539,6 +539,7 @@ interface TurnEvent {
 | `pin.refused` | unit, to, reason | `EmitRefusal: 'pin-unreachable'` |
 | `selection` | operator, cluster, unit, candidate | **new** — the UI's inspection focus (§7) |
 | `conditional` | requestId, cluster+generation, locked moves, top-k, cursor, final | **new** (§4) |
+| `breakdown` | moveset, basis, aggregate (level 1), per-member marginals (level 2), the named joint residual | **new** (§3.3) — the drilled row, emitted where the ask is answered, so replay shows the breakdown the operator drilled live |
 | `advice` | `TeamPinAdvice` (costLo/costHi/confidence/degraded/basis) | `pins.ts::adviseFromReport` |
 | `stage.requested` | unit, move, turn, source | `active-game-manager.ts` `ensureStagedPublished` → `moveSubmitter` |
 | `stage.confirmed` | unit, move, serverTs | `setConfirmedStagedMove` (`active-game-manager.ts:2913`) |
@@ -573,7 +574,7 @@ either logs into a differently-shaped table or drops on the floor.
 
 | stored | recomputed on demand |
 |---|---|
-| every event in §5.2, with its payload | per-unit marginals and residuals (§3.3) below the staged moveset |
+| every event in §5.2, with its payload — a breakdown included, once one has been asked for | per-unit marginals and residuals (§3.3) nobody has drilled |
 | the top-k movesets of the frames §6.3 keeps | conditional rankings other than the staged-candidate one (§4.4) |
 | `EmissionFrame` header for every emission | foils below rank 2 |
 | the board settlement, once per turn | *anything that can be derived from the settlement*: legality, paths, threat maps, territory |

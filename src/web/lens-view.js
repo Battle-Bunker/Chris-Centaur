@@ -158,6 +158,7 @@ var LensView = (() => {
     const arrival = payloadOf(anchor);
     let partition = [];
     const movesets = {};
+    const breakdown = {};
     const priced = /* @__PURE__ */ new Map();
     const staged = {};
     const routes = {};
@@ -192,6 +193,11 @@ var LensView = (() => {
           }
           quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
           noteCandidates(priced, p.rows, true);
+          break;
+        }
+        case "breakdown": {
+          const p = payloadOf(event);
+          breakdown[p.moveset] = p;
           break;
         }
         case "emission": {
@@ -294,7 +300,7 @@ var LensView = (() => {
       partition,
       candidates: candidatesOf(priced),
       movesets,
-      breakdown: {},
+      breakdown,
       loud,
       staged,
       routes,
@@ -1155,6 +1161,7 @@ var LensView = (() => {
     operator: "operator",
     posture: "kernel",
     conditional: "kernel",
+    breakdown: "kernel",
     refusal: "kernel",
     "board.arrived": "anchor",
     "stage.fastpass": "kernel",
