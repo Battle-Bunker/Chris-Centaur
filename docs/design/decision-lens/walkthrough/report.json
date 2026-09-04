@@ -1,0 +1,694 @@
+{
+  "shots": [
+    {
+      "name": "01-idle",
+      "note": "live head, no unit focused — the NONE cursor state",
+      "bytes": 101226,
+      "overflowPx": 0,
+      "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowNo unit focused — click one, or Tab.4 emissions at seq 18 — no unit is focusedlobster-local · walkthrough/mixed · eval — · e17 · 0q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": "⚑ released red-A — cluster is now 2 units. auto 6sShow",
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": null,
+        "finished": false
+      }
+    },
+    {
+      "name": "02-hover-unit",
+      "note": "pointer over a unit on the board — the tag calls up",
+      "bytes": 101331,
+      "overflowPx": 0,
+      "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowNo unit focused — click one, or Tab.4 emissions at seq 18 — no unit is focusedlobster-local · walkthrough/mixed · eval — · e17 · 0q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": "⚑ released red-A — cluster is now 2 units. auto 6sShow",
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": null,
+        "finished": false
+      }
+    },
+    {
+      "name": "03-focus-unit",
+      "note": "CANDIDATE state — focus auto-advances to the incumbent (Law D)",
+      "bytes": 181838,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "03b-rail",
+      "note": "the rail at CANDIDATE",
+      "bytes": 35544,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "03c-board",
+      "note": "the board at CANDIDATE — chips, tethers, the violet arrow",
+      "bytes": 71227,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "04-hover-moveset",
+      "note": "pointer over moveset rank 2 — T4 says the cursor must not move",
+      "bytes": 35544,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "05-moveset-next",
+      "note": "the cursor walked one row down the conditional list",
+      "bytes": 35544,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "05b-board",
+      "note": "the board at the next rank — only disagreement draws",
+      "bytes": 71227,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "06-breakdown",
+      "note": "BREAKDOWN drilled — members, terms, and the joint residual",
+      "bytes": 35544,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "06b-breakdown-panel",
+      "note": "the breakdown panel alone",
+      "bytes": 1848,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "07-movesets-panel",
+      "note": "the MOVESETS table — depth ink and the `unless` cell per row",
+      "bytes": 19115,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "08-foil",
+      "note": "the contrastive foil latched",
+      "bytes": 35544,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "08b-foil-board",
+      "note": "the foil on the board — teal, only where it differs",
+      "bytes": 71227,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "09-lane",
+      "note": "the intra-turn lane at the head",
+      "bytes": 6886,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "10-lane-expanded",
+      "note": "the lane expanded — hollow attention ticks",
+      "bytes": 6886,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "11-scrub-anchor",
+      "note": "live-scrub at the turn anchor — determinations refuse",
+      "bytes": 154383,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\nunclustered\nfree\nCANDIDATES · 0 · priced here · scored as best-of-cluster\nnothing staged yet — no kernel emission yet at seq 0\n· · eval — · e0 · 0q",
+      "lane": "seq 0 · 1 / 28 · ⏸ SCRUBBED · seq 0 · read-only · observed ·",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 0,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "12-scrub-emission",
+      "note": "live-scrub, two kernel emissions in",
+      "bytes": 19059,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n\t108\t-41.6~\tincumbent\nnothing retained for red-A at this candidate — 2 emissions by seq 8 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval — · e8 · 0q",
+      "lane": "seq 8 · 9 / 28 · ⏸ SCRUBBED · seq 8 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 8,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "13-pinned",
+      "note": "the frame after the operator pin — Rule E, drawn",
+      "bytes": 20273,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.6~\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval — · e8 · 0q",
+      "lane": "seq 12 · 13 / 28 · ⏸ SCRUBBED · seq 12 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 12,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "13b-pinned-board",
+      "note": "the pinned unit on the board — padlock, no tether",
+      "bytes": 70704,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.6~\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval — · e8 · 0q",
+      "lane": "seq 12 · 13 / 28 · ⏸ SCRUBBED · seq 12 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 12,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "14-released-widen",
+      "note": "the frame at the release — the cluster widens again",
+      "bytes": 34917,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.6~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 20\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸2\t-51.6 ⌈93.0⌉\th1 · Q=1/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[N] return to now and lock\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e17 · 0q",
+      "lane": "seq 20 · 21 / 28 · ⏸ SCRUBBED · seq 20 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[N] return to now and lock",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 20,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "15-back-to-now",
+      "note": "back at the live head — the lock affordance returns",
+      "bytes": 181196,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 27\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": true,
+        "events": 28,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "16-widen-banner",
+      "note": "the widen banner — additive uncertainty is staged",
+      "bytes": 25843,
+      "overflowPx": 0,
+      "rail": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow\nA snake · hp 100 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-42.4~\t\n\t121\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval — · e16 · 0q",
+      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "banner": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow",
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 29,
+        "lensAtHead": true,
+        "events": 30,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "16b-widen-accepted",
+      "note": "after [Show] — the wider list lands",
+      "bytes": 48308,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 29\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 3 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 29,
+        "lensAtHead": true,
+        "events": 30,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "17-locked",
+      "note": "after Shift+Space — the whole moveset pinned",
+      "bytes": 205736,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · LIVE · seq 37 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": true,
+        "events": 38,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "17b-locked-rail",
+      "note": "the rail after the lock",
+      "bytes": 48035,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · LIVE · seq 37 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": true,
+        "events": 38,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "18-replay",
+      "note": "the same log, read back through the replay path",
+      "bytes": 129302,
+      "overflowPx": 0,
+      "rail": "No unit focused — click one, or Tab.\n7 emissions at seq 37 — no unit is focused\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · REPLAY · seq 37 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": false,
+        "events": 38,
+        "selected": null,
+        "finished": true
+      }
+    },
+    {
+      "name": "19-replay-focus",
+      "note": "a focused unit in replay — compare against 03",
+      "bytes": 176850,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[N] return to now and lock\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · REPLAY · seq 37 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[N] return to now and lock",
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": false,
+        "events": 38,
+        "selected": null,
+        "finished": true
+      }
+    },
+    {
+      "name": "19b-replay-rail",
+      "note": "the replay rail",
+      "bytes": 47653,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[N] return to now and lock\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · REPLAY · seq 37 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[N] return to now and lock",
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": false,
+        "events": 38,
+        "selected": null,
+        "finished": true
+      }
+    },
+    {
+      "name": "19c-replay-board",
+      "note": "the replay board",
+      "bytes": 55750,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[N] return to now and lock\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · REPLAY · seq 37 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[N] return to now and lock",
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": false,
+        "events": 38,
+        "selected": null,
+        "finished": true
+      }
+    },
+    {
+      "name": "20-replay-scrub",
+      "note": "the turn slider scrubbed back one turn",
+      "bytes": 140168,
+      "overflowPx": 0,
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nnothing retained for red-A at this candidate — 6 emissions by seq 27 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval — · e23 · 3q",
+      "lane": "seq 27 · 28 / 28 · REPLAY · seq 27 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 3,
+        "lensSeq": 27,
+        "lensAtHead": false,
+        "events": 28,
+        "selected": null,
+        "finished": true
+      }
+    },
+    {
+      "name": "21a-live-frame",
+      "note": "live rail, turn 4 seq 117",
+      "bytes": 48168,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 137\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 137 · 138 / 138 · LIVE · seq 137 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 137,
+        "lensAtHead": true,
+        "events": 138,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "21b-replay-frame",
+      "note": "replay rail, turn 4 seq 37",
+      "bytes": 47653,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 37\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n[N] return to now and lock\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval — · e25 · 2q",
+      "lane": "seq 37 · 38 / 38 · REPLAY · seq 37 · read-only · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[N] return to now and lock",
+      "state": {
+        "viewMode": "historic",
+        "lensTurn": 4,
+        "lensSeq": 37,
+        "lensAtHead": true,
+        "events": 38,
+        "selected": null,
+        "finished": true
+      }
+    }
+  ],
+  "console": [
+    {
+      "at": "live/enter",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "live/enter",
+      "type": "error",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T21:33:41.482Z)"
+    },
+    {
+      "at": "live/enter",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "replay/enter",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "replay/enter",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "replay/enter",
+      "type": "error",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T21:34:12.885Z)"
+    }
+  ],
+  "requests": [
+    {
+      "at": "live/enter",
+      "url": "http://127.0.0.1:5055/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "replay/enter",
+      "url": "http://127.0.0.1:5055/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "replay/enter",
+      "url": "http://127.0.0.1:5055/api/play/game/lens-walk-replay",
+      "status": 404
+    }
+  ],
+  "exceptions": [],
+  "overflow": [],
+  "notes": {
+    "operatorTicks": [
+      "operator · seq 11 · +149.61999999999998ms",
+      "operator · seq 19 · +263.66ms"
+    ],
+    "pinnedSeq": "11",
+    "widenSeq": "19",
+    "banner": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow",
+    "lockBefore": "[Space] lock — pins 3 of 3",
+    "lockAfter": "[Space] lock — pins 1 of 3",
+    "replayScrubbedTo": "3",
+    "diff": {
+      "liveAt": {
+        "turn": 4,
+        "seq": 117
+      },
+      "replayAt": {
+        "turn": 4,
+        "seq": 37
+      },
+      "sameSize": true,
+      "width": 346,
+      "height": 497,
+      "differingPixels": 1294,
+      "percent": 0.752,
+      "differingRows": [
+        180,
+        290
+      ]
+    }
+  }
+}

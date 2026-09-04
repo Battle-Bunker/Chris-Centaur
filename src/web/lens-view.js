@@ -352,6 +352,9 @@ var LensView = (() => {
       kind: "observed"
     };
   }
+  function anchorWithSettlement(anchor, settlement) {
+    return { ...anchor, payload: { ...anchor.payload, settlement } };
+  }
   function reviveLens(value) {
     return revive(value);
   }
@@ -471,6 +474,7 @@ var LensView = (() => {
   // src/lens/view/cursor.ts
   var WIDEN_AUTO_ACCEPT_CAP_MS = 6e3;
   var WIDEN_AUTO_ACCEPT_SHARE = 0.25;
+  var WIDEN_AUTO_ACCEPT_FLOOR_MS = 1500;
   var TRAIL_DECAY_EMISSIONS = 2;
   var gesture = {
     drillOpen: false,
@@ -813,13 +817,18 @@ var LensView = (() => {
   function turnExpiryOf(frame) {
     const anchor = frame.events.find((e) => e.kind === "board.arrived");
     const payload = anchor?.payload;
-    return typeof payload?.turnExpiryTime === "number" ? payload.turnExpiryTime : null;
+    const expiry = payload?.turnExpiryTime;
+    return typeof expiry === "number" && expiry > 0 ? expiry : null;
   }
   function widenAutoAcceptMs(frame) {
     const expiry = turnExpiryOf(frame);
     if (expiry === null) return WIDEN_AUTO_ACCEPT_CAP_MS;
     const remaining = expiry - frame.at.tWall;
-    return Math.max(0, Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining)));
+    const scaled = Math.round(WIDEN_AUTO_ACCEPT_SHARE * remaining);
+    return Math.max(
+      WIDEN_AUTO_ACCEPT_FLOOR_MS,
+      Math.min(WIDEN_AUTO_ACCEPT_CAP_MS, scaled)
+    );
   }
   function reactiveNotice(prev, next) {
     for (const before of prev.partition) {
@@ -879,9 +888,10 @@ var LensView = (() => {
   function reviveEvents(events) {
     return events.map((e) => reviveLens(e));
   }
-  function storeOf(events) {
-    const anchor = events.find((e) => e.kind === "board.arrived") ?? events[0];
-    if (anchor === void 0) throw new Error("a turn with no events has no frame");
+  function storeOf(events, settlement) {
+    const found = events.find((e) => e.kind === "board.arrived") ?? events[0];
+    if (found === void 0) throw new Error("a turn with no events has no frame");
+    const anchor = settlement ? anchorWithSettlement(found, settlement) : found;
     const store = events.filter((e) => e.seq > anchor.seq).reduce((acc, e) => applyEvent(acc, e), emptyStore(anchor));
     return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
   }
@@ -889,8 +899,8 @@ var LensView = (() => {
     const { store, at } = storeOf(events);
     return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
   }
-  function replayFrameAtSeq(events, seq) {
-    const { store, at } = storeOf(events);
+  function replayFrameAtSeq(events, seq, settlement = null) {
+    const { store, at } = storeOf(events, settlement);
     return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
   }
   var CLUSTER_GLYPHS = "αβγδεζηθικλμν";
@@ -941,7 +951,7 @@ var LensView = (() => {
       const bound = boundingOf(frame, unit);
       if (bound !== null) {
         const by = bound.bound.by === null ? "" : ` by ${bound.bound.by}`;
-        return `${unit} is ${bound.bound.why}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
+        return `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
       }
       const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? "free";
       if (dead === "dead") return `${unit} is dead — there is nothing left to choose for it`;
@@ -955,6 +965,12 @@ var LensView = (() => {
     if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
     return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
   }
+  var FIXITY_VERB = {
+    pin: "pinned",
+    commit: "committed",
+    reference: "held as a reference",
+    "pin-unreachable": "pinned at a cell it cannot reach"
+  };
   function boardOps(frame, cursor, selected) {
     const ops = [];
     const board = frame.board.board;
@@ -1209,7 +1225,7 @@ var LensView = (() => {
       const cluster = clusterOf(frame, cursor.unit);
       const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
       const home = cluster ?? bound?.cluster ?? null;
-      const why = bound === null ? null : `${bound.bound.why}${bound.bound.by === null ? "" : ` by ${bound.bound.by}`} · a constant, not a member`;
+      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${bound.bound.by === null ? "" : `, by ${bound.bound.by}`} — not a member`;
       ops.push(
         call(
           "panel.focus",
@@ -1218,7 +1234,14 @@ var LensView = (() => {
           row?.letter ?? null,
           row?.health ?? null,
           row?.weight ?? null,
-          row?.fixity ?? null,
+          // THE UNIT'S OWN FIXITY, AND THE PARTITION'S, ARE ONE ANSWER. `frameAt`
+          // derives `UnitRow.fixity` from the turn's `pin` / `commit` events —
+          // which nothing on the wire writes today — while the partition frame
+          // carries the same fact as `boundedBy`. Reading only the first, the
+          // rail printed `free · pin · a constant, not a member` on one line: a
+          // unit that is simultaneously a free variable and a constant. The
+          // partition wins, because it is the statement the kernel actually made.
+          bound === null ? row?.fixity ?? null : FIXITY_VERB[bound.bound.why],
           home?.id ?? null,
           home?.members.length ?? 0,
           // "Locking narrows" is the word, everywhere: the header counts what is
@@ -1246,17 +1269,13 @@ var LensView = (() => {
     );
     return ops;
   }
-  var LOCK_AFFORDANCE = {
-    true: (pins, members) => `[Space] lock — pins ${pins} of ${members}`,
-    false: () => "[N] return to now and lock"
-  };
   function lockLabel(frame, cursor, selected) {
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
     const members = cluster?.members ?? [];
     const pins = selected === null || cursor.unit === null ? 0 : members.filter(
       (v) => v === cursor.unit || (selected.moves.find((m) => m.unit === v)?.to ?? null) !== stagedCellOf(frame, v)
     ).length;
-    return LOCK_AFFORDANCE[`${frame.at.isHead}`](pins, members.length);
+    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : "[N] return to now and lock";
   }
   var MODE_BADGE = {
     "live-head": "LIVE",
