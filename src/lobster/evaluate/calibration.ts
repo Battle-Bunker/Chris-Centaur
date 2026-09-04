@@ -262,6 +262,32 @@ export interface CriterionProfile {
    * keeps the linear reading for every kind — today's behaviour.
    */
   readonly energyReserveRatio?: number;
+  /**
+   * THE CELL BUDGET `room`'S SHORTFALL IS DENOMINATED IN. `undefined` keeps
+   * the length-relative reading — today's behaviour, and the defect below.
+   *
+   * `room` is `sqrt(clamp01((need − kept) / D))` per unit, and until D3 `D` was
+   * `need = max(4, L + 2)` itself. That makes the fear at a FIXED absolute
+   * shortfall of `d` cells read `sqrt(d / (L + 2))`, which FALLS as the snake
+   * grows: three cells short reads 0.71 at length 4 and 0.46 at length 12. The
+   * longer snake is the one that needs more room, turns worse and actually
+   * suffocates, and it was the one charged less. Measured cost of that
+   * inversion: `snakes` seed 1, turn 45, green-B took the pocket entry over
+   * the escape by 0.12 and died in its own body six turns later
+   * (`docs/design/BEHAVIOUR-AUDIT.md` D3).
+   *
+   * A CONSTANT makes the reading length-independent by construction, which is
+   * why it is a rule and not a case: `d` cells of shortfall cost the same
+   * whoever is short of them. Six is the audit's number — one meal's growth
+   * plus one crowder's cell plus the four of `needOf`'s own floor — and it is
+   * a knob rather than a literal so the next measurement can move it without
+   * touching the term.
+   *
+   * It does NOT change the range: `clamp01` still bounds the shortfall to
+   * [0, 1], `room` still runs [−1, 0], and the cliff inequality
+   * `territory-acceptance.test.ts` certifies is untouched.
+   */
+  readonly roomCells?: number;
 }
 
 /** What a piece's next-turn command set is counted for, and for whom. */
@@ -384,6 +410,15 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, mobility: 1, r
  */
 
 /**
+ * SIX CELLS — see `CriterionProfile.roomCells`. `needOf`'s own floor is 4 (a
+ * region of exactly `L` cells is survivable only as a tail-chase), `+1` buys a
+ * meal's growth and `+1` a cell lost to a crowder; the same arithmetic
+ * `needOf` does, taken at the length where it stops being a function of the
+ * length at all.
+ */
+export const ROOM_CELLS = 6;
+
+/**
  * Half a kind's maximum. A piece at or above it has a movement budget that does
  * not bind — nothing it can do this turn brings it near exhaustion — and below
  * it the term slides to zero twice as fast as the linear reading did.
@@ -423,6 +458,7 @@ export const TERRITORY_PROFILE: CriterionProfile = {
   // on it is unaffected by either.
   command: COMMAND_KNOBS,
   energyReserveRatio: HEALTH_RESERVE_RATIO,
+  roomCells: ROOM_CELLS,
 };
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;

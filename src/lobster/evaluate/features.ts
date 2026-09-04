@@ -180,6 +180,9 @@ export interface EvalContext {
   readonly command: CommandKnobs | null;
   /** The energy-budget reserve fraction, or null for the linear reading. */
   readonly energyReserveRatio: number | null;
+  /** The cell budget `room`'s shortfall is denominated in, or null for the
+   *  length-relative reading. See `CriterionProfile.roomCells`. */
+  readonly roomCells: number | null;
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
   food(): Bitboard;
@@ -349,7 +352,7 @@ export function makeContext(
    * `CriterionProfile` field that I1 itself added. Both defaults are preserved
    * exactly; see the context construction below.
    */
-  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
+  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'roomCells' | 'royalReachers'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const ws = workspaceFor(sub);
@@ -387,6 +390,7 @@ export function makeContext(
     pieceScale,
     command: profile?.command ?? null,
     energyReserveRatio: profile?.energyReserveRatio ?? null,
+    roomCells: profile?.roomCells ?? null,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -764,8 +768,8 @@ export const roomFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = fearsOf(ctx.partition('lo'));
-    const hi = fearsOf(ctx.partition('hi'));
+    const lo = fearsOf(ctx.partition('lo'), ctx.roomCells);
+    const hi = fearsOf(ctx.partition('hi'), ctx.roomCells);
     return ourUnitTerm(ctx, (s) => [-fearOf(lo, s), -fearOf(hi, s)]);
   },
 };
@@ -787,13 +791,30 @@ function fearOf(fears: ReadonlyMap<UnitId, number>, s: Standing): number {
   return fears.get(s.unitId) ?? 1;
 }
 
-/** `sqrt(clamp01((need − kept)/need))` per unit of OURS, by unit id. */
-function fearsOf(partition: Partition<Standing>): Map<UnitId, number> {
+/**
+ * `sqrt(clamp01((need − kept)/D))` per unit of OURS, by unit id.
+ *
+ * `D` IS A CELL BUDGET AND NOT THE SNAKE'S OWN `need` — BEHAVIOUR-AUDIT D3.
+ * Dividing the shortfall by `need = max(4, L + 2)` makes the fear at a fixed
+ * ABSOLUTE shortfall fall as the snake grows, so the unit that needs more room
+ * and turns worse is charged less for being equally short of it. A constant
+ * denominator is length-independent by construction. `roomCells === null` is
+ * the pre-D3 reading, kept so the two can be measured against each other on
+ * one build; every shipped profile sets the knob.
+ *
+ * The numerator, the `clamp01` and the `sqrt` are all unchanged, so the term
+ * still runs [−1, 0] per unit and still slides rather than jumping.
+ */
+function fearsOf(
+  partition: Partition<Standing>,
+  roomCells: number | null
+): Map<UnitId, number> {
   const out = new Map<UnitId, number>();
   for (const t of partition.trails) {
     if (!t.mine) continue;
     const need = Math.max(1, t.need);
-    const short = Math.min(1, Math.max(0, (need - t.kept) / need));
+    const denominator = roomCells === null ? need : Math.max(1, roomCells);
+    const short = Math.min(1, Math.max(0, (need - t.kept) / denominator));
     out.set(t.subject.unitId, Math.sqrt(short));
   }
   return out;

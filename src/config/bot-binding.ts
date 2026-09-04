@@ -165,6 +165,7 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
     royalReachers?: boolean;
     command?: { ground: number; food: number; mobility: number; royal: boolean };
     energyReserveRatio?: number;
+    roomCells?: number;
   } = { name: raw.name, weights, reachHorizonTurns: horizon };
 
   if (raw.royalReachers !== undefined) {
@@ -197,6 +198,12 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
       return { error: 'profile.energyReserveRatio must be a finite number' };
     }
     profile.energyReserveRatio = raw.energyReserveRatio;
+  }
+  if (raw.roomCells !== undefined) {
+    if (typeof raw.roomCells !== 'number' || !Number.isFinite(raw.roomCells) || raw.roomCells <= 0) {
+      return { error: 'profile.roomCells must be a finite positive number' };
+    }
+    profile.roomCells = raw.roomCells;
   }
   return { profile };
 }

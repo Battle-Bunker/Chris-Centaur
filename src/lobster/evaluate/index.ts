@@ -280,6 +280,7 @@ export function checkWeights(
   features: ReadonlyArray<Feature<EvalContext>>
 ): void {
   checkCommandKnobs(profile);
+  checkRoomCells(profile);
   const folded = new Set(features.map((f) => f.key));
   const named = new Set(Object.keys(profile.weights));
   const missing: string[] = [];
@@ -303,6 +304,17 @@ export function checkWeights(
 /** The numeric knobs of `CommandKnobs`, named once so adding one cannot forget
  *  to check it. `royal` is a flag and carries no arithmetic. */
 const COMMAND_KNOB_KEYS = ['ground', 'food', 'mobility'] as const;
+
+function checkRoomCells(profile: CriterionProfile): void {
+  const v = profile.roomCells;
+  if (v === undefined) return;
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return;
+  throw new Error(
+    `criterion profile "${profile.name}" has roomCells=${String(v)} — it is the ` +
+      "denominator of every trail unit's shortfall, so it must be a finite positive " +
+      'number of cells'
+  );
+}
 
 function checkCommandKnobs(profile: CriterionProfile): void {
   const knobs = profile.command;
