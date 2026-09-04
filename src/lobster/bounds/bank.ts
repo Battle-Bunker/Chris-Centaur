@@ -74,7 +74,17 @@ import type {
 } from "../contracts";
 import type { BudgetHandle } from "../contracts";
 import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
+import type { MarshalledBoard } from "../../logic/turn-oracle";
 import { evaluatorResidueEntry, residueOf } from "./ledger";
+import {
+  dumpBoard,
+  exactCheckSettings,
+  exactReplyCheck,
+  noteExactSkip,
+  reportExact,
+  shippedEvaluator,
+  type ExactBoardDump,
+} from "./exact-reply";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
 import { loudReadingOf, type LoudReading } from "./loud";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
@@ -300,6 +310,9 @@ export class BoundBank {
    * caller state must cross every boundary.
    */
   private budget: BudgetHandle;
+
+  /** Plans priced by this bank — the exact-reply audit's sampling counter. */
+  private priced = 0;
 
   constructor(private readonly input: BankInput) {
     this.cfg = { ...DEFAULT_BANK_CONFIG, ...(input.config ?? {}) };
@@ -726,7 +739,7 @@ export class BoundBank {
     if (!isFinite_(est)) est = bounds.worst;
     est = Math.min(Math.max(est, bounds.worst), bounds.best);
 
-    return {
+    const result: BankResult = {
       plan,
       bounds,
       witnesses: this.witnessList,
@@ -741,6 +754,86 @@ export class BoundBank {
       narrowings: this.narrowingList,
       loud,
     };
+    // THE EXACT-REPLY ORACLE, after the answer is finished and never before.
+    // `resolutions` is already fixed above, so the settlements the audit spends
+    // are not charged to the plan it is auditing; see `exact-reply.ts` for why
+    // it may not spend the decision's clock either.
+    this.auditExactReplies(base, result);
+    return result;
+  }
+
+  /**
+   * ASK THE WORLDS (`exact-reply.ts`), on one priced plan in every `rate`.
+   *
+   * Off — which is every build that has not set `CENTAUR_EXACT_CHECK` — this
+   * is one null check per price. On, it is the only instrument that can refute
+   * a floor that is wrong on every rung at once, which is precisely the class
+   * the sixteen-arm inversion gate cannot see: that gate compares the bank's
+   * members against each other, and two members that agree about a wrong
+   * number pass it.
+   */
+  private auditExactReplies(base: JointPlan, result: BankResult): void {
+    const settings = exactCheckSettings();
+    if (settings === null) return;
+    this.priced++;
+    if (this.priced % settings.rate !== 0) return;
+    if (!this.canModel) return noteExactSkip("no-model");
+    // A floor resting on a DECLARED NARROWING promises something about a
+    // restricted game, and the worlds below are drawn from the whole one:
+    // comparing them would be the category error the declaration exists to
+    // prevent. The BASIS is not such a narrowing — it fixes our own side and
+    // the teammates this decision does not command, and `base` names every one
+    // of them, so every world enumerated below already satisfies it.
+    if (!result.floorComplete) return noteExactSkip("conditional-floor");
+    const evaluate = shippedEvaluator(this.input.evaluate);
+    if (evaluate === null) return noteExactSkip("foreign-evaluator");
+    const held = this.uncontrolled();
+    // Concreteness, asked of our own side: a world is a board only if every
+    // unit is named, and a plan that left one of ours out would make OUR unit
+    // the held claim and the leaf a timeline rather than a board.
+    for (const id of this.memo.commandable(this.input.asTeam)) {
+      if (!base.has(id)) return noteExactSkip("plan-incomplete");
+    }
+    const view = this.viewFor(held);
+    const check = exactReplyCheck({
+      sub: view.sub,
+      base,
+      held,
+      evaluate,
+      asTeam: this.input.asTeam,
+      floor: result.bounds.worst,
+      floorFrom: result.floorFrom,
+      ceiling: result.bounds.best,
+      memberFloors: result.members
+        .filter((m) => m.floor !== null)
+        .map((m) => ({ rung: m.rung, unitId: m.unitId, floor: m.floor as number })),
+      cap: settings.cap,
+    });
+    reportExact(check, () => this.dumpFor(base, held));
+  }
+
+  /** The failing position, in the shape `exact-reply.ts`'s test can rebuild. */
+  private dumpFor(base: JointPlan, held: ReadonlyArray<UnitId>): ExactBoardDump | null {
+    const sub = this.memo as unknown as {
+      marshalled?: MarshalledBoard;
+      turn?: number;
+      teamLabel?: (n: number) => string | undefined;
+      roster?: () => ReadonlyArray<{ unitId: UnitId; wireId: string; staleness: number }>;
+      unitOf?: (id: UnitId) => { wireId: string } | undefined;
+    };
+    const marshalled = sub.marshalled;
+    const roster = sub.roster?.();
+    const asTeam = sub.teamLabel?.(this.input.asTeam);
+    if (marshalled === undefined || roster === undefined || asTeam === undefined) return null;
+    const wireOf = (id: UnitId): string => sub.unitOf?.(id)?.wireId ?? `?${id}`;
+    return dumpBoard(
+      marshalled,
+      sub.turn ?? marshalled.arrivalTurn - 1,
+      asTeam,
+      roster.map((u) => [u.wireId, (sub.turn ?? 0) - u.staleness] as [string, number]),
+      [...base.values()].map((c) => [wireOf(c.unitId), c.to] as [string, number]),
+      held.map(wireOf),
+    );
   }
 
   /**
