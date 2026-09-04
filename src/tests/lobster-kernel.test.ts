@@ -942,6 +942,35 @@ describe("the operator's queue: arrival, survival, and the two frozen gates", ()
   })
 })
 
+describe("root slack is a rival quantity (06 F-9)", () => {
+  it("reports max_R(R.hi − L.lo) from `run.plans`, with no lever surface at all", async () => {
+    // THE RIVAL SET WAS NEVER MISSING. `rows()` builds its table from
+    // `run.plans` whether or not a refiner exists, so the rivals are in hand on
+    // every decision; the old guard asked `run.lastView !== null`, which has
+    // never been true in production, and the field silently degraded to the
+    // leader's own bound gap — a different quantity wearing the same name.
+    const wide = new StubEvaluator(() => ({ lo: -2, est: 0, hi: 0 }))
+    const r = rig(
+      [
+        step({ plan: P2, worst: 1, best: 9 }), // the loose rival nobody refuted
+        step({ plan: P3, worst: 5, best: 6 }), // the leader, on a tight bracket
+      ],
+      {},
+      { evaluator: wide }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    // No refiner: the lever order was advisory, and slack is real regardless.
+    expect(reportOf(r.kernel).leverOrderBinding).toBe(false)
+    const last = out[out.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    // P2's ceiling is 9 and the leader's floor is 5: four points of the
+    // decision are still open. The leader's own gap is 1, and reporting that
+    // would say the decision is nearly settled when it is not.
+    expect(last.slack).toBe(4)
+    expect(last.hi - last.lo).toBe(1)
+  })
+})
+
 describe("the record says what the gate used", () => {
   it("R6: est on the record is the gate's est, clamped into its own bracket", async () => {
     const r = rig([step({ worst: 10, best: 50 })], {}, {

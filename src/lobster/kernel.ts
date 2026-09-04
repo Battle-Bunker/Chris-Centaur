@@ -1762,11 +1762,20 @@ export class LobsterKernel implements Kernel {
   }
 
   /**
-   * The slack that goes on the wire. With a lever surface this is the true
-   * root slack `max_R(R.hi − L.lo)`. Without one the kernel sees a single
-   * incumbent and cannot know the rivals, so it reports the incumbent's own
-   * bound gap and the report says the lever order was advisory. Integrator
-   * item: the real SearchCore should supply the pair.
+   * The slack that goes on the wire: the true root slack `max_R(R.hi − L.lo)`
+   * whenever a rival exists, and the incumbent's own bound gap only when one
+   * does not.
+   *
+   * THE RIVAL SET WAS NEVER MISSING (06 F-9). The guard used to be
+   * `run.lastView !== null` — a lever surface with no producer — so the field
+   * degraded to the incumbent's bound gap on every decision this bot has ever
+   * taken, which is a DIFFERENT QUANTITY wearing the same name: a bound gap
+   * says how unsure we are of the leader, root slack says how much of the
+   * decision is still open. `rows()` has always built its table from
+   * `run.plans`, the per-decision map holding every plan `absorb` saw, so the
+   * rivals were in hand the whole time and only the guard refused them. The
+   * guard now asks the honest question — is there a rival at all — and the
+   * degraded answer is reserved for the case that has none.
    */
   private slackFor(
     run: Run,
@@ -1784,7 +1793,11 @@ export class LobsterKernel implements Kernel {
     // root slack, computable for the first time.
     const retained = this.lensSlack(run, plan)
     if (retained !== null) return retained
-    if (run.lastView !== null && idx >= 0) return rootSlack(rows, idx)
+    // Clamped at zero exactly as `lensSlack` clamps its own: a negative root
+    // slack means every rival's ceiling already sits below the leader's floor,
+    // which is a decision with nothing left open, not a negative amount of
+    // openness.
+    if (idx >= 0 && rows.length > 1) return Math.max(0, rootSlack(rows, idx))
     return Math.max(0, row.hi - row.lo)
   }
 
