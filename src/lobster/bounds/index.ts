@@ -55,8 +55,10 @@ export type { ModelledView, ModellingSubstrate, RosterSubstrate } from "./substr
 
 export { WitnessSet, refutedAt, sameWitness, witnessKey, witnessOf, witnessUnits } from "./witness";
 
-export { loudReadingOf, observeLoud } from "./loud";
-export type { LoudReading, LoudUnitCount } from "./loud";
+export { loudListsOf, loudReadingOf, observeLoud } from "./loud";
+export type { LoudReading, LoudUnitCount, LoudUnitList } from "./loud";
 
-export { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG } from "./bank";
-export type { BankConfig, BankInput, BankResult, MemberReport, Rung } from "./bank";
+export { advanceBoard, ceilingAtNextTurn } from "./ceiling";
+
+export { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG, observeDeep } from "./bank";
+export type { BankConfig, BankInput, BankResult, DeepReading, MemberReport, Rung } from "./bank";

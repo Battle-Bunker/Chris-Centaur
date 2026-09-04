@@ -50,6 +50,19 @@
  *     — and only when the residue also empties, i.e. nothing is left held for
  *     the ledger to name.
  *
+ * B4  THE LOUD SUBSET CEILING PLY. A CEILING-ONLY rung, and the only member
+ *     that reads a board one turn on (`08-DEPTH-VERDICT` §4.2). It enumerates
+ *     the cross-product of the LOUD options — those whose path meets the
+ *     staged footprint in sub-step time — of the gated enemies, names every
+ *     other held unit with its kind's own default so that each leaf is a
+ *     COMPLETE CONCRETE WORLD, and settles turn `t+1` from each leaf's board
+ *     with everything held, ours included. Two truncations, both on the WHICH
+ *     axis and both therefore legal for a ceiling and forbidden for a floor:
+ *     the loud subset, and the default named for a quiet unit. It may never
+ *     move a floor, it declares both narrowings, and its own soundness is one
+ *     line — a min over a SUBSET of the replies is an over-estimate of the min
+ *     over all of them, and every leaf it takes that min over is a real world.
+ *
  * ── entanglement gating ───────────────────────────────────────────────────
  *
  * Gating decides WHO gets enumerated: only units whose claims intersect the
@@ -74,14 +87,20 @@ import type {
 } from "../contracts";
 import type { BudgetHandle } from "../contracts";
 import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
+import type { UnitType } from "../../engine-vendor/shared/types/Game";
+import type { MarshalledBoard } from "../../logic/turn-oracle";
+import { leavesTrail } from "../../engine-vendor/engine/moveGrammar";
 import { evaluatorResidueEntry, residueOf } from "./ledger";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
-import { loudReadingOf, type LoudReading } from "./loud";
+import { loudListsOf, loudReadingOf, type LoudReading, type LoudUnitList } from "./loud";
+import { ceilingAtNextTurn } from "./ceiling";
+import { noOrderCandidate } from "../substrate";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
 import { modelledView, isModelling } from "./substrate-ext";
 import {
   BOUND_EPSILON,
+  BoundsInversionError,
   backupMin,
   basisKeyOf,
   makeScoreBounds,
@@ -90,7 +109,7 @@ import {
   withNarrowing,
 } from "./score";
 
-export type Rung = "B0" | "B1" | "B2" | "B3";
+export type Rung = "B0" | "B1" | "B2" | "B3" | "B4";
 
 export interface BankConfig {
   /** Per-enemy complete enumeration. */
@@ -99,6 +118,22 @@ export interface BankConfig {
   readonly b2: boolean;
   /** Full product within the declared cap. */
   readonly b3: boolean;
+  /**
+   * THE CEILING PLY. Off on the ordinary `price()` path whatever this says —
+   * the rung costs settlements and the ration is what decides which two plans
+   * of a decision may spend them, so it is asked for per call through
+   * `priceDeep`. This flag is the build-level switch under it: false makes
+   * `priceDeep` identical to `price` and the whole member inert.
+   */
+  readonly b4: boolean;
+  /**
+   * `LOUD_CAP` (§4.4). The most loud leaves B4 will enumerate on one plan;
+   * above it the member declines and the lens draws the decline WITH the
+   * number that caused it. Twelve is the recommended engagement: two deepened
+   * plans at two settlements per leaf is `4Q` = 48 per decision, inside the
+   * inspection reserve's order of magnitude against ~470 nodes.
+   */
+  readonly loudCap: number;
   /**
    * WHO cap: how many uncontrolled units B1 may enumerate. Capping WHO needs
    * no declaration — the rest stay held at a sound bound.
@@ -129,6 +164,8 @@ export const DEFAULT_BANK_CONFIG: BankConfig = {
   b1: true,
   b2: true,
   b3: true,
+  b4: true,
+  loudCap: 12,
   enemyCap: 3,
   productCap: 512,
   declareTruncatedFloor: false,
@@ -143,6 +180,7 @@ export const B0_ONLY: BankConfig = {
   b1: false,
   b2: false,
   b3: false,
+  b4: false,
 };
 
 export interface MemberReport {
@@ -197,6 +235,84 @@ export interface BankResult extends PlanScore {
    * class: there is no held enemy to reply, so there is nothing to enumerate.
    */
   readonly loud: LoudReading | null;
+  /**
+   * THE CEILING PLY'S OWN READING, or null when B4 did not run on this call —
+   * which is every call `priceDeep` did not make, and every call it made where
+   * the member declined. A decline is a fact with a reason, and the reason is
+   * on the reading rather than inferred from its absence.
+   */
+  readonly deep: DeepReading | null;
+}
+
+/**
+ * WHAT THE CEILING PLY FOUND, and — where it found nothing — why.
+ *
+ * `08-DEPTH-VERDICT` §4.5's row is drawn off this: the horizon, the ceiling it
+ * proved, and on a decline the number that caused it, so that the absence of
+ * depth stays DRAWN and is drawn with its reason.
+ */
+export interface DeepReading {
+  /** 2 when the ply ran and its reading was admitted; 1 otherwise. */
+  readonly horizon: number;
+  /** `Q` — the loud product this plan was priced at. */
+  readonly q: number;
+  /** Loud leaves actually settled. Zero on a decline. */
+  readonly leaves: number;
+  /** `min` over the leaves of the ply-2 endpoint, or null where none was taken. */
+  readonly ceiling: number | null;
+  /** The h1 ceiling this was read against — what `ceiling` has to beat. */
+  readonly shallowCeiling: number;
+  /**
+   * THE ARGMIN LOUD REPLY — the leaf that achieved the ply's own minimum, as a
+   * concrete joint reply, plus the two endpoints of both layers over it. This
+   * is the drill-down's LINE (§4.5, `06` §2.3 rule 2): one MIN layer whose
+   * arrow is our pick from a set, and one MAX layer with no arrow at all,
+   * because our continuation was HELD rather than chosen.
+   */
+  readonly argmin: {
+    readonly replies: ReadonlyArray<{ readonly unitId: UnitId; readonly to: number }>;
+    /** The leaf's own one-ply bracket. */
+    readonly lo: number;
+    readonly hi: number;
+    readonly ledgerSize: number;
+    /** The ply-2 endpoint over that leaf, or null where the layer declined. */
+    readonly above: number | null;
+  } | null;
+  /** Why the member did not deepen this plan. Null ⇒ it did. */
+  readonly declined:
+    | null
+    | "off"
+    | "no-model"
+    | "no-gate"
+    | "no-piece"
+    | "plan-incomplete"
+    | "cap"
+    | "no-leaf"
+    | "not-tighter"
+    | "crossed-floor";
+}
+
+/**
+ * WATCH EVERY OCCASION THE CEILING PLY WAS ASKED ABOUT, until the returned
+ * function is called.
+ *
+ * The same latch shape, and for the same reason, as `loud.ts`'s: the reading
+ * is taken inside a bank that lives one decision and is owned by a search
+ * session the runner never sees, and threading a sink through `BankInput`,
+ * `SearchContext` and `KernelInput` for a counter is the seam a measurement is
+ * supposed to avoid buying. §4.4's cost claim — `4Q` settlements a decision —
+ * is a claim about a distribution, and a distribution needs a population.
+ * With nobody watching this costs one null check per DEEPENED plan, which is
+ * at most two per decision.
+ */
+let deepObserver: ((reading: DeepReading) => void) | null = null;
+
+export function observeDeep(fn: (reading: DeepReading) => void): () => void {
+  const previous = deepObserver;
+  deepObserver = fn;
+  return () => {
+    deepObserver = previous;
+  };
 }
 
 export interface BankInput {
@@ -225,6 +341,20 @@ export interface BankInput {
    */
   readonly referenceActions?: ReadonlyMap<UnitId, Candidate>;
   readonly config?: Partial<BankConfig>;
+}
+
+/** The ceiling ply's reading before the admission rule has been applied to it
+ *  — everything the rung itself knows, minus what only assemble can decide. */
+interface PlyDraft {
+  readonly q: number;
+  readonly leaves: number;
+  readonly ceiling: number | null;
+  readonly declined: DeepReading["declined"];
+  readonly argmin?: DeepReading["argmin"];
+  /** B3's own group ceiling on this plan, when B3 fired — G-D5's oracle. */
+  readonly b3Ceiling?: number;
+  /** The ply-1 group ceiling over B4's own leaves — what G-D5 compares. */
+  readonly plyCeiling?: number;
 }
 
 interface Branch {
@@ -530,7 +660,24 @@ export class BoundBank {
 
   // ------------------------------------------------------------------ price
 
+  /** One ply. Every caller but the depth ration wants this one. */
   price(plan: JointPlan): BankResult {
+    return this.priceAt(plan, false);
+  }
+
+  /**
+   * THE SAME PRICE, WITH THE CEILING PLY INVITED (§4.4).
+   *
+   * The rung costs settlements, and which two plans of a decision may spend
+   * them is the depth ration's call, not the bank's — so depth is asked for
+   * per plan rather than configured on. With `b4` off this IS `price`, which
+   * is what makes the whole member inert by a single flag.
+   */
+  priceDeep(plan: JointPlan): BankResult {
+    return this.priceAt(plan, this.cfg.b4);
+  }
+
+  private priceAt(plan: JointPlan, wantsDepth: boolean): BankResult {
     const before = this.memo.stats.resolutions;
     const base = this.withReferences(plan);
     // THE EVALUATION MEMO'S NAMESPACE, rebuilt every call. Everything that
@@ -563,25 +710,41 @@ export class BoundBank {
 
     let est = b0.est;
     let loud: LoudReading | null = null;
+    // The ceiling ply's draft. It is finished at assemble, where the floor
+    // and the shallow ceiling it has to be admitted against are both known.
+    let draft: PlyDraft = { q: 0, leaves: 0, ceiling: null, declined: wantsDepth ? "no-model" : "off" };
 
     if (this.canModel) {
       const gated = this.gate(plan, b0.bounds.ledger);
+      // THE GATE'S OWN PREAMBLE, hoisted: B3 enumerates these lists and B4
+      // enumerates the loud subset of the same ones. Two walks over one
+      // partition would be two relations wearing one name.
+      let gateLists: ReadonlyArray<{
+        id: UnitId;
+        options: ReadonlyArray<Candidate>;
+        complete: boolean;
+      }> | null = null;
+      let loudLists: ReadonlyArray<LoudUnitList> | null = null;
+      if (wantsDepth) draft = { ...draft, declined: "no-gate" };
 
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;
-      if (this.cfg.b3 && gated.length > 0) {
+      if ((this.cfg.b3 || wantsDepth) && gated.length > 0) {
         const held = this.uncontrolled();
         const coversEverything = held.every((id) => gated.includes(id));
         const view = this.viewFor(gated);
         const lists = gated.map((id) => ({ id, ...this.optionsFor(view, id) }));
+        gateLists = lists;
         const product = lists.reduce((n, l) => n * l.options.length, 1);
+        loudLists = loudListsOf(plan, lists);
         // NAMED so the instrument can carry it: `b3` on the reading is the
         // Finding D-1 axis — whether ply 1 already closed this bracket.
         const eligible =
+          this.cfg.b3 &&
           coversEverything &&
           lists.every((l) => l.complete && l.options.length > 0) &&
           product <= this.cfg.productCap;
-        loud = loudReadingOf(plan, lists, product, eligible, coversEverything);
+        loud = loudReadingOf(plan, lists, product, eligible, coversEverything, loudLists);
         if (eligible) {
           const leaves: Branch[] = [];
           let swept = true;
@@ -671,6 +834,19 @@ export class BoundBank {
           });
         }
       }
+
+      // ---- B4: the ceiling ply on the loud subset ------------------------
+      //
+      // LAST ON THE LADDER, and that is where it belongs. Its reading is
+      // "taken only where it is below the ply-1 `hi`" (§4.2), so the ply-1
+      // `hi` it is read against has to be the finished one — every rung above
+      // has had its say. It runs whether or not B3 fired, which is G-D5's
+      // whole point: the occasions where the loud truncation cannot help are
+      // the occasions where ground truth exists, so the member is checkable
+      // exactly on the population where it is useless.
+      if (wantsDepth) {
+        draft = this.ceilingPly(base, gated, gateLists, loudLists, evalNs, ceilingBranches, members);
+      }
     }
 
     // ---- assemble --------------------------------------------------------
@@ -710,6 +886,48 @@ export class BoundBank {
       best = floorPick.bounds.best;
       widened = true;
     }
+
+    // ---- the ceiling ply's admission rule (§4.2, §4.3) --------------------
+    //
+    // `hi := min over loud leaves of (ply-2 best), TAKEN ONLY WHERE IT IS
+    // BELOW the ply-1 hi. lo := h1.lo, unchanged, always.` Two refusals, and
+    // both are recorded rather than silently applied:
+    //
+    //  · `not-tighter` — the deep reading did not beat the shallow one. The
+    //    row keeps the shallow number and says so; a bound that did not
+    //    improve is not a reason to redraw one.
+    //  · `crossed-floor` — the deep ceiling came in BELOW this plan's proved
+    //    floor. §4.3's fourth claim says the two are bounds on one
+    //    horizon-independent quantity and therefore cannot cross; where they
+    //    do, one of the two premises is false on that board, and the answer is
+    //    to DECLINE THE DEEPER READING and count it, never to clamp it into a
+    //    bracket it disagrees with. The floor is what a promise was made
+    //    against; the ceiling is what has not been ruled out. Clamping either
+    //    to fit the other is the laundering this whole layer exists to stop.
+    let deepCeiling: number | null = null;
+    let deepDeclined = draft.declined;
+    if (draft.declined === null && draft.ceiling !== null) {
+      if (draft.ceiling >= best - BOUND_EPSILON) deepDeclined = "not-tighter";
+      else if (draft.ceiling < floorPick.bounds.worst - BOUND_EPSILON) deepDeclined = "crossed-floor";
+      else {
+        deepCeiling = draft.ceiling;
+        best = draft.ceiling;
+      }
+    }
+    const deep: DeepReading | null =
+      draft.declined === "off"
+        ? null
+        : {
+            horizon: deepCeiling === null ? 1 : 2,
+            q: draft.q,
+            leaves: draft.leaves,
+            ceiling: draft.ceiling,
+            shallowCeiling: ceilPick.bounds.best,
+            declined: deepDeclined,
+            argmin: draft.argmin ?? null,
+          };
+    if (deep !== null) deepObserver?.(deep);
+
     const bounds = makeScoreBounds({
       worst: floorPick.bounds.worst,
       best,
@@ -718,8 +936,20 @@ export class BoundBank {
         widened ? floorPick.bounds.ledger : ceilPick.bounds.ledger,
       ),
       assumptions: unionAssumptions(floorPick.bounds.assumptions, ceilPick.bounds.assumptions),
-      note: `bank floor=${floorPick.report.rung} ceiling=${widened ? floorPick.report.rung : ceilPick.rung}`,
+      note: `bank floor=${floorPick.report.rung} ceiling=${
+        deepCeiling !== null ? "B4" : widened ? floorPick.report.rung : ceilPick.rung
+      }`,
     });
+    // G-D4, AS A RUNTIME INVARIANT AND NOT AS A TEST. The entire soundness
+    // claim of a ceiling-only member is that it moves no floor, so the member
+    // asserts it about itself on every plan it deepens.
+    if (deepCeiling !== null && bounds.worst !== floorPick.bounds.worst) {
+      throw new BoundsInversionError(
+        floorPick.bounds.worst,
+        bounds.worst,
+        "B4 ceiling ply moved a floor — it is licensed to lower a ceiling and nothing else",
+      );
+    }
 
     // `est` orders among floor ties and never adjudicates. Clamp it into the
     // bracket so a stale estimate can never be read as a promise.
@@ -735,12 +965,202 @@ export class BoundBank {
       finished,
       floorFrom: floorPick.report.rung,
       floorComplete: floorPick.report.complete,
-      ceilingFrom: widened ? floorPick.report.rung : ceilPick.rung,
+      ceilingFrom: deepCeiling !== null ? "B4" : widened ? floorPick.report.rung : ceilPick.rung,
       worstResolution: floorPick.resolution,
       est,
       narrowings: this.narrowingList,
       loud,
+      deep,
     };
+  }
+
+  /**
+   * Is this unit a PIECE? — G-D1, and the reason it is a structural gate
+   * rather than a hope.
+   *
+   * The ceiling ply is scoped to clusters with a held piece, so on a
+   * snake-only board it never fires and parity there is a property of the
+   * construction. That is also what the cost curves say to do: snake6
+   * saturates at ≤500 ms with zero staging changes across 9 000 extra priced
+   * plans, while the queen cell is still climbing at 4 s — starved, not
+   * saturated (`TIME-SYN` §2). Spend where the curve is still rising.
+   *
+   * The test is the grammar's own (`leavesTrail`), asked of the substrate's
+   * roster, so a promoted pawn is read at the kind it is now.
+   */
+  private gatedPiece(unitId: UnitId): boolean {
+    const roster = this.memo as unknown as { unitOf?: (id: UnitId) => { type: string } | undefined };
+    const unit = roster.unitOf?.(unitId);
+    return unit !== undefined && !leavesTrail(unit.type as UnitType);
+  }
+
+  /**
+   * B4 — THE CEILING PLY (§4.2), in one method, and every refusal named.
+   *
+   * Two layers. Ply 1 enumerates the cross-product of the LOUD options of the
+   * gated enemies and names every other held unit with its kind's own default,
+   * so that each leaf is a complete concrete world — a real board, which is
+   * the licence Finding D-2 says a chained ply needs and a partial settlement
+   * cannot give. Ply 2 settles the turn after each leaf with EVERY unit held,
+   * ours included; holding is the complete cover, so one settlement bounds
+   * `max` over all our continuations of `min` over all their replies, with
+   * nothing enumerated and nothing truncated.
+   *
+   * BOTH of ply 1's truncations are on the WHICH axis, and the bank's own rule
+   * (see this file's header) licenses exactly that for a ceiling and forbids
+   * it for a floor: a min over a subset of an enemy's replies is an
+   * OVER-estimate of the min over all of them. So the group is closed with
+   * `complete = false`, no `declareTruncatedFloor` is set, nothing reaches
+   * `floorMembers`, and the floor of a deepened plan is bit-for-bit the floor
+   * it had at one ply (G-D4). Both truncations are DECLARED — carried on
+   * `narrowings`, which is the honest record, and deliberately NOT part of the
+   * basis, because a narrowing found on one plan and not on another would make
+   * the two incomparable and freeze the ascent.
+   */
+  private ceilingPly(
+    base: JointPlan,
+    gated: ReadonlyArray<UnitId>,
+    gateLists: ReadonlyArray<{ id: UnitId; options: ReadonlyArray<Candidate>; complete: boolean }> | null,
+    loudLists: ReadonlyArray<LoudUnitList> | null,
+    evalNs: string,
+    ceilingBranches: Branch[],
+    members: MemberReport[],
+  ): PlyDraft {
+    const no = (declined: DeepReading["declined"], q = 0): PlyDraft => ({
+      q,
+      leaves: 0,
+      ceiling: null,
+      declined,
+    });
+    if (gateLists === null || loudLists === null || gated.length === 0) return no("no-gate");
+    if (!gated.some((id) => this.gatedPiece(id))) return no("no-piece");
+    // CONCRETENESS, asked of our own side. A leaf is a board only if every
+    // unit on the roster is named, and the roster is ours ∪ the references ∪
+    // the held set — the last two are named below, so what is left to check is
+    // that the plan itself left none of our units out. One that did would make
+    // OUR unit the held claim, and the leaf a timeline rather than a board.
+    for (const id of this.memo.commandable(this.input.asTeam)) {
+      if (!base.has(id)) return no("plan-incomplete");
+    }
+    const axis = loudLists.filter((l) => l.loud > 0);
+    let q = 1;
+    for (const l of axis) q *= l.loud;
+    if (q > this.cfg.loudCap) return no("cap", q);
+
+    // THE QUIET HALF, NAMED. Every held unit the axis does not enumerate —
+    // un-gated, or gated with no loud option at all — is named with
+    // `NO_ORDER_MOVE`: the KIND's own default action, which is a rule of the
+    // game and not a guess about an agent, and which the contract requires to
+    // be NAMED rather than left implicit (omitting a unit makes it held, and
+    // held is what this member cannot have). Restricting a unit to one reply
+    // is the same WHICH-truncation the loud subset is, and it is legal here
+    // for the same reason and only for the ceiling.
+    const enumerated = new Set(axis.map((l) => l.unitId));
+    const held = this.uncontrolled();
+    const quiet: Candidate[] = [];
+    for (const id of held) if (!enumerated.has(id)) quiet.push(noOrderCandidate(id));
+    for (const l of axis) {
+      if (l.loud >= l.options) continue;
+      this.declare({
+        kind: "narrowing",
+        unitId: l.unitId,
+        note:
+          `B4 ceiling ply: unit ${l.unitId}'s replies read over the LOUD subset ` +
+          `(${l.loud} of ${l.options}) — a min over a subset over-estimates the min over all, ` +
+          "so it may lower a ceiling and may never raise a floor",
+      });
+    }
+    for (const c of quiet) {
+      this.declare({
+        kind: "narrowing",
+        unitId: c.unitId,
+        note:
+          `B4 ceiling ply: unit ${c.unitId} named with its kind's own default action, ` +
+          "because nothing it can play meets the staged footprint — a ceiling-only WHICH-truncation",
+      });
+    }
+
+    // Every unit live: the leaf holds nobody, so the view must model nobody's
+    // claim. With the held set empty the settlement has no claims at all,
+    // which is exactly the concreteness the ply-2 layer is about to assert.
+    const view = this.viewFor(held);
+    const marshalled = (this.memo as unknown as { marshalled?: MarshalledBoard }).marshalled;
+    const ourTeam = (this.memo as unknown as { teamLabel?: (n: number) => string | undefined })
+      .teamLabel?.(this.input.asTeam);
+
+    const leaves: Branch[] = [];
+    let deepest: number | null = null;
+    let argmin: DeepReading["argmin"] = null;
+    let swept = true;
+    const walk = (i: number, acc: Candidate[]): void => {
+      if (!swept) return;
+      // A CUT SWEEP IS NOT A DEFECT HERE. Every leaf is independently an
+      // upper-bound certificate, so a sweep the clock stopped has simply
+      // taken a smaller subset — which is the same licensed truncation the
+      // rung is built on, one notch coarser.
+      if (this.budget.shouldStop()) {
+        swept = false;
+        return;
+      }
+      const list = axis[i];
+      if (list === undefined) {
+        const moves = [...acc, ...quiet];
+        const leaf = this.priceBranch(
+          view,
+          withMoves(base, moves),
+          "B4",
+          new Map(moves.map((c) => [c.unitId, c])),
+          evalNs,
+        );
+        leaves.push(leaf);
+        ceilingBranches.push(leaf);
+        if (marshalled === undefined || ourTeam === undefined) return;
+        const above = ceilingAtNextTurn(marshalled, leaf.resolution, ourTeam, this.input.evaluate);
+        // `min` over the leaves, and the leaf's OWN h1 ceiling wherever the
+        // ply-2 layer declined: both bound the same quantity, so the smaller
+        // is the honest reading and a decline costs tightness, never
+        // soundness.
+        const perLeaf = above === null ? leaf.bounds.best : Math.min(above, leaf.bounds.best);
+        // MIN OVER THE LEAVES, and it is the whole soundness argument in one
+        // operator: every leaf is a reply the enemy could actually make, so
+        // every leaf's endpoint is on its own an upper bound on a value the
+        // enemy MINIMISES — and a min over a subset of those is still one.
+        if (deepest === null || perLeaf < deepest) {
+          deepest = perLeaf;
+          argmin = {
+            replies: moves.map((c) => ({ unitId: c.unitId, to: c.to })),
+            lo: leaf.bounds.worst,
+            hi: leaf.bounds.best,
+            ledgerSize: leaf.bounds.ledger.length,
+            above,
+          };
+        }
+        return;
+      }
+      for (const option of list.loudOptions) {
+        walk(i + 1, [...acc, option]);
+        if (!swept) return;
+      }
+    };
+    walk(0, []);
+    if (leaves.length === 0) return no("no-leaf", q);
+    const report = this.closeGroup("B4", null, leaves, swept, false, []);
+    members.push(report);
+    return {
+      q,
+      leaves: leaves.length,
+      ceiling: deepest,
+      declined: null,
+      argmin,
+      plyCeiling: report.ceiling,
+      ...(this.b3CeilingIn(members) === null ? {} : { b3Ceiling: this.b3CeilingIn(members) as number }),
+    };
+  }
+
+  /** B3's group ceiling on this plan, when it fired — the G-D5 oracle. */
+  private b3CeilingIn(members: ReadonlyArray<MemberReport>): number | null {
+    for (const m of members) if (m.rung === "B3") return m.ceiling;
+    return null;
   }
 
   /**
