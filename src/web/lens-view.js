@@ -1088,6 +1088,10 @@ var LensView = (() => {
         call(
           "panel.movesets.row",
           row.rank,
+          // THE ROW'S OWN KEY. T6 names a click on a moveset row as a source of
+          // the cursor transition, and the rail could not offer one because the
+          // markup had no way to say which row was clicked (10 §4 O5).
+          row.key,
           // ONE CHANNEL PER ROW, AND IT IS THE ONE THAT ADJUDICATES. `lo` is the
           // proved floor: the quantity the reservoir ranks on (`byBetter`), the
           // quantity `⌈w⌉` is a width of, and the quantity Δ measures. Showing

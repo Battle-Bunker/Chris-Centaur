@@ -153,8 +153,11 @@ describe('every moveset row carries its condition into the transcript', () => {
           calls.forEach((c, i) => {
             // The clause is a READ of the condition stored on that row, in
             // that row's own order — never a summary of the table.
-            expect(c.args[5]).toBe(dominanceClause((rows[i] as Moveset).dominance));
-            expect(c.args[5]).not.toBe('');
+            // args: rank, key, lo, width, cell, delta, unless, …
+            expect(c.args[6]).toBe(dominanceClause((rows[i] as Moveset).dominance));
+            expect(c.args[6]).not.toBe('');
+            // The row's identity travels with it, so a click can name it (T6).
+            expect(c.args[1]).toBe((rows[i] as Moveset).key);
           });
           drawn += calls.length;
         }

@@ -333,6 +333,24 @@ describe('the rail says what the design says it must', () => {
     expect(html).toContain('the conditional list has one row');
   });
 
+  /**
+   * 10 §4 O5. T3 and T6 both name a click — on a candidate cell, on a moveset
+   * row — as a source of the cursor transition, and the rail's rows carried no
+   * way to say WHICH row was clicked, so the panel was keyboard-only. The
+   * markup names the target; the page binds it. Hover stays inert (T4).
+   */
+  test('the rail names its click targets for T3 and T6', () => {
+    const f = frame();
+    const transcript = renderFrame(f, FOCUSED(f));
+    expect(LensPanel.candidatesHTML(transcript)).toContain('data-lens-candidate="10"');
+    const rows = LensPanel.movesetsHTML(transcript);
+    expect(rows).toContain('data-lens-moveset="a1"');
+    expect(rows).toContain('data-lens-moveset="a2"');
+    // No pointer handlers and no hover classes in the markup: the rail is a
+    // place to look until something is pressed.
+    expect(rows).not.toMatch(/onmouse|onclick|:hover/);
+  });
+
   test('provenance is on every rail, small and always', () => {
     const html = LensPanel.railHTML(renderFrame(frame()));
     expect(html).toContain('bot:lens-fixture');

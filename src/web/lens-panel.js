@@ -130,8 +130,9 @@ const LensPanel = (() => {
         // estimated one `~`; pricing every candidate is one queen at several
         // times a whole decision, so the rail grades rather than guesses.
         const value = aggregate == null ? '·' : `${num(aggregate, 1)}${escapeHTML(grade)}`;
+        // T3's other source: a click on the candidate cell.
         return (
-          `<tr class="${cursor ? 'lens-row-cursor' : ''}">` +
+          `<tr class="${cursor ? 'lens-row-cursor' : ''}" data-lens-candidate="${escapeHTML(to)}">` +
           `<td>${cursor ? '▸' : ''}</td><td>${escapeHTML(to)}</td>` +
           `<td>${value}</td>` +
           `<td>${incumbent ? 'incumbent' : escapeHTML(disposition || (legal ? '' : 'illegal'))}</td></tr>`
@@ -201,6 +202,7 @@ const LensPanel = (() => {
       .map((call) => {
         const [
           rank,
+          key,
           aggregate,
           width,
           cell,
@@ -221,8 +223,13 @@ const LensPanel = (() => {
         ]
           .filter(Boolean)
           .join(' ');
+        // T6's other source: a click on the row. The row carries its key so
+        // the page can issue the cursor transition; there are still NO pointer
+        // handlers here and no hover behaviour at all, because T4 says hover
+        // never commits the cursor.
         return (
-          `<tr class="${cls}"><td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
+          `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}">` +
+          `<td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
           `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +

@@ -1446,6 +1446,19 @@
       lensRender();
     }
 
+    /** T6 by pointer. The cursor moves to the named row and nothing else
+     *  changes — the candidate above it is untouched, exactly as `]` leaves
+     *  it. A widen held behind its banner is accepted first: a hold is
+     *  against incoming data, never against the reader. */
+    function lensSelectMoveset(key) {
+      lensReleaseHold();
+      const view = lensView();
+      const frame = lensFrame();
+      if (!view || !frame || !lensCursor || !key) return;
+      lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'moveset', key });
+      lensRender();
+    }
+
     function lensSelectCandidate(unitId, to) {
       lensReleaseHold();
       const view = lensView();
@@ -1662,15 +1675,42 @@
       }
     });
 
-    // The widen banner's Show control, delegated on the rail — which outlives
-    // its own contents, so a re-render between press and release cannot
-    // swallow the gesture.
+    /**
+     * THE RAIL'S OWN GESTURES, delegated on a container that outlives its
+     * contents — so a re-render between press and release cannot swallow one.
+     *
+     * Three sources, and the transition table names all three: the widen
+     * banner's Show, T3's *"click a candidate cell"* and T6's *"click a
+     * moveset row"*. The last two were in the design and in the transition
+     * table and had no caller from the rail, so the panel was keyboard-only
+     * and `lensSelectCandidate` was reachable from the board alone.
+     *
+     * POINTERDOWN ONLY, and nothing on hover: T4 is unconditional — the board
+     * and the rail are places to LOOK, and a lens that re-ranks under the
+     * pointer is unusable.
+     */
     document.getElementById('lensRail').addEventListener('pointerdown', (e) => {
       if (!e.target || !e.target.closest) return;
-      if (!e.target.closest('[data-lens-accept]')) return;
-      e.preventDefault();
-      e.stopPropagation();
-      lensAcceptWiden();
+      if (e.target.closest('[data-lens-accept]')) {
+        e.preventDefault();
+        e.stopPropagation();
+        lensAcceptWiden();
+        return;
+      }
+      const candidate = e.target.closest('[data-lens-candidate]');
+      if (candidate && lensCursor && lensCursor.unit) {
+        e.preventDefault();
+        lensSelectCandidate(
+          lensCursor.unit,
+          parseInt(candidate.getAttribute('data-lens-candidate'), 10)
+        );
+        return;
+      }
+      const row = e.target.closest('[data-lens-moveset]');
+      if (row) {
+        e.preventDefault();
+        lensSelectMoveset(row.getAttribute('data-lens-moveset'));
+      }
     });
 
     // The clash panel's own close control. Delegated on the popup (which
