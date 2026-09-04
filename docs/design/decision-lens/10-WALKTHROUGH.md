@@ -88,8 +88,9 @@ badge; 09 §A3's honest emptiness naming which of four causes is in play.
 **Verdict.** Correct, and it took two fixes to get here. Before them the badge
 read `⏸ SCRUBBED · seq 27 · read-only` on a live head and the rail sat
 permanently on `nothing staged yet — no kernel emission yet at seq 0` (§3, F1).
-`eval —` is drawn rather than blank (§3, F7) and is honest: nothing populates
-`evalVersion` (§4, O2).
+`eval —` is drawn rather than blank (§3, F7), and it is no longer what the
+footer reads: `digestOf` now joins the evaluator's own identity, so the line
+ends `eval:7f5b86c4` (§4, O2).
 
 ### 1.2 Hover a unit on the board · `02-hover-unit.png`
 
@@ -127,9 +128,13 @@ what the list is (09 §B7), and only disagreement draws.
 generalises — hover never commits the cursor.
 
 **Verdict.** Correct by construction, and worth stating: the rail's rows carry
-**no pointer handlers at all**. `[` / `]` walk the list, a click does nothing.
-The design's T3 and T6 both list "click a candidate cell" / "click a row" as
-sources. Left open (§4, O5).
+**no pointer handlers and no hover behaviour at all** — hover is a place to
+look until something is pressed. What they lacked when this walk first ran was
+a way to say WHICH row was pressed, so a click did nothing either, against T3
+and T6 both listing "click a candidate cell" / "click a row" as sources. The
+markup now names the target (`data-lens-candidate`, `data-lens-moveset`) and
+`#lensRail` binds it; the walk still drives the cursor from the keyboard, so
+the evidence is the markup and its gate rather than a shot. Closed (§4, O5).
 
 ### 1.5 Walking the list — `]` · `05-moveset-next.png`, `05b-board.png`
 
@@ -147,7 +152,13 @@ assign this candidate to this unit, and on this build that is usually one row.
 The MOVESETS panel is therefore a *list of one* in every live state this walk
 reached. Nothing is wrong with the code; the operator's experience of "the
 panel that is the whole point of the lens" is one row and two inert keys, and
-that is a fact about the reservoir, not about the UI. Left open (§4, O1).
+that is a fact about the reservoir, not about the UI.
+
+What WAS wrong with the UI is that it said none of this. The head now names
+which of the two lists it is drawing and how many rows the reservoir retained
+before the restriction, so the shortness is a fact the operator can check
+rather than a table that looks broken (§4, O1). The reservoir itself is
+unchanged and the cause is still upstream, in the kernel.
 
 ### 1.6 The breakdown drill — `B` · `06-breakdown.png`, `06b-breakdown-panel.png`, `16b-widen-accepted.png`
 
@@ -175,10 +186,14 @@ running decision the port answers a typed refusal.
 
 ### 1.7 The `unless` cell and the depth ink · `07-movesets-panel.png`
 
-**See.** One row: `▸4 · -51.6 ⌈93.0⌉ · h1 · Q=0/33 · — · the evaluator
-residue, blue-A resolve against us · 82.9 at stake · red-A→94 · red-C→118`,
-under the legend `⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies ·
-unless what this row is betting on`.
+**See.** A head that says which list this is —
+`MOVESETS · cluster 0 · 2 of 2 free · seq 30`, then *"no conditional was
+answered — 1 of 5 retained rows play this candidate, so `[` and `]` have
+nowhere to go"* — the legend `⌈w⌉ bracket width · h<n> horizon proved at ·
+Q loud replies · unless what this row is betting on`, one row
+`▸4 · -51.6 ⌈93.0⌉ · h1 · Q=0/33 · — · the evaluator residue, blue-A resolve
+against us · 82.9 at stake · red-A→94 · red-C→118`, and under it the foil line
+*"no runner-up — only 1 of 5 retained rows plays this candidate"*.
 
 **Design.** §3.4/§2 of `08-DEPTH-VERDICT`: the absence of depth is drawn, never
 omitted, and drawn *with its reason* (09 §C1's `Q`); the threat/opportunity map
@@ -188,46 +203,58 @@ is one clause per row (09 §B3).
 is the loud reading on the leader's own plan, and the `unless` clause names the
 units the row is betting on and prices the bet. The assignment cell used to
 break inside a unit id at 380 px — `red-` / `A→94` — and no longer does (§3,
-F6).
+F6). The head and the foil line were both added after this walk first ran, when
+a table of one row under a head that said only `MOVESETS` turned out to be the
+panel's worst reading: §4, O1 and O3.
 
 ### 1.8 The contrastive foil — `F` · `08-foil.png`, `08b-foil-board.png`
 
-**See.** Byte-identical to `03b-rail.png`. No `foil #n · margin …` line, no
-teal arrow.
+**See.** Byte-identical to `03b-rail.png`. No teal arrow, and where a
+`foil #n · margin …` line would go, its absence with the reason for it:
+*"no runner-up — only 1 of 5 retained rows plays this candidate"*.
 
 **Design.** §3.5 — *"Panel side: **always visible** as one line under the
 moveset table."*
 
-**Verdict.** The design says "always"; the implementation draws it only when a
-rank 2 exists, and §1.5's list of one has no rank 2. So on this build the foil
-line — *"the highest-value cheap signal on the surface"* — is absent in the
-ordinary case, and its absence is silent. Left open (§4, O3).
+**Verdict.** Correct now; it was not when this walk first ran. The line was
+drawn only where a rank 2 existed, and §1.5's list of one has no rank 2 — so
+the *"highest-value cheap signal on the surface"* was absent in the ordinary
+case and its absence was silent, which reads as "there is nothing to compare"
+rather than "the list came up short". The absence is now drawn with its cause,
+the same move the depth cell makes with `Q=0/33`. Closed (§4, O3).
 
 ### 1.9 The timeline lane · `09-lane.png`, `10-lane-expanded.png`
 
 **See.** Five lanes — `anchor` (a tick at each end of the turn), `kernel`
-(dense), `operator` (two ticks), `staging` and `advice` (empty) — over
-`seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed`. Expanding
-the lane produces a byte-identical picture.
+(dense), `operator` (four solid ticks), `staging` and `advice` (empty) — over
+`seq 30 · 31 / 31 · LIVE · seq 30 · observed · walkthrough/mixed`. Expanding
+the lane brings up a fifth operator tick the collapsed lane does not draw: a
+hollow `○` at `+149ms`, ahead of the solid ones.
 
 **Design.** §2.2 — ticks are clickable, the playhead snaps to events, operator
 ticks carry the operator's colour, attention ticks are hollow and hidden until
 expanded.
 
-**Verdict.** The lane draws and its ticks scrub. Three gaps, none of them the
-lane's own fault:
+**Verdict.** The lane draws, its ticks scrub, and both channels §2.2 asks for
+are now on it. Three gaps when this walk first ran, none of them the lane's own
+fault, and all three closed:
 
 * Ticks were being drawn **on top of the lane's name** — `left: 0%` was the
   start of the row rather than the start of the turn, so `board.arrived` sat
   squarely on the word `kernel`. Fixed (§3, F5).
-* Expanding shows nothing new because **nothing emits an attention tick**: no
-  producer writes `payload.hover`, so the `operator.attention` channel of §2.1
-  is not in the log at all. Left open (§4, O4).
-* The two operator ticks are the kernel's own `operator` frames. Their title is
-  `operator · seq 11 · +149.62ms` — the kind and the time and nothing else, and
-  no colour, because **nothing writes a `pin` or `unpin` turn event**: the
-  design's `●Ada near(s2)` cannot be drawn. This is 09 §C4 with a cause. Left
-  open (§4, O6).
+* Expanding showed nothing new, because nothing emitted an attention tick: no
+  producer wrote `payload.hover`, so §2.1's `operator.attention` channel was not
+  in the log at all. The look DOES reach the kernel, in a shape §2.1 did not
+  name — a TENTATIVE pin, a hint the search may speculate on and never a
+  constraint — and once that gesture became a row the reader had something to
+  read. `09-lane.png` and `10-lane-expanded.png` used to be byte-identical and
+  are not. Closed (§4, O4).
+* The operator ticks were the kernel's own `operator` frames, titled
+  `operator · seq 11 · +149.62ms` — the kind and the time and nothing else, no
+  colour — because **nothing wrote a `pin` or `unpin` turn event** anywhere in
+  the repository. They now read `pin(red-A) · seq 9 · +149.57ms` and
+  `unpin(red-A) · seq 19 · +263.63ms` in the operator's colour. This was 09 §C4
+  with a cause. Closed (§4, O6).
 
 The `staging` lane is empty in this session because the harness stages through
 the kernel rather than through `setIntent`; that is the harness, not the page.
@@ -275,11 +302,15 @@ empty state read `red-A is pin`. Both fixed (§3, F9).
 `2 of 2 free`). Live, with the operator watching, the banner arrives:
 
 ```
-⚑ released red-A, red-C — cluster is now 3 units.   auto 6s   [Show]
+⚑ Ada released red-A, red-C — cluster is now 3 units.   auto 6s   [Show]
+   the rail below is stale @ seq 21
 ```
 
 and the rail under it keeps the pre-widen picture until `[Show]` is pressed,
-after which the wider list lands with the breakdown beside it.
+after which the wider list lands with the breakdown beside it. The picture it
+keeps here is the movesets panel's EMPTY state — *"red-A is pinned — it is a
+constant of cluster 1, not a variable the bot is solving"* — struck through
+along with everything else the hold supersedes.
 
 **Design.** §1.6 — additive uncertainty is staged behind one gesture on a
 visible, pausable, deadline-scaled timer; the old list stays rendered; the
@@ -289,9 +320,14 @@ narrow direction applies at once with a footer note.
 before them: the timer floored at zero (§3, F4), so the widen auto-accepted on
 the next macrotask; and the hold was freezing the operator's own gestures as
 well as the incoming data, so focusing a unit or walking the list while a
-banner was up left the rail drawing the frozen picture (§3, F10). One clause is
-still not on screen: the banner says `released red-A, red-C` with **no
-operator**, because nothing attributes the pin (§4, O6).
+banner was up left the rail drawing the frozen picture (§3, F10). Two clauses
+were missing afterwards and are here now. The banner said `released red-A,
+red-C` with **no operator**, because nothing wrote the pin and then, once
+something did, because the fold had already dropped the author by the time the
+partition caught up (§4, O6). And this is the shot that opened O8: a held widen
+whose list is empty drew no head, and the `stale @ seq n` flag rode the head —
+so the one case where the rail says least about itself was the one case where
+nothing said it was frozen. The flag is on the banner now (§4, O8).
 
 ### 1.13 Back to the head — `N` · `15-back-to-now.png`
 
@@ -324,7 +360,7 @@ Fixed (§3, F3).
 
 **See.** `/game/lens-walk-replay` loads the same recorded log through
 `/api/logs/games` → `/api/games/:id/turns` → `/api/logs`. Badge: `REPLAY ·
-seq 37 · read-only · observed · walkthrough/mixed`. Focusing a unit gives
+seq 40 · read-only · observed · walkthrough/mixed`. Focusing a unit gives
 `A snake · hp 100 · wt 4`, the same candidates, the same single moveset row
 with the same aggregate, bracket, depth cell and `unless` clause, and the same
 breakdown including `joint -61.85…∞`. The turn slider scrubs back a turn and
@@ -347,9 +383,15 @@ own fix did not reach:
   `hp 0 · wt 0`, for a knight the live rail showed as `C knight · hp 99 · wt 3`.
   Fixed (§3, F2).
 
-One clause is still wrong: a replayed turn is offered `[N] return to now and
-lock`, naming a `now` a closed turn does not have. §4, O7 — and why it cannot
-be fixed in the renderer.
+One clause was still wrong afterwards and is right now: a replayed turn was
+offered `[N] return to now and lock`, naming a `now` a closed turn does not
+have. It could not be fixed inside `renderFrame` — a frame carries no content
+that separates a recorded turn from a scrubbed live one, which is why the
+structural gate refuses a renderer that reads `at.mode` — so the line split at
+the seam the design already draws. The rail now reads
+`locked by Ada at +149.56ms → [jump]`, which is a read of a recorded row and
+therefore the same sentence off both sources, and the way back moved to the
+badge, where only `live-scrub` is offered one. Closed (§4, O7).
 
 ---
 
@@ -360,33 +402,43 @@ socket at the live head, once from `/api/logs` through the replay fold — and
 diffs the two rails pixel for pixel in the browser that drew them.
 
 ```
-turn 4 · live seq 137 · replay seq 37
-346 × 497 px · 1,294 pixels differ · 0.752 % · all within rows 180–290
+turn 4 · live seq 140 · replay seq 40
+346 × 539 px · 1,842 pixels differ · 0.988 % · all within rows 180–332
 ```
 
 Everything the operator reads as a number is **identical**: the focus line, all
 three candidate rows with their grades, the aggregate, the bracket `⌈0.0⌉`, the
-depth cell `h1 · Q=0/33`, the Δ, the `unless` clause, the assignment, all three
-breakdown marginals with their reference actions and features, the joint
-residual `-61.85…∞`, and the provenance line `lobster-local ·
-walkthrough/mixed · eval — · e25 · 2q`.
+depth cell `h1 · Q=0/33`, the Δ, the `unless` clause, the assignment, the list's
+own description of itself (*"conditional list — the rows a lock here would
+stage · 5 retained for the cluster"*), the foil line, all three breakdown
+marginals with their reference actions and features, the joint residual
+`-61.85…∞`, and the provenance line `lobster-local · walkthrough/mixed ·
+eval:7f5b86c4 · e28 · 2q`.
 
-The 0.752 % is two lines, and both are content the operator is entitled to:
+The 0.988 % is two lines, and both are content the operator is entitled to:
 
 | | live | replay |
 |---|---|---|
-| MOVESETS head | `… · seq 137` | `… · seq 37` |
-| affordance | `[Space] lock — pins 1 of 3` | `[N] return to now and lock` |
-| badge | `LIVE · seq 137 · observed` | `REPLAY · seq 37 · read-only · observed` |
+| MOVESETS head | `… · seq 140` | `… · seq 40` |
+| affordance | `[Space] lock — pins 1 of 3` | `locked by Ada at +149.56ms → [jump]` |
+| badge | `LIVE · seq 140 · observed` | `REPLAY · seq 40 · read-only · observed` |
 
 The `seq` difference is the harness, not the product: the replay page caches a
 finished turn's events on first fetch (correct — a settled turn's log is
 closed), and this "finished" game was still being written to. The last emission
-is `e25` on both sides, which is why every number agrees.
+is `e28` on both sides, which is why every number agrees.
+
+The affordance row is the one that changed since this walk first ran, and it
+changed in the direction the design asked for: it used to read `[N] return to
+now and lock` on the replayed side, naming a `now` a closed turn does not have.
+Both sides are still a read of the FRAME — neither branches on `at.mode`, which
+is what keeps the comparison meaningful — and the replay sentence is a read of
+a recorded row, so it says the same thing off either source at the same `seq`
+(§4, O7).
 
 **Verdict.** Law C holds on screen. Live and replay are one fold, one renderer,
 one picture, and the only differences are the three badge fields plus the
-affordance that reads off `isHead`.
+affordance, which reads off `isHead` and off the turn's own rows.
 
 ---
 
@@ -418,9 +470,10 @@ claim below cites the run that is in `walkthrough/` now, re-shot against
 `src/tests/lens-walkthrough-server.ts` after the last of these commits.
 
 **The lens still moves no decision.** Twenty-seven of the thirty-two PNGs
-changed and every one of them changed in the rail; the board-only shots —
-`03c-board.png`, `05b-board.png`, `08b-foil-board.png`, `19c-replay-board.png`
-— are BYTE-IDENTICAL to the run that opened these items, which is the cheapest
+changed and every one of them changed in the rail. The other five did not
+change at all: the four board-only shots — `03c-board.png`, `05b-board.png`,
+`08b-foil-board.png`, `19c-replay-board.png` — plus `06b-breakdown-panel.png`,
+are BYTE-IDENTICAL to the run that opened these items. That is the cheapest
 available statement that eight items' worth of work moved nothing but what an
 operator reads. No feature flags: there is one code path and the walk is on it.
 
@@ -431,10 +484,16 @@ reservoir retained for the cluster before the restriction — and
 `view/index.ts::movesetOps` puts it on the head. `07-movesets-panel.png` reads
 *"no conditional was answered — 1 of 5 retained rows play this candidate, so
 `[` and `]` have nowhere to go"*, so the shortness is a fact the operator can
-check rather than a table that looks broken. WHAT REMAINS is the reason for it,
-and it is not on this surface: no conditional list is ever answered, because
-off a running decision the port answers `off-head` and by the time a browser
-looks the decision is over. 07 §1's **0 conditional frames in 180 bot-only
+check rather than a table that looks broken — and where a conditional list WAS
+answered the same head says so instead (`21a`/`21b`: *"conditional list — the
+rows a lock here would stage · 5 retained for the cluster"*), which is the
+distinction the panel could not previously draw at all.
+
+WHAT REMAINS is the reason the restricted list is what an operator actually
+gets, and it is not on this surface. This harness asks for a conditional from
+inside the decision, so the walk sees one; a BROWSER cannot, because off a
+running decision the port answers `off-head` and by the time a browser looks
+the decision is over. 07 §1's **0 conditional frames in 180 bot-only
 decisions** is unchanged and this walk did not try to change it.
 **Kernel-side:** `src/lobster/kernel.ts::rankConditional` and the reserve.
 
@@ -444,8 +503,10 @@ EVALUATOR and not of `KernelOptions`, which is why adding it to the latter was
 the wrong repair: `src/lobster/team-decision-engine.ts::digestOf` now takes the
 decision's evaluator and joins the `evaluationIdentity` the bound evaluator
 already declares — hashed FNV-1a, because the identity is the profile spelled
-out and the rail is 380 px wide. The provenance footer in every rail shot ends
-`lobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 3q`. An evaluator
+out and the rail is 380 px wide. Every rail shot in this run carries it —
+`lobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 3q` under
+`07-movesets-panel.png`, the same `eval:7f5b86c4` under every other — where the
+footer used to read `eval —`. An evaluator
 that declares nothing reads `eval:unknown` rather than an unverifiable version.
 Gated by `src/tests/lens-reducer.test.ts`.
 
@@ -488,11 +549,20 @@ id back; `team-decision-engine.ts::routeToKernel` calls it and passes that id to
 refuses an answer whose question it has not written. Everything downstream that
 was permanently null now reads: `report.json`'s `operatorTicks` are
 `pin(red-A) · seq 9 · +149.57ms` and `unpin(red-A) · seq 19 · +263.63ms` in the
-operator's colour where they were a verbless `operator · seq 11`; the widen
-banner in `16-widen-banner.png` names its author off the fold; and the replay
-rail reads `locked by Ada at +149.53ms`. `frameAt`'s fixity map is populated,
-so `planLock`'s client-side ownership guard is a guard again rather than a
-no-op. One new row per gesture, and an id.
+operator's colour where they were a verbless `operator · seq 11`; the replay
+rail reads `locked by Ada at +149.56ms → [jump]`; and `frameAt`'s fixity map is
+populated, so `planLock`'s client-side ownership guard is a guard again rather
+than a no-op.
+
+The re-run found one more null in the same family, and it is fixed here rather
+than recorded: the banner still read `released red-A, red-C` with no operator,
+because the fold DELETES a unit's fixity on `unpin` and the partition recompute
+that produces the widen lands seqs later — so the row the author stood on was
+free and anonymous by the time there was a widen to attribute. The turn's own
+rows still say who, so `view/cursor.ts::attributionFor` falls back to them: the
+same read `recordedLock` makes, sound for the same reason, and a tentative pin
+attributes nothing. The banner over `16-widen-banner.png` now opens
+`⚑ Ada released red-A, red-C`. One new row per gesture, and an id.
 
 **O7 — a replayed turn is offered `[N] return to now and lock`. CLOSED, at the
 seam the design already draws.** This was recorded as a gap in `lockLabel`; it
@@ -504,9 +574,9 @@ a renderer that reads it. What is true of the FRAME stayed in the transcript:
 hold a lock at this `seq`, and `— read-only —` where they do not, which is true
 of both off-head modes. THE WAY BACK is a fact about the SOURCE, so it moved to
 `WAY_BACK` beside `modeBadge`. Read the two badges side by side:
-`12-scrub-emission.png` is `⏸ SCRUBBED · seq 9 · read-only · [N] return to now`
-and `19b-replay-rail.png` is `REPLAY · seq 39 · read-only` with no `now` offered
-at all, over a lock line reading `locked by Ada at +149.53ms → [jump]` — a
+`12-scrub-emission.png` is `⏸ SCRUBBED · seq 10 · read-only · [N] return to now`
+and `19b-replay-rail.png` is `REPLAY · seq 40 · read-only` with no `now` offered
+at all, over a lock line reading `locked by Ada at +149.56ms → [jump]` — a
 sentence that was unsayable until O6 made the pin a row.
 
 **O8 — a widen's staleness is invisible when the table is empty. CLOSED.** The
@@ -531,9 +601,9 @@ banner does.
 Across the whole session, on both pages:
 
 * **Page exceptions: none.**
-* **Console errors: none from the lens.** The three recorded are the harness's
-  own — two 404s (below) and the deliberate `[firebase-status] not_configured`
-  line the banner is driven by.
+* **Console errors: none from the lens.** The three distinct lines recorded are
+  the harness's own — two 404s (below) and the deliberate
+  `[firebase-status] not_configured` line the banner is driven by.
 * **Failed requests: two, both the harness.**
   `/api/connection-log/client` 404 (the dev entry does not mount the
   connection-debug router) and `/api/play/game/lens-walk-replay` 404, which is
@@ -570,3 +640,13 @@ boolean on a socket envelope, and one function the rail does not call. That is
 the argument for keeping `src/tests/lens-walkthrough-server.ts` and running
 this walk again after anything in `src/lens/**`, `src/web/**` or
 `websocket-server.ts` moves.
+
+Re-running it to close §4 made the same argument a second time. Two of the
+eight items were reported closed by a green suite and were not closed on
+screen: the attention channel had a producer in production and none in the
+walk, so the lane's expand toggle was still a control over nothing; and the
+widen banner was still anonymous, because the fold drops a unit's author on
+`unpin` and the partition recompute that produces the banner lands seqs later.
+Neither is visible to a test that asserts a notice's fields — both wanted a
+browser, a real log, and someone looking at the picture. The re-run is part of
+closing an item, not a formality after it.

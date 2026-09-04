@@ -3,7 +3,7 @@
     {
       "name": "01-idle",
       "note": "live head, no unit focused — the NONE cursor state",
-      "bytes": 101199,
+      "bytes": 101190,
       "overflowPx": 0,
       "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 21No unit focused — click one, or Tab.4 emissions at seq 21 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e20 · 0q",
       "lane": "seq 30 · 31 / 31 · LIVE · seq 30 · observed · walkthrough/mixed",
@@ -22,7 +22,7 @@
     {
       "name": "02-hover-unit",
       "note": "pointer over a unit on the board — the tag calls up",
-      "bytes": 101241,
+      "bytes": 101325,
       "overflowPx": 0,
       "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 21No unit focused — click one, or Tab.4 emissions at seq 21 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e20 · 0q",
       "lane": "seq 30 · 31 / 31 · LIVE · seq 30 · observed · walkthrough/mixed",
@@ -41,7 +41,7 @@
     {
       "name": "03-focus-unit",
       "note": "CANDIDATE state — focus auto-advances to the incumbent (Law D)",
-      "bytes": 192724,
+      "bytes": 192785,
       "overflowPx": 0,
       "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 30\nno conditional was answered — 1 of 5 retained rows play this candidate, so [ and ] have nowhere to go\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\nno runner-up — only 1 of 5 retained rows plays this candidate\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 3q",
       "lane": "seq 30 · 31 / 31 · LIVE · seq 30 · observed · walkthrough/mixed",
@@ -288,7 +288,7 @@
     {
       "name": "11-scrub-anchor",
       "note": "live-scrub at the turn anchor — determinations refuse",
-      "bytes": 155709,
+      "bytes": 155604,
       "overflowPx": 0,
       "rail": "A snake · hp 98 · wt 3\nunclustered\nfree\nCANDIDATES · 0 · priced here · scored as best-of-cluster\nnothing staged yet — no kernel emission yet at seq 0\n· · eval — · e0 · 0q",
       "lane": "seq 0 · 1 / 31 · ⏸ SCRUBBED · seq 0 · read-only · [N] return to now · observed ·",
@@ -383,7 +383,7 @@
     {
       "name": "15-back-to-now",
       "note": "back at the live head — the lock affordance returns",
-      "bytes": 192030,
+      "bytes": 192134,
       "overflowPx": 0,
       "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 30\nno conditional was answered — 1 of 5 retained rows play this candidate, so [ and ] have nowhere to go\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\nno runner-up — only 1 of 5 retained rows plays this candidate\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 3q",
       "lane": "seq 30 · 31 / 31 · LIVE · seq 30 · observed · walkthrough/mixed",
@@ -402,11 +402,11 @@
     {
       "name": "16-widen-banner",
       "note": "the widen banner — additive uncertainty is staged",
-      "bytes": 28699,
+      "bytes": 29008,
       "overflowPx": 0,
-      "rail": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21\nA snake · hp 100 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-42.4~\t\n\t121\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
+      "rail": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21\nA snake · hp 100 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-42.4~\t\n\t121\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
       "lane": "seq 32 · 33 / 33 · LIVE · seq 32 · observed · walkthrough/mixed",
-      "banner": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
+      "banner": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
       "lock": null,
       "state": {
         "viewMode": "live",
@@ -440,7 +440,7 @@
     {
       "name": "17-locked",
       "note": "after Shift+Space — the whole moveset pinned",
-      "bytes": 214481,
+      "bytes": 214382,
       "overflowPx": 0,
       "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t0.0 ⌈0.0⌉\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\nno runner-up — the conditional list has one row\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
       "lane": "seq 40 · 41 / 41 · LIVE · seq 40 · observed · walkthrough/mixed",
@@ -613,7 +613,12 @@
     {
       "at": "live/enter",
       "type": "error",
-      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T23:01:32.663Z)"
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "live/enter",
+      "type": "error",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T23:17:37.417Z)"
     },
     {
       "at": "live/enter",
@@ -621,11 +626,6 @@
       "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
     },
     {
-      "at": "live/enter",
-      "type": "error",
-      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
-    },
-    {
       "at": "replay/enter",
       "type": "error",
       "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
@@ -638,23 +638,23 @@
     {
       "at": "replay/enter",
       "type": "error",
-      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T23:02:02.878Z)"
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-04T23:18:08.665Z)"
     }
   ],
   "requests": [
     {
       "at": "live/enter",
-      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "url": "http://127.0.0.1:5057/api/connection-log/client",
       "status": 404
     },
     {
       "at": "replay/enter",
-      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "url": "http://127.0.0.1:5057/api/connection-log/client",
       "status": 404
     },
     {
       "at": "replay/enter",
-      "url": "http://127.0.0.1:5056/api/play/game/lens-walk-replay",
+      "url": "http://127.0.0.1:5057/api/play/game/lens-walk-replay",
       "status": 404
     }
   ],
@@ -669,7 +669,7 @@
     ],
     "pinnedSeq": "9",
     "widenSeq": "22",
-    "banner": "⚑ released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
+    "banner": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
     "lockBefore": "[Space] lock — pins 3 of 3",
     "lockAfter": "[Space] lock — pins 1 of 3",
     "replayScrubbedTo": "3",
