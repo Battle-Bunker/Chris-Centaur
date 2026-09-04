@@ -73,8 +73,7 @@ import { contestFeature } from './contest';
 import { energyFeature } from './energy';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
-import { potionFeature } from './potion';
-import { tierFeature } from './tier';
+import { potionFeature, tierFeature } from './window';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
