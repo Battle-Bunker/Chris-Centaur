@@ -147,6 +147,19 @@
  * no chance to walk away from — a claim at k grants the enemy k free turns and
  * the collector none. So the window is read whole and the near turns carry it.
  *
+ * THE WEIGHTS ARE ARITHMETIC AND THAT IS A MEASURED CHOICE, NOT AN UNEXAMINED
+ * ONE. The audit's defect class D4 (`docs/design/BEHAVIOUR-AUDIT.md`) reads the
+ * saturation above and objects, correctly, that `3, 2, 1` spends half the
+ * reading on a constant: with `beaten_2 = beaten_3 = 1` this is
+ * `0.5·beaten_1 + 0.5`, so `peril` runs over `[0.5, 1]` and the one horizon
+ * that discriminates is halved before it meets `PERIL_WEIGHT`. Geometric
+ * weights `w_k = λ^(k−1)` at `λ = 1/4` — horizon 1 at 76% — were built,
+ * measured over `potions` seeds 1–8 at 60 turns, and REVERTED: they moved both
+ * of the audit's own counters the wrong way, because renormalising a saturated
+ * tail lowers the price of EVERY pickup and the marginal pickup that buys is an
+ * exposed one. `docs/design/potions.md`, "D4", carries the numbers and the
+ * mechanism; nothing here should be re-derived without reading it.
+ *
  * PERIL DOMINATES, at `PERIL_WEIGHT = 2`: one ally's flipped contest does not
  * buy a collector that can be beaten anywhere it goes. That is "err
  * conservative" written as a number.
@@ -505,7 +518,9 @@ function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam
  * The share of the collector's own ground, over the whole window, on which some
  * enemy arrival beats it at the tier the pickup leaves it on. The near turns
  * carry the reading: a claim at horizon k grants the enemy k free turns and the
- * collector none, and the measurement says the far horizons saturate.
+ * collector none, and the measurement says the far horizons saturate. What the
+ * saturated tail costs the reading is D4 in the audit, and the geometric
+ * alternative to `W − k + 1` is measured and reverted in `potions.md`.
  */
 function perilOf(
   ctx: EvalContext,
