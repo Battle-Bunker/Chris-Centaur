@@ -89,6 +89,16 @@ export interface GameSpec {
   readonly potionRespawnTurns?: number;
   /** How long a pickup's debuff and its allies' buffs last. */
   readonly potionWindowTurns?: number;
+  /**
+   * ENERGY ONE MEAL RESTORES — `GameSetup.foodEnergy`, straight through to
+   * `resolveTurn`. Absent means the engine's own `DEFAULT_FOOD_ENERGY` (100),
+   * which equals `defaultMaxEnergy`, so every meal fills and every meal grows:
+   * the old rule, and the reason no scenario in this file has ever exercised
+   * fill-to-grow (`docs/design/BEHAVIOUR-AUDIT.md`, "the gap the corpus cannot
+   * close"). Set it BELOW a kind's max and a unit needs several meals to fill,
+   * and grows only on the one that tops it off.
+   */
+  readonly foodEnergy?: number;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -419,6 +429,11 @@ export function buildBoard(spec: GameSpec): Board {
     pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
     maxHealthPerUnit: {},
     snakes,
+    // ONE MEAL'S WORTH OF ENERGY, and absent unless the spec names it: a board
+    // that states nothing is the input `marshalBoard` has always been handed,
+    // and `resolveTurn` then reads `DEFAULT_FOOD_ENERGY`. Stating it is what
+    // makes fill-to-grow visible (`--food-energy`).
+    ...(spec.foodEnergy === undefined ? {} : { foodEnergy: spec.foodEnergy }),
     // A POTION-FREE BOARD CARRIES NO POTION FIELDS AT ALL, not empty ones.
     // `marshalBoard` reads "potions enabled" off the board's own contents when
     // the flag is absent, and `Simulator` decides whether a unit's expiry turn
@@ -712,6 +727,15 @@ export interface TurnOutcome {
   /** Every unit the turn removed, with the tier it was ADJUDICATED at. */
   readonly deaths: ReadonlyArray<{ id: string; cause: string; tier: number }>;
   readonly ate: ReadonlyArray<string>;
+  /**
+   * Units the turn's meal GREW, which under fill-to-grow is the subset of
+   * `ate` whose meal reached the kind's maximum energy (`resolveTurn`'s food
+   * phase: "it grows the eater by one weight/length only when it brings the
+   * unit TO that max"). At the shipped `foodEnergy = DEFAULT_FOOD_ENERGY` the
+   * two lists are equal, which is what makes the split free on every board
+   * that does not set it.
+   */
+  readonly grown: ReadonlyArray<string>;
   /** Potions collected this turn, as the difference in the module's own list. */
   readonly potionsTaken: number;
   /** Units whose tier ROSE over the turn — an ally of a collector, mostly. */
@@ -790,6 +814,7 @@ export function stepGame(
   const hadSchedule = board.activeEffects !== undefined;
   const snakes: Snake[] = [];
   const ate: string[] = [];
+  const grown: string[] = [];
   const tierUps: string[] = [];
   const tierDowns: string[] = [];
   for (const snake of board.snakes ?? []) {
@@ -797,7 +822,16 @@ export function stepGame(
     if (!settled) continue;
     const cells = settled.occupancy.map((c) => toApiCoord(c, w, h));
     const piece = snake.unitType !== undefined && snake.unitType !== 'snake';
-    if (settled.occupancy.length > (before.get(snake.id) ?? 0)) ate.push(snake.id);
+    // A MEAL AND A GROWTH ARE TWO EVENTS, and at the shipped `foodEnergy` they
+    // coincide. `ate` is settlement's own collection test, read exactly as
+    // `collectors` reads a potion — a survivor whose head finished on a cell
+    // the turn OPENED with food on — so it counts a meal that only fuels.
+    // `grown` is the occupancy the meal bought, which under fill-to-grow is
+    // the meal that topped the tank off and nothing else. Reading growth alone
+    // (what this counted before `foodEnergy` was reachable from a scenario)
+    // would report a lean board as a board where nothing eats.
+    if (marshalled.config.food.includes(settled.occupancy[0] as number)) ate.push(snake.id);
+    if (settled.occupancy.length > (before.get(snake.id) ?? 0)) grown.push(snake.id);
     const tier = result.tiers[snake.id] ?? 0;
     const was = tierBefore.get(snake.id) ?? 0;
     if (tier > was) tierUps.push(snake.id);
@@ -899,6 +933,7 @@ export function stepGame(
     board: next,
     deaths,
     ate,
+    grown,
     potionsTaken: marshalled.potions.length - result.potions.length,
     tierUps,
     tierDowns,
@@ -1190,6 +1225,71 @@ export function entrappedAt(board: Board, turn: number): EntrapmentReading[] {
 }
 
 // ---------------------------------------------------------------------------
+// THE ENEMY-OCCUPIED ENTRY INSTRUMENT — docs/design/BEHAVIOUR-AUDIT.md D1
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW OFTEN DOES A UNIT STAGE THE CELL AN ENEMY IS STANDING ON, AND HOW OFTEN
+ * DOES IT LOSE THERE?
+ *
+ * D1's counter, and it goes in before the rule it judges. The audit's three
+ * `edge` deaths are all one shape: our unit staged the square an adjacent
+ * enemy head occupied at the START of the turn, `turnEngine.ts` c1 adjudicated
+ * the head-on exchange over that edge, and we lost it. So the thing to count
+ * is exactly that — a staged destination equal to an enemy's turn-start head
+ * cell — split by whether `winsContest` says we survive it.
+ *
+ * It follows `bounds/loud.ts:19-34`'s rule for what an instrument may do: it
+ * counts. It reads the board the decision was taken on and the destinations
+ * that decision staged, settles nothing, evaluates nothing, reads no clock and
+ * makes no evaluator call, so under the runner's node clock it cannot move a
+ * counter. `winsContest` is `strictMaximum`'s own tier-then-weight order,
+ * imported rather than paraphrased, and a piece's weight is its occupancy
+ * repeat exactly as `substrate.ts` reads it.
+ *
+ * BOTH HALVES ARE REPORTED. `entries` is the opportunity — how often the bot
+ * walks at an occupied square at all, which a fix must not simply drive to
+ * zero, since taking a square off a lighter enemy is a capture and not a
+ * blunder — and `lost` is the blunder.
+ */
+export interface EnemyOccupiedEntry {
+  /** Ours, the one that staged it. */
+  readonly id: string;
+  /** Theirs, the one standing on the cell when the turn opened. */
+  readonly enemy: string;
+  /** `winsContest` says we do not survive the meeting. */
+  readonly lost: boolean;
+}
+
+export function enemyOccupiedEntriesAt(
+  board: Board,
+  turn: number,
+  staged: ReadonlyMap<string, number>
+): EnemyOccupiedEntry[] {
+  const m = marshalBoard(board, turn);
+  const occupant = new Map<number, ResolveUnit>();
+  for (const u of m.units) {
+    const head = u.occupancy[0];
+    if (head !== undefined) occupant.set(head, u);
+  }
+  const out: EnemyOccupiedEntry[] = [];
+  for (const u of m.units) {
+    const to = staged.get(u.id);
+    if (to === undefined) continue;
+    const them = occupant.get(to);
+    // A unit staging its own cell is a hold, and an ally's cell is not a
+    // contest the rules adjudicate between two teams.
+    if (them === undefined || them.id === u.id || them.teamID === u.teamID) continue;
+    out.push({
+      id: u.id,
+      enemy: them.id,
+      lost: !winsContest(u.tier, u.occupancy.length, them.tier, them.occupancy.length),
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // The game loop, and the counters a gate reads
 // ---------------------------------------------------------------------------
 
@@ -1197,6 +1297,13 @@ export interface GameMetrics {
   turns: number;
   unitTurns: number;
   foodEaten: number;
+  /**
+   * MEALS THAT GREW THE EATER. Under the shipped `foodEnergy` every meal fills
+   * and every meal grows, so this equals `foodEaten` on every board that does
+   * not set one; on a lean board `grownMeals / foodEaten` is the division of
+   * labour the fill-to-grow rule creates and the audit's open gap.
+   */
+  grownMeals: number;
   /** Moves that put a unit's head back on the cell it left last turn. */
   reversals: number;
   /**
@@ -1207,8 +1314,22 @@ export interface GameMetrics {
    * better. Only counted when the runner is scoring options (`scores: true`).
    */
   unjustifiedReversals: number;
-  /** Unit-turns that ended where they began — a hold, or a pawn's rotation. */
+  /**
+   * THE TRUE PARKED SHARE — a unit whose head cell is the same at the start of
+   * two consecutive turns.
+   *
+   * D6 (`docs/design/BEHAVIOUR-AUDIT.md`): this used to compare `from` against
+   * the STAGED `to`, and a pawn's rotation stages a side square it never
+   * enters (`moveGrammar.planUnitAction`, the `rotate` branch), so nineteen
+   * parked turns registered as fifteen moves. A rotation is a rotation: the
+   * cell HELD is what says whether the unit went anywhere, and the staged cell
+   * is kept only for the dither signature below. The reading is therefore one
+   * turn behind — it is a fact about the turn that has already resolved — and
+   * a unit's first turn is neither parked nor moved.
+   */
   stationary: number;
+  /** The longest run of consecutive parked turns any one unit had. */
+  longestPark: number;
   /**
    * THE DITHER SIGNATURE. The unit did not move, and the destination it staged
    * is not the one it staged last turn: a pawn rotating left, then right, then
@@ -1267,6 +1388,12 @@ export interface GameMetrics {
   deathsWhileDebuffed: number;
   /** Deaths of a unit adjudicated at a positive tier — invulnerability is not immunity. */
   deathsWhileBuffed: number;
+  // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT (BEHAVIOUR-AUDIT.md D1) --------
+  /** Unit-turns staging the cell an enemy head occupied at the turn's start. */
+  enemyOccupiedEntries: number;
+  /** Those of them `winsContest` says we do not survive — D1's counter. */
+  enemyOccupiedEntriesLost: number;
+  // --- end enemy-occupied entry instrument --------------------------------
   // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ----------
   // Five counters, computed post hoc on the concrete board the turn left. They
   // read the rules; they never touch the decision, so they cannot move any
@@ -1386,9 +1513,11 @@ export async function runGame(
     turns: 0,
     unitTurns: 0,
     foodEaten: 0,
+    grownMeals: 0,
     reversals: 0,
     unjustifiedReversals: 0,
     stationary: 0,
+    longestPark: 0,
     dithers: 0,
     movesWithChoice: 0,
     seedKept: 0,
@@ -1405,6 +1534,8 @@ export async function runGame(
     potionTierDowns: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    enemyOccupiedEntries: 0,
+    enemyOccupiedEntriesLost: 0,
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -1438,10 +1569,14 @@ export async function runGame(
     exposed: boolean;
   }[] = [];
   const potionWindow = spec.potionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS;
-  // wireId -> the cell it stood on BEFORE its last move.
+  // wireId -> the cell it HELD at the start of the previous turn. Compared
+  // against the cell it holds now, that is the parked reading (D6); compared
+  // against the cell it stages now, it is the reversal reading.
   const previousCell = new Map<string, string>();
   /** wireId -> the destination it staged last turn, for the dither signature. */
   const previousStage = new Map<string, string>();
+  /** wireId -> consecutive parked turns so far, for `longestPark`. */
+  const parkRun = new Map<string, number>();
   // --- entrapment instrument: one open episode per unit, keyed by wireId ----
   const entrapmentOpen = new Map<string, number>();
   // --- end entrapment instrument -------------------------------------------
@@ -1489,14 +1624,30 @@ export async function runGame(
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
-          const moved = key(tr.from) !== key(tr.to);
           const lastStage = previousStage.get(tr.wireId);
-          if (moved) metrics.movesWithChoice++;
-          else {
+          // THE CELL HELD, not the cell staged (D6). A pawn's rotation stages a
+          // side square it never enters, so `from !== to` counts a rotation as
+          // a move and hides a park; `from` against the same unit's `from` last
+          // turn is where the unit actually IS, two turns running.
+          const parked = prev !== undefined && prev === key(tr.from);
+          if (prev === undefined) {
+            // A unit's first turn has no previous cell to compare and is
+            // neither parked nor moved. Counting it either way would price an
+            // arrival that never happened.
+          } else if (parked) {
             metrics.stationary++;
+            const run = (parkRun.get(tr.wireId) ?? 0) + 1;
+            parkRun.set(tr.wireId, run);
+            metrics.longestPark = Math.max(metrics.longestPark, run);
             if (lastStage !== undefined && lastStage !== key(tr.to)) metrics.dithers++;
+          } else {
+            metrics.movesWithChoice++;
+            parkRun.set(tr.wireId, 0);
           }
-          if (moved && prev !== undefined && prev === key(tr.to)) {
+          // THE REVERSAL READING IS UNCHANGED and stays a fact about the
+          // STAGED cell: staging the square this unit held a turn ago is the
+          // undo, whatever the rotation grammar does with the side squares.
+          if (key(tr.from) !== key(tr.to) && prev !== undefined && prev === key(tr.to)) {
             metrics.reversals++;
             const best = tr.top[0];
             if (best !== undefined && key(best.to) !== key(tr.to)) {
@@ -1517,8 +1668,9 @@ export async function runGame(
           rows.push(
             `  T${String(turn).padStart(3)} ${tr.wireId.padEnd(10)} ${tr.kind.padEnd(6)} ` +
               `hp${String(tr.health).padStart(3)} (${tr.from.x},${tr.from.y})->(${tr.to.x},${tr.to.y})` +
-              `${prev === key(tr.to) && moved ? ' REVERSAL' : ''}` +
-              `${!moved && lastStage !== undefined && lastStage !== key(tr.to) ? ' DITHER' : ''}` +
+              `${prev === key(tr.to) && key(tr.from) !== key(tr.to) ? ' REVERSAL' : ''}` +
+              `${parked ? ' PARKED' : ''}` +
+              `${parked && lastStage !== undefined && lastStage !== key(tr.to) ? ' DITHER' : ''}` +
               `${tr.seeded ? ' [seed]' : ''}  top3: ${opts3}`
           );
           previousCell.set(tr.wireId, key(tr.from));
@@ -1535,8 +1687,21 @@ export async function runGame(
       bodies.set(s.id, s.body.map((c) => `(${c.x},${c.y})`).join(''));
       teamOf.set(s.id, s.teamID as string);
     }
+    // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT (BEHAVIOUR-AUDIT.md D1) -------
+    // Read off the board the decision was taken on, with that decision's own
+    // staged destinations, BEFORE settlement moves anything. It counts; it
+    // cannot reach the decision it is counting.
+    for (const e of enemyOccupiedEntriesAt(board, turn, staged)) {
+      metrics.enemyOccupiedEntries++;
+      if (e.lost) metrics.enemyOccupiedEntriesLost++;
+      rows.push(
+        `  ENEMY-CELL ${e.id} -> ${e.enemy}'s square  ${e.lost ? 'LOST' : 'won'}`
+      );
+    }
+    // --- end enemy-occupied entry instrument -------------------------------
     const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule);
     metrics.foodEaten += outcome.ate.length;
+    metrics.grownMeals += outcome.grown.length;
     metrics.potionPickups += outcome.potionsTaken;
     // Score the windows already open BEFORE opening this turn's: a buff is
     // stamped at the end of the turn it is collected on and decides nothing
@@ -1598,7 +1763,17 @@ export async function runGame(
           `  body was ${before ?? '?'}`
       );
     }
-    if (outcome.ate.length > 0) emit(`  ATE ${outcome.ate.join(', ')}`);
+    if (outcome.ate.length > 0) {
+      // The growth half is named only where it differs — on a board at the
+      // shipped `foodEnergy` every meal grows and the note would be noise.
+      const same =
+        outcome.grown.length === outcome.ate.length &&
+        outcome.grown.every((id) => outcome.ate.includes(id));
+      emit(
+        `  ATE ${outcome.ate.join(', ')}` +
+          (same ? '' : `  GREW ${outcome.grown.join(', ') || '(none)'}`)
+      );
+    }
     if (outcome.potionsTaken > 0) {
       emit(
         `  POTION x${outcome.potionsTaken}  tier up: ${outcome.tierUps.join(', ') || '(none)'}` +
@@ -1818,9 +1993,12 @@ export interface RunSummary {
     readonly turns: number;
     readonly unitTurns: number;
     readonly meals: number;
+    /** Meals that reached the eater's maximum and grew it — see `grownMeals`. */
+    readonly grownMeals: number;
     readonly reversals: number;
     readonly unjustifiedReversals: number;
     readonly stationary: number;
+    readonly longestPark: number;
     readonly dithers: number;
     readonly movesWithChoice: number;
     readonly seedKept: number;
@@ -1836,6 +2014,9 @@ export interface RunSummary {
     readonly potionTierDowns: number;
     readonly deathsWhileDebuffed: number;
     readonly deathsWhileBuffed: number;
+    // --- enemy-occupied entry instrument (BEHAVIOUR-AUDIT.md D1) -----------
+    readonly enemyOccupiedEntries: number;
+    readonly enemyOccupiedEntriesLost: number;
     // --- entrapment instrument (docs/design/entrapment.md §7.2) ------------
     readonly entrappedUnitTurns: number;
     readonly entrapmentEpisodes: number;
@@ -1903,9 +2084,11 @@ export function summaryOf(
       turns: metrics.turns,
       unitTurns: ut,
       meals: metrics.foodEaten,
+      grownMeals: metrics.grownMeals,
       reversals: metrics.reversals,
       unjustifiedReversals: metrics.unjustifiedReversals,
       stationary: metrics.stationary,
+      longestPark: metrics.longestPark,
       dithers: metrics.dithers,
       movesWithChoice: metrics.movesWithChoice,
       seedKept: metrics.seedKept,
@@ -1921,6 +2104,9 @@ export function summaryOf(
       potionTierDowns: metrics.potionTierDowns,
       deathsWhileDebuffed: metrics.deathsWhileDebuffed,
       deathsWhileBuffed: metrics.deathsWhileBuffed,
+      // --- enemy-occupied entry instrument -----------------------------------
+      enemyOccupiedEntries: metrics.enemyOccupiedEntries,
+      enemyOccupiedEntriesLost: metrics.enemyOccupiedEntriesLost,
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurns: metrics.entrappedUnitTurns,
       entrapmentEpisodes: metrics.entrapmentEpisodes,
@@ -1933,6 +2119,7 @@ export function summaryOf(
     },
     rates: {
       mealsPer100: per(metrics.foodEaten),
+      grownMealsPer100: per(metrics.grownMeals),
       reversalsPer100: per(metrics.reversals),
       unjustifiedReversalsPer100: per(metrics.unjustifiedReversals),
       stationaryPer100: per(metrics.stationary),
@@ -1944,6 +2131,9 @@ export function summaryOf(
       recklessPickupsPer100: per(metrics.recklessPickups),
       profitableSafePickupsPer100: per(metrics.profitableSafePickups),
       potionTierUpsPer100: per(metrics.potionTierUps),
+      // --- enemy-occupied entry instrument -----------------------------------
+      enemyOccupiedEntriesPer100: per(metrics.enemyOccupiedEntries),
+      enemyOccupiedEntriesLostPer100: per(metrics.enemyOccupiedEntriesLost),
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurnsPer100: per(metrics.entrappedUnitTurns),
       entrapmentEpisodesPer100: per(metrics.entrapmentEpisodes),
@@ -1987,6 +2177,7 @@ async function summarise(
   const totals: Record<string, number> = {
     unitTurns: 0,
     foodEaten: 0,
+    grownMeals: 0,
     reversals: 0,
     unjustifiedReversals: 0,
     stationary: 0,
@@ -2001,6 +2192,8 @@ async function summarise(
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    enemyOccupiedEntries: 0,
+    enemyOccupiedEntriesLost: 0,
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -2013,6 +2206,9 @@ async function summarise(
   const loud = emptyLoudHistogram();
   let worst = 0;
   let nodes = 0;
+  // A MAXIMUM, NOT A SUM — the longest park any one unit had on any seed. It
+  // is kept out of `totals` because everything in there is added up.
+  let longestPark = 0;
   for (let seed = 1; seed <= seeds; seed++) {
     const r = await runGame(
       {
@@ -2028,6 +2224,7 @@ async function summarise(
     }
     for (const [c, n] of Object.entries(r.metrics.deathsByCause)) causes[c] = (causes[c] ?? 0) + n;
     worst = Math.max(worst, r.metrics.worstDecisionMs);
+    longestPark = Math.max(longestPark, r.metrics.longestPark);
     nodes += r.metrics.nodes;
     addLoud(loud, r.metrics.loud);
     out.json?.(
@@ -2047,7 +2244,8 @@ async function summarise(
     `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''} seeds=${seeds} ` +
       `unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
-      `stationary%=${per(totals.stationary as number)} seedKept%=${per(totals.seedKept as number)} ` +
+      `stationary%=${per(totals.stationary as number)} longestPark=${longestPark} ` +
+      `seedKept%=${per(totals.seedKept as number)} ` +
       `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
       `causes=${JSON.stringify(causes)} ` +
       ((totals.potionPickups as number) > 0
@@ -2058,6 +2256,21 @@ async function summarise(
         : '') +
       `nodes=${nodes} ` +
       (budget.kind === 'ms' ? `worstMs=${worst.toFixed(0)}` : 'deterministic')
+  );
+  // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT, on its own line (D1). `meals` and
+  // `grown` ride here too: on a lean board they differ, and `grown/meals` is
+  // the fill-to-grow division of labour the audit's gap is about.
+  out.say(
+    `${scenario} D1: enemyOccupiedEntries=${totals.enemyOccupiedEntries} ` +
+      `lost=${totals.enemyOccupiedEntriesLost} ` +
+      `entries/100=${per(totals.enemyOccupiedEntries as number)} ` +
+      `lost/100=${per(totals.enemyOccupiedEntriesLost as number)} ` +
+      `meals=${totals.foodEaten} grown=${totals.grownMeals} ` +
+      `grown/meals=${
+        (totals.foodEaten as number) === 0
+          ? 'n/a'
+          : ((totals.grownMeals as number) / (totals.foodEaten as number)).toFixed(2)
+      }`
   );
   // --- THE ENTRAPMENT INSTRUMENT, on its own line (docs/design/entrapment.md
   // §7.2). `lead` is the mean warning in turns over the fatal episodes, which
@@ -2280,6 +2493,11 @@ async function main(): Promise<void> {
   say(`  unjustified: ${pct(result.metrics.unjustifiedReversals, result.metrics.unitTurns)}%`);
   say(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
   say(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
+  say(`longest park:  ${result.metrics.longestPark} turns`);
+  say(
+    `enemy-cell entries: ${result.metrics.enemyOccupiedEntries} ` +
+      `(lost ${result.metrics.enemyOccupiedEntriesLost})`
+  );
   finish();
 }
 
