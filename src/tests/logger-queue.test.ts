@@ -51,27 +51,24 @@ import { anchorEvent, moveset, operatorActor, turnEvent } from './lens-fixtures'
 // Fresh non-singleton instances with a tiny cap so tests stay fast. The
 // constructor parks the worker on waitForWork (empty queue), and everything
 // below enqueues + asserts synchronously, so the worker cannot consume items
-// mid-test unless a test explicitly awaits.
+// mid-test unless a test explicitly awaits. The cap is a constructor
+// argument now (see write-queue.ts's WriteQueueOptions.maxQueue).
 function freshCommandLogger(cap: number): CommandLogger {
-  const logger = new (CommandLogger as any)();
-  (logger as any).MAX_QUEUE_SIZE = cap;
-  return logger;
+  return new (CommandLogger as any)(cap);
 }
 function freshDecisionLogger(cap: number): DecisionLogger {
-  const logger = new (DecisionLogger as any)();
-  (logger as any).MAX_QUEUE_SIZE = cap;
-  return logger;
+  return new (DecisionLogger as any)(cap);
 }
 
 function kinds(logger: any): string[] {
-  return logger.queue.map((q: any) => q.row?.kind ?? q.kind);
+  return logger.wq.queue.map((q: any) => q.row?.kind ?? q.kind);
 }
 
 async function drain(logger: any): Promise<void> {
-  for (let i = 0; i < 200 && logger.queue.length > 0; i++) {
+  for (let i = 0; i < 200 && logger.wq.queue.length > 0; i++) {
     await new Promise((r) => setImmediate(r));
   }
-  expect(logger.queue.length).toBe(0);
+  expect(logger.wq.queue.length).toBe(0);
 }
 
 const SETTLEMENT: any = {
@@ -115,8 +112,8 @@ describe('CommandLogger drops attention, never a determination', () => {
     logger.logEvent(determination());
     logger.logEvent(determination());
     logger.logEvent(determination());
-    expect((logger as any).queue.map((q: any) => q.row.seq)).not.toContain(first.seq);
-    expect((logger as any).queue.length).toBe(3);
+    expect((logger as any).wq.queue.map((q: any) => q.row.seq)).not.toContain(first.seq);
+    expect((logger as any).wq.queue.length).toBe(3);
     await logger.shutdown();
   });
 
@@ -133,7 +130,7 @@ describe('CommandLogger drops attention, never a determination', () => {
     logger.logEvent(keptHover);
     logger.logEvent(determination());
     expect(kinds(logger)).toEqual(['pin', 'pin', 'selection', 'pin']);
-    expect((logger as any).queue[2].row.seq).toBe(keptHover.seq);
+    expect((logger as any).wq.queue[2].row.seq).toBe(keptHover.seq);
     await logger.shutdown();
   });
 
@@ -218,7 +215,7 @@ describe('DecisionLogger drops the regenerable projection, never a source of tru
     logger.logMovesets('d2', projection(2));
     board(logger, 14);
     expect(kinds(logger)).toEqual(['board', 'board', 'movesets', 'board']);
-    expect((logger as any).queue[2].decisionId).toBe('d2');
+    expect((logger as any).wq.queue[2].decisionId).toBe('d2');
     await logger.shutdown();
   });
 

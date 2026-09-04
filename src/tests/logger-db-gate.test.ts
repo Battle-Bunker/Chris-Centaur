@@ -41,7 +41,7 @@ describe('unconfigured database gates the write paths', () => {
     logger.recordUnitOutcome({ gameId: 'g', turn: 1, unitKey: 'A-A', stagedMove: 20 });
     logger.recordSubmittedMove('g', 'A-A', 1, 20);
     logger.recordServerMoves('g', 1, [{ unit: 'A-A', to: 20 }]);
-    expect(logger.queue.length).toBe(0);
+    expect(logger.wq.queue.length).toBe(0);
     // Empty queue → the flush is instant even with a generous deadline.
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await logger.shutdown();
@@ -51,7 +51,7 @@ describe('unconfigured database gates the write paths', () => {
   test('CommandLogger enqueues nothing', async () => {
     const logger: any = new (CommandLogger as any)();
     logger.logEvent(anchorEvent());
-    expect(logger.queue.length).toBe(0);
+    expect(logger.wq.queue.length).toBe(0);
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await logger.shutdown();
     logSpy.mockRestore();

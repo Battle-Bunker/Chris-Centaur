@@ -1,9 +1,9 @@
 import { and, gte, lte, sql } from 'drizzle-orm';
-import { db, dbConfigured } from '../database/db';
-import { transientDelay } from '../server/activity-controller';
+import { db } from '../database/db';
 import { turnEvents } from '../database/schema';
 import { encodeEventRow } from '../lens/store';
 import { writeEventRows } from '../lens/store/persistence';
+import { WriteQueue } from './write-queue';
 import type { SelectionPayload, TurnEvent, TurnEventRow } from '../lens/types';
 
 // The operator identity attached to commands: the enrolled player who issued
@@ -17,15 +17,14 @@ export interface OperatorRef {
 interface QueueItem {
   row: TurnEventRow;
   /**
-   * Whether losing this row costs anything. See `enqueue`: only an ATTENTION
-   * tick is droppable. Everything else is a fact about what happened, and the
-   * `seq` sequence it sits in is asserted gapless.
+   * Whether losing this row costs anything. See `write-queue.ts`'s drop
+   * preference: only an ATTENTION tick is droppable. Everything else is a
+   * fact about what happened, and the `seq` sequence it sits in is asserted
+   * gapless.
    */
   droppable: boolean;
   retries: number;
 }
-
-const BATCH_SIZE = 100;
 
 /**
  * The `turn_events` writer.
@@ -47,24 +46,33 @@ const BATCH_SIZE = 100;
 export class CommandLogger {
   private static instance: CommandLogger;
 
-  private readonly MAX_QUEUE_SIZE = 20000;
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY_MS = 100;
-  private queue: QueueItem[] = [];
-  private droppedCount = 0;
-  // O(1) support for the drop preference in enqueue(): how many queued items
-  // are droppable, and the index below which the queue is known to hold only
-  // undroppable ones, so the drop scan never re-reads that prefix.
-  // Invariant: !queue[i].droppable for all i < dropScanFrom.
-  private droppableCount = 0;
-  private dropScanFrom = 0;
+  private readonly wq: WriteQueue<QueueItem>;
 
-  private workerRunning = true;
-  private workerPromise: Promise<void>;
-  private wakeup: (() => void) | null = null;
-
-  private constructor() {
-    this.workerPromise = this.runWorkerLoop();
+  private constructor(maxQueue = 20000) {
+    this.wq = new WriteQueue<QueueItem>({
+      name: 'CommandLogger',
+      maxQueue,
+      droppable: item => item.droppable,
+      describe: item => `${item.row.kind} at ${item.row.gameId}:${item.row.turn}:${item.row.seq}`,
+      // ONE bulk insert per batch, falling back to per-row retry only when the
+      // bulk insert throws — `turn_events` has no cross-row foreign keys
+      // within a batch, so there is no ordering requirement to preserve.
+      flush: async (batch, retry) => {
+        try {
+          await writeEventRows(batch.map(i => i.row));
+        } catch (error) {
+          console.warn(
+            `[CommandLogger] Batch event insert failed (${batch.length} rows), falling back to per-row retry:`,
+            (error as Error).message
+          );
+          for (const item of batch) {
+            await retry(item);
+          }
+        }
+      },
+      write: item => writeEventRows([item.row]),
+      shutdownMs: 2000,
+    });
   }
 
   public static getInstance(): CommandLogger {
@@ -91,112 +99,7 @@ export class CommandLogger {
       console.error('[CommandLogger] Failed to serialize event, dropping:', e);
       return;
     }
-    this.enqueue({ row, droppable: isAttention(event), retries: 0 });
-  }
-
-  /**
-   * The drop preference, restated for the event log: when an outage backs the
-   * queue up to its cap, drop the oldest ATTENTION TICK and nothing else.
-   *
-   * A hover is numerous, low-grade, off by default in the timeline lane and
-   * dropped at the 30-day fold anyway (04 §3 Q9), so losing one costs nothing
-   * anybody will ever look for. Every other row is a fact — a command, a pin, a
-   * staging outcome, an emission — sitting in a sequence asserted gapless, and
-   * dropping one punches a hole in a fold that has no way to know it is short.
-   */
-  private enqueue(item: QueueItem): void {
-    // No database configured: skip persistence entirely (announced once at
-    // boot by db.ts) instead of queueing rows destined for per-row retry spam
-    // against a socket that can never connect.
-    if (!dbConfigured) return;
-    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      let dropIdx = 0;
-      if (this.droppableCount > 0) {
-        // Amortized O(1): everything before dropScanFrom is undroppable, so
-        // resume the scan there; droppableCount > 0 guarantees a hit.
-        let i = this.dropScanFrom;
-        while (!this.queue[i].droppable) i++;
-        dropIdx = i;
-        this.dropScanFrom = i;
-      }
-      const dropped = this.queue.splice(dropIdx, 1)[0];
-      if (dropped.droppable) this.droppableCount--;
-      if (dropIdx < this.dropScanFrom) this.dropScanFrom--;
-      this.droppedCount++;
-      if (this.droppedCount % 100 === 0) {
-        console.warn(
-          `[CommandLogger] Queue full! Dropped ${this.droppedCount} total entries. ` +
-            `Last dropped: ${dropped.row.kind} at ${dropped.row.gameId}:${dropped.row.turn}:${dropped.row.seq}`
-        );
-      }
-    }
-    this.queue.push(item);
-    if (item.droppable) this.droppableCount++;
-    this.signalWakeup();
-  }
-
-  private signalWakeup(): void {
-    if (this.wakeup) {
-      const w = this.wakeup;
-      this.wakeup = null;
-      w();
-    }
-  }
-
-  private waitForWork(): Promise<void> {
-    return new Promise<void>(resolve => {
-      this.wakeup = resolve;
-    });
-  }
-
-  private async runWorkerLoop(): Promise<void> {
-    while (this.workerRunning || this.queue.length > 0) {
-      if (this.queue.length === 0) {
-        if (!this.workerRunning) break;
-        await this.waitForWork();
-        continue;
-      }
-
-      const batch = this.queue.splice(0, BATCH_SIZE);
-      this.dropScanFrom = Math.max(0, this.dropScanFrom - batch.length);
-      for (const item of batch) {
-        if (item.droppable) this.droppableCount--;
-      }
-
-      try {
-        await writeEventRows(batch.map(i => i.row));
-      } catch (error) {
-        console.warn(
-          `[CommandLogger] Batch event insert failed (${batch.length} rows), falling back to per-row retry:`,
-          (error as Error).message
-        );
-        for (const item of batch) {
-          await this.withRetry(item);
-        }
-      }
-    }
-  }
-
-  private async withRetry(item: QueueItem): Promise<void> {
-    while (true) {
-      try {
-        await writeEventRows([item.row]);
-        return;
-      } catch (error) {
-        item.retries++;
-        if (item.retries > this.MAX_RETRIES) {
-          console.error(
-            `[CommandLogger] Failed to write ${item.row.kind} after ${this.MAX_RETRIES} retries ` +
-              `for ${item.row.gameId}:${item.row.turn}:${item.row.seq}:`,
-            error
-          );
-          this.droppedCount++;
-          return;
-        }
-        const delay = this.RETRY_DELAY_MS * Math.pow(2, item.retries - 1) * (0.5 + Math.random() * 0.5);
-        await transientDelay(delay);
-      }
-    }
+    this.wq.enqueue({ row, droppable: isAttention(event), retries: 0 });
   }
 
   /**
@@ -310,23 +213,7 @@ export class CommandLogger {
   // bounded shutdown-flush): an unreachable database must cost seconds, not
   // minutes, of shutdown time.
   public async shutdown(timeoutMs = 2000): Promise<void> {
-    console.log(`[CommandLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
-    this.workerRunning = false;
-    this.signalWakeup();
-    const flushed = await Promise.race([
-      this.workerPromise.then(() => true),
-      transientDelay(timeoutMs).then(() => false),
-    ]);
-    if (!flushed) {
-      console.warn(
-        `[CommandLogger] Shutdown flush deadline (${timeoutMs}ms) reached; ` +
-        `dropping ${this.queue.length} unflushed entries.`
-      );
-      return;
-    }
-    if (this.droppedCount > 0) {
-      console.warn(`[CommandLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
-    }
+    await this.wq.shutdown(timeoutMs);
   }
 }
 

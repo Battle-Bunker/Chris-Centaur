@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm';
 import { db, dbConfigured } from '../database/db';
-import { transientDelay } from '../server/activity-controller';
 import { BoardSnapshot } from '../types/battlesnake';
 import { TeamDetector } from './team-detector';
 import {
@@ -11,6 +10,7 @@ import {
   writeUnitOutcome,
   type RosterEntry,
 } from '../lens/store/persistence';
+import { WriteQueue } from './write-queue';
 import type {
   CellIndex,
   DecisionRow,
@@ -119,8 +119,6 @@ type QueueItem =
   | { kind: 'outcome'; row: UnitOutcomeRow; retries: number }
   | { kind: 'movesets'; decisionId: string; rows: ReadonlyArray<MovesetProjectionRow>; retries: number };
 
-const BATCH_SIZE = 100;
-
 /**
  * The lens store's writer: `turn_boards`, `decisions`, `movesets` and
  * `unit_outcomes`.
@@ -143,26 +141,28 @@ const BATCH_SIZE = 100;
 export class DecisionLogger {
   private static instance: DecisionLogger;
 
-  private readonly MAX_QUEUE_SIZE = 50000;
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY_MS = 100;
-  private queue: QueueItem[] = [];
-  private droppedCount = 0;
-  // O(1) support for the drop preference in enqueue(): how many queued items
-  // are droppable (kind === 'movesets'), and the index below which the queue is
-  // known to hold only undroppable items, so the drop scan never re-reads that
-  // prefix. Invariant: queue[i].kind !== 'movesets' for all i < dropScanFrom.
-  private droppableCount = 0;
-  private dropScanFrom = 0;
+  private readonly wq: WriteQueue<QueueItem>;
 
-  private workerRunning = true;
-  private workerPromise: Promise<void>;
-  private wakeup: (() => void) | null = null;
-
-  private constructor() {
+  private constructor(maxQueue = 50000) {
     // Schema is owned by Drizzle (db:push in dev, Publish diff in prod); this
     // class assumes the tables already exist and does no startup-time DDL.
-    this.workerPromise = this.runWorkerLoop();
+    this.wq = new WriteQueue<QueueItem>({
+      name: 'DecisionLogger',
+      maxQueue,
+      droppable: item => item.kind === 'movesets',
+      describe: item => `kind=${item.kind}`,
+      // Boards first, then decisions, then the projection that references a
+      // decision, then outcomes. Ordering within a batch is what lets a
+      // projection enqueued alongside its decision find one already written.
+      flush: async (batch, retry) => {
+        for (const item of batch.filter(i => i.kind === 'board')) await retry(item);
+        for (const item of batch.filter(i => i.kind === 'decision')) await retry(item);
+        for (const item of batch.filter(i => i.kind === 'movesets')) await retry(item);
+        for (const item of batch.filter(i => i.kind === 'outcome')) await retry(item);
+      },
+      write: item => this.apply(item),
+      shutdownMs: 4000,
+    });
   }
 
   public static getInstance(): DecisionLogger {
@@ -194,7 +194,7 @@ export class DecisionLogger {
       console.error('[DecisionLogger] Failed to serialize turn board, dropping:', e);
       return;
     }
-    this.enqueue({
+    this.wq.enqueue({
       kind: 'board',
       row: {
         gameId: entry.gameId,
@@ -211,14 +211,14 @@ export class DecisionLogger {
   /** One decision's seed and summary. Small, and the basis of every lazy
    *  re-derivation a folded turn still answers. */
   public logDecisionRecord(row: DecisionRow): void {
-    this.enqueue({ kind: 'decision', row, retries: 0 });
+    this.wq.enqueue({ kind: 'decision', row, retries: 0 });
   }
 
   /** The `movesets` projection for one decision, replacing whatever is there:
    *  DELETE-then-insert is the only write path, so there is exactly one way to
    *  arrive at a row and nothing for a partial update to half-apply. */
   public logMovesets(decisionId: string, rows: ReadonlyArray<MovesetProjectionRow>): void {
-    this.enqueue({ kind: 'movesets', decisionId, rows, retries: 0 });
+    this.wq.enqueue({ kind: 'movesets', decisionId, rows, retries: 0 });
   }
 
   /** One unit's outcome, merged into whatever is already known about it.
@@ -227,7 +227,7 @@ export class DecisionLogger {
   public recordUnitOutcome(
     partial: Pick<UnitOutcomeRow, 'gameId' | 'turn' | 'unitKey'> & Partial<UnitOutcomeRow>
   ): void {
-    this.enqueue({
+    this.wq.enqueue({
       kind: 'outcome',
       row: {
         unitName: null,
@@ -291,80 +291,6 @@ export class DecisionLogger {
     }
   }
 
-  // Single bounded enqueue for EVERY queue item, so a prolonged DB outage
-  // can't grow the queue without bound no matter which producer is hot. When
-  // full, drop the oldest projection batch: `movesets` is regenerable from
-  // `turn_events` by the rebuild command, and every other item is the only
-  // copy of something nothing can recompute.
-  private enqueue(item: QueueItem): void {
-    // No database configured: skip persistence entirely (announced once at
-    // boot by db.ts) instead of queueing rows destined for per-row retry spam
-    // against a socket that can never connect.
-    if (!dbConfigured) return;
-    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      let dropIdx = 0;
-      if (this.droppableCount > 0) {
-        // Amortized O(1): everything before dropScanFrom is undroppable, so
-        // the scan resumes there; droppableCount > 0 guarantees a hit.
-        let i = this.dropScanFrom;
-        while (this.queue[i].kind !== 'movesets') i++;
-        dropIdx = i;
-        this.dropScanFrom = i;
-      }
-      const dropped = this.queue.splice(dropIdx, 1)[0];
-      if (dropped.kind === 'movesets') this.droppableCount--;
-      if (dropIdx < this.dropScanFrom) this.dropScanFrom--;
-      this.droppedCount++;
-      if (this.droppedCount % 100 === 0) {
-        console.warn(
-          `[DecisionLogger] Queue full! Dropped ${this.droppedCount} total entries. ` +
-            `Last dropped: kind=${dropped.kind}`
-        );
-      }
-    }
-    this.queue.push(item);
-    if (item.kind === 'movesets') this.droppableCount++;
-    this.signalWakeup();
-  }
-
-  private signalWakeup(): void {
-    if (this.wakeup) {
-      const w = this.wakeup;
-      this.wakeup = null;
-      w();
-    }
-  }
-
-  private waitForWork(): Promise<void> {
-    return new Promise<void>(resolve => {
-      this.wakeup = resolve;
-    });
-  }
-
-  private async runWorkerLoop(): Promise<void> {
-    while (this.workerRunning || this.queue.length > 0) {
-      if (this.queue.length === 0) {
-        if (!this.workerRunning) break;
-        await this.waitForWork();
-        continue;
-      }
-
-      const batch = this.queue.splice(0, BATCH_SIZE);
-      this.dropScanFrom = Math.max(0, this.dropScanFrom - batch.length);
-      for (const item of batch) {
-        if (item.kind === 'movesets') this.droppableCount--;
-      }
-
-      // Boards first, then decisions, then the projection that references a
-      // decision, then outcomes. Ordering within a batch is what lets a
-      // projection enqueued alongside its decision find one already written.
-      for (const item of batch.filter(i => i.kind === 'board')) await this.withRetry(item);
-      for (const item of batch.filter(i => i.kind === 'decision')) await this.withRetry(item);
-      for (const item of batch.filter(i => i.kind === 'movesets')) await this.withRetry(item);
-      for (const item of batch.filter(i => i.kind === 'outcome')) await this.withRetry(item);
-    }
-  }
-
   private async apply(item: QueueItem): Promise<void> {
     switch (item.kind) {
       case 'board':
@@ -376,27 +302,6 @@ export class DecisionLogger {
       case 'movesets':
         await deleteMovesetsFor(item.decisionId);
         return writeMovesetRows(item.rows);
-    }
-  }
-
-  private async withRetry(item: QueueItem): Promise<void> {
-    while (true) {
-      try {
-        await this.apply(item);
-        return;
-      } catch (error) {
-        item.retries++;
-        if (item.retries > this.MAX_RETRIES) {
-          console.error(
-            `[DecisionLogger] Failed to write ${item.kind} after ${this.MAX_RETRIES} retries:`,
-            error
-          );
-          this.droppedCount++;
-          return;
-        }
-        const delay = this.RETRY_DELAY_MS * Math.pow(2, item.retries - 1) * (0.5 + Math.random() * 0.5);
-        await transientDelay(delay);
-      }
     }
   }
 
@@ -572,36 +477,14 @@ export class DecisionLogger {
   // per-row retry + backoff worker was observed grinding for ~3 minutes under
   // SIGTERM, delaying exit only to drop most entries anyway.
   public async shutdown(timeoutMs = 4000): Promise<void> {
-    console.log(`[DecisionLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
-
-    this.workerRunning = false;
-    this.signalWakeup();
-
-    const flushed = await Promise.race([
-      this.workerPromise.then(() => true),
-      transientDelay(timeoutMs).then(() => false),
-    ]);
-    if (!flushed) {
-      console.warn(
-        `[DecisionLogger] Shutdown flush deadline (${timeoutMs}ms) reached; ` +
-        `dropping ${this.queue.length} unflushed entries.`
-      );
-      return;
-    }
-
-    if (this.droppedCount > 0) {
-      console.warn(`[DecisionLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
-    } else {
+    const flushed = await this.wq.shutdown(timeoutMs);
+    if (flushed && this.wq.stats().droppedCount === 0) {
       console.log('[DecisionLogger] Shutdown complete. All entries flushed.');
     }
   }
 
   public getQueueStats(): { queueSize: number; droppedCount: number; maxQueueSize: number } {
-    return {
-      queueSize: this.queue.length,
-      droppedCount: this.droppedCount,
-      maxQueueSize: this.MAX_QUEUE_SIZE,
-    };
+    return this.wq.stats();
   }
 }
 
