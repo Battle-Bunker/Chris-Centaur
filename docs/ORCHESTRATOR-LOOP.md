@@ -15,13 +15,14 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~15:40Z
-Merged: potion member v2 (ef47035; kept on its numbers). Finding: the potion board at 60 turns / seeds 1–10 has ~875 bound inversions the twelve-arm gate never saw → soundness worker launched; the gate is being extended.
+## Active wave (update on every launch/merge) — 2026-09-04 ~16:30Z
+Merged: 08 steps 1–3 (3198ec0): Q measured (§4.4 holds at LOUD_CAP 12), the threat map on every lens row ("unless" cell), F-10 fixed byte-identical.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| threatmap (CC) | opus | 08 §5 steps 1–3: measure Q; threat map per row; F-10 behind G2 | step 2 byte-identical decisions; step 3 A/B vs stable v2 |
 | potion-sound (CC) | opus | potion-board inversions (60t, seeds 1–10): classes, minimal boards, fixes; extend the standing gate | zero inversions on the extended arms; A/B reported |
-Queued: runner `--opponent=<profile>` (Sonnet; after potion-sound, it owns local-game.ts); 08 §5 step 4 (ceiling ply) gated on Q; second simplification audit after the threat map; entrapment with the ceiling-ply horizon.
+| ceiling (CC) | opus | 08 §5 step 4: B4 rung + ceiling ply on the loud subset; lens depth column | soundness vs exhaustive depth-2; A/B per board class; snakes/sparse byte-identical |
+| audit2 (CC) | opus | read-only SIMPLIFY-PLAN-2.md (judge by special cases removed) | merge doc; Sonnet executors |
+Queued: runner `--opponent=<profile>` (Sonnet; after potion-sound); entrapment with the ceiling-ply horizon (after ceiling); PR #17/#24 body refresh at a ping.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
