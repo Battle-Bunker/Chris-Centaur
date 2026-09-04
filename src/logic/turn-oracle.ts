@@ -65,6 +65,8 @@ import {
   settleTurn,
 } from '../engine-vendor/engine/settleTurn';
 import { ActiveEffect, ClashKind, UnitType } from '@shared/types/Game';
+import { computeClaims } from '../engine-vendor/engine/claims';
+import type { Claim, PartialSettleInput } from '../engine-vendor/engine/claims';
 
 /**
  * What a candidate move DOES to the units on the board, folded into the four
@@ -423,6 +425,37 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     toIndex,
     toCell,
   };
+}
+
+/** Every field of a settle/claims input that the marshalled board fixes. */
+export function settleInputBase(m: MarshalledBoard): Omit<PartialSettleInput, 'units' | 'held'> {
+  return {
+    ...m.config,
+    turn: m.arrivalTurn,
+    teamOf: Object.fromEntries(m.teamOf),
+    effects: m.effects,
+    potions: m.potions,
+    potionsEnabled: m.potionsEnabled,
+    potionWindowTurns: m.potionWindowTurns,
+    pawnPromotionWeight: m.pawnPromotionWeight,
+    maxTurns: m.maxTurns,
+  };
+}
+
+/**
+ * The rules' own dilation, `k` turns on: every unit held at
+ * `observedTurn = arrivalTurn − k`, because `input.turn − observedTurn` IS the
+ * span a claim dilates over. One statement of it, for the window member, the
+ * pickup reading and the entrapment instrument.
+ */
+export function claimsAfter(m: MarshalledBoard, k: number): ReadonlyArray<Claim> {
+  return computeClaims({
+    ...settleInputBase(m),
+    units: m.units,
+    // `input.turn - observedTurn` IS the span a claim dilates over, so this is
+    // the board k turns on with nothing else assumed.
+    held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })),
+  });
 }
 
 /** One assumed enemy intent: the staged cell for each unit that is not ours. */

@@ -17,6 +17,7 @@
 import type { EvalContext, Standing } from './features';
 import type { EngineSubstrate } from '../substrate';
 import { adjudicate, type BoardView } from '../../engine-vendor/engine/adjudicate';
+import { perBoard } from './memo';
 
 /**
  * THE BOUNDARY IS NOT A PREFERENCE (06 F-7, 16-TERMINAL §2–3).
@@ -86,12 +87,11 @@ function ofWeight(n: number): ReadonlyArray<number> {
  *  going missing. */
 const teamMaps = new WeakMap<EngineSubstrate, { readonly [unitID: string]: string }>();
 function teamOfAll(sub: EngineSubstrate): { readonly [unitID: string]: string } {
-  const hit = teamMaps.get(sub);
-  if (hit !== undefined) return hit;
-  const made: { [unitID: string]: string } = {};
-  for (const u of sub.roster()) made[u.wireId] = u.teamId;
-  teamMaps.set(sub, made);
-  return made;
+  return perBoard(teamMaps, sub, () => {
+    const made: { [unitID: string]: string } = {};
+    for (const u of sub.roster()) made[u.wireId] = u.teamId;
+    return made;
+  });
 }
 
 function viewOf(

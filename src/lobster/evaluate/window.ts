@@ -190,8 +190,8 @@
  * whole reason either term exists. See `DEFAULT_WEIGHTS`.
  */
 
-import { computeClaims } from '../../engine-vendor/engine/claims';
 import type { Claim } from '../../engine-vendor/engine/claims';
+import { claimsAfter } from '../../logic/turn-oracle';
 import type { CellIndex, UnitId } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Bound, type Feature, envelope, ourUnitTerm, point } from './bound';
@@ -205,7 +205,7 @@ import {
   winsContest,
 } from './contest';
 import type { EvalContext, Standing } from './features';
-import { perBoard } from './memo';
+import { perBoard, perBoardPerTeam } from './memo';
 
 /**
  * How much heavier the collector's peril reads than the team's profit. Two:
@@ -452,67 +452,39 @@ const EMPTY_GROUND: ReadonlyArray<CellIndex> = Object.freeze([]);
 const CLAIMS = new WeakMap<object, ReadonlyArray<ReadonlyArray<Claim>>>();
 
 function claimsPerHorizon(sub: EngineSubstrate, window: number): ReadonlyArray<ReadonlyArray<Claim>> {
-  const hit = CLAIMS.get(sub.marshalled);
-  if (hit !== undefined) return hit;
-  const m = sub.marshalled;
-  const base = {
-    ...m.config,
-    units: m.units,
-    turn: m.arrivalTurn,
-    teamOf: Object.fromEntries(m.teamOf),
-    effects: m.effects,
-    potions: m.potions,
-    potionsEnabled: m.potionsEnabled,
-    potionWindowTurns: m.potionWindowTurns,
-    pawnPromotionWeight: m.pawnPromotionWeight,
-    maxTurns: m.maxTurns,
-  };
-  const out: Array<ReadonlyArray<Claim>> = [];
-  for (let k = 1; k <= window; k++) {
-    // `input.turn − observedTurn` IS the span a claim dilates over, so this is
-    // the board k turns on with nothing else assumed. No `options`: see the
-    // narrowing note in the header.
-    out.push(
-      computeClaims({ ...base, held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })) })
-    );
-  }
-  const frozen: ReadonlyArray<ReadonlyArray<Claim>> = out;
-  CLAIMS.set(sub.marshalled, frozen);
-  return frozen;
+  return perBoard(CLAIMS, sub.marshalled, () => {
+    const m = sub.marshalled;
+    const out: Array<ReadonlyArray<Claim>> = [];
+    // No `options`: see the narrowing note in the header.
+    for (let k = 1; k <= window; k++) out.push(claimsAfter(m, k));
+    return out;
+  });
 }
 
 function windowRead(sub: EngineSubstrate, asTeam: number, window: number): WindowRead {
-  let perTeam = READS.get(sub.marshalled);
-  if (perTeam === undefined) {
-    perTeam = new Map<number, WindowRead>();
-    READS.set(sub.marshalled, perTeam);
-  }
-  const hit = perTeam.get(asTeam);
-  if (hit !== undefined) return hit;
-
-  const cells = sub.grid.cells;
-  const perHorizon = claimsPerHorizon(sub, window);
-  const horizons: ArrivalField[] = [];
-  const ground = new Map<UnitId, ReadonlyArray<CellIndex>[]>();
-  for (let k = 0; k < perHorizon.length; k++) {
-    const claims = perHorizon[k] as ReadonlyArray<Claim>;
-    for (const claim of claims) {
-      const unit = sub.unitOfClaim(claim);
-      if (unit === undefined || unit.team !== asTeam) continue;
-      let rows = ground.get(unit.unitId);
-      if (rows === undefined) {
-        // Indexed BY HORIZON, never appended: a unit missing a claim at one
-        // horizon would otherwise shift every later row by one.
-        rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
-        ground.set(unit.unitId, rows);
+  return perBoardPerTeam(READS, sub.marshalled, asTeam, () => {
+    const cells = sub.grid.cells;
+    const perHorizon = claimsPerHorizon(sub, window);
+    const horizons: ArrivalField[] = [];
+    const ground = new Map<UnitId, ReadonlyArray<CellIndex>[]>();
+    for (let k = 0; k < perHorizon.length; k++) {
+      const claims = perHorizon[k] as ReadonlyArray<Claim>;
+      for (const claim of claims) {
+        const unit = sub.unitOfClaim(claim);
+        if (unit === undefined || unit.team !== asTeam) continue;
+        let rows = ground.get(unit.unitId);
+        if (rows === undefined) {
+          // Indexed BY HORIZON, never appended: a unit missing a claim at one
+          // horizon would otherwise shift every later row by one.
+          rows = new Array<ReadonlyArray<CellIndex>>(perHorizon.length).fill(EMPTY_GROUND);
+          ground.set(unit.unitId, rows);
+        }
+        rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
       }
-      rows[k] = claim.everPossible as ReadonlyArray<CellIndex>;
+      horizons.push(arrivalField(cells, enemyClaims(sub, claims, asTeam)));
     }
-    horizons.push(arrivalField(cells, enemyClaims(sub, claims, asTeam)));
-  }
-  const read: WindowRead = { horizons, ground };
-  perTeam.set(asTeam, read);
-  return read;
+    return { horizons, ground };
+  });
 }
 
 /**
