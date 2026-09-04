@@ -17,14 +17,18 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - Inversion gate, 16 arms, every one must print no `INVERSION` line: `for s in mixed snakes sparse potions; do for d in 1 2 3; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js $s 30 $d --nodes; done; done` and then `for d in 4 5 6 8; do CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js potions 60 $d --nodes; done` — the four potion arms run to sixty turns because the two soundness classes fixed in 6e7b7d0 (a death in the optimistic timeline read as a proof; `room`'s maximised side read off a crowd containing a held cloud) fire on seeds 5 and 8 only past turn thirty, where the twelve 30-turn arms never looked.
 - Opponent baseline (`--opponent`, against a NON-mirror field — see `resolveOpponent` in local-game.ts): `node dist/tests/local-game.js sum mixed,snakes,potions 30 3 --nodes --opponent=material-only --json=vs-material-only.jsonl --label=vs-material-only`; team 0's meals/100↑deaths/100 vs the seed-1-3 mirror baseline: mixed 7.78→13.17 / 0.00→1.23, snakes 18.33→18.33 / 0.00→0.00, potions 9.96→11.02 / 0.40→1.22 — a material-only field neither seeks food (weight 0) nor avoids a contest the way the default profile does, which is why team 0 eats more and dies more against it than it does mirroring itself.
 
-## Active wave (update on every launch/merge) — 2026-09-04 16:32Z
-Merged: PLAN-2 item 2 + §5.1 (d165582: tier and potion are one window member family in evaluate/window.ts; better() and leaderOf share one comparator). Head d165582; full suite green on d165582 (93 suites, 1605 tests).
+## Active wave (update on every launch/merge) — 2026-09-04 17:45Z
+Merged: entrap (d4c0886: `room` measures the ground a unit can KEEP on the claims horizon; crowdCertain/roomSum/ownership planes/per-team sweep deleted, 84 lines; snakes deaths 4→2 and 17→14, down on 10/10 pairs; P-2 failed so G-5 is void; A/B was vs eba4b94 not the v2 checkpoint). tsc+eslint green on d4c0886; full jest and the 16-arm gate re-run in progress (scratchpad jest-d4c0886.txt, gate16-d4c0886.txt). Cut `stable/one-engine-lens-v3` = d4c0886 once both are clean AND ab-baseline reports no board class worse than v2.
+b1-sound died on a 429 at 16:44Z mid stash-collision recovery; its WIP recovered from tag recovered/b1-sound-stash-ba2040e as f3a5474, contamination discarded, agent resumed by message with merge-d4c0886 instructions. Stashes are shared across worktrees: NO `git stash` in any brief.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| b1-sound (CC) | opus | exact-reply oracle as a standing check; fix B1-floor-vs-exact-reply classes | seed 4 zero; sweep green; A/B reported |
-| entrap (CC) | opus | entrapment: instrument, P-1 falsifier, repair of room | keep only if predictions hold; sixteen arms zero |
-Queued: PLAN-2 item 7 (B1/B3 fold, after b1-sound); third audit once plan 2 is executed; stable checkpoint v3 after entrap/b1-sound land; PR #17 body refreshed 2026-09-04.
-Ping: send_later 55 min, re-armed on each firing (current trig_01UiG472RTf7eQTc3ktu8d6c, fires 17:28Z). Workers alive at 16:31Z: b1-sound at 5d3877f (oracle committed), entrap at 6d4def4 (instrument committed, P-1 baseline running).
+| b1-sound (CC) | opus | merge d4c0886, then: exact-reply oracle as standing check; fix B1-floor-vs-exact-reply classes | seed 4 zero; sweep green; A/B per class reported |
+| audit-3 (CC) | opus | third simplification audit → docs/design/SIMPLIFY-PLAN-3.md (read-only) | doc merges as-is; items become Sonnet executors |
+| lens-audit (CC) | opus | lens UI audit (09-AUDIT.md) + fixes in src/lens/**, src/web/lens-view.js | tsc, eslint, build:lens, lens suites, replay parity + determinism green |
+| ab-baseline (CC) | sonnet | A/B d4c0886 vs stable/one-engine-lens-v2, mirror + material-only, per class → docs/design/ab/ | doc merges; a WORSE class blocks checkpoint v3 |
+| tt-audit-2 (TT) | opus | second TacticToes audit → docs/SIMPLIFY-PLAN-2.md; headline: rule-shaped logic outside engine/ | doc merges as-is |
+Queued: PLAN-2 item 7 (B1/B3 fold, after b1-sound); SIMPLIFY-PLAN-3 executors (Sonnet) after audit-3; TacticToes PLAN-2 executors after tt-audit-2; PR #24 body refresh when TT moves; drives rebase after #17.
+Ping: send_later 55 min, re-armed on each firing (current trig_017jnfNAoaPGKSQUSHY7JWPn, fires 18:24Z).
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
