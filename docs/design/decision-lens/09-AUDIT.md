@@ -11,6 +11,13 @@ The design is `02-INSPECTION-UI.md`; the numbers are `07-MEASURED.md`; what
 depth means on this build is `08-DEPTH-VERDICT.md`. This document is the
 difference between those three and the code.
 
+**What has since landed.** Every Band A and Band B finding, the whole of Band
+D and C1 were fixed on `lens-audit`. The two findings that needed a file that
+audit did not own — A6's kernel emission and the mid-turn joiner's anchor —
+and the seven page-side items handed over with them are fixed on `lens-2`.
+Each is marked **FIXED** below, with what closed it; C3 and C4 are still open
+and are the honest remainder.
+
 **Ranking rule.** Findings are ordered by how much they mislead an operator,
 not by how hard they are to fix.
 
@@ -25,26 +32,26 @@ not by how hard they are to fix.
 
 ## Band A — the operator is told something untrue
 
-### A1. Replay is drawn by the LIVE source, and one keypress makes a recorded turn lockable
+### A1. Replay was drawn by the LIVE source, and one keypress made a recorded turn lockable — **FIXED**
 
 `frameAtSeq` (`src/lens/view/index.ts`) always builds its frame through
 `makeLiveDecisionSource`, so its `at.mode` can only ever be `live-head` or
-`live-scrub`. The page's replay path calls it with `isHead: false`
-(`play-game.html::historicFrameFor`), so a replayed turn renders as
-`⏸ SCRUBBED`, and the lock affordance reads `[N] return to now and lock`.
-`N` (`play-game.html::lensNow`) sets the page's `lensAtHead = true` on the
-**replayed** event array; the next `Shift+Space` passes `planLock`'s head check
-and sends `lens-lock` with pins computed from a recorded frame.
+`live-scrub`. The page's replay path called it with `isHead: false`
+(`play-game.html::historicFrameFor`), so a replayed turn rendered as
+`⏸ SCRUBBED`, and the lock affordance read `[N] return to now and lock`.
+`N` (`play-game.html::lensNow`) set the page's `lensAtHead = true` on the
+**replayed** event array; the next `Shift+Space` passed `planLock`'s head check
+and sent `lens-lock` with pins computed from a recorded frame.
 
-`makeReplayDecisionSource` exists, is correct, and is reachable from no
-production caller: the browser has never run the replay source. "Two sources,
-one reducer" is true of the tests and half-true of the product.
+`makeReplayDecisionSource` existed, was correct, and was reachable from no
+production caller: the browser had never run the replay source. "Two sources,
+one reducer" was true of the tests and half-true of the product.
 
-*Fix (this branch):* `replayFrameAtSeq(events, seq)` — the same fold, the same
-frame, stamped by the replay source. *Fix (page owner, one token):*
-`view.frameAtSeq(events, last.seq, false)` → `view.replayFrameAtSeq(events, last.seq)`
-in `historicFrameFor`, which also stops `lensNow` from being able to mark a
-recorded frame as the head.
+*Fixed in both halves.* `replayFrameAtSeq(events, seq)` is the same fold and
+the same frame, stamped by the replay source, and `historicFrameFor` calls it
+— which also stops `lensNow` marking a recorded frame as the head. The rail's
+badge is `modeBadge` + `provenanceBadge` rather than the page's own copy of
+one of them, so a replayed turn now says `REPLAY · seq n · read-only`.
 
 ### A2. The retained movesets are folded under a key no reader ever asks for
 
@@ -114,18 +121,28 @@ won, offered as the reason the other one lost.
 run` when there is none. The line is also relabelled: it was calling a
 dominance clause a "rung", which is a different object entirely (B3).
 
-### A6. The BREAKDOWN panel cannot draw, anywhere, ever
+### A6. The BREAKDOWN panel could not draw, anywhere, ever — **FIXED**
 
-`frameAt` returns `breakdown: {}` unconditionally; no `LensEvent` kind carries a
-breakdown; `LobsterKernel.explainMoveset` answers the asking socket only, and
-`play-game.html` discards `lens-breakdown-rows` (it deletes the pending id and
-re-renders). So `panel.breakdown.pending` — *"[B] to price this row"* — is the
-only breakdown state that has ever been on screen, `B` appears to do nothing,
-and the **mandatory joint-residual row** (02 §3.7, the one thing that stops the
-panel repeating the old per-unit table's lie) has never been rendered in
-production.
+`frameAt` returned `breakdown: {}` unconditionally; no `LensEvent` kind carried
+a breakdown; `LobsterKernel.explainMoveset` answered the asking socket only,
+and `play-game.html` discarded `lens-breakdown-rows`. So
+`panel.breakdown.pending` — *"[B] to price this row"* — was the only breakdown
+state that had ever been on screen, `B` appeared to do nothing, and the
+**mandatory joint-residual row** (02 §3.7, the one thing that stops the panel
+repeating the old per-unit table's lie) had never been rendered in production.
 
-Not fixable inside `src/lens/**`: see *Kernel-side* below.
+*Fixed by one emission at the site beside the conditional's.*
+`explainMovesetNow` puts its answer on the sink (`framedBreakdown`) on both
+success paths, including the evaluator that does not explain; the `breakdown`
+event kind carries what 01 §3.3 says a breakdown row holds — moveset, basis,
+level-1 `aggregate`, level-2 `marginals` each against the reference action it
+was priced against, and the named `residual`, mandatory and carried at zero.
+The reducer files it under its moveset key, `ingestLensEvents` encodes it
+verbatim, and `storeFromRows` gives it back, so the panel draws the same rows
+live and in replay; the `movesets` projection is untouched, because a breakdown
+is a fact about a row and not a row. `lens-replay-parity.test.ts` records a
+drilled decision and asserts the event on the wire and in storage, the residual
+on the folded frame, and `panel.breakdown.residual` in both transcripts.
 
 ---
 
@@ -169,8 +186,9 @@ elsewhere in the codebase to mean something else:
 - `unless`: the row's `DominanceCondition`, the threat/opportunity map.
 
 The clauses I own are now written as sentences rather than tokens where there
-was room. A legend belongs in the rail's panel heads, which are
-`lens-panel.js`'s markup: see *Owned by others* below.
+was room. The legend belongs in the rail's panel heads, which are
+`lens-panel.js`'s markup, and it is there now — one line under the MOVESETS
+head, glossing all four (item 5 of *Handed over* below).
 
 ### B4. The foil's per-member Δ badge is the whole-moveset margin
 
@@ -181,8 +199,9 @@ contribution difference"). Two differing members get the same badge; the badge
 is not about either of them.
 
 *Fix:* derive the badge from the two rows' member marginals when a breakdown is
-in the frame, and draw no badge when it is not. (Today that means no badge —
-A6 — which is the honest state.)
+in the frame, and draw no badge when it is not. Since A6 the frame can hold
+one, so the badge is drawn on a drilled row and absent on every other — which
+is the honest state either way.
 
 ### B5. `tMono` is a wall clock on a bot whose clock is the work clock
 
@@ -275,62 +294,59 @@ text is its kind.
 
 ---
 
-## Not mine to change, and what it would take
+## Handed over, and now closed
 
-**Owned by `src/web/lens-panel.js` / `play-game.html`** — reported, not touched:
+**Owned by `src/web/lens-panel.js` / `play-game.html`** — all seven **FIXED**:
 
-1. **A1's page line** — `historicFrameFor` must call `replayFrameAtSeq`.
-2. **The rail duplicates the badge component.** `modeBadge` /
-   `provenanceBadge` are the sanctioned home of the three fields that may
-   legitimately differ between live and replay; the page hardcodes
-   `'⏸ SCRUBBED · [N] to return to now'` instead, which is how a replayed turn
-   comes to claim it is scrubbed. (They are *retained* rather than deleted for
-   this reason, and are the fix for A1's second half.)
-3. **The lane is built twice.** `renderTimeline` emits ticks for
-   `frame.events`, which is truncated at the playhead, so scrubbing back would
-   shrink the lane; the page therefore builds its own rows from the whole turn
-   (`lensLaneRows`). One of the two has to go, and it cannot be the page's
-   until the frame can carry the turn's whole event list.
-4. **`LANES` drops the `anchor` lane**, so `board.arrived` and `turn.resolved`
-   — the two anchors the lane is defined between — have no tick.
-5. **A legend for B3.** One line under each panel head:
+1. **A1's page line.** `historicFrameFor` folds through `replayFrameAtSeq`.
+2. **The rail duplicated the badge component.** The lane's badge is
+   `modeBadge` + `provenanceBadge`; the page's hardcoded
+   `'⏸ SCRUBBED · [N] to return to now'` — which is how a replayed turn came
+   to claim it was scrubbed — is gone.
+3. **The lane was built twice.** `renderTimeline` emits ticks for
+   `frame.events`, which is truncated at the playhead, so a lane built from
+   them shrinks as the operator scrubs back. The page's rows over the whole
+   turn are the survivor; `laneEventsFromTranscript`, the second builder, is
+   deleted.
+4. **`LANES` gained the `anchor` lane**, and the page's lane map sends
+   `board.arrived` and `turn.resolved` to it: the two ends the lane is defined
+   between have a tick.
+5. **The legend for B3** is one line under the MOVESETS head:
    `⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on`.
-6. **The empty rail** still calls the page's own `lensEmptyLine`, a second copy
-   of A3's sentence with different wording.
-7. **`lens-breakdown-rows` / `lens-conditional-rows` are discarded** on arrival
-   (A6); the conditional survives only because the kernel also writes it to the
-   event log.
+6. **The empty rail** says `emptyStateLine`'s sentence, which tells A3's four
+   emptinesses apart. The page's second copy is deleted.
+7. **`lens-breakdown-rows` / `lens-conditional-rows`** are the receipt and say
+   so: both answers reach the page as recorded frames through the fold — the
+   same bytes replay reads — and what the reply carries that the fold cannot is
+   the typed refusal, which is rendered as the answer it is.
 
-**Kernel-side (`src/lobster/**`, other owners):**
+**Kernel-side and socket-side** — both **FIXED**:
 
-- **A6 needs a `breakdown` lens frame.** `LobsterKernel.explainMoveset`
-  (`src/lobster/kernel.ts`, the `rankConditional`/`explainMoveset` pair around
-  the `emitLens(run, (at) => ({ kind: "conditional", … }))` call sites) answers
-  the socket and emits nothing. One `emitLens(run, (at) => ({ kind:
-  'breakdown', at, moveset, breakdown }))` beside the conditional's would make
-  a drilled row a recorded fact — which is what makes replay show the breakdown
-  the operator drilled live, instead of a permanent "[B] to price this row".
-  The store fold and `LensFrame.breakdown` are already shaped for it; I have not
-  added the event kind, because an event kind with no producer is D-band code.
-- **A client that joins mid-turn never receives `board.arrived`.**
-  `WebSocketServer.broadcastLensFrames` sends only *new* events, so a late
-  subscriber's fold anchors on whatever arrived first: `frameAtSeq` then treats
-  that event as the anchor, drops it from the fold, and `boardOf` falls back to
-  a 0×0 board. The fix is a turn-so-far replay on subscribe, in
-  `active-game-manager`'s outbox, not in the fold.
+- **A6's `breakdown` lens frame.** `LobsterKernel.explainMoveset` emits one
+  beside the conditional's, so a drilled row is a recorded fact. What the
+  kernel decides is untouched: the emission is a thunk on the existing sink,
+  and no reading is retaken.
+- **A client that joins mid-turn now receives `board.arrived`.**
+  `WebSocketServer.broadcastLensFrames` keeps the turn's anchor per game and
+  replays it on subscribe. Without it a late subscriber's fold anchored on
+  whatever arrived first, dropped that event, and `boardOf` fell back to a 0×0
+  board.
+
+**Still open**, and deliberately: **C3** (the depth column's evidence — there
+is nothing to hide yet on a build where no row deepens, and the LINE panel of
+06 §2.3 does not exist) and **C4** (`refusal`, `posture` and `rung` ticks whose
+only text is their kind).
 
 ---
 
-## What this branch changes
+## What the two branches changed
 
-Every Band A and Band B finding whose code is in `src/lens/**`, the whole of
-Band D, and C1. C2 is answered rather than changed — the fold is right and the
-view's derivation was wrong, which A4 fixes. A6, C3, C4 and the page-side items
-above are reported and unfixed, because their fix is in a file this worker does
-not own: they are the shortest list of one-line changes I can hand over, and
-every one of them is named with its file and its function.
+`lens-audit` closed every Band A and Band B finding whose code is in
+`src/lens/**`, the whole of Band D, and C1. C2 is answered rather than changed
+— the fold is right and the view's derivation was wrong, which A4 fixed.
 
-Two exports are kept deliberately though nothing calls them yet:
-`modeBadge` / `provenanceBadge`, which are the sanctioned home of the three
-fields that may differ between live and replay and the fix for the second half
-of A1, and `replayFrameAtSeq`, which is the landing pad for its first half.
+`lens-2` closed what was left: A6 at its kernel emission site, the mid-turn
+joiner's anchor on the socket, and the seven page-side items above. The two
+exports `lens-audit` kept without callers now have them — `modeBadge` /
+`provenanceBadge` in the lane's badge, and `replayFrameAtSeq` in
+`historicFrameFor`.
