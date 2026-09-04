@@ -30,6 +30,7 @@ import { makeSearchCore } from '../lobster/search';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
+import { observeLoud, type LoudReading } from '../lobster/bounds';
 import { mulberry32 } from '../lobster/bounds/testkit';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
 import type { LensSink } from '../lens/types';
@@ -153,6 +154,120 @@ export class DecisionClock {
   work(): number {
     return this.nodes * NODE_COST + this.reads * READ_COST;
   }
+}
+
+/**
+ * THE LOUD-PRODUCT HISTOGRAM — step 1 of `08-DEPTH-VERDICT` §5, and the whole
+ * of it.
+ *
+ * ONE OCCASION IS ONE B3 PREAMBLE: one priced plan on which the bank had a
+ * non-empty entanglement gate and built its option lists. That is the
+ * population a ceiling ply would be selected from, and it is the same
+ * population the reply product `P` is read on, so the two distributions here
+ * are a CROSS-TAB of one sample rather than two runs laid beside each other.
+ *
+ * `b3` splits it on Finding D-1's own axis. `open` counts the occasions where
+ * B3 DECLINED — the bracket is genuinely open and a deep member would have
+ * something to remove — and it is the `open` row, not the total, that decides
+ * whether §4.4's cost claim survives: a `Q` small enough to enumerate is only
+ * worth having where ply 1 did not already close the question.
+ *
+ * Nothing here is charged to the decision clock, because nothing here calls
+ * the evaluator or reads `now()`.
+ */
+export interface LoudHistogram {
+  /** B3 preambles seen. */
+  occasions: number;
+  /** Occasions where B3 ACTUALLY FIRED — the ply-1 bracket is closed there. */
+  b3Fired: number;
+  /** Occasions where the gate reached every held unit. `b3Fired`'s hard term. */
+  covered: number;
+
+  // ---- `Q`, the loud product. Disjoint buckets; the boundaries are §4.4's own
+  // `LOUD_CAP` candidates, so the cost table can be read straight off the row.
+  /** `Q === 0`: some gated enemy has no loud option — nothing it can play
+   *  touches our footprint, so a ceiling ply has nothing to enumerate. */
+  quiet: number;
+  q1to6: number;
+  q7to12: number;
+  q13to24: number;
+  q25to512: number;
+  qOver512: number;
+
+  // ---- `P`, the reply product, in 08 §1.3's own classes, on the SAME
+  // occasions — which is what makes the two distributions a cross-tab.
+  pTo24: number;
+  pTo512: number;
+  pTo4096: number;
+  pOver4096: number;
+
+  /** THE §4.4 TEST, in one number: `Q <= 12` where `P > productCap`, i.e. an
+   *  affordable ceiling ply on an occasion the full product could not close. */
+  qUnder12WhereOpen: number;
+  /** The denominator of the line above. */
+  pOver512: number;
+
+  /** `Σ Q` and `Σ P` — means without a second pass. */
+  qTotal: number;
+  pTotal: number;
+}
+
+export function emptyLoudHistogram(): LoudHistogram {
+  return {
+    occasions: 0,
+    b3Fired: 0,
+    covered: 0,
+    quiet: 0,
+    q1to6: 0,
+    q7to12: 0,
+    q13to24: 0,
+    q25to512: 0,
+    qOver512: 0,
+    pTo24: 0,
+    pTo512: 0,
+    pTo4096: 0,
+    pOver4096: 0,
+    qUnder12WhereOpen: 0,
+    pOver512: 0,
+    qTotal: 0,
+    pTotal: 0,
+  };
+}
+
+/** The `Q` bucket, named once so nothing can bucket it a second way. */
+function loudBucket(q: number): keyof LoudHistogram {
+  if (q === 0) return 'quiet';
+  if (q <= 6) return 'q1to6';
+  if (q <= 12) return 'q7to12';
+  if (q <= 24) return 'q13to24';
+  if (q <= 512) return 'q25to512';
+  return 'qOver512';
+}
+
+/** The `P` class, in 08 §1.3's own boundaries. */
+function productBucket(p: number): keyof LoudHistogram {
+  if (p <= 24) return 'pTo24';
+  if (p <= 512) return 'pTo512';
+  if (p <= 4096) return 'pTo4096';
+  return 'pOver4096';
+}
+
+export function countLoud(into: LoudHistogram, reading: LoudReading): void {
+  into.occasions++;
+  if (reading.b3) into.b3Fired++;
+  if (reading.covers) into.covered++;
+  into[loudBucket(reading.q)]++;
+  into[productBucket(reading.product)]++;
+  into.qTotal += reading.q;
+  into.pTotal += reading.product;
+  if (reading.product > 512) {
+    into.pOver512++;
+    if (reading.q <= 12) into.qUnder12WhereOpen++;
+  }
+}
+
+export function addLoud(into: LoudHistogram, from: LoudHistogram): void {
+  for (const k of Object.keys(from) as Array<keyof LoudHistogram>) into[k] += from[k];
 }
 
 /**
@@ -354,6 +469,9 @@ export interface TeamDecision {
   readonly slices: number;
   /** Clock reads: one per `shouldStop`, i.e. per inner search-loop iteration. */
   readonly reads: number;
+  /** The loud product, over this decision's own B3 preambles (08 §5 step 1).
+   *  Measured, never acted on: the decision above is byte-identical with it. */
+  readonly loud: LoudHistogram;
 }
 
 export async function decideTeam(
@@ -389,10 +507,11 @@ export async function decideTeam(
   const traces: UnitTrace[] = [];
   const clock = new DecisionClock(budget.kind === 'nodes');
   if (ourIds.length === 0) {
-    return { staged, traces, horizon: 0, nodes: 0, slices: 0, reads: 0 };
+    return { staged, traces, horizon: 0, nodes: 0, slices: 0, reads: 0, loud: emptyLoudHistogram() };
   }
 
   const sub = makeSubstrate({ gameId: 'local', board, turn, asTeam: teamId, modeled: ourIds });
+  const loud = emptyLoudHistogram();
   try {
     const asTeam = sub.teamNumber(teamId);
     const safety = resolveStagingSafety(stagingSafety(), boardBearsPiece(sub));
@@ -460,14 +579,24 @@ export async function decideTeam(
     lens?.attach?.(sub);
     let plan: JointPlan | null = null;
     let horizon = 0;
-    for await (const rec of kernel.decide(kin)) {
-      plan = rec.plan;
-      horizon = rec.horizon;
+    // AROUND THE DECISION AND NOTHING ELSE. The trace pricing below runs its
+    // own banks at an unbounded budget, after the decision is over; counting
+    // its preambles would put a telemetry population into a measurement of
+    // what the SEARCH saw.
+    const stopWatching = observeLoud((reading) => countLoud(loud, reading));
+    try {
+      for await (const rec of kernel.decide(kin)) {
+        plan = rec.plan;
+        horizon = rec.horizon;
+      }
+    } finally {
+      stopWatching();
     }
-    const stats = (): { nodes: number; slices: number; reads: number } => ({
+    const stats = (): { nodes: number; slices: number; reads: number; loud: LoudHistogram } => ({
       nodes: clock.nodes,
       slices: kernel.lastReport?.slices ?? 0,
       reads: clock.reads,
+      loud,
     });
     if (plan === null) return { staged, traces, horizon, ...stats() };
 
@@ -841,6 +970,8 @@ export interface GameMetrics {
   worstDecisionNodes: number;
   /** Team decisions taken. `nodes / decisions` is the per-decision mean. */
   decisions: number;
+  /** The loud product over every B3 preamble of the game (08 §5 step 1). */
+  loud: LoudHistogram;
   crashed: string | null;
 }
 
@@ -906,6 +1037,7 @@ export async function runGame(
     reads: 0,
     worstDecisionNodes: 0,
     decisions: 0,
+    loud: emptyLoudHistogram(),
     crashed: null,
   };
   /**
@@ -948,6 +1080,7 @@ export async function runGame(
         metrics.reads += decision.reads;
         metrics.worstDecisionNodes = Math.max(metrics.worstDecisionNodes, decision.nodes);
         metrics.decisions++;
+        addLoud(metrics.loud, decision.loud);
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
@@ -1241,6 +1374,12 @@ export interface RunSummary {
     readonly reads: number;
     readonly worstDecisionNodes: number;
   };
+  /**
+   * THE LOUD PRODUCT'S DISTRIBUTION (08 §5 step 1) — the instrument, beside
+   * the work it did not cost. It is a function of (build, scenario, seed,
+   * budget) like everything else here, so two arms' files still subtract.
+   */
+  readonly loud: LoudHistogram;
   /** Wall clock. `ms` mode only: it is not reproducible and never compared. */
   readonly wall?: { readonly worstDecisionMs: number };
   readonly crashed: string | null;
@@ -1307,6 +1446,7 @@ export function summaryOf(
       reads: metrics.reads,
       worstDecisionNodes: metrics.worstDecisionNodes,
     },
+    loud: { ...metrics.loud },
     crashed: metrics.crashed,
   };
   // The wall reading rides only where it means something. In the deterministic
@@ -1342,6 +1482,7 @@ async function summarise(
     deathsWhileBuffed: 0,
   };
   const causes: Record<string, number> = {};
+  const loud = emptyLoudHistogram();
   let worst = 0;
   let nodes = 0;
   for (let seed = 1; seed <= seeds; seed++) {
@@ -1360,6 +1501,7 @@ async function summarise(
     for (const [c, n] of Object.entries(r.metrics.deathsByCause)) causes[c] = (causes[c] ?? 0) + n;
     worst = Math.max(worst, r.metrics.worstDecisionMs);
     nodes += r.metrics.nodes;
+    addLoud(loud, r.metrics.loud);
     out.json?.(
       JSON.stringify(
         summaryOf(r.metrics, { label: out.label, scenario, seed, turnsRequested: turns }, budget)
@@ -1383,6 +1525,21 @@ async function summarise(
       `nodes=${nodes} ` +
       (budget.kind === 'ms' ? `worstMs=${worst.toFixed(0)}` : 'deterministic')
   );
+  // THE LOUD PRODUCT, on its own line and only where there was one to measure.
+  // `open` is the subset that matters: B3 declined there, so the bracket is
+  // open and a ceiling ply would have something to remove.
+  if (loud.occasions > 0) {
+    const pct = (n: number): string => `${((100 * n) / loud.occasions).toFixed(1)}%`;
+    out.say(
+      `${scenario} Q: occasions=${loud.occasions} b3Fired=${loud.b3Fired} gateCoveredHeld=${loud.covered} ` +
+        `| Q=0 ${loud.quiet} (${pct(loud.quiet)}) Q1-6 ${loud.q1to6} (${pct(loud.q1to6)}) ` +
+        `Q7-12 ${loud.q7to12} (${pct(loud.q7to12)}) Q13-24 ${loud.q13to24} (${pct(loud.q13to24)}) ` +
+        `Q25-512 ${loud.q25to512} (${pct(loud.q25to512)}) Q>512 ${loud.qOver512} (${pct(loud.qOver512)}) ` +
+        `| P<=24 ${loud.pTo24} P<=512 ${loud.pTo512} P<=4096 ${loud.pTo4096} P>4096 ${loud.pOver4096} ` +
+        `| Q<=12 where P>512: ${loud.qUnder12WhereOpen}/${loud.pOver512} ` +
+        `| meanQ=${(loud.qTotal / loud.occasions).toFixed(2)} meanP=${(loud.pTotal / loud.occasions).toFixed(1)}`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

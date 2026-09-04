@@ -105,6 +105,7 @@ import type {
   LensRefusal,
   LensReserve,
   LensSink,
+  LoudReading,
   Lock,
   MemberMarginal,
   Moveset,
@@ -939,6 +940,10 @@ interface Run {
    * explanation is a question about a row the operator can see, and there are
    * at most `LENS_ROW_CAP` of those. */
   readonly plansByMoveset: Map<string, JointPlan>
+  /** THE LOUD READING behind a retained row (08 §5 step 1). Bounded exactly as
+   * `plansByMoveset` is, and for the same reason: it is a fact about a row the
+   * operator can see. Never read by anything that decides. */
+  readonly loudByMoveset: Map<string, LoudReading>
   pins: Pin[]
   tentative: Pin[]
   /**
@@ -1109,6 +1114,7 @@ export class LobsterKernel implements Kernel {
       inSlice: false,
       queued: [],
       plansByMoveset: new Map<string, JointPlan>(),
+      loudByMoveset: new Map<string, LoudReading>(),
       stamp: 0,
       basisKey: "",
       framed: new Map<number, string>(),
@@ -2661,6 +2667,9 @@ export class LobsterKernel implements Kernel {
         if (per === undefined) continue
         if (!reservoir.admits(cluster.id, per.complementKey, order)) continue
         if (run.plansByMoveset.size < LENS_ROW_CAP * 4) run.plansByMoveset.set(per.key, trial.plan)
+        if (trial.loud != null && run.loudByMoveset.size < LENS_ROW_CAP * 4) {
+          run.loudByMoveset.set(per.key, trial.loud)
+        }
         reservoir.offer(
           this.rowOf(run, cluster, per, cut.whole, trial, entry.cursor),
           trial.because === null ? null : { because: trial.because, ...(trial.witness === null ? {} : { witness: trial.witness }) }
@@ -2713,12 +2722,19 @@ export class LobsterKernel implements Kernel {
         const fingerprint = rows.map((r) => `${r.key}#${r.lo}/${r.est}/${r.hi}/${r.rank}`).join(";")
         if (run.framed.get(cluster.id) === fingerprint) continue
         run.framed.set(cluster.id, fingerprint)
+        // THE FRAME'S OWN CONTEXT: `Q` and `P` as measured on the LEADER's
+        // plan. One reading per frame rather than one per row, because the
+        // question step 1 asks — would a ceiling ply have been affordable on
+        // the decision this frame is about — is a question about the row the
+        // decision is standing on.
+        const loud = run.loudByMoveset.get((rows[0] as Moveset).key) ?? null
         this.emitLens(run, (at) => ({
           kind: "movesets",
           at,
           clusterId: cluster.id,
           rows,
           complementKey: per.complementKey,
+          loud,
         }))
       }
     } catch {

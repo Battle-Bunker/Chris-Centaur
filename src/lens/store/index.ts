@@ -632,6 +632,9 @@ export function ingestLensEvents(
           emissionSeq: lastEmissionSeq,
           complementKey: event.complementKey,
           rows: event.rows,
+          // Frame context, carried verbatim. It is not a row and not a
+          // column: the `movesets` PROJECTION is unchanged by it.
+          loud: event.loud,
         };
         payload = p;
         break;

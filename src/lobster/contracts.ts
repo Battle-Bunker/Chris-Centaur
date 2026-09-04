@@ -32,6 +32,7 @@
 
 import type { Claim, Divergence, Fate, PartialSettlement } from "../engine-vendor/engine/settlePartial"
 import type { MaterialBounds } from "./bounds/material"
+import type { LoudReading } from "./bounds/loud"
 // THE ONE UPWARD REFERENCE, and it is type-only. `KernelInput.lens` names the
 // lens's own sink type rather than re-declaring its shape here: two
 // declarations of one function type is exactly the drift the lens exists to
@@ -687,6 +688,13 @@ export interface TrialObservation {
    * lens's depth column reads it here — from the reading — and never from
    * `EmitRecord.horizon`, which is a property of an emission. */
   readonly horizon?: number
+  /**
+   * THE LOUD PRODUCT of this trial's own B3 preamble, or null where the
+   * preamble did not run (`08-DEPTH-VERDICT` §5 step 1). An INSTRUMENT: it is
+   * measured on option lists the bank already built, it settles nothing, and
+   * no comparison on this path reads it.
+   */
+  readonly loud?: LoudReading | null
 }
 
 export type TrialSink = (trial: TrialObservation) => void

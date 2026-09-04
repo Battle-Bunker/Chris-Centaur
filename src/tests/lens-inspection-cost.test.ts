@@ -266,6 +266,13 @@ async function decide(watched: boolean): Promise<Run> {
  * than the reserve could account for. A watched run that searched LONGER, or
  * one that lost more than the reserve, would both fail here — and either would
  * mean the carve is not what it says it is.
+ *
+ * `loud` IS OF THE WORK'S KIND, not the play's (08 §5 step 1). It counts B3
+ * PREAMBLES — one per priced plan with a non-empty gate — so a run that
+ * searched less because the reserve was carved off it runs fewer of them, for
+ * the same reason it spends fewer nodes. Holding it to equality here would be
+ * asserting that the reserve is not taken, which is the opposite of what the
+ * block below proves; so it is compared as a bound, in the same direction.
  */
 describe('the sink does not move a decision', () => {
   const SEEDS = [1, 2, 3] as const;
@@ -329,8 +336,8 @@ describe('the sink does not move a decision', () => {
       it(`plays identically with the sink attached and absent — ${scenario[0]} seed ${seed}`, async () => {
         const open = JSON.parse(await play(scenario[1], scenario[0], seed, false));
         const watched = JSON.parse(await play(scenario[1], scenario[0], seed, true));
-        const { work: openWork, ...openPlay } = open;
-        const { work: watchedWork, ...watchedPlay } = watched;
+        const { work: openWork, loud: openLoud, ...openPlay } = open;
+        const { work: watchedWork, loud: watchedLoud, ...watchedPlay } = watched;
         expect(JSON.stringify(watchedPlay)).toBe(JSON.stringify(openPlay));
         // The counters are not vacuously equal: the bot really played.
         expect(openPlay.counters.unitTurns).toBeGreaterThan(0);
@@ -341,6 +348,13 @@ describe('the sink does not move a decision', () => {
         const lost = openWork.nodes - watchedWork.nodes;
         expect(lost).toBeGreaterThanOrEqual(0);
         expect(lost).toBeLessThanOrEqual(openWork.decisions * LENS_INSPECTION_MS);
+
+        // The instrument moves with the search and only downward: the watched
+        // run priced no more plans than the unwatched one, and it really
+        // measured something on both.
+        expect(openLoud.occasions).toBeGreaterThan(0);
+        expect(watchedLoud.occasions).toBeGreaterThan(0);
+        expect(watchedLoud.occasions).toBeLessThanOrEqual(openLoud.occasions);
       }, 300_000);
     }
   }

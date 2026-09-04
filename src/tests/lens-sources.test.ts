@@ -254,7 +254,7 @@ describe('the kernel sink, through the one writer', () => {
         cause: 'decision-start',
       },
       { kind: 'emission', at: 12, record: emitRecord() },
-      { kind: 'movesets', at: 13, clusterId: 0, rows, complementKey: 'comp:live' },
+      { kind: 'movesets', at: 13, clusterId: 0, rows, complementKey: 'comp:live', loud: null },
       { kind: 'posture', at: 20, from: 'SIGHTED', to: 'FOGGED-DISCRIMINATING', channel: 'est' },
       { kind: 'refusal', at: 21, refusal: 'ratchet-floor', planKey: 'plan:2' },
     ];

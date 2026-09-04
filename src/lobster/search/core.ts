@@ -548,6 +548,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // by ARITHMETIC, and the reservoir says `dominated` rather than
       // fabricating a certificate nobody holds.
       witness: trial.witnesses[0] ?? null,
+      // THE INSTRUMENT RIDES ALONG (08 §5 step 1). `Q` is measured in the
+      // bank's own B3 preamble; this is the seam it travels to the lens on,
+      // and no comparison below reads it.
+      loud: trial.loud,
     });
   };
 

@@ -76,6 +76,7 @@ import type { BudgetHandle } from "../contracts";
 import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
 import { evaluatorResidueEntry, residueOf } from "./ledger";
 import { footprintOf, planKey, withMove, withMoves } from "./plan";
+import { loudReadingOf, type LoudReading } from "./loud";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
 import { modelledView, isModelling } from "./substrate-ext";
@@ -189,6 +190,13 @@ export interface BankResult extends PlanScore {
    * why.
    */
   readonly narrowings: ReadonlyArray<Assumption>;
+  /**
+   * THE LOUD PRODUCT, measured beside the reply product and never acted on
+   * (`08-DEPTH-VERDICT` §5 step 1). Null when the B3 preamble did not run —
+   * nothing is modelled, or the gate is empty — which is itself an occasion
+   * class: there is no held enemy to reply, so there is nothing to enumerate.
+   */
+  readonly loud: LoudReading | null;
 }
 
 export interface BankInput {
@@ -545,6 +553,7 @@ export class BoundBank {
     members.push(b0Report);
 
     let est = b0.est;
+    let loud: LoudReading | null = null;
 
     if (this.canModel) {
       const gated = this.gate(plan, b0.bounds.ledger);
@@ -557,11 +566,14 @@ export class BoundBank {
         const view = this.viewFor(gated);
         const lists = gated.map((id) => ({ id, ...this.optionsFor(view, id) }));
         const product = lists.reduce((n, l) => n * l.options.length, 1);
-        if (
+        // NAMED so the instrument can carry it: `b3` on the reading is the
+        // Finding D-1 axis — whether ply 1 already closed this bracket.
+        const eligible =
           coversEverything &&
           lists.every((l) => l.complete && l.options.length > 0) &&
-          product <= this.cfg.productCap
-        ) {
+          product <= this.cfg.productCap;
+        loud = loudReadingOf(plan, lists, product, eligible, coversEverything);
+        if (eligible) {
           const leaves: Branch[] = [];
           let swept = true;
           const walk = (i: number, acc: Candidate[]): void => {
@@ -724,6 +736,7 @@ export class BoundBank {
       worstResolution: floorPick.resolution,
       est,
       narrowings: this.narrowingList,
+      loud,
     };
   }
 
