@@ -65,6 +65,8 @@ import {
   topCandidates,
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
+import { leavesTrail } from "../../engine-vendor/engine/moveGrammar";
+import type { UnitType } from "../../engine-vendor/shared/types/Game";
 import { resolveStagingSafety, stagingSafety } from "../staging-safety";
 import { DEFAULT_DEAD_BELOW, detectVacuity } from "../postures";
 // The KERNEL's plan key, not the bank's. The two spell a plan differently
@@ -179,6 +181,17 @@ interface Session {
   /** Views built for this session. `LeverView.round` — the orchestrator's own
    * sense of how long it has been looking at this decision. */
   round: number;
+  /**
+   * IS THERE A HELD PIECE ON THIS BOARD AT ALL — gate G-D1, made structural.
+   *
+   * The ceiling ply is scoped to clusters with a held PIECE, so on a snake-only
+   * board it can never fire. Asked ONCE here rather than per plan inside the
+   * bank, because the difference between "the rung declines" and "the rung is
+   * not offered" is the difference between a decision that spends a few reads
+   * asking and one that is byte-identical to the build before the member
+   * existed. The parity gate checks the STRUCTURE, and this is the structure.
+   */
+  readonly heldPiece: boolean;
 }
 
 /** One priced plan, as the lever view shows it. */
@@ -212,6 +225,14 @@ const REFUSED = {
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
+  /**
+   * IS THE CEILING PLY BUILT INTO THIS CORE? — the RESOLVED answer, not
+   * `cfg.bank.b4`, which is `undefined` on every caller that names no bank
+   * overrides and would then read as "not false" and offer the lever anyway.
+   * The bank resolves its own config against `DEFAULT_BANK_CONFIG`; so does
+   * this, once, and the two cannot disagree.
+   */
+  const plyBuilt: boolean = { ...DEFAULT_BANK_CONFIG, ...cfg.bank }.b4;
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
@@ -362,7 +383,27 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       references,
       rivals: new Map<string, Rival>(),
       round: 0,
+      heldPiece: heldPieceOn(ctx, new Set(ours)),
     };
+  };
+
+  /**
+   * Does this board hold a unit we do not command that is not a trail unit?
+   *
+   * The grammar's own test (`leavesTrail`), asked of the substrate's roster,
+   * so a promoted pawn counts at the kind it is now. Feature-detected: a
+   * substrate that cannot say degrades to NO, which is the side that leaves
+   * the member off rather than the side that runs it blind.
+   */
+  const heldPieceOn = (ctx: SearchContext, ours: ReadonlySet<UnitId>): boolean => {
+    const roster = ctx.sub as unknown as { unitOf?: (id: UnitId) => { type: string } | undefined };
+    if (typeof roster.unitOf !== "function") return false;
+    for (const id of ctx.sub.unitIds()) {
+      if (ours.has(id)) continue;
+      const unit = roster.unitOf(id);
+      if (unit !== undefined && !leavesTrail(unit.type as UnitType)) return true;
+    }
+    return false;
   };
 
   /**
@@ -1163,7 +1204,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // (the leader and the highest-`hi` un-refuted rival), and where the
       // member is off it finds every target already at its maximum, falls
       // through, and returns `stop`, which is the kernel's plain `improve()`.
-      depthMax: cfg.bank.b4 === false ? 1 : 2,
+      depthMax: plyBuilt && s.heldPiece ? 2 : 1,
       units: [],
       interiorCells: 0,
       epsilon: 0,

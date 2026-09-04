@@ -55,6 +55,14 @@ import {
 const OURS = 0;
 const EPS = 1e-6;
 
+/**
+ * The shipped configuration WITH the rung engaged. `DEFAULT_BANK_CONFIG` has
+ * it off — see the field's own note, and §5's merge rule — so the harness
+ * turns it on explicitly rather than inheriting a default that would make
+ * every assertion below vacuous the day the default moved.
+ */
+const WITH_PLY = { ...DEFAULT_BANK_CONFIG, b4: true };
+
 // --------------------------------------------------------------- the truth
 
 /** Every joint assignment over `units`, drawn from `optionsOf`. Ordered. */
@@ -277,7 +285,7 @@ describe('the ceiling ply is sound against an exhaustive depth-2 truth', () => {
             asTeam: OURS,
             budget: unboundedBudget(),
             basis: [],
-            config: DEFAULT_BANK_CONFIG,
+            config: WITH_PLY,
           });
           const deepBank = new BoundBank({
             sub,
@@ -286,7 +294,7 @@ describe('the ceiling ply is sound against an exhaustive depth-2 truth', () => {
             asTeam: OURS,
             budget: unboundedBudget(),
             basis: [],
-            config: DEFAULT_BANK_CONFIG,
+            config: WITH_PLY,
           });
           try {
             const one = shallow.price(plan);
@@ -340,7 +348,6 @@ describe('the ceiling ply is sound against an exhaustive depth-2 truth', () => {
         sub.release();
       }
     }
-    // eslint-disable-next-line no-console
     console.log(
       `  [ceiling ply] floors=${checkedFloors} fired=${stats.fired} tightened=${stats.tightened} ` +
         `vsD2=${stats.checkedAgainstD2} sound=${stats.aboveD2} oracle=${oracleChecks} ` +
@@ -363,11 +370,11 @@ describe('the ceiling ply is sound against an exhaustive depth-2 truth', () => {
         for (const plan of allPlans(sub, gen, OURS, 4)) {
           const shallow = new BoundBank({
             sub, gen, evaluate, asTeam: OURS, budget: unboundedBudget(), basis: [],
-            config: DEFAULT_BANK_CONFIG,
+            config: WITH_PLY,
           });
           const deepBank = new BoundBank({
             sub, gen, evaluate, asTeam: OURS, budget: unboundedBudget(), basis: [],
-            config: DEFAULT_BANK_CONFIG,
+            config: WITH_PLY,
           });
           try {
             const one = shallow.price(plan);
@@ -398,7 +405,6 @@ describe('the ceiling ply is sound against an exhaustive depth-2 truth', () => {
         sub.release();
       }
     }
-    // eslint-disable-next-line no-console
     console.log(
       `  [ceiling ply/team] fired=${stats.fired} vsD2=${stats.checkedAgainstD2} ` +
         `sound=${stats.aboveD2} floor≤D2 ${stats.floorUnderD2} / floor>D2 ${stats.floorOverD2} ` +

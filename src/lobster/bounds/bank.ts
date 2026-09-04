@@ -124,6 +124,20 @@ export interface BankConfig {
    * of a decision may spend them, so it is asked for per call through
    * `priceDeep`. This flag is the build-level switch under it: false makes
    * `priceDeep` identical to `price` and the whole member inert.
+   *
+   * OFF BY DEFAULT, on the gate rather than on the metric (§5, G-D3). The
+   * rung is sound — it is proved against an exhaustive depth-2 truth — and its
+   * A/B is inside the noise on both piece classes. What it also is, is a
+   * COUNTEREXAMPLE GENERATOR for the floor rungs: every leaf is a complete
+   * concrete world, and a complete concrete world whose value sits below a
+   * complete B1 floor is a proof that the floor is wrong. On `potions` seed 4
+   * it finds one and the kernel then absorbs 485 bounds inversions on one
+   * decision, where the same build without the rung finds none — and the same
+   * build WITH it finds none on seed 5, where the baseline finds 26. The
+   * defect is not this member's (a B1 floor above the exact value of a real
+   * reply is B1's error whoever produced the reply), it is the potion-board
+   * floor defect already under repair, and a slice the kernel discards is a
+   * slice the search did not get. Engaged by flipping this, once that lands.
    */
   readonly b4: boolean;
   /**
@@ -164,7 +178,7 @@ export const DEFAULT_BANK_CONFIG: BankConfig = {
   b1: true,
   b2: true,
   b3: true,
-  b4: true,
+  b4: false,
   loudCap: 12,
   enemyCap: 3,
   productCap: 512,
@@ -1047,18 +1061,38 @@ export class BoundBank {
     for (const l of axis) q *= l.loud;
     if (q > this.cfg.loudCap) return no("cap", q);
 
-    // THE QUIET HALF, NAMED. Every held unit the axis does not enumerate —
-    // un-gated, or gated with no loud option at all — is named with
-    // `NO_ORDER_MOVE`: the KIND's own default action, which is a rule of the
-    // game and not a guess about an agent, and which the contract requires to
-    // be NAMED rather than left implicit (omitting a unit makes it held, and
-    // held is what this member cannot have). Restricting a unit to one reply
-    // is the same WHICH-truncation the loud subset is, and it is legal here
-    // for the same reason and only for the ceiling.
-    const enumerated = new Set(axis.map((l) => l.unitId));
+    // Every unit live: the leaf holds nobody, so the view must model nobody's
+    // claim. With the held set empty the settlement has no claims at all,
+    // which is exactly the concreteness the ply-2 layer is about to assert.
     const held = this.uncontrolled();
+    const view = this.viewFor(held);
+
+    // THE QUIET HALF, NAMED — and named FROM THE UNIT'S OWN OPTION LIST.
+    //
+    // Every held unit the axis does not enumerate — un-gated, or gated with no
+    // loud option at all — is pinned to the FIRST of its enumerated replies.
+    // Restricting a unit to one reply is the same WHICH-truncation the loud
+    // subset is: the min the ply takes still ranges over replies the enemy can
+    // actually make, so it still over-estimates the min over all of them.
+    //
+    // IT MUST COME OUT OF THAT LIST. The first build of this named the quiet
+    // half with `NO_ORDER_MOVE` — the kind's own default, which is a rule of
+    // the game and looks like the honest way to name a unit nobody modelled.
+    // It is not a member of the enumerated reply set (`legalTargets` sweeps
+    // destinations, and standing still is not one of them), so the leaf was a
+    // world OUTSIDE the set B1 takes its min over, and its value could sit
+    // below B1's floor — 485 bounds inversions on `potions` seed 4, floor=B1
+    // against ceiling=B2, from the witnesses those leaves banked. A ceiling
+    // over a reply the min does not range over is not a ceiling. The default
+    // survives only where the list is EMPTY, which is the one case where it is
+    // the whole reply set rather than an addition to it.
+    const enumerated = new Set(axis.map((l) => l.unitId));
     const quiet: Candidate[] = [];
-    for (const id of held) if (!enumerated.has(id)) quiet.push(noOrderCandidate(id));
+    for (const id of held) {
+      if (enumerated.has(id)) continue;
+      const first = this.optionsFor(view, id).options[0];
+      quiet.push(first ?? noOrderCandidate(id));
+    }
     for (const l of axis) {
       if (l.loud >= l.options) continue;
       this.declare({
@@ -1075,15 +1109,11 @@ export class BoundBank {
         kind: "narrowing",
         unitId: c.unitId,
         note:
-          `B4 ceiling ply: unit ${c.unitId} named with its kind's own default action, ` +
-          "because nothing it can play meets the staged footprint — a ceiling-only WHICH-truncation",
+          `B4 ceiling ply: unit ${c.unitId} pinned to one of its own replies, because nothing ` +
+          "it can play meets the staged footprint — a ceiling-only WHICH-truncation to a singleton",
       });
     }
 
-    // Every unit live: the leaf holds nobody, so the view must model nobody's
-    // claim. With the held set empty the settlement has no claims at all,
-    // which is exactly the concreteness the ply-2 layer is about to assert.
-    const view = this.viewFor(held);
     const marshalled = (this.memo as unknown as { marshalled?: MarshalledBoard }).marshalled;
     const ourTeam = (this.memo as unknown as { teamLabel?: (n: number) => string | undefined })
       .teamLabel?.(this.input.asTeam);
