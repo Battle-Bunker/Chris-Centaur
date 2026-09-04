@@ -808,6 +808,11 @@ export class BoundBank {
         .filter((m) => m.floor !== null)
         .map((m) => ({ rung: m.rung, unitId: m.unitId, floor: m.floor as number })),
       cap: settings.cap,
+      // The bank's own view cache, so a violation is attributed to a TERM by
+      // rebuilding the rung's reading rather than by guessing — see `classOf`.
+      // Value-transparent: `viewFor` memoises, and a view is a function of the
+      // id set alone.
+      viewOf: (modelled) => this.viewFor([...modelled]).sub,
     });
     reportExact(check, () => this.dumpFor(base, held));
   }

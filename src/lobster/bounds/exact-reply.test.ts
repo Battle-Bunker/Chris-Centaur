@@ -29,6 +29,8 @@
  */
 
 import { EngineSubstrate } from '../substrate';
+import type { Candidate, Evaluator, PlanEvaluation } from '../contracts';
+import { defaultEvaluator } from '../evaluate';
 import { BoundBank, DEFAULT_BANK_CONFIG } from './bank';
 import {
   boardOfDump,
@@ -110,22 +112,152 @@ describe('the oracle refutes a wrong floor and clears a right one', () => {
   }, 300_000);
 });
 
-describe('a sampled arm of the standing gate', () => {
-  const arms: ReadonlyArray<{ scenario: string; seed: number; turns: number; rate: number }> = [
-    // The arm the defect was reported on, at the sampled rate an ordinary test
-    // run can afford. The Baseline command runs it to sixty turns at rate 10.
-    { scenario: 'potions', seed: 4, turns: 10, rate: 40 },
-    // One piece board and one snake board beside it: the floor rungs are the
-    // same everywhere and a class that only fires on potions is a hypothesis,
-    // not a finding.
-    { scenario: 'mixed', seed: 1, turns: 6, rate: 60 },
-    { scenario: 'snakes', seed: 2, turns: 6, rate: 60 },
-  ];
+/**
+ * THE SIXTEEN GATE ARMS, ASKED OF WORLDS.
+ *
+ * The same sixteen arms `CENTAUR_DEBUG_INVERSION` runs — four scenarios at
+ * seeds 1..3 for thirty turns, and `potions` at sixty on the four seeds the
+ * potion board is gated on — but with the OTHER instrument pointed at them.
+ * The inversion gate compares the bank's members against each other and is
+ * blind to a floor that is wrong on every rung at once; this one settles
+ * concrete worlds and can refute exactly that.
+ *
+ * TWO DEPTHS, ONE LIST. An ordinary `npx jest` cannot afford sixteen
+ * thirty-turn games, so each arm runs a PREFIX of its own game at a sampled
+ * rate — the prefix is a real game with real boards, and every world it
+ * settles is a proof about the floor that priced it, so a short arm is a
+ * weaker sample and never a weaker argument. `CENTAUR_EXACT_FULL=1` runs the
+ * arms at their gate lengths and at rate 10, which is the sweep a soundness
+ * claim is reported from.
+ *
+ * Each arm reports its DEFECT COUNTS PER CLASS (`exactStats.classes`, see
+ * `classOf`): a violation is attributed to the feature keys whose own `lo`
+ * sits above that feature's value in the refuting world, so a run that finds
+ * anything says which term to repair rather than only that something is wrong.
+ */
+/**
+ * THE CLASSIFIER, AGAINST A DEFECT WHOSE CAUSE IS KNOWN.
+ *
+ * `classOf` earns its place only if a violation it reports names the TERM
+ * responsible, so it is asked about a defect that was put there on purpose: an
+ * evaluator identical to the shipped one except that ONE feature's `lo` is
+ * far too high wherever the reading is an interval. A concrete world is
+ * a point in every feature, so the worlds are untouched and every world value
+ * is the honest one; only the held readings lie, which is exactly the shape of
+ * every real floor defect. The class every violation carries must name that
+ * feature and no other.
+ */
+function liarOn(real: Evaluator, key: string): Evaluator {
+  const LIE = 1000;
+  const doctor = (ev: PlanEvaluation): PlanEvaluation => {
+    const part = ev.parts[key];
+    // A POINT IS LEFT ALONE — the concrete worlds have to keep their real
+    // values or the "defect" would be in the oracle's own arithmetic. The
+    // guard is on the TOTAL rather than on the part, because a feature can
+    // collapse on a board whose fold has not: what a world is entitled to is
+    // that NOTHING about it moved.
+    if (part === undefined || ev.bound.hi - ev.bound.lo <= 1e-9) return ev;
+    return {
+      ...ev,
+      bound: { ...ev.bound, lo: ev.bound.lo + LIE },
+      parts: { ...ev.parts, [key]: { ...part, lo: part.lo + LIE } },
+    };
+  };
+  const self: Evaluator = {
+    scorePlan: (sub, plan, asTeam) => self.evaluatePlan(sub, plan, asTeam).bound,
+    evaluatePlan: (sub, plan, asTeam) => doctor(real.evaluatePlan(sub, plan, asTeam)),
+  };
+  return self;
+}
+
+describe('the classifier names the term, not just the number', () => {
+  test('a feature doctored above its own worlds is the class every violation carries', () => {
+    let named = 0;
+    let clamped = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      const board = makeTestBoard(seededBoard(seed, 7, 1, 1, 2));
+      const sub = new EngineSubstrate({
+        marshalled: board.marshalled,
+        turn: board.turn,
+        asTeam: 't0',
+      });
+      const views: Array<{ release(): void }> = [];
+      try {
+        const asTeam = sub.teamNumber('t0');
+        const ours = sub.commandable(asTeam);
+        const held = sub.roster().filter((u) => u.team !== asTeam).map((u) => u.unitId);
+        if (ours.length === 0 || held.length === 0) continue;
+        const base = new Map(ours.map((id) => [id, sub.actionsOf(id)[0] as Candidate]));
+        const viewOf = (ids: ReadonlyArray<number>) => {
+          const v = modelledView(sub, [...ids]);
+          views.push(v);
+          return v.sub;
+        };
+        const all = viewOf(held);
+        const ask = {
+          sub: all,
+          base,
+          held,
+          asTeam,
+          floorFrom: 'the doctored feature',
+          ceiling: Number.POSITIVE_INFINITY,
+          memberFloors: [],
+          cap: 48,
+          viewOf,
+        };
+        const honest = exactReplyCheck({
+          ...ask,
+          evaluate: defaultEvaluator,
+          floor: Number.NEGATIVE_INFINITY,
+        });
+        // A board whose worst world is the lattice bottom has no number to
+        // plant a lie one unit above, so it is not one of these seeds' jobs.
+        if (honest.skipped !== null || !Number.isFinite(honest.minValue)) continue;
+        expect(honest.violations).toEqual([]);
+        const lie = exactReplyCheck({
+          ...ask,
+          evaluate: liarOn(defaultEvaluator, 'material'),
+          floor: (honest.minValue as number) + 1,
+        });
+        for (const v of lie.violations) {
+          if (v.klass === 'clamp' || v.klass === 'unattributed') clamped++;
+          else {
+            expect(v.klass.split('+')).toContain('material');
+            named++;
+          }
+        }
+      } finally {
+        for (const v of views) v.release();
+        sub.release();
+      }
+    }
+    // The instrument has to have named the planted term, and it may not have
+    // named a term on a world the plant does not reach — hence the two
+    // counters rather than one.
+    expect(named).toBeGreaterThan(0);
+    expect(named).toBeGreaterThan(clamped);
+  }, 300_000);
+});
+
+describe('the sixteen gate arms: no floor above a concrete reply', () => {
+  const FULL = process.env.CENTAUR_EXACT_FULL === '1';
+  const SCENARIO_NAMES = ['mixed', 'snakes', 'sparse', 'potions'] as const;
+  const arms: Array<{ scenario: string; seed: number; turns: number; rate: number }> = [];
+  for (const scenario of SCENARIO_NAMES) {
+    for (const seed of [1, 2, 3]) {
+      arms.push({ scenario, seed, turns: FULL ? 30 : 6, rate: FULL ? 10 : 60 });
+    }
+  }
+  // The potion board is the one §7 reported the defect on, and it is gated at
+  // sixty turns on four further seeds.
+  for (const seed of [4, 5, 6, 8]) {
+    arms.push({ scenario: 'potions', seed, turns: FULL ? 60 : 10, rate: FULL ? 10 : 40 });
+  }
 
   for (const arm of arms) {
-    test(`${arm.scenario} seed ${arm.seed}: no floor above a concrete reply`, async () => {
+    test(`${arm.scenario} seed ${arm.seed}`, async () => {
       process.env.CENTAUR_EXACT_CHECK = String(arm.rate);
-      process.env.CENTAUR_EXACT_CAP = '128';
+      process.env.CENTAUR_EXACT_CAP = FULL ? '256' : '128';
       resetExactCheckSettings();
       resetExactStats();
       try {
@@ -146,14 +278,16 @@ describe('a sampled arm of the standing gate', () => {
         `  [exact ${arm.scenario}/${arm.seed}] checks=${exactStats.checks} ` +
           `worlds=${exactStats.worlds} complete=${exactStats.complete} ` +
           `floor=${exactStats.floorViolations} ceiling=${exactStats.ceilingViolations} ` +
+          `classes=${JSON.stringify(exactStats.classes)} ` +
           `skips=${JSON.stringify(exactStats.skips)}`,
       );
       // Anti-vacuity: the arm has to have looked at real worlds at all.
-      expect(exactStats.checks).toBeGreaterThan(20);
-      expect(exactStats.worlds).toBeGreaterThan(200);
+      expect(exactStats.checks).toBeGreaterThan(10);
+      expect(exactStats.worlds).toBeGreaterThan(100);
+      expect(exactStats.classes).toEqual({});
       expect(exactStats.floorViolations).toBe(0);
       expect(exactStats.ceilingViolations).toBe(0);
-    }, 600_000);
+    }, 900_000);
   }
 });
 

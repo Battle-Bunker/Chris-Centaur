@@ -766,6 +766,20 @@ function fillScalars<S extends TerritorySubject>(
  * there, and that is a world this bound has to cover. In `hi` a tie containing
  * one of OURS gives it to us, for the mirror reason. A tie with nothing of the
  * relevant side in it still falls through to plane 1.
+ *
+ * ── AND ONLY WHEN A CLAIM IS IN IT, WHICH IS THE WHOLE JUSTIFICATION ───────
+ *
+ * The argument above is about a tie the HOLDING made: a claim cloud is a union
+ * over worlds, so it ties with units no single world puts on that square, and
+ * the reading owes the cell to the side the world might have given it to.
+ * Between two LOCATED movers a tie is not an artifact at all — it is the
+ * resolver's own outcome, a mutual kill, and it happens in every world alike.
+ * Splitting THAT tie by reading makes `lo` and `hi` disagree on a determinate
+ * board, which is an R3 failure: measured as 268 further per-feature R1
+ * defects on `reach` across 240 generated boards, every one of them a
+ * concrete world whose own `lo` the split had pushed below the bracket's.
+ * So the split is gated on a claim being in the tie, and a board with nothing
+ * held reads exactly as it did before.
  */
 function displace<S extends TerritorySubject>(
   ws: TerritoryWorkspace,
@@ -823,9 +837,11 @@ function displace<S extends TerritorySubject>(
     let winner: Entry<S> | null = null;
     let winnerScalar: Strength | null = null;
     let tied = false;
-    // Whose pieces are in the tie — the only thing the reading needs of it.
+    // Whose pieces are in the tie, and whether a CLAIM is one of them — the
+    // only two things the reading needs of it.
     let tiedOurs = false;
     let tiedTheirs = false;
+    let tiedHeld = false;
     for (let k = 0; k < pieces.length; k++) {
       const a = (pieceGrids[k] as Int32Array)[c] as number;
       if (a > D) continue;
@@ -839,6 +855,7 @@ function displace<S extends TerritorySubject>(
         tied = false;
         tiedOurs = e.s.team === asTeam;
         tiedTheirs = !tiedOurs;
+        tiedHeld = e.s.held;
       } else if (a === bestArrival) {
         const held = winnerScalar as Strength;
         if (outranks(mine, held)) {
@@ -847,10 +864,12 @@ function displace<S extends TerritorySubject>(
           tied = false;
           tiedOurs = e.s.team === asTeam;
           tiedTheirs = !tiedOurs;
+          tiedHeld = e.s.held;
         } else if (!outranks(held, mine)) {
           tied = true;
           if (e.s.team === asTeam) tiedOurs = true;
           else tiedTheirs = true;
+          tiedHeld = tiedHeld || e.s.held;
         }
       }
     }
@@ -862,7 +881,7 @@ function displace<S extends TerritorySubject>(
     }
     // A TIE IS NOT AN OUTCOME — see the header above. The reading takes the end
     // it is responsible for, and only then does the plane-1 fallback apply.
-    if (tied && (reading === 'lo' ? tiedTheirs : tiedOurs)) {
+    if (tied && tiedHeld && (reading === 'lo' ? tiedTheirs : tiedOurs)) {
       if (reading === 'lo') theirs++;
       else ours++;
       continue;

@@ -107,6 +107,13 @@ export interface ExactCheckRequest {
   }>;
   /** How many worlds this check may settle. */
   readonly cap: number;
+  /**
+   * A VIEW IN WHICH EXACTLY THESE UNITS ARE MODELLED — the bank's own
+   * `viewFor`, handed over so the classifier below can rebuild a RUNG'S OWN
+   * READING rather than guessing which term produced the number. Absent, a
+   * violation is still reported; it is just not attributed.
+   */
+  readonly viewOf?: (modelled: ReadonlyArray<UnitId>) => Substrate;
 }
 
 export interface ExactViolation {
@@ -120,6 +127,11 @@ export interface ExactViolation {
   readonly members: ReadonlyArray<string>;
   /** The reply that produced the world, as `unit>cell` pairs. */
   readonly replies: string;
+  /**
+   * THE ROOT-CAUSE CLASS: the feature keys whose own `lo` sits above the same
+   * feature's value in the refuting world, joined by `+`. See `classOf`.
+   */
+  readonly klass: string;
 }
 
 export interface ExactCheckResult {
@@ -162,6 +174,65 @@ function worldAt(
     rest = Math.floor(rest / n);
   }
   return out;
+}
+
+/**
+ * WHICH TERM IS WRONG — the class a defect is counted under.
+ *
+ * A floor above a concrete world is a broken B1 lemma, and the lemma is
+ * per-reading: `min over o of B0(a, e := o) ≤ SV(a) ≤ value(w)` for every
+ * world `w`. So when the floor sits above `value(w)`, the reading that names
+ * `e` AS `w` NAMES IT is itself above `w` — and that reading is a partial
+ * settlement of which `w` is one world. The fold is a non-negatively weighted
+ * sum of per-feature intervals, so a total above `w` needs at least one
+ * feature whose own `lo` is above that feature's value in `w`, and THAT is
+ * the defect. Naming it is naming the term to repair.
+ *
+ * The readings tried are the bank's own rungs, cheapest first: B0 (nothing
+ * modelled) and B1 for each held unit in turn. Everything is asked at the
+ * SAME world, so a feature that appears under several readings is counted
+ * once. A violation no reading attributes is counted as `clamp` — the
+ * terminal verdicts and the lattice ends are not feature parts, and a floor
+ * that a clamp put above a world is a different repair.
+ *
+ * Only ever called on a violation, so its cost is a property of the defect
+ * rate rather than of the run.
+ */
+function classOf(
+  request: ExactCheckRequest,
+  full: JointPlan,
+  world: ReadonlyArray<Candidate>,
+  value: number,
+): string {
+  const viewOf = request.viewOf;
+  if (viewOf === undefined) return "unattributed";
+  const wParts = request.evaluate.evaluatePlan(request.sub, full, request.asTeam).parts;
+  const byId = new Map(world.map((c) => [c.unitId, c]));
+  const readings: Array<ReadonlyArray<UnitId>> = [[], ...request.held.map((id) => [id])];
+  const keys = new Set<string>();
+  for (const modelled of readings) {
+    let plan = request.base;
+    for (const id of modelled) {
+      const c = byId.get(id);
+      if (c === undefined) continue;
+      plan = new Map(plan).set(id, c);
+    }
+    let reading;
+    try {
+      reading = request.evaluate.evaluatePlan(viewOf(modelled), plan, request.asTeam);
+    } catch {
+      continue;
+    }
+    if (reading.bound.lo <= value + EPS) continue;
+    for (const key of Object.keys(reading.parts)) {
+      const mine = reading.parts[key];
+      const theirs = wParts[key];
+      if (mine === undefined || theirs === undefined) continue;
+      if (mine.lo > theirs.lo + EPS) keys.add(key);
+    }
+  }
+  if (keys.size === 0) return "clamp";
+  return [...keys].sort().join("+");
 }
 
 /**
@@ -220,6 +291,7 @@ export function exactReplyCheck(request: ExactCheckRequest): ExactCheckResult {
         side: "floor",
         bound: request.floor,
         value,
+        klass: classOf(request, full, reply, value),
         from: request.floorFrom,
         members: request.memberFloors
           .filter((m) => m.floor > value + EPS)
@@ -235,6 +307,7 @@ export function exactReplyCheck(request: ExactCheckRequest): ExactCheckResult {
       side: "ceiling",
       bound: request.ceiling,
       value: minValue,
+      klass: "ceiling",
       from: "ceiling",
       members: [],
       replies: "min over the complete reply space",
@@ -286,6 +359,8 @@ export interface ExactStats {
   floorViolations: number;
   ceilingViolations: number;
   skips: Record<string, number>;
+  /** Floor violations by root-cause class — see `classOf`. */
+  classes: Record<string, number>;
 }
 
 export const exactStats: ExactStats = {
@@ -295,6 +370,7 @@ export const exactStats: ExactStats = {
   floorViolations: 0,
   ceilingViolations: 0,
   skips: {},
+  classes: {},
 };
 
 /** A plan the audit declined before it could build a world. */
@@ -309,6 +385,7 @@ export function resetExactStats(): void {
   exactStats.floorViolations = 0;
   exactStats.ceilingViolations = 0;
   exactStats.skips = {};
+  exactStats.classes = {};
 }
 
 let observer: ((v: ExactViolation, dump: ExactBoardDump | null) => void) | null = null;
@@ -335,6 +412,7 @@ function installSummary(): void {
       `EXACT-REPLY checks=${exactStats.checks} worlds=${exactStats.worlds} ` +
         `complete=${exactStats.complete} floorViolations=${exactStats.floorViolations} ` +
         `ceilingViolations=${exactStats.ceilingViolations} ` +
+        `classes=${JSON.stringify(exactStats.classes)} ` +
         `skips=${JSON.stringify(exactStats.skips)}\n`,
     );
   });
@@ -364,8 +442,9 @@ export function reportExact(
   for (const v of result.violations) {
     if (v.side === "floor") exactStats.floorViolations++;
     else exactStats.ceilingViolations++;
+    exactStats.classes[v.klass] = (exactStats.classes[v.klass] ?? 0) + 1;
     process.stderr.write(
-      `EXACT-INVERSION ${v.side} ${v.from} bound=${v.bound} value=${v.value} ` +
+      `EXACT-INVERSION ${v.side} ${v.from} class=${v.klass} bound=${v.bound} value=${v.value} ` +
         `members=[${v.members.join(" ")}] replies=${v.replies}\n`,
     );
     observer?.(v, dump);
