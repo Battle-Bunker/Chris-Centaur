@@ -130,7 +130,8 @@
  *
  *     beaten_k = share of its ground at horizon k where some enemy arrival
  *                beats it                                   ∈ [0, 1]
- *     peril    = Σ_k (W − k + 1)·beaten_k / Σ_k (W − k + 1)  ∈ [0, 1]
+ *     w_k      = λ^(k−1), λ = HORIZON_DECAY
+ *     peril    = Σ_k w_k·beaten_k / Σ_k w_k                  ∈ [0, 1]
  *
  * ABSOLUTE, not marginal, and that is the post-mortem's other finding: a unit
  * already at −1 loses every contested cell to a tier-0 enemy ALREADY, so the
@@ -146,6 +147,22 @@
  * geometry still says something, and it is also the turn the collector has had
  * no chance to walk away from — a claim at k grants the enemy k free turns and
  * the collector none. So the window is read whole and the near turns carry it.
+ *
+ * AND THE DECAY IS GEOMETRIC, WHICH IS DEFECT CLASS D4 REPAIRED
+ * (`docs/design/BEHAVIOUR-AUDIT.md`, and `docs/design/potions.md` for the
+ * measurement). The first cut weighted horizon k by `W − k + 1` — 3, 2, 1 at
+ * `W = 3` — which is a near-turn preference in the right direction and the
+ * wrong size: with `beaten_2 = beaten_3 = 1` at 41 of 41 pickups, that reading
+ * is `0.5·beaten_1 + 0.5`. Half the term's mass is a CONSTANT, the usable range
+ * is `[0.5, 1]` rather than `[0, 1]`, and the one horizon that still
+ * discriminates is halved before it is weighed against `PERIL_WEIGHT`. Under
+ * `w_k = λ^(k−1)` at `λ = 1/4` the saturated tail is worth 0.24 instead of
+ * 0.5 and horizon 1 carries 76% instead of 50%: an exposed collector still
+ * reads near 1, a collector nothing can reach on the first turn now reads near
+ * a quarter rather than a half, and the gap between those two — the whole
+ * discriminating signal — is 0.76 wide rather than 0.5. `λ = 1` recovers a flat
+ * reading and the old arithmetic weights are the single point the knob
+ * replaces.
  *
  * PERIL DOMINATES, at `PERIL_WEIGHT = 2`: one ally's flipped contest does not
  * buy a collector that can be beaten anywhere it goes. That is "err
@@ -213,6 +230,37 @@ import { perBoard, perBoardPerTeam } from './memo';
  * wherever it goes, and the brief's instruction is to err conservative.
  */
 export const PERIL_WEIGHT = 2;
+
+/**
+ * λ — THE HORIZON DECAY, the one knob the peril half's shape has. Horizon k of
+ * the window is weighed `λ^(k−1)`, so at the default quarter the three turns of
+ * a `W = 3` window carry 76%, 19% and 5% of the reading.
+ *
+ * A quarter rather than a half or a tenth: the measurement in the header says
+ * horizons 2 and 3 are SATURATED, not absent — a debuffed unit really can be
+ * met everywhere by the second turn — so they belong in the reading as the
+ * standing cost of carrying a −1, and they do not belong there as half of it.
+ * A quarter leaves that tail worth 0.24 of a peril of 1, which is the same
+ * order as the term's own resolution and small enough that horizon 1, the one
+ * turn the collector cannot walk away from, decides.
+ *
+ * `λ = 1` is the flat reading; `λ → 0` is horizon 1 alone, which the header
+ * argues against because a saturated tail is a real cost. Nothing else in the
+ * file reads it.
+ */
+export const HORIZON_DECAY = 1 / 4;
+
+/**
+ * The window's horizon weights, `w_k = λ^(k−1)` for k = 1..W, UNNORMALISED —
+ * `perilOf` divides by the sum of the weights it actually used, because a
+ * horizon at which the collector has no ground carries no reading and must not
+ * carry a denominator either.
+ */
+export function horizonWeights(window: number): ReadonlyArray<number> {
+  const out: number[] = [];
+  for (let k = 1; k <= window; k++) out.push(HORIZON_DECAY ** (k - 1));
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // The window, the edge, and who collects
@@ -505,14 +553,15 @@ function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam
  * The share of the collector's own ground, over the whole window, on which some
  * enemy arrival beats it at the tier the pickup leaves it on. The near turns
  * carry the reading: a claim at horizon k grants the enemy k free turns and the
- * collector none, and the measurement says the far horizons saturate.
+ * collector none, and the measurement says the far horizons saturate. They are
+ * weighed `λ^(k−1)` for that reason and not `W − k + 1` — see `HORIZON_DECAY`,
+ * and D4 in the audit for what the arithmetic weights cost.
  */
 function perilOf(
   ctx: EvalContext,
   read: WindowRead,
   collector: Standing,
-  after: ReadonlyMap<UnitId, number>,
-  window: number
+  after: ReadonlyMap<UnitId, number>
 ): number {
   // The ground is read from where the collector stands as the turn OPENS, not
   // from the potion cell the plan sends it to. That is an over-approximation in
@@ -522,6 +571,7 @@ function perilOf(
   if (unit === undefined) return 0;
   const debuffed = after.get(collector.unitId) ?? collector.tierAtArrival;
   const rows = read.ground.get(collector.unitId);
+  const weights = horizonWeights(read.horizons.length);
   let num = 0;
   let den = 0;
   for (let k = 1; k <= read.horizons.length; k++) {
@@ -532,11 +582,27 @@ function perilOf(
     for (const cell of cells) {
       if (beatenAt(h, debuffed, unit.weight, cell)) beaten++;
     }
-    const w = window - k + 1;
+    const w = weights[k - 1] as number;
     num += (w * beaten) / cells.length;
     den += w;
   }
   return den > 0 ? num / den : 0;
+}
+
+/**
+ * THE PERIL HALF, ALONE, for one named collector on one board — the reading
+ * D4's boundary test pins, and the only caller outside this file. It builds the
+ * same memoised window read the member builds and asks the same question of it,
+ * so a test that moves cannot be measuring a second implementation.
+ */
+export function perilRead(ctx: EvalContext, collector: Standing): number {
+  const { window } = windowOf(ctx.sub);
+  return perilOf(
+    ctx,
+    windowRead(ctx.sub, ctx.asTeam, window),
+    collector,
+    ctx.sub.tiersAfterPickupBy(collector.unitId)
+  );
 }
 
 /**
@@ -550,11 +616,11 @@ function perilOf(
  * lives, and the polarity fold conditions on that pair rather than on the
  * unit's own survival alone.
  */
-function tradeFor(ctx: EvalContext, read: WindowRead, collector: Standing, window: number): Bound {
+function tradeFor(ctx: EvalContext, read: WindowRead, collector: Standing): Bound {
   const sub = ctx.sub;
   const after = sub.tiersAfterPickupBy(collector.unitId);
   const { arrival } = windowOf(sub);
-  const cost = PERIL_WEIGHT * perilOf(ctx, read, collector, after, window);
+  const cost = PERIL_WEIGHT * perilOf(ctx, read, collector, after);
 
   return ourUnitTerm(
     ctx,
@@ -622,7 +688,7 @@ export const potionFeature: Feature<EvalContext> = {
     let hi = Number.NEGATIVE_INFINITY;
     let certain = false;
     for (const collector of collectors) {
-      const trade = tradeFor(ctx, read, collector, window);
+      const trade = tradeFor(ctx, read, collector);
       lo = Math.min(lo, trade.lo);
       hi = Math.max(hi, trade.hi);
       if (collector.worstAlive) {

@@ -20,6 +20,8 @@
 
 import { Board } from '../../types/battlesnake';
 import { marshalBoard } from '../../logic/turn-oracle';
+import { makeContext } from '../evaluate/features';
+import { HORIZON_DECAY, horizonWeights, perilRead } from '../evaluate/window';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
@@ -391,5 +393,194 @@ describe('a board with no live tier pays nothing', () => {
       }
     }
     sub.release();
+  });
+});
+
+// ------------------------------------------------------ D4: THE HORIZON DECAY
+
+/**
+ * DEFECT CLASS D4 (`docs/design/BEHAVIOUR-AUDIT.md`): the peril half of
+ * `evaluate/window.ts` read the far horizons as a CONSTANT and spent half its
+ * range on them.
+ *
+ * The measurement in `docs/design/potions.md` is that horizons 2 and 3 are
+ * saturated — a debuffed unit can be met everywhere by the second turn — so
+ * under the old arithmetic weights `W − k + 1` the reading was
+ * `0.5·beaten_1 + 0.5`: the one horizon that still discriminates carried half
+ * the mass and the other half was the same number at every pickup on the board.
+ * The repair is one knob: `w_k = λ^(k−1)`, `λ = HORIZON_DECAY`.
+ *
+ * These two tests pin the knob and the board the audit reproduces it on.
+ */
+describe('D4 — the far horizons are weighed, not assumed', () => {
+  it('weighs the window geometrically, so horizon 1 carries three quarters of it', () => {
+    expect(HORIZON_DECAY).toBe(1 / 4);
+    expect(horizonWeights(3)).toEqual([1, 1 / 4, 1 / 16]);
+
+    // The claim D4 is about, as a number. The arithmetic weights 3, 2, 1 gave
+    // horizon 1 exactly half the reading and the saturated tail the other half.
+    const ws = horizonWeights(3);
+    const total = ws.reduce((a, b) => a + b, 0);
+    const nearShare = (ws[0] as number) / total;
+    expect(nearShare).toBeGreaterThan(0.75); // 0.762; was 0.5
+    expect(1 - nearShare).toBeLessThan(0.25); // the constant tail; was 0.5
+
+    // Monotone and never zero: a saturated tail is a real cost — the standing
+    // price of carrying a −1 — and the knob shrinks it rather than deleting it.
+    for (let k = 1; k < ws.length; k++) {
+      expect(ws[k] as number).toBeLessThan(ws[k - 1] as number);
+      expect(ws[k] as number).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * THE REPRODUCTION, PINNED. `potions` seed 6, turn 39, exactly as the audit
+   * records it:
+   *
+   *     T 39 red-C knight hp91 (3,7)->(5,8)  top3: (5,8)=-403.05 (2,5)=-403.08
+   *     POTION x1  tier up: red-A  tier down: red-C
+   *     [red-C hp90 enemyTier+0 caught@1 EXPOSED]
+   *
+   * red-B is already dead, so red-C pays a tier to give its one surviving ally
+   * a tier, while an enemy can beat the debuffed collector on the very next
+   * turn. The board below is the one the decision opened on, taken off the
+   * runner at that turn.
+   */
+  describe('the reproduction: potions seed 6, turn 39', () => {
+    const REPRO_TURN = 39;
+
+    const reproBoard = (): Board =>
+      boardOf(
+        [
+          makeSnake(
+            'red-A',
+            [
+              { x: 10, y: 9 },
+              { x: 9, y: 9 },
+              { x: 9, y: 10 },
+            ],
+            { teamID: 'red', health: 99, orientation: { dx: 1, dy: 0 }, unitType: 'snake' }
+          ),
+          piece('red-C', { x: 3, y: 7 }, 'knight', 5, {
+            teamID: 'red',
+            health: 91,
+            orientation: { dx: 2, dy: 1 },
+          }),
+          makeSnake(
+            'blue-A',
+            [
+              { x: 3, y: 8 },
+              { x: 2, y: 8 },
+              { x: 2, y: 9 },
+              { x: 3, y: 9 },
+              { x: 4, y: 9 },
+              { x: 4, y: 10 },
+              { x: 5, y: 10 },
+            ],
+            { teamID: 'blue', health: 90, orientation: { dx: 1, dy: 0 }, unitType: 'snake' }
+          ),
+          piece('blue-B', { x: 10, y: 4 }, 'queen', 29, {
+            teamID: 'blue',
+            health: 100,
+            orientation: { dx: 1, dy: 0 },
+          }),
+          piece('green-B', { x: 4, y: 3 }, 'knight', 11, {
+            teamID: 'green',
+            health: 95,
+            orientation: { dx: 1, dy: 2 },
+          }),
+        ],
+        {
+          width: 11,
+          height: 11,
+          food: [
+            { x: 8, y: 0 },
+            { x: 6, y: 0 },
+            { x: 9, y: 4 },
+            { x: 7, y: 0 },
+            { x: 2, y: 7 },
+          ],
+          invulnerabilityPotions: [
+            { x: 5, y: 2 },
+            { x: 2, y: 5 },
+            { x: 5, y: 8 },
+            { x: 4, y: 8 },
+          ],
+          invulnerabilityPotionsEnabled: true,
+          invulnerabilityPotionWindowTurns: 3,
+        } as Partial<Board>
+      );
+
+    /** The peril half alone, for red-C, on the plan that takes the potion. */
+    const perilOfRedC = (board: Board): number => {
+      const sub = makeSubstrate({
+        board,
+        turn: REPRO_TURN,
+        asTeam: 'red',
+        modeled: ['red-C'],
+      });
+      try {
+        const redC = unitNamed(sub, 'red-C').unitId;
+        const to = marshalBoard(board, REPRO_TURN).toIndex({ x: 5, y: 8 });
+        const team = sub.teamNumber('red');
+        let peril = NaN;
+        sub.withResolution(
+          new Map([[redC, { unitId: redC, from: -1, to, path: sub.pathFor(redC, to) ?? [] }]]),
+          team,
+          ({ resolution, bounds }) => {
+            const ctx = makeContext(sub, resolution, bounds, team, 0);
+            const standing = ctx.standing.find((s) => s.unitId === redC);
+            if (standing === undefined) throw new Error('red-C is not standing');
+            peril = perilRead(ctx, standing);
+          }
+        );
+        return peril;
+      } finally {
+        sub.release();
+      }
+    };
+
+    // The three per-horizon readings this board produces for red-C's own
+    // ground, measured off the same claim passes the member uses: 3 of its 9
+    // cells at horizon 1, then 35 of 35 and 75 of 75. The tail is the
+    // saturation the audit is about — a literal constant 1 — and horizon 1 is
+    // the only horizon carrying information.
+    const BEATEN = [1 / 3, 1, 1] as const;
+
+    it('reads the collector at the weighted mean of its horizons, tail included', () => {
+      const ws = horizonWeights(3);
+      const expected =
+        ws.reduce((sum, w, k) => sum + w * (BEATEN[k] as number), 0) /
+        ws.reduce((a, b) => a + b, 0);
+      expect(perilOfRedC(reproBoard())).toBeCloseTo(expected, 10);
+      expect(expected).toBeCloseTo(0.4921, 4);
+    });
+
+    it('prices the pickup as RECKLESS — horizon 1 now outweighs the constant tail', () => {
+      const peril = perilOfRedC(reproBoard());
+      const ws = horizonWeights(3);
+      const total = ws.reduce((a, b) => a + b, 0);
+
+      // THE FLOOR: what a collector NOTHING can catch on the first turn pays on
+      // this board, which is the saturated tail and nothing else. It was 0.5
+      // under the arithmetic weights — half the range, spent before the reading
+      // began — and it is 0.24 now.
+      const tail = 1 - (ws[0] as number) / total;
+      expect(tail).toBeCloseTo(0.238, 3);
+
+      // red-C is caught at horizon 1 (`caught@1 EXPOSED` in the trace), and the
+      // charge for that exposure is now LARGER than the whole constant tail.
+      // Under 3/2/1 the same third of its ground bought 0.167 against a
+      // constant 0.5, so the reading was two parts constant to one part
+      // geometry — the defect, in one inequality.
+      expect(peril).toBeGreaterThan(tail);
+      expect(peril - tail).toBeGreaterThan(tail);
+      expect(0.5 * (BEATEN[0] as number)).toBeLessThan(0.5); // the old reading, for the record
+
+      // And the whole reading is now BELOW the old constant floor, which is
+      // what "half its range" meant: no pickup on a saturated board could read
+      // under 0.5 however safe its first turn was.
+      expect(peril).toBeLessThan(0.5);
+    });
   });
 });
