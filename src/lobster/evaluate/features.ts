@@ -899,10 +899,14 @@ export function budgetShare(
  * carries the meal a held unit may already have taken. Read for OUR pieces
  * either one lifts the floor above worlds it claims to bound — measured by a
  * randomised R1 sweep at `command.lo` 1.000 against worlds of 0.776 and 0.694.
- * So our own pieces read `Partition.certainDomain` and `EvalContext.certainFood`
- * — the same two boards minus what a held cloud merely MIGHT hold — and theirs
- * read the wide ones. Both narrowings vanish when nothing is held, so R3 is
- * untouched, and both can only shrink under a refinement, so R2 is too.
+ * So a term the reading ADDS is read off `Partition.certainDomain` and
+ * `EvalContext.certainFood` — the same two boards minus what a held cloud
+ * merely MIGHT hold — and a term it SUBTRACTS off the wide ones. Which side
+ * that makes ours is the READING's business and not the side's: `lo` adds our
+ * pieces and subtracts theirs, `hi` does the reverse, and the boards swap with
+ * it, or the ceiling ends up under its own worlds. Both narrowings vanish when
+ * nothing is held, so R3 is untouched, and both can only shrink under a
+ * refinement, so R2 is too.
  *
  * NOT FOR A ROYAL UNIT. `knobs.royal` is off, and it is off for a reason the
  * rules supply rather than a tuning one — see `CommandKnobs.royal`.
@@ -941,38 +945,52 @@ function commandSum(
   if (open === 0) return 0;
   const admit = ADMISSION[reading];
   const words = ctx.sub.grid.words;
-  // TWO DOMAINS, ONE PER DIRECTION THE ERROR MAY POINT.
+  // TWO DOMAINS, ONE PER DIRECTION THE ERROR MAY POINT — AND THE DIRECTION IS
+  // THE READING'S, NOT THE SIDE'S.
   //
   // `partition.domain` is a SUPERSET of the contested ground: a held enemy
   // trail is dilated from where it was observed, so its front is its claim
-  // cloud. Counting THEIR pieces on it over-states what they command, which
-  // subtracts, and is the direction a floor may be wrong in. Counting OURS on
-  // it over-states what we command, which adds — and that is a floor above
-  // worlds it claims to bound (measured: `command.lo` 1.000 against worlds
-  // 0.776 and 0.694 on a held-snake board). Our own pieces therefore read
-  // `certainDomain`, which takes a held enemy trail only at the cells it
-  // cannot have left.
+  // cloud. `partition.certainDomain` is the same board minus what such a cloud
+  // merely MIGHT hold, so it is a subset. Every term here is a bound in one
+  // direction, and which board bounds it is decided by whether the reading is
+  // MAXIMISING that term or minimising it:
+  //
+  //   lo  ours ← certain (a term we add, bounded below)
+  //       theirs ← wide  (a term we subtract, bounded above)
+  //   hi  ours ← wide    (added, bounded above)
+  //       theirs ← certain (subtracted, bounded below)
+  //
+  // The floor half of that was the first repair (measured: `command.lo` 1.000
+  // against worlds of 0.776 and 0.694 on a held-snake board). The ceiling half
+  // is the same statement mirrored, and leaving it unmirrored made `hi` a
+  // CEILING BELOW ITS OWN WORLDS: our piece was priced on the ground a held
+  // cloud might take from it while their piece was priced on the ground that
+  // cloud might give it, in the reading where both should be read the other
+  // way. Measured by a randomised R1 sweep over 205 held boards: five ceilings
+  // under a world, all of them here.
   //
   // Both fall back to the open board when plane 1 is contesting NOTHING — a
   // team whose last trail unit died has an empty domain, and a term that read
   // only the domain would go blind on exactly the position where the pieces
   // are the entire game. The fallback is gated on the FULL domain, never on
   // the certain one: an empty certain domain under a non-empty full one is the
-  // defect above, not a piece-only board, and widening our own side there
-  // would restore precisely what this fixes.
-  let ourDomain = partition.certainDomain;
-  let theirDomain = partition.domain;
+  // defect above, not a piece-only board, and widening a side there would
+  // restore precisely what this fixes.
+  const wide = partition.domain;
+  const certain = partition.certainDomain;
+  let ourDomain = reading === 'lo' ? certain : wide;
+  let theirDomain = reading === 'lo' ? wide : certain;
   let any = 0;
-  for (let i = 0; i < words; i++) any |= theirDomain[i] as number;
+  for (let i = 0; i < words; i++) any |= wide[i] as number;
   if (any === 0) {
     ourDomain = partition.openBoard;
     theirDomain = partition.openBoard;
   }
-  // TWO FOOD BOARDS, for the same reason there are two domains: a meal a held
-  // unit's cloud covers is one our floor may not count for OUR piece, and one
-  // it must still count for theirs.
-  const ourFood = ctx.certainFood();
-  const theirFood = ctx.food();
+  // TWO FOOD BOARDS, for the same reason and with the same flip: a meal a held
+  // unit's cloud covers is one our floor may not count for our own piece and
+  // one our ceiling may not withhold from it.
+  const ourFood = reading === 'lo' ? ctx.certainFood() : ctx.food();
+  const theirFood = reading === 'lo' ? ctx.food() : ctx.certainFood();
   const nextTurn = ctx.sub.arrivalTurn + 1;
   let total = 0;
   for (const s of ctx.standing) {

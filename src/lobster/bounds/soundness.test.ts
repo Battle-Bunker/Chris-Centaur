@@ -93,6 +93,17 @@ function lawSnake(
   } as unknown as Snake;
 }
 
+function lawPiece(
+  id: string,
+  at: Coord,
+  unitType: string,
+  weight: number,
+  teamID: string,
+  orientation: { dx: number; dy: number },
+): Snake {
+  return { ...lawSnake(id, [at], teamID, orientation), unitType, length: weight } as unknown as Snake;
+}
+
 const lawCell = (board: Board, x: number, y: number): number =>
   marshalBoard(board, LAW_TURN).toIndex({ x, y } as Coord);
 
@@ -675,6 +686,72 @@ describe('a held cloud may not crowd the unit a reading MAXIMISES', () => {
   test('R2 and R3 still hold on the same board', () => {
     expect(checkMonotone(defaultEvaluator, ROOM_CASE).violations).toEqual([]);
     expect(checkCollapse(defaultEvaluator, ROOM_CASE).violations).toEqual([]);
+  });
+});
+
+/**
+ * THE COMMANDED-GROUND BOARD — the ceiling half of a repair whose floor half
+ * was already in `commandFeature`.
+ *
+ * `command` prices a piece by how much CONTESTED ground its next-turn front
+ * covers, and the trail domain it intersects comes in two widths: `domain`,
+ * which carries a held enemy trail's whole claim cloud, and `certainDomain`,
+ * which carries only the cells that cloud cannot have left. A term the reading
+ * ADDS has to be read off the narrow board and a term it SUBTRACTS off the
+ * wide one — and which of those is ours flips between the readings, because
+ * `lo` adds our pieces and `hi` adds theirs' negation. The feature had the
+ * floor half of that and used the floor's assignment in both readings, so `hi`
+ * priced our own piece on the ground a held cloud might TAKE from it while
+ * pricing theirs on the ground that cloud might GIVE it: a ceiling below its
+ * own worlds.
+ *
+ * Here our queen slides diagonally past a held snake's body, a green knight is
+ * enumerated alongside it, and the world in which the snake goes the other way
+ * scores 2.04 against a ceiling of 1.24. A randomised R1 sweep over 2 224
+ * boards of this shape — one of our pieces, one held trail unit — carries 50
+ * violations before the flip and 37 after, with none introduced; the thirteen
+ * it closes are all of this class. (The 37 that remain are OTHER classes, on
+ * both sides of the bracket, and they are not this repair's to close.)
+ */
+const COMMAND_BOARD: Board = {
+  width: 7,
+  height: 7,
+  food: [{ x: 1, y: 1 } as Coord],
+  hazards: [],
+  snakes: [
+    lawPiece('me', { x: 2, y: 0 } as Coord, 'queen', 2, 'red', { dx: -1, dy: 0 }),
+    lawSnake(
+      'held',
+      [{ x: 2, y: 1 }, { x: 2, y: 2 }, { x: 2, y: 3 }],
+      'blue',
+      { dx: 0, dy: -1 },
+    ),
+    lawPiece('other', { x: 0, y: 5 } as Coord, 'knight', 2, 'green', { dx: -1, dy: 0 }),
+  ],
+} as Board;
+
+const COMMAND_CASE: LawCase = {
+  name: 'a piece priced on ground a held cloud might take',
+  board: COMMAND_BOARD,
+  turn: LAW_TURN,
+  asTeam: 'red',
+  stages: ['me', 'other'],
+  orders: new Map([
+    ['me', lawCell(COMMAND_BOARD, 0, 2)],
+    ['other', lawCell(COMMAND_BOARD, 2, 4)],
+  ]),
+};
+
+describe('the board a term is priced on follows the READING, not the side', () => {
+  test('R1: the ceiling covers every completion of the held snake', () => {
+    const result = checkSoundness(defaultEvaluator, COMMAND_CASE);
+    expect(result.checked).toBeGreaterThan(1);
+    expect(result.violations).toEqual([]);
+  });
+
+  test('R2 and R3 still hold on the same board', () => {
+    expect(checkMonotone(defaultEvaluator, COMMAND_CASE).violations).toEqual([]);
+    expect(checkCollapse(defaultEvaluator, COMMAND_CASE).violations).toEqual([]);
   });
 });
 
