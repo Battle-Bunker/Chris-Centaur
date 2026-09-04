@@ -381,7 +381,18 @@ export function makeGenerator(options: GeneratorOptions = {}): CandidateGenerato
  */
 export function makeEvaluator(): Evaluator {
   const scorePlan = (sub: Substrate, plan: JointPlan, asTeam: number): Bound => {
-    const { worst, best } = (sub as BoundedSubstrate).boundedFor(plan, asTeam);
+    // THE METERED DOOR WHERE THERE IS ONE, the plain one where there is not.
+    // The ceiling ply builds a substrate for the turn AFTER a leaf, and that
+    // one is an ordinary `EngineSubstrate` rather than this harness's metered
+    // subclass — so an evaluator that could only read `boundedFor` would
+    // decline every ply-2 reading and the harness would prove nothing about
+    // the layer it exists to check. The two doors return the same fold; only
+    // the counter and the scalar negative control live on the first.
+    const metered = (sub as Partial<BoundedSubstrate>).boundedFor;
+    const { worst, best } =
+      typeof metered === 'function'
+        ? metered.call(sub, plan, asTeam)
+        : sub.resolveBoundedFor(plan, asTeam).bounds;
     return { lo: worst, est: (worst + best) / 2, hi: best };
   };
   return {
@@ -468,6 +479,22 @@ export function trueWorstCase(
   } finally {
     live.release();
   }
+}
+
+/**
+ * THE SAME BOARD WITH NOTHING HELD — every unit modelled, ours and theirs.
+ *
+ * `trueWorstCase` builds one of these internally; the ceiling ply's own truth
+ * needs the same thing for a second turn, so it is exported rather than
+ * written twice. A plan over this substrate that names every unit settles to a
+ * POINT: nothing is held, so there is no claim, no ledger and no interval.
+ */
+export function liveSubstrate(board: TestBoard, ourTeam: number): BoundedSubstrate & EngineSubstrate {
+  const commanded = new Set<UnitId>(
+    board.spec.units.filter((u) => u.team === ourTeam).map((u) => u.id),
+  );
+  const others = board.spec.units.filter((u) => u.team !== ourTeam).map((u) => u.id);
+  return new TestSubstrate(board, commanded, others, 'interval', 0);
 }
 
 /** How many resolutions `trueWorstCase` costs — the harness reports it. */

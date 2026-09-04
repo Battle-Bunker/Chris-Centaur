@@ -124,6 +124,36 @@ function isLoud(candidate: Candidate, footprint: Map<number, Window[]>, scratch:
   return false;
 }
 
+/** One gated enemy's option list, PARTITIONED — the counts with the options
+ *  still attached, because the ceiling ply enumerates what step 1 counted. */
+export interface LoudUnitList extends LoudUnitCount {
+  /** The options whose path meets the staged footprint. */
+  readonly loudOptions: ReadonlyArray<Candidate>;
+}
+
+/**
+ * The partition itself: per gated enemy, the loud options and their count.
+ *
+ * ONE RELATION, TWO READERS. `loudReadingOf` counts this and reports it as an
+ * instrument; `bank.ts`'s B4 enumerates it. They must be the same partition or
+ * the measurement that licensed the member is a measurement of something else,
+ * so there is one function and the counter is derived from it.
+ */
+export function loudListsOf(
+  plan: JointPlan,
+  lists: ReadonlyArray<{ readonly id: UnitId; readonly options: ReadonlyArray<Candidate> }>,
+): ReadonlyArray<LoudUnitList> {
+  const footprint = windowsOf(plan);
+  const scratch = new Map<UnitId, Candidate>();
+  const out: LoudUnitList[] = [];
+  for (const list of lists) {
+    const loud: Candidate[] = [];
+    for (const option of list.options) if (isLoud(option, footprint, scratch)) loud.push(option);
+    out.push({ unitId: list.id, options: list.options.length, loud: loud.length, loudOptions: loud });
+  }
+  return out;
+}
+
 /**
  * The reading, and the one place the observer is told about it.
  *
@@ -136,16 +166,14 @@ export function loudReadingOf(
   product: number,
   b3: boolean,
   covers: boolean,
+  partition?: ReadonlyArray<LoudUnitList>,
 ): LoudReading {
-  const footprint = windowsOf(plan);
-  const scratch = new Map<UnitId, Candidate>();
+  const walked = partition ?? loudListsOf(plan, lists);
   const units: LoudUnitCount[] = [];
   let q = 1;
-  for (const list of lists) {
-    let loud = 0;
-    for (const option of list.options) if (isLoud(option, footprint, scratch)) loud++;
-    units.push({ unitId: list.id, options: list.options.length, loud });
-    q *= loud;
+  for (const list of walked) {
+    units.push({ unitId: list.unitId, options: list.options, loud: list.loud });
+    q *= list.loud;
   }
   const reading: LoudReading = { units, q: lists.length === 0 ? 0 : q, product, b3, covers };
   observer?.(reading);
