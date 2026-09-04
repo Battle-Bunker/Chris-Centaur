@@ -1089,6 +1089,11 @@
         atWorkMs: e.atWorkMs,
         kind: e.kind,
         color: e.actor ? e.actor.color : null,
+        // Who did it and to what — the two fields §2.2's `●Ada near(s2)` is
+        // made of, and the two the operator lane could not carry until the
+        // pin gesture became a row.
+        operator: e.actor ? e.actor.name : null,
+        unit: e.unit || null,
         // Hollow is the ATTENTION channel: `hover` on a selection, and
         // `tentative` on a pin — a look the search may speculate on, never a
         // determination. Both are numerous and low-grade, so both are hidden

@@ -421,11 +421,18 @@ const LensPanel = (() => {
         .map((e) => {
           const left = (((e.seq - list[0].seq) / span) * 100).toFixed(2);
           const style = `left:${left}%${e.color ? `;color:${escapeHTML(e.color)}` : ''}`;
+          // `●Ada near(s2)` (§2.2): the verb, the unit it names and the
+          // operator who did it. The tick used to say the kind and the time
+          // and nothing else, because no `pin` / `unpin` row existed to carry
+          // an operator — so "who did that" was unanswerable even on hover.
+          const what = `${e.kind}${e.unit ? `(${e.unit})` : ''}`;
+          const who = e.operator ? `${e.operator} ` : '';
+          const at = e.atWorkMs == null ? '' : ` · +${e.atWorkMs}ms`;
           return (
             `<button type="button" class="lens-tick lens-tick-${escapeHTML(e.shape)}" ` +
             `data-seq="${escapeHTML(e.seq)}" style="${style}" ` +
-            `title="${escapeHTML(e.kind)} · seq ${escapeHTML(e.seq)}${e.atWorkMs == null ? '' : ` · +${escapeHTML(e.atWorkMs)}ms`}">` +
-            `${e.shape === 'hollow' ? '○' : '▲'}</button>`
+            `title="${escapeHTML(`${who}${what} · seq ${e.seq}${at}`)}">` +
+            `${e.shape === 'hollow' ? '○' : lane === 'operator' ? '●' : '▲'}</button>`
           );
         })
         .join('');

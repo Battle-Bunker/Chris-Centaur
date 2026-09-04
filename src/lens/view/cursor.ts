@@ -773,7 +773,7 @@ export function reactiveNotice(
         fromGeneration: before.generation,
         toGeneration: after.generation,
         gained,
-        by: attributionFor(before.boundedBy, gained),
+        by: attributionFor(prev, before.boundedBy, gained),
         // What the cluster WAS. The banner adds the gained members to it, so
         // "cluster α is now 4 units" is arithmetic the reader can check
         // against the two halves of the same sentence.
@@ -817,10 +817,25 @@ function successorOf(before: ClusterView, next: LensFrame): ClusterView | undefi
   return next.partition.find((c) => c.lineage.includes(before.id));
 }
 
-/** Who caused the widen: the operator whose fixity the gained unit just lost. */
+/**
+ * Who caused the widen: the operator whose fixity the gained unit just lost.
+ *
+ * TWO PLACES KNOW, and only the second one ever does. `boundedBy[].by` is the
+ * PARTITION's field and the kernel that mints it does not know operators, so
+ * every producer fills it null; the FOLD knows, because it folds the `pin`
+ * rows the gesture writes and puts the author on the unit's row. Before those
+ * rows existed the banner read `released red-A, red-C` with no operator at
+ * all — the owner's headline reactive case, unattributed.
+ */
 function attributionFor(
+  prev: LensFrame,
   boundedBy: ReadonlyArray<BoundedUnit>,
   gained: ReadonlyArray<UnitKey>
 ): OperatorId | null {
-  return boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+  const declared = boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+  if (declared !== null) return declared;
+  // The unit was BOUND in `prev` and is free in `next`, so `prev` is where its
+  // author still stands.
+  const row = prev.units.find((u) => gained.includes(u.unit) && u.owner !== null);
+  return row?.operator ?? row?.owner ?? null;
 }

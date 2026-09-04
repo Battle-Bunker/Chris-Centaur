@@ -46,6 +46,7 @@ import type {
   LensFrame,
   LoudReading,
   Moveset,
+  OperatorId,
   RowTrail,
   TurnEvent,
   TurnEventKind,
@@ -299,7 +300,8 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
   if (unit !== null) {
     const bound = boundingOf(frame, unit);
     if (bound !== null) {
-      const by = bound.bound.by === null ? '' : ` by ${bound.bound.by}`;
+      const author = authorOf(frame, unit, bound.bound.by);
+      const by = author === null ? '' : ` by ${author}`;
       return (
         `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ` +
         `${bound.cluster.id}, not a variable the bot is solving`
@@ -321,6 +323,20 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
     `nothing retained for ${unit} at this candidate — ` +
     `${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`
   );
+}
+
+/**
+ * WHO FIXED IT. The partition's `boundedBy[].by` is the kernel's own field and
+ * the kernel does not know operators — every producer fills it `null` — while
+ * the fold DOES know, because it folds the `pin` rows the operator's gesture
+ * writes. So the declared author wins where there is one, and the frame's own
+ * unit row answers where there is not. Before the pin row existed both were
+ * null and Rule E's sentence had no author at all.
+ */
+function authorOf(frame: LensFrame, unit: UnitKey, declared: OperatorId | null): string | null {
+  if (declared !== null) return declared;
+  const row = frame.units.find((u) => u.unit === unit);
+  return row?.operator ?? row?.owner ?? null;
 }
 
 /**
@@ -348,7 +364,9 @@ function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null
     const glyph = clusterGlyph(index);
     for (const member of cluster.members) ops.push(call('cluster.chip', member, glyph, cluster.id));
     for (const bound of cluster.boundedBy) {
-      ops.push(call('fixed.chip', bound.unit, bound.why, bound.by, bound.to));
+      ops.push(
+        call('fixed.chip', bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+      );
     }
   });
 
@@ -529,7 +547,15 @@ function movesetOps(
   // The constants strip. A fixed unit keeps its staged arrow and its place in
   // the plan; it is not a member, and the row says who fixed it.
   for (const bound of cluster?.boundedBy ?? []) {
-    ops.push(call('panel.movesets.fixed', bound.unit, bound.to, bound.why, bound.by));
+    ops.push(
+      call(
+        'panel.movesets.fixed',
+        bound.unit,
+        bound.to,
+        bound.why,
+        authorOf(frame, bound.unit, bound.by)
+      )
+    );
   }
 
   // THE FOIL LINE IS ALWAYS ON SCREEN (§3.5: *"Panel side: always visible as
@@ -748,7 +774,12 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
         event.kind,
         event.actor.id,
         event.actor.color,
-        hover ? 'hollow' : 'solid'
+        hover ? 'hollow' : 'solid',
+        // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
+        // and the operator — and the tick carried the kind and the time and
+        // nothing else, because no `pin` / `unpin` row existed to carry a name.
+        event.actor.name,
+        event.unit
       )
     );
   }
@@ -785,11 +816,12 @@ export function renderFrame(
     const cluster = clusterOf(frame, cursor.unit);
     const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
     const home = cluster ?? bound?.cluster ?? null;
+    const boundBy = bound === null ? null : authorOf(frame, bound.bound.unit, bound.bound.by);
     const why =
       bound === null
         ? null
         : `a constant of cluster ${bound.cluster.id}` +
-          `${bound.bound.by === null ? '' : `, by ${bound.bound.by}`} — not a member`;
+          `${boundBy === null ? '' : `, by ${boundBy}`} — not a member`;
     ops.push(
       call(
         'panel.focus',

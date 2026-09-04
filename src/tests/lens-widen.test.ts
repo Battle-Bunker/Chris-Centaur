@@ -83,6 +83,46 @@ describe('a widen is staged, never applied under the reader', () => {
     expect(notice.toGeneration).toBe(4);
   });
 
+  /**
+   * 10 §4 O6. `boundedBy[].by` is the PARTITION's field, and the kernel that
+   * mints it does not know operators — every producer fills it null, so the
+   * banner read `released A-R` with no author at all, on the owner's headline
+   * reactive case. The FOLD knows, once a `pin` row exists to fold: the
+   * author is on the unit's row in the frame the unit was still bound in.
+   */
+  it('takes the author off the fold when the partition carries none', () => {
+    const anonymous = narrowFrame({
+      partition: [
+        clusterView({
+          id: 0,
+          generation: 3,
+          members: [C, Q, S1],
+          boundedBy: [{ unit: R, to: 30, why: 'pin', by: null }],
+        }),
+      ],
+    });
+    const prev = {
+      ...anonymous,
+      units: [
+        ...anonymous.units,
+        {
+          unit: R as UnitKey,
+          kind: 'snake',
+          letter: 'R',
+          weight: 3,
+          health: 99,
+          orientation: { dx: 0, dy: 1 },
+          fixity: 'pinned' as const,
+          owner: 'u9',
+          operator: 'Ben',
+        },
+      ],
+    };
+    expect(widen(prev, widenedFrame()).by).toBe('Ben');
+    // And with neither, it stays honestly anonymous rather than inventing one.
+    expect(widen(anonymous, widenedFrame()).by).toBeNull();
+  });
+
   it('leaves everything under the cursor exactly where it was', () => {
     const prev = narrowFrame();
     const before = inspecting(prev);

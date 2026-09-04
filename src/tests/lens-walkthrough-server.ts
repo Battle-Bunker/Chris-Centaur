@@ -44,13 +44,14 @@ import { GameWebSocketServer } from '../server/websocket-server';
 import { encodeEventRow, lensStringify, reviveLens } from '../lens/store';
 import { unitKeyOf } from '../lens/kernel';
 import type {
+  LensDecisionPort,
   LensEvent,
   TurnEvent,
   TurnEventRow,
   UnitKey,
 } from '../lens/types';
 import type { Board, BoardSnapshot, Coord, Direction, Game } from '../types/battlesnake';
-import type { JointPlan, KernelInput, UnitId } from '../lobster/contracts';
+import type { JointPlan, KernelInput, PinEvent, UnitId } from '../lobster/contracts';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { rigFor } from '../lobster/candidates';
 // The SHIPPED digest, not a second opinion about one: it is what puts
@@ -387,14 +388,23 @@ async function main(): Promise<void> {
           const lock = lockFor(anchorUnit, rec.plan, sub.unitIdOf(anchorUnit));
           if (lock !== null) port.rankConditional(cluster.id, [lock]);
         }
+        // THE OPERATOR ACTS, THROUGH THE PRODUCTION ORDER: the command is
+        // written to the turn's log first and the kernel is told with the id
+        // it was written under, which is what `routeToKernel` does off the
+        // wire's pin stream. Calling `onPinEvent` directly — as this harness
+        // did — is the one thing that would keep the lane's operator ticks
+        // verbless and colourless in a walk whose whole job is to look at them.
         if (subject !== undefined && emitted === 2) {
           const to = rec.plan.get(subject)?.to;
           if (to !== undefined) {
-            kernel.onPinEvent({ kind: 'pin', pin: { unitId: subject, to, tentative: false } });
+            operatorAct(kernel, lens, clock, t0, {
+              kind: 'pin',
+              pin: { unitId: subject, to, tentative: false },
+            });
           }
         }
         if (subject !== undefined && emitted === 4) {
-          kernel.onPinEvent({ kind: 'unpin', unitId: subject });
+          operatorAct(kernel, lens, clock, t0, { kind: 'unpin', unitId: subject });
         }
       }
 
@@ -458,6 +468,25 @@ async function main(): Promise<void> {
     `[walkthrough] ready — /game/${opts.gameId} is live, ` +
       `/game/${opts.gameId}-replay replays the same log`
   );
+}
+
+/**
+ * One operator gesture, in the causal order production uses: the command is
+ * written to the turn's log, and the kernel is told about it WITH the id it
+ * was written under — so the record that conforms to it names the question it
+ * answers, and the lane's tick carries the verb, the unit and the operator.
+ * `src/lens/kernel/record.ts::command` is the same three lines; this is the
+ * live half of them.
+ */
+function operatorAct(
+  kernel: LobsterKernel,
+  lens: LensDecisionPort | null,
+  clock: DecisionClock,
+  t0: number,
+  event: PinEvent
+): void {
+  const id = lens?.command(event, clock.now() - t0) ?? null;
+  kernel.onPinEvent(event, id);
 }
 
 function lockFor(

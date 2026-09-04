@@ -351,6 +351,51 @@ describe('the rail says what the design says it must', () => {
     expect(rows).not.toMatch(/onmouse|onclick|:hover/);
   });
 
+  /**
+   * 10 §4 O6, in the rail. The partition's `boundedBy[].by` is the KERNEL's
+   * field and the kernel does not know operators — every producer fills it
+   * null. The fold does know, because it folds the `pin` rows the gesture now
+   * writes and puts the author on the unit's row. Rule E's sentence must read
+   * the one that has an answer.
+   */
+  test('Rule E names the operator off the fold when the partition cannot', () => {
+    const f = frame();
+    const anonymous = {
+      ...f,
+      partition: [
+        clusterView({
+          id: 0,
+          members: [C, Q],
+          // The kernel's own field, as every producer actually fills it.
+          boundedBy: [{ unit: 'A-R', to: 30, why: 'pin' as const, by: null }],
+        }),
+      ],
+      units: [
+        ...f.units,
+        {
+          unit: 'A-R' as UnitKey,
+          kind: 'snake',
+          letter: 'R',
+          weight: 3,
+          health: 99,
+          orientation: { dx: 0, dy: 1 },
+          // What the fold writes once a `pin` row exists to fold.
+          fixity: 'pinned' as const,
+          owner: 'u7',
+          operator: 'Ada',
+        },
+      ],
+    };
+    const html = LensPanel.movesetsHTML(renderFrame(anonymous, FOCUSED(anonymous)));
+    expect(html).toContain('Ada');
+
+    const cursorOnBound = applyCursorEvent(initialCursor(), anonymous, {
+      t: 'focus',
+      unit: 'A-R' as UnitKey,
+    });
+    expect(LensPanel.railHTML(renderFrame(anonymous, cursorOnBound))).toContain('by Ada');
+  });
+
   test('provenance is on every rail, small and always', () => {
     const html = LensPanel.railHTML(renderFrame(frame()));
     expect(html).toContain('bot:lens-fixture');
@@ -426,6 +471,44 @@ describe('the timeline lane', () => {
 
   test('says so when a turn has no events yet', () => {
     expect(LensPanel.laneHTML([], { seq: 0 })).toContain('no events yet this turn');
+  });
+
+  /**
+   * 10 §4 O6, in the lane. §2.2 asks for `●Ada near(s2)`: the verb, the unit
+   * and the operator, in the operator's own colour. The tick said the kind and
+   * the time and nothing else, because no `pin` row existed to carry a name.
+   */
+  test('an operator tick carries the verb, the unit, the operator and the colour', () => {
+    const ticks = renderTimeline([
+      turnEvent({
+        kind: 'pin',
+        seq: 4,
+        atWorkMs: 149,
+        unit: 'red-A',
+        actor: operatorActor('Ada', '#7c4dff'),
+        payload: { unit: 'red-A', to: 94, tentative: false },
+      }),
+    ]).filter((c) => c.op === 'timeline.tick');
+    expect(ticks[0]?.args[0]).toBe('operator');
+
+    const html = LensPanel.laneHTML(
+      [
+        {
+          lane: 'operator',
+          seq: 4,
+          atWorkMs: 149,
+          kind: 'pin',
+          color: '#7c4dff',
+          shape: 'solid',
+          operator: 'Ada',
+          unit: 'red-A',
+        },
+      ],
+      { seq: 4 }
+    );
+    expect(html).toContain('title="Ada pin(red-A) · seq 4 · +149ms"');
+    expect(html).toContain('color:#7c4dff');
+    expect(html).toContain('●');
   });
 
   test('gives the turn anchors a lane of their own', () => {

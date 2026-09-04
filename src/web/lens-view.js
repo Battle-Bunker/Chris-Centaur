@@ -852,7 +852,7 @@ var LensView = (() => {
           fromGeneration: before.generation,
           toGeneration: after.generation,
           gained,
-          by: attributionFor(before.boundedBy, gained),
+          by: attributionFor(prev, before.boundedBy, gained),
           // What the cluster WAS. The banner adds the gained members to it, so
           // "cluster α is now 4 units" is arithmetic the reader can check
           // against the two halves of the same sentence.
@@ -885,8 +885,11 @@ var LensView = (() => {
     if (sameId !== void 0) return sameId;
     return next.partition.find((c) => c.lineage.includes(before.id));
   }
-  function attributionFor(boundedBy, gained) {
-    return boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+  function attributionFor(prev, boundedBy, gained) {
+    const declared = boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+    if (declared !== null) return declared;
+    const row = prev.units.find((u) => gained.includes(u.unit) && u.owner !== null);
+    return row?.operator ?? row?.owner ?? null;
   }
 
   // src/lens/view/index.ts
@@ -961,7 +964,8 @@ var LensView = (() => {
     if (unit !== null) {
       const bound = boundingOf(frame, unit);
       if (bound !== null) {
-        const by = bound.bound.by === null ? "" : ` by ${bound.bound.by}`;
+        const author = authorOf(frame, unit, bound.bound.by);
+        const by = author === null ? "" : ` by ${author}`;
         return `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
       }
       const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? "free";
@@ -975,6 +979,11 @@ var LensView = (() => {
     }
     if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
     return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
+  }
+  function authorOf(frame, unit, declared) {
+    if (declared !== null) return declared;
+    const row = frame.units.find((u) => u.unit === unit);
+    return row?.operator ?? row?.owner ?? null;
   }
   var FIXITY_VERB = {
     pin: "pinned",
@@ -990,7 +999,9 @@ var LensView = (() => {
       const glyph = clusterGlyph(index);
       for (const member of cluster2.members) ops.push(call("cluster.chip", member, glyph, cluster2.id));
       for (const bound of cluster2.boundedBy) {
-        ops.push(call("fixed.chip", bound.unit, bound.why, bound.by, bound.to));
+        ops.push(
+          call("fixed.chip", bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+        );
       }
     });
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -1117,7 +1128,15 @@ var LensView = (() => {
       );
     }
     for (const bound of cluster?.boundedBy ?? []) {
-      ops.push(call("panel.movesets.fixed", bound.unit, bound.to, bound.why, bound.by));
+      ops.push(
+        call(
+          "panel.movesets.fixed",
+          bound.unit,
+          bound.to,
+          bound.why,
+          authorOf(frame, bound.unit, bound.by)
+        )
+      );
     }
     if (selected !== null) {
       const foil = foilRow(frame, cursor, selected);
@@ -1241,7 +1260,12 @@ var LensView = (() => {
           event.kind,
           event.actor.id,
           event.actor.color,
-          hover ? "hollow" : "solid"
+          hover ? "hollow" : "solid",
+          // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
+          // and the operator — and the tick carried the kind and the time and
+          // nothing else, because no `pin` / `unpin` row existed to carry a name.
+          event.actor.name,
+          event.unit
         )
       );
     }
@@ -1257,7 +1281,8 @@ var LensView = (() => {
       const cluster = clusterOf(frame, cursor.unit);
       const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
       const home = cluster ?? bound?.cluster ?? null;
-      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${bound.bound.by === null ? "" : `, by ${bound.bound.by}`} — not a member`;
+      const boundBy = bound === null ? null : authorOf(frame, bound.bound.unit, bound.bound.by);
+      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${boundBy === null ? "" : `, by ${boundBy}`} — not a member`;
       ops.push(
         call(
           "panel.focus",
