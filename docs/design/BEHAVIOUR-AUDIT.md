@@ -165,6 +165,22 @@ its own calibration arm rather than a re-run of this one.
 board unit for unit and pins TODAY's pricing: the entry onto the occupied cell
 costs 0 and the hold costs the whole `CONTEST_LOSS`. A repair inverts that line.
 
+### SECOND ATTEMPT — the lightened charge (`d1-two`), baseline re-taken
+
+The instrument state (`a104f36`) re-measured at `npx tsc -p .` clean, 60 turns,
+`--nodes`, one JSON summary per (scenario, seed), as the A arm every ε below is
+paired against by seed: `mixed`/`snakes`/`sparse` seeds 1–3, `potions` seeds
+1–8, and the `sparse-lean` arm seeds 1–3. It reproduces the corpus table above
+figure for figure — `mixed` 1258 unit-turns, 10 deaths (`edge` 2, `contest` 7,
+`bodyBlock` 1), 246 meals, `lost` 5; `snakes` 967, 7 deaths, 157 meals;
+`sparse` 720, 0 deaths, 52 meals; `potions` 3044, 26 deaths (`contest` 24,
+`bodyBlock` 1, `edge` 1), 595 meals, `lost` 4 — so the audit's numbers and this
+attempt's are the same measurement, not two.
+
+`sparse-lean` seeds 1–3: 720 unit-turns, 0 deaths, 45 meals of which 38 grown,
+0 occupied-cell entries. It is in the corpus as the arm where a meal is worth
+less than the turn it costs, and it is dark for D1 by construction.
+
 ---
 
 ## D2 — a pawn's orientation is invisible to the fold, so it parks
