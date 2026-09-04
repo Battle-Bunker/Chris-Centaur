@@ -1089,7 +1089,14 @@
         atWorkMs: e.atWorkMs,
         kind: e.kind,
         color: e.actor ? e.actor.color : null,
-        shape: e.payload && e.payload.hover ? 'hollow' : 'solid',
+        // Hollow is the ATTENTION channel: `hover` on a selection, and
+        // `tentative` on a pin — a look the search may speculate on, never a
+        // determination. Both are numerous and low-grade, so both are hidden
+        // until the lane is expanded.
+        shape:
+          e.payload && (e.payload.hover === true || e.payload.tentative === true)
+            ? 'hollow'
+            : 'solid',
       }));
     }
 

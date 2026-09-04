@@ -1226,7 +1226,8 @@ var LensView = (() => {
   function renderTimeline(events) {
     const ops = [call("timeline", events.length)];
     for (const event of events) {
-      const hover = event.payload?.hover === true;
+      const payload = event.payload;
+      const hover = payload?.hover === true || payload?.tentative === true;
       ops.push(
         call(
           "timeline.tick",

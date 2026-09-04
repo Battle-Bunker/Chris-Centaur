@@ -726,7 +726,15 @@ const LANE_OF: Readonly<Record<TurnEventKind, string>> = {
 export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript {
   const ops: DrawCall[] = [call('timeline', events.length)];
   for (const event of events) {
-    const hover = (event.payload as { hover?: unknown } | undefined)?.hover === true;
+    // TWO SHAPES THE ATTENTION CHANNEL CAN ARRIVE IN, and both are hollow.
+    // §2.1 names focus and candidate hover as `selection` with `hover: true`;
+    // the same look also reaches the kernel as a TENTATIVE pin — a hint the
+    // search may speculate on, never a constraint (`notePinConsideration` →
+    // `PinEvents.tentativePin`) — and that is the form the log actually
+    // carries. A tentative pin drawn as a solid operator tick would say a
+    // determination was made where a look was taken.
+    const payload = event.payload as { hover?: unknown; tentative?: unknown } | undefined;
+    const hover = payload?.hover === true || payload?.tentative === true;
     ops.push(
       call(
         'timeline.tick',

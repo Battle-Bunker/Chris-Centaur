@@ -23,7 +23,7 @@
  *    each had their own.
  */
 
-import { renderFrame, initialCursor, applyCursorEvent } from '../lens/view';
+import { renderFrame, initialCursor, applyCursorEvent, renderTimeline } from '../lens/view';
 import type { CursorEvent, LensCursor, LensFrame, Moveset, UnitKey } from '../lens/types';
 import {
   clusterView,
@@ -31,7 +31,9 @@ import {
   lensAt,
   lensFrame,
   moveset,
+  operatorActor,
   reading,
+  turnEvent,
   unitKeysOf,
   SINGLETONS,
 } from './lens-fixtures';
@@ -376,6 +378,32 @@ describe('the timeline lane', () => {
       LensPanel.laneHTML(events, { seq: 3, expanded: true }).match(/data-seq=/g)?.length
     ).toBe(3);
     expect(closed).toContain('seq 3');
+  });
+
+  /**
+   * 10 §4 O4. The lane's hollow ticks and the expand toggle were built and
+   * unfed: nothing writes a `selection` with `hover`, so `operator.attention`
+   * was absent from the log entirely. The look that DOES reach the kernel is
+   * a TENTATIVE pin, and that is the shape the renderer must read as hollow —
+   * a tentative pin drawn solid would report a determination nobody made.
+   */
+  test('a tentative pin is an attention tick, hollow and hidden by default', () => {
+    const attention = renderTimeline([
+      turnEvent({ kind: 'emission', seq: 1, payload: { planKey: 'p', hover: false } }),
+      turnEvent({
+        kind: 'pin',
+        seq: 2,
+        actor: operatorActor('ada'),
+        payload: { unit: 'A-C', to: 10, tentative: true },
+      }),
+      turnEvent({
+        kind: 'pin',
+        seq: 3,
+        actor: operatorActor('ada'),
+        payload: { unit: 'A-C', to: 10, tentative: false },
+      }),
+    ]).filter((c) => c.op === 'timeline.tick');
+    expect(attention.map((c) => c.args[6])).toEqual(['solid', 'hollow', 'solid']);
   });
 
   test('says so when a turn has no events yet', () => {
