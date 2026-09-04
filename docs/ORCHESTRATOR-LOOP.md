@@ -15,15 +15,14 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~10:40Z
-Merged this cycle: goto fix (c1a3e2c), bot SIMPLIFY-PLAN (3d4a3f0), TT SIMPLIFY-PLAN (84229d3). Head 3d4a3f0.
+## Active wave (update on every launch/merge) — 2026-09-04 ~12:20Z
+Merged this cycle: goto fix (c1a3e2c); bot SIMPLIFY items 3,4,8,9,2m (348988c) and 1,5,13 (c3928e3); TT SIMPLIFY items 1-9 (pushed on the TT branch). Head c3928e3; full suite re-run pending on the merged head.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
 | depth (CC) | opus | F-1..F-9 depth preconditions, then depth 2 for piece clusters, gated | merge preconditions; engagement only if A/B not worse per board class |
-| simp-a (CC) | sonnet | SIMPLIFY-PLAN items 1, 5, 13 (telemetry dead half; dead wire fields; mulberry32) | ff/merge if byte-identical runner + suite green |
-| simp-b (CC) | sonnet | SIMPLIFY-PLAN items 3, 4, 8, 9, 2-mechanical (candidates/evaluate) | same |
-| (TT checkout) | sonnet | TT SIMPLIFY-PLAN items 2, 3, 4 (mechanical) | goldens unchanged + suite green |
-Deferred until depth lands (same files): bot items 10 (board memo), 11 (bank sweep), 12 (contracts hub), 6 (decision rig), 7 (tier-freeze). TT item 1 (expandTeams shared) and 5 are JUDGEMENT → Opus later.
+| (TT checkout) | opus | TT SIMPLIFY judgement items 10, 12 (+ a gate for 11 if cheap) | goldens unchanged + suite green |
+Deferred until depth lands (same files): bot items 10 (board memo), 11 (bank sweep), 12 (contracts hub), 6 (decision rig), 7 (tier-freeze).
+Watch: the executors' net line deltas were near zero on candidates/evaluate (+200/−179) — helpers added; judge the NEXT audit on special cases removed, not lines.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
