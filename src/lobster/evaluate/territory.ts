@@ -79,21 +79,43 @@
  *                ⟺  ∃t : c ∈ ourCum(t) ∧ c ∉ theirCum(t)
  *
  * where `Cum(t)` is the running OR of that side's arriving fronts. Both sides
- * are BOARDS, so the fold is word ops over 6–8 words across 5–8 turns. The same
- * sweep yields the PER-UNIT ownership planes for free, because it already walks
- * every unit's front at every turn.
+ * are BOARDS, so the fold is word ops over 6–8 words across 5–8 turns. It used
+ * to yield the PER-UNIT ownership planes alongside, for free, because it walks
+ * every unit's front at every turn anyway — and that is exactly what made the
+ * per-unit reading a race. See below.
  *
- * ── THE TIE RULE, AND WHY IT IS NOT SYMMETRIC ──────────────────────────────
+ * ── THE PER-UNIT READING IS A REGION, NOT A RACE ───────────────────────────
  *
- * Per-unit ownership is "u arrives strictly before every other admitted unit,
- * teammates included" — with ONE exemption: a HELD teammate that merely TIES
- * does not take the cell away. Without the exemption the feature is not
- * refinement-monotone, and the counterexample is small: two held enemies tie at
- * a cell, so neither owns it; narrow one of them and the other suddenly does,
- * which RAISES the enemy's room and drops our floor on a refinement. With the
- * exemption a narrowing can only ever shrink the narrowed unit's own plane. The
- * exemption is gated on `held`, so with nothing held it vanishes and the two
- * readings coincide — R3 collapse, by construction rather than by luck.
+ * The team planes above are a race and are right to be one: `reach` asks who
+ * gets to a cell first. The PER-UNIT reading is a different question and used
+ * to be answered with the same machinery — plane 1 restricted to one unit, on
+ * shells that step against the PERMISSIVE board after the first unknown turn.
+ * On a permissive board a snake's own body is not there, so a snake coiled into
+ * a pocket of four cells walked out through itself on the second shell and read
+ * as roomy several turns before it suffocated.
+ *
+ * So the per-unit reading is a REGION: a flood from the unit's settled head in
+ * which every cell a body still holds, and every cell somebody else can hold
+ * first, is barred — ON THE SCHEDULE THE RULES GIVE, which is the whole
+ * finding. A trail unit's body vacates one cell per turn, so `O[i]` is barred
+ * at horizon turn `t` exactly while `i ≤ L − 1 − t`. Its own coil therefore
+ * opens behind it and A SNAKE CANNOT TRAP ITSELF: the region bounded by its own
+ * trail is always at least its own length, so the coil is a tail-chase and not
+ * a tomb. Every real entrapment is closed by somebody else's body or lost as a
+ * race.
+ *
+ * THAT DELETES THREE SPECIAL CASES WITH IT. There is no per-unit ownership
+ * plane, so there is no per-team `seen`/`multi` sweep deciding a unique argmin
+ * per cell; and there is no tie to exempt a held teammate from, because a
+ * barrier is "AT OR BEFORE" rather than "strictly before" — a tie kills both,
+ * so a cell we tie for is not a cell we keep. Refinement monotonicity is then a
+ * property of the barrier set rather than of a tie rule: narrowing a held unit
+ * shrinks its cloud, and a smaller cloud can only REMOVE a barrier from the
+ * worst reading.
+ *
+ * `docs/design/entrapment.md` is the derivation — §3 the geometry, §5 the two
+ * endpoints, §7.1 the two constructed boards `src/tests/entrapment.test.ts`
+ * pins them on.
  */
 
 import { NEVER } from '../../engine-vendor/engine/claims';
@@ -116,8 +138,6 @@ export interface TerritorySubject {
   readonly held: boolean;
   /** The most this unit can weigh in any admitted world. */
   readonly weightMax: number;
-  /** The least, BEFORE a sever — see `partialLossMax`, and the header. */
-  readonly weightMin: number;
   /** Weight a trail unit could still lose to a sever without dying. */
   readonly partialLossMax: number;
   readonly tierMax: number;
@@ -130,6 +150,23 @@ export interface TerritorySubject {
    * to build `certainDomain`.
    */
   readonly certainIfAlive: ReadonlyArray<number>;
+  /**
+   * THE CELLS THIS UNIT STANDS ON, HEAD FIRST — the settled occupancy for a
+   * mover, the observed record's for a held unit. The vacating schedule of §3.2
+   * is an INDEX into this list, which is why the barrier reads occupancy and
+   * not `certainIfAlive`: the claim's own set is sorted by cell and carries no
+   * order, so it cannot say which cell leaves next.
+   */
+  readonly occupancy: ReadonlyArray<number>;
+  /** The smallest weight this unit could carry, BEFORE a sever — see
+   *  `partialLossMax` and the header. The pair is what makes `need` an
+   *  interval, and what the piece contest reads its endpoints off. */
+  readonly weightMin: number;
+  /** Alive in the subject's WORST world / BEST world. A barrier is admitted to
+   *  `lo` on the first and to `hi` only on both — a barrier from a unit that
+   *  might be dead would push `hi` below a world it claims to bound. */
+  readonly worstAlive: boolean;
+  readonly bestAlive: boolean;
 }
 
 /** Which units each side admits, in one reading. */
@@ -141,8 +178,21 @@ export interface Admission<S> {
 export interface TrailRoom<S> {
   readonly subject: S;
   readonly mine: boolean;
-  /** Cells this unit alone reaches first, on plane 1. */
-  readonly owned: number;
+  /**
+   * THE CELLS THIS UNIT CAN KEEP over its own horizon, capped at `need` — the
+   * barred flood of `docs/design/entrapment.md` §3, measured from the unit's
+   * settled head.
+   *
+   * Filled only for one of OURS that is not held. The enemy half of `room` is
+   * retired (§4.2): a held enemy is a cloud and has no head cell to flood from,
+   * and `reach` already carries the contested-ground difference at the team
+   * level. A `TrailRoom` this reading does not price reads `kept === need`,
+   * which is the term declining to say anything about it rather than a claim
+   * that it is boxed.
+   */
+  readonly kept: number;
+  /** `max(4, L + 2)` at this reading's own length endpoint. */
+  readonly need: number;
 }
 
 export interface Partition<S> {
@@ -241,15 +291,29 @@ export class TerritoryWorkspace {
   readonly coveredPrev: Uint32Array;
   readonly coveredNow: Uint32Array;
   readonly newT: Uint32Array;
-  readonly hit: Uint32Array;
-  readonly others: Uint32Array;
-  /** Per-team `seen` / `multi` over the non-held-teammate subset. */
-  readonly seenByTeam: Uint32Array[] = [];
-  readonly multiByTeam: Uint32Array[] = [];
-  /** Per-admitted-trail-unit ownership planes, grown on demand. */
-  readonly own: Uint32Array[] = [];
   /** Decisive turn per cell. Only filled when a piece could displace. */
   readonly decisive: Int32Array;
+  /**
+   * THE BODY-BARRIER SCHEDULE, AS A STAMPED GRID RATHER THAN A BOARD FILL.
+   *
+   * `bodyUntil[c]` is the last horizon turn at which some trail body still
+   * holds `c`; `bodyStamp[c]` says which partition wrote it. Nothing is ever
+   * cleared — only the forty-odd cells a body actually occupies are touched per
+   * reading, against the whole-board fill per unit the ownership planes cost.
+   */
+  readonly bodyUntil: Int32Array;
+  readonly bodyStamp: Int32Array;
+  bodyGen = 0;
+  /** The flood's region, the same way: a stamp per cell and a list of the
+   *  handful of cells actually in it. A capped flood never holds more than
+   *  `need` cells, so the list is a few dozen numbers reused forever. */
+  readonly regionStamp: Int32Array;
+  readonly regionCells: number[] = [];
+  regionGen = 0;
+  /** Pooled `(unitId, earliest)` pairs for the claims-as-barriers clause, so a
+   *  reading that admits eight units allocates none. */
+  readonly cloudPool: Array<{ unitId: UnitId; earliest: Int32Array }> = [];
+  readonly clouds: Array<{ unitId: UnitId; earliest: Int32Array }> = [];
   /**
    * One trail-domain board PER READING. Two boards rather than one because a
    * context caches both partitions and hands both out; a single scratch board
@@ -294,9 +358,10 @@ export class TerritoryWorkspace {
     this.coveredPrev = new Uint32Array(w);
     this.coveredNow = new Uint32Array(w);
     this.newT = new Uint32Array(w);
-    this.hit = new Uint32Array(w);
-    this.others = new Uint32Array(w);
     this.decisive = new Int32Array(grid.cells);
+    this.bodyUntil = new Int32Array(grid.cells);
+    this.bodyStamp = new Int32Array(grid.cells);
+    this.regionStamp = new Int32Array(grid.cells);
     this.domains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
     this.certainDomains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
     this.foodOut = new Uint32Array(w);
@@ -304,19 +369,17 @@ export class TerritoryWorkspace {
     this.wideFoodOut = new Uint32Array(w);
   }
 
-  planeFor(index: number): Uint32Array {
-    while (this.own.length <= index) this.own.push(new Uint32Array(this.grid.words));
-    return this.own[index] as Uint32Array;
-  }
-
-  /** Grow the per-team slabs to cover `team`, then read them directly. Two
-   * accessors rather than one returning a pair: a pair is an allocation, and
-   * this is called once per team per unit per horizon turn. */
-  ensureTeam(team: number): void {
-    while (this.seenByTeam.length <= team) {
-      this.seenByTeam.push(new Uint32Array(this.grid.words));
-      this.multiByTeam.push(new Uint32Array(this.grid.words));
+  /** One pooled cloud entry, rewritten in place. */
+  takeCloud(unitId: UnitId, earliest: Int32Array): { unitId: UnitId; earliest: Int32Array } {
+    let e = this.cloudPool[this.clouds.length];
+    if (e === undefined) {
+      e = { unitId, earliest };
+      this.cloudPool.push(e);
+    } else {
+      e.unitId = unitId;
+      e.earliest = earliest;
     }
+    return e;
   }
 
   /** The shells map handed to one evaluation. Reused: one evaluation runs at a
@@ -432,9 +495,29 @@ export function partitionOf<S extends TerritorySubject>(
   shells: ReadonlyMap<UnitId, UnitShells>,
   asTeam: number,
   admit: Admission<S>,
-  /** Which reading this is — it decides the endpoint every contest is read at,
-   *  and nothing else. See the header. */
+  /**
+   * WHICH ENDPOINT THIS SWEEP IS. `admit` alone cannot say it: the barred flood
+   * takes a length endpoint per reading and admits a barrier on a different
+   * survival test in each, and both are §5's, not the admission's. It also
+   * decides the endpoint every piece contest is read at — see the header.
+   */
   reading: 'lo' | 'hi',
+  /** The turn the settled board belongs to — the clock `earliest ≤ arrivalTurn
+   *  + t` is read against, and the age a held unit's schedule is offset by. */
+  arrivalTurn: number,
+  /**
+   * THE LAST TURN A CLAIM CLOUD IS READ AT, and it is a parameter rather than
+   * `sh.horizonTurn` for a reason that cost a day: `Shells` are INTERNED per
+   * decision and `extendTo` is monotone, so a shells object another caller
+   * pushed further carries stamps past this reading's horizon — and
+   * `earliest()` would then hand back barriers whose existence depends on the
+   * cache's history rather than on the board. The clamp makes the reading a
+   * function of the position again: `earliest` takes a MINIMUM over fronts, so
+   * every stamp at or below this turn is already final however far the shells
+   * are later extended. It is also exactly §3.1's rule for a horizon that runs
+   * past the shells' own — the enemy front is held at its last front.
+   */
+  claimHorizonTurn: number,
   /** Where this reading's trail domain is written. One per reading — see
    * `Partition.domain`. Defaults to a fresh board for callers that ignore it. */
   domain: Uint32Array = new Uint32Array(ws.grid.words),
@@ -464,24 +547,14 @@ export function partitionOf<S extends TerritorySubject>(
 
   const needDecisive = pieces.length > 0 && trails.length > 0;
   const { ourCum, theirCum, ourStep, theirStep, oursBoard, theirsBoard } = ws;
-  const { coveredPrev, coveredNow, newT, hit, others, decisive, notWall } = ws;
-  const seenByTeam = ws.seenByTeam;
-  const multiByTeam = ws.multiByTeam;
+  const { coveredPrev, coveredNow, newT, decisive, notWall } = ws;
   ourCum.fill(0);
   theirCum.fill(0);
   oursBoard.fill(0);
   theirsBoard.fill(0);
   coveredPrev.fill(0);
   certainDomain.fill(0);
-  for (let k = 0; k < trails.length; k++) ws.planeFor(k).fill(0);
   if (needDecisive) decisive.fill(NEVER);
-
-  const teams: number[] = [];
-  for (let k = 0; k < trails.length; k++) {
-    const team = (trails[k] as Entry<S>).s.team;
-    ws.ensureTeam(team);
-    if (!teams.includes(team)) teams.push(team);
-  }
 
   for (let t = tMin; t <= tMax; t++) {
     // --- team-level cover, the exact `ours ⟺ ∃t` identity -------------------
@@ -523,49 +596,6 @@ export function partitionOf<S extends TerritorySubject>(
     coveredPrev.set(coveredNow);
     if (anyNew === 0) continue;
 
-    for (let ti = 0; ti < teams.length; ti++) {
-      const team = teams[ti] as number;
-      const seen = seenByTeam[team] as Uint32Array;
-      const multi = multiByTeam[team] as Uint32Array;
-      seen.fill(0);
-      multi.fill(0);
-      for (let k = 0; k < trails.length; k++) {
-        const e = trails[k] as Entry<S>;
-        // A HELD teammate is not in this team's blocking set: its tie must not
-        // take a cell off a unit it is standing in for.
-        if (e.s.held && e.s.team === team) continue;
-        const f = e.sh.frontAt(t);
-        if (f === null) continue;
-        for (let i = 0; i < w; i++) {
-          const h = ((f[i] as number) & (newT[i] as number)) >>> 0;
-          multi[i] = ((multi[i] as number) | (h & (seen[i] as number))) >>> 0;
-          seen[i] = ((seen[i] as number) | h) >>> 0;
-        }
-      }
-    }
-
-    for (let k = 0; k < trails.length; k++) {
-      const e = trails[k] as Entry<S>;
-      const f = e.sh.frontAt(t);
-      if (f === null) continue;
-      const seen = seenByTeam[e.s.team] as Uint32Array;
-      const multi = multiByTeam[e.s.team] as Uint32Array;
-      for (let i = 0; i < w; i++) hit[i] = (((f[i] as number) & (newT[i] as number)) >>> 0);
-      if (e.s.held) {
-        for (let i = 0; i < w; i++) others[i] = seen[i] as number;
-      } else {
-        for (let i = 0; i < w; i++) {
-          others[i] =
-            (((seen[i] as number) & ~(hit[i] as number)) |
-              ((multi[i] as number) & (hit[i] as number))) >>> 0;
-        }
-      }
-      const own = ws.planeFor(k);
-      for (let i = 0; i < w; i++) {
-        own[i] = ((own[i] as number) | ((hit[i] as number) & ~(others[i] as number))) >>> 0;
-      }
-    }
-
     if (needDecisive) {
       for (let i = 0; i < w; i++) {
         let word = newT[i] as number;
@@ -582,13 +612,60 @@ export function partitionOf<S extends TerritorySubject>(
     }
   }
 
-  // --- counts -------------------------------------------------------------
+  // --- what each of ours can KEEP (docs/design/entrapment.md §3) -----------
+  //
+  // The barriers are built from EVERY subject, not only the admitted ones: a
+  // unit the reading declines to count ground for still has a body, and §5's
+  // two endpoints are about what is HELD and what is contingent, which the
+  // admission predicate answers for a different question.
+  const bodyGen = bodyBarriersOf(ws, subjects, shells, reading, arrivalTurn);
+  const clouds = cloudsOf(ws, subjects, shells, reading);
   const trailRooms: Array<TrailRoom<S>> = [];
+  const priced = new Set<UnitId>();
   for (let k = 0; k < trails.length; k++) {
-    const own = ws.planeFor(k);
-    let owned = 0;
-    for (let i = 0; i < w; i++) owned += popcount32(((own[i] as number) & (notWall[i] as number)) >>> 0);
-    trailRooms.push({ subject: (trails[k] as Entry<S>).s, mine: (trails[k] as Entry<S>).mine, owned });
+    const e = trails[k] as Entry<S>;
+    const s = e.s;
+    priced.add(s.unitId);
+    // THE TWO ENDPOINTS PULL IN OPPOSITE DIRECTIONS AND THAT IS NOT A TYPO.
+    // `fear` is `1 − kept/need`, so the worst reading wants the LARGEST
+    // denominator and the SMALLEST region, and a region grows with its horizon:
+    // `lo` therefore takes `weightMax` for `need` and `weightMin` for the
+    // horizon, and `hi` the reverse. For a located mover the two weights are
+    // equal and all four numbers are one number, which is every unit this term
+    // actually prices.
+    const need = needOf(reading === 'lo' ? s.weightMax : s.weightMin);
+    const horizon = needOf(reading === 'lo' ? s.weightMin : s.weightMax);
+    const head = s.occupancy[0];
+    const kept =
+      e.mine && !s.held && head !== undefined
+        ? keptOf(ws, head, s.kind, s.unitId, clouds, bodyGen, arrivalTurn, claimHorizonTurn, need, horizon)
+        : need;
+    trailRooms.push({ subject: s, mine: e.mine, kept, need });
+  }
+
+  // AND OUR OWN UNITS THIS READING DOES NOT ADMIT, WHICH IS NOT THE SAME
+  // QUESTION. `ADMISSION.lo.ours` drops a CONTINGENT unit of ours because it
+  // may own no ground in the worst world — right for a term that COUNTS
+  // ground. `room` is a fear, folded through `ourUnitTerm`, which charges a
+  // cost over the superset so that a death can never raise our floor; a unit
+  // missing from the reading is charged the full fear instead, and a jump of a
+  // whole fear between two plans is a cliff in a term that must slide. It is
+  // still a mover with a settled body, so its region is measurable, and
+  // measuring it is both tighter and continuous. It never enters `ours`,
+  // `theirs`, the domain boards or plane 2 — only this list.
+  for (const s of subjects) {
+    if (s.team !== asTeam || s.held || !s.bestAlive) continue;
+    if (!leavesTrail(s.kind) || priced.has(s.unitId)) continue;
+    const head = s.occupancy[0];
+    if (head === undefined) continue;
+    const need = needOf(reading === 'lo' ? s.weightMax : s.weightMin);
+    const horizon = needOf(reading === 'lo' ? s.weightMin : s.weightMax);
+    trailRooms.push({
+      subject: s,
+      mine: true,
+      kept: keptOf(ws, head, s.kind, s.unitId, clouds, bodyGen, arrivalTurn, claimHorizonTurn, need, horizon),
+      need,
+    });
   }
 
   let ours = 0;
@@ -797,6 +874,224 @@ function displace<S extends TerritorySubject>(
     }
   }
   return { ours, theirs };
+}
+
+// ---------------------------------------------------------------------------
+// THE BARRED FLOOD — what a unit can KEEP (docs/design/entrapment.md §3)
+// ---------------------------------------------------------------------------
+
+/** One unit's claim cloud, as the stamped arrival grid the shells already hold. */
+interface Cloud {
+  unitId: UnitId;
+  earliest: Int32Array;
+}
+
+/**
+ * `need(u) = max(4, L + 2)`, and the horizon is the same arithmetic.
+ *
+ * A region of exactly `L` cells is survivable only if it admits a Hamiltonian
+ * cycle — the tail-chase; `+1` buys one meal's growth and `+2` one cell lost to
+ * a crowder. The floor at 4 covers the lengths where `L + 2` is smaller than a
+ * snake's own immediate neighbourhood. It is ALSO the horizon, and it has to
+ * be: a snake dies of a pocket when its own tail stops feeding it slack, the
+ * tail takes `L` turns to clear the body, and `REACH_HORIZON_TURNS` = 4 stops
+ * looking one turn after the front is blocked and before the body vacates.
+ */
+export const needOf = (length: number): number => Math.max(4, length + 2);
+
+/**
+ * WHICH SUBJECTS BAR, IN THIS READING (§5).
+ *
+ * `lo` is our worst world, so a unit that is alive in it bars; `hi` is our
+ * best, and admits a barrier only from a unit alive in BOTH — a barrier from a
+ * unit that might be dead would push `hi` DOWN below a world it claims to
+ * bound, which is precisely the direction that unsounds a ceiling.
+ */
+const barsIn = (s: TerritorySubject & { worstAlive: boolean; bestAlive: boolean }, reading: 'lo' | 'hi'): boolean =>
+  reading === 'lo' ? s.worstAlive : s.worstAlive && s.bestAlive;
+
+/**
+ * CLAUSES (b) AND (c): every trail unit's body on its own vacating schedule,
+ * the flooding unit's own included, written into the workspace's stamped grid.
+ *
+ * `O[i]` is barred at horizon turn `t` iff `i ≤ L − 1 − age − t`, where `age`
+ * is how many turns the record is behind the settled board (zero for a mover).
+ * That is the neck argument `Claim.certainIfAlive` is built from, generalised
+ * from one turn to `t`: a trail unit's occupancy after `t` further turns still
+ * retains its old cells `0 … L − 1 − t` whatever it chooses, because it must
+ * step and its body follows. At `t = 1` it is exactly `cells[0..len-2]`; at
+ * `t = L` it is empty, and THAT is why a snake cannot trap itself.
+ *
+ * The length is the endpoint that hurts the reading — `weightMax` in `lo`
+ * (bodies persist longest) and `weightMin` in `hi`. The occupancy is read in
+ * ORDER, which `certainIfAlive` cannot give: the claim sorts its set by cell,
+ * so it says which cells are held and never which one leaves next.
+ *
+ * Returns the generation the grid was written at.
+ */
+function bodyBarriersOf<S extends TerritorySubject>(
+  ws: TerritoryWorkspace,
+  subjects: ReadonlyArray<S>,
+  shells: ReadonlyMap<UnitId, UnitShells>,
+  reading: 'lo' | 'hi',
+  arrivalTurn: number
+): number {
+  const gen = ++ws.bodyGen;
+  const stamp = ws.bodyStamp;
+  const until = ws.bodyUntil;
+  for (const s of subjects) {
+    if (!leavesTrail(s.kind)) continue;
+    if (!barsIn(s, reading)) continue;
+    const sh = shells.get(s.unitId);
+    const age = s.held ? Math.max(0, arrivalTurn - (sh?.fromTurn ?? arrivalTurn)) : 0;
+    const last = (reading === 'lo' ? s.weightMax : s.weightMin) - 1 - age;
+    const occ = s.occupancy;
+    const n = Math.min(occ.length, last + 1);
+    for (let i = 0; i < n; i++) {
+      const c = occ[i] as number;
+      const t = last - i;
+      if (stamp[c] !== gen) {
+        stamp[c] = gen;
+        until[c] = t;
+      } else if ((until[c] as number) < t) {
+        until[c] = t;
+      }
+    }
+  }
+  return gen;
+}
+
+/**
+ * CLAUSE (d): the claims as barriers — ground an enemy or a teammate can hold
+ * first, read off the engine's own dilation and never re-derived.
+ *
+ * A cell is barred at `t` when some OTHER admitted unit's head can be on it AT
+ * OR BEFORE `arrivalTurn + t`, which is exactly `earliest ≤ arrivalTurn + t`.
+ * `at or before`, not `strictly before`: a tie kills both, so a cell we tie for
+ * is not a cell we keep — and that is the whole of what retires the asymmetric
+ * tie rule and its held-teammate exemption.
+ *
+ * A HELD unit contributes its cloud to `lo` only. Its head is a possibility and
+ * not a fact, and a ceiling that barred a cell the unit may never reach would
+ * sit below a world. On the `hi` side a held unit still bars through its body
+ * schedule above, which IS a fact in every world it survives uncut.
+ *
+ * ONLY A TRAIL UNIT BARS THIS WAY, AND IT IS THE SAME RELAXATION THE TWO-PLANE
+ * RULE AT THE TOP OF THIS FILE MAKES, FOR THE SAME MEASURED REASON. A held
+ * slider's dilation is a whole line per turn and covers most of an 11x11
+ * interior inside two, so admitting pieces here made every snake on `mixed`
+ * read a shortfall on every option: 383 of 1115 living unit-turns entrapped by
+ * the runner's own instrument, and `room` pinned within 0.018 of −1 across the
+ * king's nine options on the `mid11` acceptance board. A saturated set carries
+ * no information about the unit's own position — the exact degeneracy
+ * `docs/design/entrapment.md` §4.4 exists to guard against, and the one the
+ * discarded first arm died of. Excluding pieces is a change to what `v(w)` IS,
+ * not a bound loosened: the same function is computed in every world, so R1
+ * still holds by §5's first paragraph, and it makes the term identically zero
+ * for a board whose only crowders are pieces rather than identically −1.
+ *
+ * Where `k` runs past the shells' own horizon the front is simply held at its
+ * last one — `earliest` is `NEVER` beyond it — which is the cumulative reading
+ * `Shells.extendTo` already takes when a front comes back empty.
+ */
+function cloudsOf<S extends TerritorySubject>(
+  ws: TerritoryWorkspace,
+  subjects: ReadonlyArray<S>,
+  shells: ReadonlyMap<UnitId, UnitShells>,
+  reading: 'lo' | 'hi'
+): ReadonlyArray<Cloud> {
+  const out = ws.clouds;
+  out.length = 0;
+  for (const s of subjects) {
+    if (!leavesTrail(s.kind)) continue;
+    if (!barsIn(s, reading)) continue;
+    if (s.held && reading === 'hi') continue;
+    const sh = shells.get(s.unitId);
+    if (sh === undefined) continue;
+    out.push(ws.takeCloud(s.unitId, sh.earliest()));
+  }
+  return out;
+}
+
+/**
+ * ONE UNIT'S KEPT REGION, capped at `need`.
+ *
+ *     R_0 = { the settled head cell of u }
+ *     R_t = R_{t-1} ∪ { c ∈ step(R_{t-1}) : c is not barred at t }
+ *
+ * `step` is the engine's own relation through `ShellTable.stepBoard`; this
+ * file's whole addition to the dilation is the `∩ ¬barrier` that
+ * `Shells.extendTo` does not apply. `stepBoard` is the right reader because
+ * `leavesTrail` is the grammar's own `type === "snake"` and a snake reads no
+ * facing; a trail kind that did would need `stepsFrom` here.
+ *
+ * THE UNION-CARRY is what lets the region grow through a cell that only opens
+ * later — the head loiters while its own body clears, and §7.1's length-8 coil
+ * comes out at ten cells only because of it. It stops at a SINGLETON with no
+ * unbarred step: a unit holding one cell has nowhere to wait, it must move, and
+ * every move it has is barred. Carrying there would credit it with an escape it
+ * cannot walk to, so the flood ends and the region is the cell it stands on.
+ */
+function keptOf(
+  ws: TerritoryWorkspace,
+  head: number,
+  kind: UnitType,
+  self: UnitId,
+  clouds: ReadonlyArray<Cloud>,
+  bodyGen: number,
+  arrivalTurn: number,
+  claimHorizonTurn: number,
+  need: number,
+  horizon: number
+): number {
+  const words = ws.grid.words;
+  const gen = ++ws.regionGen;
+  const region = ws.regionCells;
+  region.length = 0;
+  const stamp = ws.regionStamp;
+  const bodyStamp = ws.bodyStamp;
+  const bodyUntil = ws.bodyUntil;
+  const notWall = ws.notWall;
+  stamp[head] = gen;
+  region.push(head);
+  for (let t = 1; t <= horizon && region.length < need; t++) {
+    const before = region.length;
+    // Held at the last front once the flood's horizon runs past the shells' —
+    // and never read past it, so the answer cannot depend on how far some other
+    // caller happened to extend the same interned shells.
+    const by = Math.min(arrivalTurn + t, claimHorizonTurn);
+    for (let i = 0; i < before && region.length < need; i++) {
+      const step = ws.table.stepBoard(kind, region[i] as number);
+      for (let wi = 0; wi < words && region.length < need; wi++) {
+        // (a) TERRAIN, at every t. A trail unit may legally STAGE the
+        // perimeter, so the step relation offers it and this refuses it.
+        let word = (((step[wi] as number) & (notWall[wi] as number)) >>> 0);
+        const base = wi << 5;
+        while (word !== 0) {
+          const lowest = word & -word;
+          const to = base + (31 - Math.clz32(lowest));
+          word = (word & (word - 1)) >>> 0;
+          if (stamp[to] === gen) continue;
+          if (bodyStamp[to] === bodyGen && (bodyUntil[to] as number) >= t) continue;
+          let taken = false;
+          for (let c = 0; c < clouds.length; c++) {
+            const cloud = clouds[c] as Cloud;
+            if (cloud.unitId === self) continue;
+            if ((cloud.earliest[to] as number) <= by) {
+              taken = true;
+              break;
+            }
+          }
+          if (taken) continue;
+          stamp[to] = gen;
+          region.push(to);
+          if (region.length >= need) break;
+        }
+      }
+    }
+    if (region.length === before && before === 1) break;
+  }
+  return Math.min(region.length, need);
 }
 
 function popcount32(x: number): number {

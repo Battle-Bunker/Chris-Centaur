@@ -723,12 +723,9 @@ preserved at the call sites, not merged:
    separately at `:1144` and reports it rather than acting on it.
 2. `better()` returns a typed `Verdict` whose refusal reason the reservoir turns
    into a `DominanceCondition` (`:558-573`); `leaderOf` needs only the boolean.
-3. The `est` rung's horizon guard. `better()` skips it across horizons
-   (`:598-600`); `leaderOf` does not (`:1080-1083`). **Preserve both behaviours
-   by making the guard a parameter** — do not "fix" `leaderOf` in this edit,
-   because that is a behaviour change. Make the difference a named argument, so
-   the next reader sees a decision instead of an omission, and take the
-   discrepancy to §5 as its own question.
+3. ~~The `est` rung's horizon guard.~~ **Done, ahead of this item**: see §5.1.
+   Both ladders share `ranksAbove`, guarded on both middle rungs. Nothing is
+   left to parameterise on this rung.
 
 **Special case removed.** One ordering, stated twice, with three comment blocks
 asking a human to keep them in step.
@@ -977,6 +974,15 @@ is the exact sentence F-10 was written about.
 Repair is one `&&` and it is a behaviour change under any build with depth. It
 belongs with the depth work, gated on `lens-determinism.test.ts` and the
 byte-identical runner.
+
+**REPAIRED.** Both ladders are now one exported comparator, `ranksAbove(a, b,
+seed)` (`search/core.ts`), and the `est` rung is horizon-guarded in it; `better()`
+keeps its witness veto and its typed `Verdict` at the call site, `leaderOf` is a
+fold over the comparator. Byte-identical on the sixteen arms, as §5.1 predicted:
+every horizon on this build is 1, so the guard is inert. The test that would
+have caught it is `core.test.ts`'s *"the leader ranks by the same rule as
+`better()`"*. Item 11's third difference is therefore already merged rather than
+parameterised — an executor of item 11 should fold the remaining two.
 
 ### 5.2 The two `complementKey` producers sort differently
 

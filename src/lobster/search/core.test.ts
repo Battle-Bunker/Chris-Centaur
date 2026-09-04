@@ -34,7 +34,8 @@ import {
   type BoardSpec,
   type BoundedSubstrate,
 } from '../bounds/testkit';
-import { NoRosterError, makeSearchCore, planTieKey } from './index';
+import { DEFAULT_TUNING, NoRosterError, makeSearchCore, planTieKey, ranksAbove } from './index';
+import type { RankedRow } from './index';
 import { asRefiner, planKey as vocPlanKey } from '../voc';
 
 const OURS = 0;
@@ -836,4 +837,75 @@ describe('the ceiling rung never crosses a horizon either (08 F-10)', () => {
     expect(across.length).toBeGreaterThan(0);
     expect(across).toContain('tie');
   }, 180_000);
+});
+
+/**
+ * §5.1 — `leaderOf` compared `est` across horizons where `better()` refuses to.
+ *
+ * The view's leader and the search's incumbent must name the same plan, and
+ * `leaderOf`'s own comment always said so; the `est` rung was the one place it
+ * did not. Both ladders are now `ranksAbove`, so the guard is one line in one
+ * place rather than two comments asking a human to keep two copies in step.
+ *
+ * INERT ON THIS BUILD — `depthMax` is 1 and nothing produces a horizon above
+ * it, which is why the byte-identical runner does not move. It stops being
+ * inert the moment a continuation layer lands, and the disagreement would fire
+ * at an EQUAL FLOOR, where no rung above it is watching.
+ */
+describe('the leader ranks by the same rule as better() (§5.1)', () => {
+  const SEED = DEFAULT_TUNING.seed;
+  const planOf = (to: number): JointPlan =>
+    new Map([[1 as UnitId, { unitId: 1 as UnitId, from: 0, to, path: [to] } as Candidate]]);
+  const row = (to: number, worst: number, est: number, best: number, horizon: number): RankedRow => ({
+    plan: planOf(to),
+    est,
+    horizon,
+    bounds: { worst, best, ledger: [], assumptions: [], exact: false },
+  });
+
+  test('est decides at an equal floor WITHIN one horizon', () => {
+    const rich = row(4, 0, 5, 9, 1);
+    const poor = row(3, 0, 1, 9, 1);
+    expect(ranksAbove(rich, poor, SEED)).toBe(true);
+    expect(ranksAbove(poor, rich, SEED)).toBe(false);
+  });
+
+  test('and says NOTHING across two — where the old ladder named the other plan', () => {
+    // Two readings of two different boards: equal floor, equal ceiling, and the
+    // deeper one carries the larger est. The salted tie is the other way round,
+    // so the two rules name DIFFERENT leaders and the difference is visible.
+    const deep = row(4, 0, 5, 9, 2);
+    const shallow = row(3, 0, 1, 9, 1);
+    const deepTie = planTieKey(deep.plan, SEED);
+    const shallowTie = planTieKey(shallow.plan, SEED);
+    expect(deepTie).not.toBe(shallowTie);
+    expect(deepTie).toBeLessThan(shallowTie);
+
+    // The old rung: `if (a.est !== b.est) …` — unguarded, so `deep` displaced
+    // `shallow` on an est comparison `better()` declines to make.
+    expect(deep.est).toBeGreaterThan(shallow.est);
+    // The rule now: est skipped, ceiling skipped, the indifferent order decides.
+    expect(ranksAbove(deep, shallow, SEED)).toBe(false);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(true);
+  });
+
+  test('the FLOOR still crosses a horizon, because a floor is a bound', () => {
+    // The rung that can speak across depths is the one that always could: a
+    // proved floor is a claim about a horizon-independent quantity.
+    const deep = row(4, 3, 0, 9, 2);
+    const shallow = row(3, 1, 8, 9, 1);
+    expect(ranksAbove(deep, shallow, SEED)).toBe(true);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(false);
+  });
+
+  test('a basis mismatch is a refusal in BOTH directions, whatever the horizons', () => {
+    const held: Assumption = { kind: 'narrowing', unitId: 9 as UnitId, note: 'k' };
+    const deep = row(4, 3, 5, 9, 2);
+    const shallow: RankedRow = {
+      ...row(3, 1, 1, 9, 1),
+      bounds: { worst: 1, best: 9, ledger: [], assumptions: [held], exact: false },
+    };
+    expect(ranksAbove(deep, shallow, SEED)).toBe(false);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(false);
+  });
 });

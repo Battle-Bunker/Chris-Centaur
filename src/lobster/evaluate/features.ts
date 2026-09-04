@@ -62,7 +62,7 @@ import {
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
-import { type Bound, type Feature, bound, envelope, point } from './bound';
+import { type Bound, type Feature, bound, envelope, ourUnitTerm, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
@@ -74,8 +74,7 @@ import { contestFeature } from './contest';
 import { energyFeature } from './energy';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
-import { potionFeature } from './potion';
-import { tierFeature } from './tier';
+import { potionFeature, tierFeature } from './window';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -105,6 +104,17 @@ export interface Standing {
   /** Observed energy. A held unit's true energy is at most this. */
   readonly energy: number;
   readonly cell: number;
+  /**
+   * EVERY CELL THIS UNIT STANDS ON, HEAD FIRST — the settled occupancy for a
+   * mover, the observed record's for a held unit. `cell` is `occupancy[0]` and
+   * is kept because most readers only want the head.
+   *
+   * The barred flood (`territory.ts`) indexes the vacating schedule into this:
+   * `O[i]` is still held at horizon turn `t` exactly while `i ≤ L − 1 − t`, and
+   * `certainIfAlive` cannot answer that — the claim sorts its set by cell, so it
+   * says which cells are held and never which one leaves next.
+   */
+  readonly occupancy: ReadonlyArray<number>;
   /** The cells a HELD unit still occupies in every world it survives — the
    * engine's `Claim.certainIfAlive`. Empty for a mover: a mover's occupancy is
    * settled, not conditional. */
@@ -293,6 +303,7 @@ export function standingOf(
         partialLossMax: Math.max(0, unit.weight - claim.weightMin),
         energy: claim.energyMax,
         cell: unit.cells[0] as number,
+        occupancy: unit.cells,
         certainIfAlive: claim.certainIfAlive,
         positionCertain: true,
         worstAlive: !claim.certainlyGone && (!mine || !contested),
@@ -352,6 +363,9 @@ export function standingOf(
       cell:
         settled?.occupancy[0] ??
         (possible ? (traversed[traversed.length - 1] ?? (unit.cells[0] as number)) : (unit.cells[0] as number)),
+      // A mover the optimistic timeline killed has no settled occupancy to read
+      // and no body left to bar with; its head still rides in `cell`.
+      occupancy: settled?.occupancy ?? EMPTY_CELLS,
       certainIfAlive: EMPTY_CELLS,
       positionCertain: !displaced.has(unit.wireId),
       worstAlive: !dead && (!mine || !contingent),
@@ -487,6 +501,8 @@ export function makeContext(
         asTeam,
         ADMISSION[reading],
         reading,
+        sub.arrivalTurn,
+        sub.arrivalTurn + horizonTurns,
         ws.domainFor(reading),
         ws.certainDomainFor(reading)
       );
@@ -787,106 +803,122 @@ export const reachFeature: Feature<EvalContext> = {
 };
 
 // ---------------------------------------------------------------------------
-// F3 — per-unit room (the death predictor a team partition cannot see)
+// F3 — per-unit room: THE GROUND A UNIT CAN KEEP, not the race it can win
 // ---------------------------------------------------------------------------
 
 /**
  * A team-partition difference is blind to WHICH of our units is suffocating:
  * one boxed snake and two roomy ones nets a perfectly healthy team territory,
- * and then the boxed one dies. The signal that actually discriminates is
- * per-unit and continuous — a unit's own region dropping through its own body
- * length, five to nine turns before the death, on positions where material is
- * flat and the binary trapped flag never fires at all.
+ * and then the boxed one dies. `room` is the per-unit answer to that, and it is
+ * billed as the death predictor.
  *
- *     R(u)  cells u reaches strictly before every other admitted trail unit,
- *           teammates included — plane 1 only, so the tie-dominated all-kinds
- *           reading can never starve it
- *     g(u)  min(1, sqrt(R(u) / len(u)))
- *     room  ( Σ ours g(u) − Σ theirs g(u) ) / one team's worth of trail units
+ * IT WAS MEASURING A RACE. `owned` was plane 1 of the territory partition —
+ * cells this unit reaches strictly before every other admitted trail unit —
+ * computed on dilation shells that step against the real board for the first
+ * unknown turn and against the PERMISSIVE board for every turn after it. That
+ * is exactly right for a race and exactly wrong for a box: on a permissive
+ * board a snake's own body is not there, so a snake coiled into a pocket of
+ * four cells walked out through itself on the second shell and read as roomy
+ * several turns before it suffocated. Nothing else in the fold saw the pocket
+ * either — `material`'s cliff fires on what kills us THIS turn, and a unit that
+ * steps into a pocket dies next turn or the turn after.
  *
- * A SUM OF SATURATING TERMS, NEVER A MIN. A min over our units is unbounded
- * below the moment any teammate is held — `lo` collapses to 0 and reproduces
- * exactly the vacuity the bound exists to avoid. The sum bounds cleanly (a held
- * teammate contributes between 0 and 1), still punishes confinement, collapses
- * under R3 and is monotone under R2.
+ * So the quantity behind the name changed, and nothing else did: same key, same
+ * weight, same position in `FEATURES`. It is now
  *
- * A BARE SUM, THOUGH, IS NOT A CONSTANT-WEIGHTABLE FEATURE. Its range across
- * candidates is roughly the number of units we command, so a weight that sits
- * safely under the cliff on a three-snake board sits over it on a five-snake
- * one — 3 × 5 = 15 against a lightest-unit cost of 10. `reach` already divides
- * by the open board for exactly this reason; `room` divides by the largest
- * trail count any team started the turn with, which is a BOARD constant rather
- * than a property of who a reading admits, so the sum keeps its monotonicity
- * and the feature keeps a bounded range on every board shape.
+ *     kept(u)  the cells u can KEEP over its own horizon — a flood from its
+ *              settled head in which a trail body bars on its own vacating
+ *              schedule (`O[i]` while `i ≤ L − 1 − t`, u's own included) and
+ *              any cell another unit's head can hold at or before t bars
+ *              outright (`territory.ts`, docs/design/entrapment.md §3)
+ *     need(u)  max(4, L + 2)
+ *     fear(u)  sqrt(clamp01((need − kept) / need))                    ∈ [0, 1]
+ *     room     − Σ over ours, live, unheld of fear(u) / |ours|        ∈ [−1, 0]
  *
- * The LENGTH each term divides by is an interval endpoint too, and it is chosen
- * against the term: a term being maximised in a reading takes the SMALLEST
- * admissible length, one being minimised takes the largest. For a located unit
- * the two are equal, so this only moves where something is genuinely held.
+ * ZERO WHEN THE REGION IS COMFORTABLY LARGER THAN THE BODY, by the cap: the
+ * flood stops at `need` and `fear` is exactly 0 there, so a roomy unit costs
+ * nothing and the term expresses no preference among its options — which is
+ * what keeps it from being a second, weaker `reach`. STEEP AS THE EXITS CLOSE:
+ * `sqrt` is convex-decreasing in `kept`, so the FIRST cell of shortfall costs
+ * `sqrt(1/need)` — a third of the whole term — and the last costs almost
+ * nothing more. Losing an exit costs a block of cells at once, so the shape
+ * prices the loss of the second-to-last exit hardest, which is where a decision
+ * can still be changed.
+ *
+ * A FEAR, NEVER A CREDIT, and ours only. The enemy half is retired: a held
+ * enemy has no head cell to flood from (its position is a cloud, and a region
+ * measured over a cloud is the whole board), `reach` already carries the
+ * contested-ground difference at the team level, and that half was the entire
+ * subject of the `crowdCertain` patch — the maximised side of a difference
+ * cannot be read off one sweep when an uncertain crowder is admitted. With no
+ * enemy half there is no maximised side and no patch. What is lost is an
+ * incentive to box the enemy in; that is the aggressive half of territory
+ * management and this is the conservative one, named as a deliberate omission.
+ *
+ * The range contracting from [−1, +1] to [−1, 0] strictly TIGHTENS the cliff
+ * inequality `territory-acceptance.test.ts` asserts: the certified span halves
+ * from 2 to 1, and at weight 3 against `CLIFF_MATERIAL_WEIGHT` = 10 the term
+ * can never outrank the lightest death anywhere on the board.
+ *
+ * A UNIT THIS READING DOES NOT ADMIT is charged the full fear rather than
+ * nothing. `ADMISSION.lo.ours` drops a contingent unit of ours, and a term that
+ * gave it zero would let a death RAISE our floor — the inversion `ourUnitTerm`
+ * exists to forbid. Charging 1 is sound because a dead unit contributes 0 to
+ * every world and 0 ≥ −1.
  */
 export const roomFeature: Feature<EvalContext> = {
   key: 'room',
   defaultWeight: 3,
   contract: {
     reads: [
-      { input: 'held-arrival', monotone: 'up' },
+      // Later arrival ⇒ the cloud reaches fewer cells ⇒ fewer barriers ⇒ less
+      // fear ⇒ a higher reading, so the term moves DOWN with the input.
+      { input: 'held-arrival', monotone: 'down' },
       { input: 'held-weight', monotone: 'down' },
+      { input: 'maybe-body-presence', monotone: 'down' },
       { input: 'contingent-survival', monotone: 'down' },
     ],
+    // IT MUST SLIDE, NEVER JUMP: material owns the cliff. A trapped unit is not
+    // a dead unit, and a term that jumped would make `lo` FALL when a feared
+    // death is merely confirmed.
     cliff: false,
     dischargeable: true,
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
-    const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
-    return envelope(lo, hi);
+    const lo = fearsOf(ctx.partition('lo'));
+    const hi = fearsOf(ctx.partition('hi'));
+    return ourUnitTerm(ctx, (s) => [-fearOf(lo, s), -fearOf(hi, s)]);
   },
 };
 
 /**
- * A UNIT'S EXCLUSIVE ROOM IS A COMPETITION, AND ONLY ONE SIDE OF IT CAN BE
- * READ OFF ONE SWEEP.
+ * ONE UNIT'S FEAR IN ONE READING.
  *
- * `owned` is "cells this unit reaches strictly before every OTHER admitted
- * trail unit", so it falls when another admitted unit crowds it. Every unit
- * the reading admits at a CLOUD — a held one, dilated from where it was last
- * observed — or at a life it may not have — a contingent mover — crowds cells
- * it may not be at in the world being priced. That direction is right for a
- * term the reading MINIMISES (ours in `lo`, theirs in `hi`): more crowding is
- * a smaller number, and a smaller number is the bound. It is exactly wrong for
- * the term the reading MAXIMISES, and reading it there is where the floor went
- * above the truth.
- *
- * Measured on `potions` seed 8: a held enemy snake's cloud crowded its own
- * LOCATED team-mate — the unit `B1` had just enumerated — out of four of the
- * six cells that team-mate owns in every world it enumerated. Their `−g` shrank,
- * the floor rose 0.37 above a complete world the bank went on to settle, and
- * the bank threw 77 times in one game. The crowder belonged to the enemy, the
- * cells it stole belonged to the enemy, and our floor collected the difference.
- *
- * So the maximised side is read off the sweep only when the crowd is CERTAIN —
- * every admitted trail unit located and alive in every world, which is what a
- * fully modelled board is, and which is what keeps R3 collapse exact. With one
- * uncertain crowder admitted the upper bound available without a second sweep
- * against a different crowd is the saturation point of `g` itself, and that is
- * what is used: `g ≤ 1` by construction, for every unit, on every board.
+ * EXACTLY ZERO FOR A PIECE, and that is load-bearing rather than tidy: a piece
+ * has no trail, no region to keep and no entry in the partition's trail list,
+ * so the missing-unit fallback would charge it the FULL fear — and
+ * `ourUnitTerm` divides by our own non-held count, which GROWS when a held
+ * teammate becomes a mover in a world the soundness law enumerates. A knight
+ * priced at 1 in the world and absent from the partial reading's divisor put
+ * `lo` 1.5 above ninety worlds of `evaluate.test.ts`'s two-held-enemies board.
+ * The term is a statement about trail units; for anything else it is silent.
  */
-function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
-  // A crowder that might not be where the sweep puts it can only be one of
-  // these two, and either makes every maximised `owned` an under-count.
-  const crowdCertain = partition.trails.every(
-    (t) => !t.subject.held && t.subject.worstAlive && t.subject.bestAlive
-  );
-  let total = 0;
+function fearOf(fears: ReadonlyMap<UnitId, number>, s: Standing): number {
+  if (!leavesTrail(s.kind)) return 0;
+  return fears.get(s.unitId) ?? 1;
+}
+
+/** `sqrt(clamp01((need − kept)/need))` per unit of OURS, by unit id. */
+function fearsOf(partition: Partition<Standing>): Map<UnitId, number> {
+  const out = new Map<UnitId, number>();
   for (const t of partition.trails) {
-    // The endpoint that hurts the reading: our term shrinks, theirs grows.
-    const wantSmall = reading === 'lo' ? t.mine : !t.mine;
-    const len = Math.max(1, wantSmall ? t.subject.weightMax : t.subject.weightMin);
-    const g = wantSmall || crowdCertain ? Math.min(1, Math.sqrt(t.owned / len)) : 1;
-    total += t.mine ? g : -g;
+    if (!t.mine) continue;
+    const need = Math.max(1, t.need);
+    const short = Math.min(1, Math.max(0, (need - t.kept) / need));
+    out.set(t.subject.unitId, Math.sqrt(short));
   }
-  return total;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
