@@ -44,7 +44,6 @@ import { GameWebSocketServer } from '../server/websocket-server';
 import { encodeEventRow, lensStringify, reviveLens } from '../lens/store';
 import { unitKeyOf } from '../lens/kernel';
 import type {
-  DecisionInput,
   LensEvent,
   TurnEvent,
   TurnEventRow,
@@ -54,6 +53,10 @@ import type { Board, BoardSnapshot, Coord, Direction, Game } from '../types/batt
 import type { JointPlan, KernelInput, UnitId } from '../lobster/contracts';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { rigFor } from '../lobster/candidates';
+// The SHIPPED digest, not a second opinion about one: it is what puts
+// `evalVersion` on the frame, and a harness that built its own would be the
+// one place the rail's provenance line came from somewhere else.
+import { digestOf } from '../lobster/team-decision-engine';
 import { defaultEvaluator } from '../lobster/evaluate';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import {
@@ -320,6 +323,9 @@ async function main(): Promise<void> {
         yieldIntervalMs: 0,
       };
       const kernel = new LobsterKernel(options);
+      // ONE evaluator object for the decision and for its provenance: the
+      // identity `digestOf` hashes must be the identity the bank keyed on.
+      const evaluate = meteredEvaluator(defaultEvaluator, clock);
 
       const lens = manager.lensDecision(opts.gameId, turn, {
         input: {
@@ -332,7 +338,10 @@ async function main(): Promise<void> {
           behaviourId: `walkthrough/${opts.scenario}`,
           nodeBudget: opts.nodes,
           liveBudgetMs: 0,
-          kernelOptions: options as unknown as DecisionInput['kernelOptions'],
+          kernelOptions: digestOf(
+            options as unknown as Parameters<typeof digestOf>[0],
+            evaluate
+          ),
         },
         engine: 'lobster',
         profile: 'default',
@@ -344,7 +353,7 @@ async function main(): Promise<void> {
       const kin: KernelInput = {
         sub,
         gen,
-        evaluate: meteredEvaluator(defaultEvaluator, clock),
+        evaluate,
         search,
         asTeam,
         deadlineMs: t0 + opts.nodes * 4,

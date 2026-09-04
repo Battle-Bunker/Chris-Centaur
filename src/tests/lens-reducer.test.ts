@@ -21,6 +21,9 @@ import { join } from 'path';
 import { applyEvent, emptyStore, frameAt } from '../lens/store';
 import type { FrameStore, TurnEvent } from '../lens/types';
 import { anchorEvent, operatorActor, turnEvent } from './lens-fixtures';
+import { digestOf } from '../lobster/team-decision-engine';
+import { DEFAULT_KERNEL_OPTIONS } from '../lobster/kernel';
+import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator } from '../lobster/evaluate';
 
 const REDUCER_SOURCE = join(__dirname, '..', 'lens', 'store', 'index.ts');
 
@@ -117,6 +120,37 @@ describe('frameAt is a pure function of (anchor, events ≤ seq)', () => {
     );
     expect(fromScratch).toEqual(direct);
     expect(direct.events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  /**
+   * 10 §4 O2. 02 §2.3 calls `evalVersion` mandatory on every frame — *"a number
+   * without its `evalVersion` … is a cross-fiber comparison waiting to
+   * happen"* — and every shipped frame carried an empty one, because
+   * `provenanceOf` reads it out of the kernel-options digest and the decision
+   * layer put none there. The digest is the production one, so this asserts
+   * the field arrives at the fold rather than that the fold can read a fixture.
+   */
+  it('carries the evaluator version the decision layer put in the digest', () => {
+    const digest = digestOf(DEFAULT_KERNEL_OPTIONS, defaultEvaluator);
+    expect(typeof digest.evalVersion).toBe('string');
+    expect(digest.evalVersion).toMatch(/^eval:[0-9a-f]{8}$/);
+    // Structural, not object identity: a second evaluator on the same profile
+    // is the same version, which is the whole point of the field.
+    expect(
+      digestOf(DEFAULT_KERNEL_OPTIONS, new BoundEvaluator(DEFAULT_PROFILE)).evalVersion
+    ).toBe(digest.evalVersion);
+
+    const frame = frameAt(
+      fold([
+        turnEvent({
+          kind: 'decision.begin',
+          seq: 1,
+          payload: { decisionId: 'd1', input: { botId: 'b', behaviourId: 'h', kernelOptions: digest } },
+        }),
+      ]),
+      1
+    );
+    expect(frame.provenance.evalVersion).toBe(digest.evalVersion);
   });
 
   it('answers at the anchor with an honest empty frame, not a throw', () => {

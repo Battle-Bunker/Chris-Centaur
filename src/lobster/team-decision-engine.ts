@@ -76,6 +76,10 @@ import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
 import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
 import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, standingOf } from './evaluate';
+// The bank's own reader of an evaluator's declared identity. The frame's
+// `evalVersion` must be the SAME quantity the evaluation memo keys on, or a
+// provenance line would agree where the numbers do not.
+import { evaluatorIdentity } from './bounds';
 import type { CriterionProfile } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -226,7 +230,7 @@ export interface TeamDecisionOptions {
  * that carried "[Function]" for them would be a field that looks like a fact
  * and is not one.
  */
-function digestOf(options: KernelOptions): KernelOptionsDigest {
+export function digestOf(options: KernelOptions, evaluate?: Evaluator): KernelOptionsDigest {
   const out: Record<string, number | string | boolean> = {};
   for (const [key, value] of Object.entries(options)) {
     const t = typeof value;
@@ -234,7 +238,39 @@ function digestOf(options: KernelOptions): KernelOptionsDigest {
       out[key] = value as number | string | boolean;
     }
   }
+  // THE EVALUATOR'S VERSION, which 02 §2.3 calls mandatory on every frame — *"a
+  // number without its `evalVersion` … is a cross-fiber comparison waiting to
+  // happen"* — and which no shipped frame has ever carried, because
+  // `lens/store::provenanceOf` reads it out of THIS digest and nothing put one
+  // in. `KernelOptions` has no such field and should not grow one: the version
+  // is a property of the EVALUATOR, not of the kernel's configuration. It is
+  // declared already — `BoundEvaluator.evaluationIdentity`, derived
+  // structurally from the whole profile, which is exactly the quantity two
+  // numbers must agree on before they may be compared — and the bank's own
+  // `evaluatorIdentity` is the one reader of it, so the frame reads it through
+  // the same function rather than through a second opinion about what an
+  // evaluator's identity is.
+  if (evaluate !== undefined) out.evalVersion = evalVersionOf(evaluate);
   return out;
+}
+
+/**
+ * The declared evaluation identity, as a field narrow enough to sit on the
+ * rail. The identity itself is the profile spelled out — every weight and
+ * horizon in it — so it is hashed rather than printed: this is an equality
+ * check between two readings, and FNV-1a in hex is what `boardHashOf` already
+ * uses for exactly that job. `unknown` is drawn as an absence, never as a
+ * version nobody can check.
+ */
+function evalVersionOf(evaluate: Evaluator): string {
+  const identity = evaluatorIdentity(evaluate);
+  if (identity.startsWith('obj:')) return 'eval:unknown';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < identity.length; i++) {
+    hash ^= identity.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `eval:${hash.toString(16).padStart(8, '0')}`;
 }
 
 export interface TeamTurnInput {
@@ -561,7 +597,7 @@ export class TeamDecisionEngine {
           // nobody ran.
           nodeBudget: 0,
           liveBudgetMs: Math.max(0, input.deadlineMs - this.now()),
-          kernelOptions: digestOf(this.kernelOptions()),
+          kernelOptions: digestOf(this.kernelOptions(), evaluate),
         },
         engine: 'lobster',
         // The profile's NAME, which is what a reader can compare. The
