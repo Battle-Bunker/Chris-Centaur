@@ -23,6 +23,7 @@ Merged: potion-board soundness (295e772; gate = 16 arms). NOT merged: the ceilin
 | b1-sound (CC) | opus | port the exact-reply oracle from origin/ceiling (G-D3) as a standing check; fix the B1-floor-vs-exact-reply classes (485 on potions s4) | seed 4 reads zero; sweep green; A/B reported |
 | simp2-b (CC) | sonnet | PLAN-2 items 3 (one arrival field), 5 (one unit-ascent step) | byte-identical + suite + G1/G2 |
 | opponent (CC) | sonnet | runner `--opponent=<profile>`; ab-compare pairs by opponent; material-only baseline recorded | byte-identical without the flag |
+| entrap-design (CC) | opus | docs/design/entrapment.md: entrapment on the one-ply bracket + claims over the window (repair of room's permissive shells preferred) | merge doc; then an Opus implementer |
 Queued: PLAN-2 item 7 (B1/B3 fold — after b1-sound), item 2 (ourUnitTerm absorbs tier+potion — Opus, after simp2-b), §5.1 leaderOf est-across-horizons (Opus, after simp2-b); entrapment (needs a horizon: with the ceiling ply refused, design it on the one-ply bracket + claims over the window — Opus design first).
 Ping: send_later 55 min, re-armed on each firing.
 
