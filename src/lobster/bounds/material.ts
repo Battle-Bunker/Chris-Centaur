@@ -125,17 +125,48 @@ export function claimsById(settlement: PartialSettlement): ReadonlyMap<string, C
 }
 
 export function reachedByMovers(
-  settlement: PartialSettlement
+  settlement: PartialSettlement,
+  /** Cells the units this settlement killed occupied when the turn opened —
+   *  their durable piles. Off the roster, which is fixed for the family every
+   *  view of one settlement belongs to, so the cache below still keys on the
+   *  settlement alone. */
+  remains: ReadonlySet<number> = EMPTY_CELLS
 ): ReadonlySet<string> {
   const memo = reachedCache.get(settlement);
   if (memo !== undefined) return memo;
-  const made = reachedByMoversUncached(settlement);
+  const made = reachedByMoversUncached(settlement, remains);
   reachedCache.set(settlement, made);
   return made;
 }
 
-function reachedByMoversUncached(
+const EMPTY_CELLS: ReadonlySet<number> = new Set<number>();
+
+/**
+ * The cells a settlement's dead occupied when the turn opened.
+ *
+ * Read off the substrate's own records rather than the settlement, which drops
+ * a unit entirely once it dies — see `reachedByMovers`. A held unit's death is
+ * not in `deaths` (a claim has no settled fate), so this is exactly the movers.
+ */
+export function remainsOf(
+  sub: EngineSubstrate,
   settlement: PartialSettlement
+): ReadonlySet<number> {
+  let out: Set<number> | null = null;
+  for (const wireId in settlement.deaths) {
+    const unitId = sub.unitIdOf(wireId);
+    if (unitId === undefined) continue;
+    const record = sub.recordOf(unitId);
+    if (record === undefined) continue;
+    if (out === null) out = new Set<number>();
+    for (const cell of record.occupancy) out.add(cell);
+  }
+  return out ?? EMPTY_CELLS;
+}
+
+function reachedByMoversUncached(
+  settlement: PartialSettlement,
+  remains: ReadonlySet<number>
 ): ReadonlySet<string> {
   const touched = new Set<number>();
   for (const id in settlement.traversed) {
@@ -151,6 +182,15 @@ function reachedByMoversUncached(
     if (settled === undefined) continue;
     for (const cell of settled.occupancy) touched.add(cell);
   }
+  // AND WHAT A MOVER LEFT BEHIND. A unit that died this turn is not on the
+  // settled board and its traversal stops where it fell, but its body stays as
+  // a DURABLE PILE and the pile is a participant: a claim that walks onto one
+  // contests it and can lose. Measured — our snake ran into itself, the held
+  // enemy queen stepped onto its remains and was outweighed, and the narrowing
+  // that had called her certainly alive published a ceiling of +12.2 for a
+  // world worth a WIN. The cells come from the ROSTER, because a corpse's
+  // occupancy is the one thing the settlement stops reporting.
+  for (const cell of remains) touched.add(cell);
   const out = new Set<string>();
   if (touched.size === 0) return out;
   for (const claim of settlement.claims) {
@@ -404,12 +444,19 @@ export function claimSurvival(
   },
   peril: ReadonlySet<string>,
   reached: ReadonlySet<string>,
-  kingSurvival: (kingId: string) => Trit = () => 'maybe'
+  kingSurvival: (kingId: string) => Trit = () => 'maybe',
+  /** Claims another claim could meet and beat — see `claimsThatCouldMeet`. */
+  meeting: ReadonlySet<string> = new Set<string>()
 ): Trit {
   if (claim.certainlyGone) return 'no';
   if (!claim.deathPossible) return 'yes';
   // Route one: its own peril, which the plan narrows.
-  if (claim.selfDeathPossible && (peril.has(claim.id) || reached.has(claim.id))) return 'maybe';
+  if (
+    claim.selfDeathPossible &&
+    (peril.has(claim.id) || reached.has(claim.id) || meeting.has(claim.id))
+  ) {
+    return 'maybe';
+  }
   // Route two: the cascade. `regicideKingId !== null` is documented as exactly
   // the condition `deathPossible` adds to `selfDeathPossible`.
   if (claim.regicideKingId !== null) {
@@ -436,23 +483,79 @@ const claimSurvivalCache = new WeakMap<
   { peril: object; survivals: ReadonlyMap<string, Trit> }
 >();
 
+/**
+ * CLAIMS THAT COULD MEET EACH OTHER — the third route, and the one
+ * `Substrate.perilOf` cannot see.
+ *
+ * `perilOf` asks `computeClaims` about a board WE ARE NOT ON, which is the
+ * right question and gets an answer to a different one: with every remaining
+ * unit HELD there is no mover left to kill anybody, so the call reports no
+ * peril at all. Two held enemies that can reach the same cell are then both
+ * "certainly alive", and the world in which they take it together — a tie
+ * kills everyone in it — wipes their team off the board. Measured: our knight
+ * stands still, their pawn and their rook meet on one square, and a ceiling of
+ * −9.41 sits under a world worth a WIN.
+ *
+ * The test is the rules' own comparator over the two intervals: `b` can end
+ * `a` when `b` could out-tier it, or match its tier at a weight that is not
+ * strictly less — the tie included, because a tie kills everyone in it. Both
+ * sides of a possible meeting are in peril, and the cells come from the
+ * engine's `everPossible`, so nothing about the grammar is restated here.
+ */
+function claimsThatCouldMeet(
+  claims: ReadonlyArray<Claim>
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  if (claims.length < 2) return out;
+  const cells = claims.map((c) => new Set(c.everPossible));
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      const a = claims[i] as Claim;
+      const b = claims[j] as Claim;
+      if (a.certainlyGone || b.certainlyGone) continue;
+      const small = (cells[i] as Set<number>).size <= (cells[j] as Set<number>).size ? i : j;
+      const large = small === i ? j : i;
+      let meets = false;
+      for (const cell of cells[small] as Set<number>) {
+        if ((cells[large] as Set<number>).has(cell)) {
+          meets = true;
+          break;
+        }
+      }
+      if (!meets) continue;
+      // `outranks` with the intervals at the ends that favour the killer, plus
+      // the tie, which is fatal to both.
+      if (b.tierMax > a.tierMin || (b.tierMax === a.tierMin && b.weightMax >= a.weightMin)) {
+        out.add(a.id);
+      }
+      if (a.tierMax > b.tierMin || (a.tierMax === b.tierMin && a.weightMax >= b.weightMin)) {
+        out.add(b.id);
+      }
+    }
+  }
+  return out;
+}
+
 export function claimSurvivals(
   settlement: PartialSettlement,
-  peril: ReadonlySet<string>
+  peril: ReadonlySet<string>,
+  remains: ReadonlySet<number> = EMPTY_CELLS
 ): ReadonlyMap<string, Trit> {
   const hit = claimSurvivalCache.get(settlement);
   if (hit !== undefined && hit.peril === (peril as object)) return hit.survivals;
-  const made = claimSurvivalsUncached(settlement, peril);
+  const made = claimSurvivalsUncached(settlement, peril, remains);
   claimSurvivalCache.set(settlement, { peril: peril as object, survivals: made });
   return made;
 }
 
 function claimSurvivalsUncached(
   settlement: PartialSettlement,
-  peril: ReadonlySet<string>
+  peril: ReadonlySet<string>,
+  remains: ReadonlySet<number>
 ): ReadonlyMap<string, Trit> {
   const claims = claimsById(settlement);
-  const reached = reachedByMovers(settlement);
+  const reached = reachedByMovers(settlement, remains);
+  const meeting = claimsThatCouldMeet(settlement.claims);
   const out = new Map<string, Trit>();
   const visiting = new Set<string>();
   const resolve = (id: string): Trit => {
@@ -465,7 +568,7 @@ function claimSurvivalsUncached(
     if (claim === undefined) return moverSurvival(settlement, id);
     if (visiting.has(id)) return 'maybe';
     visiting.add(id);
-    const made = claimSurvival(claim, peril, reached, resolve);
+    const made = claimSurvival(claim, peril, reached, resolve, meeting);
     visiting.delete(id);
     out.set(id, made);
     return made;
@@ -499,6 +602,22 @@ function claimSurvivalsUncached(
  * possibly-alive unit of ours enters only `best` (which a larger figure
  * raises) and a possibly-alive unit of theirs only the subject's `worst`
  * (which a larger figure lowers). Both directions widen.
+ *
+ * THE FLOOR OF THE SAME INTERVAL IS THE TURN-START WEIGHT. A contingent mover
+ * may not have got the meal this timeline fed it — the ledger says so in as
+ * many words, with a `food` divergence naming the claim that could have eaten
+ * it first — so the least it can weigh is what it weighed when the turn opened,
+ * and reading the settled figure as its minimum put a CEILING 9.3 above a
+ * world in which their rook simply did not eat.
+ *
+ * IT IS NOT ONLY FOR A MOVER THE TIMELINE KILLED. Any mover the ledger names
+ * is a mover whose turn could have gone differently, and one of the things
+ * that differs is the MEAL: the timeline stops a slider where a claim's body
+ * might be and the world where the claim moved lets it through onto the food.
+ * Reading the settled weight there gave a ceiling of 11.36 for a world worth
+ * 21.11 — our queen weighed 2 on the timeline and 3 in the world that fed her
+ * — so a contingent mover takes this ceiling too, and `Math.max` keeps a unit
+ * that already ate on the timeline at the larger of the two.
  */
 export function moverWeightCeiling(
   sub: EngineSubstrate,
@@ -513,7 +632,7 @@ export function unitValuesOf(
 ): UnitValue[] {
   const out: UnitValue[] = [];
   const claimById = claimsById(settlement);
-  const survivals = claimSurvivals(settlement, sub.perilOf());
+  const survivals = claimSurvivals(settlement, sub.perilOf(), remainsOf(sub, settlement));
   for (const unit of sub.roster()) {
     const claim = claimById.get(unit.wireId);
     if (claim !== undefined) {
@@ -533,12 +652,14 @@ export function unitValuesOf(
     // A mover the timeline killed but the ledger left contingent weighs
     // nothing on the settled board and something in every world it survives.
     const possible = settled === undefined && survival !== 'no';
+    const contingent = settlement.fates[unit.wireId] === 'contingent';
     out.push({
       unitId: unit.unitId,
       team: unit.team,
       survival,
-      weightMin: weight,
-      weightMax: possible ? moverWeightCeiling(sub, unit) : weight,
+      weightMin: contingent ? Math.min(weight, unit.weight) : weight,
+      weightMax:
+        possible || contingent ? Math.max(weight, moverWeightCeiling(sub, unit)) : weight,
       // A MOVER CAN BE SEVERED TOO, and reading `partialLossMax` as zero for
       // one was the floor's own defect — see `moverSeverLoss`.
       partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),

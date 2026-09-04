@@ -24,9 +24,32 @@
  * Gating a piece's claim on the contest only ever REMOVES claims, and a removed
  * enemy claim raises `lo` — legitimate exactly because the claim exists in no
  * world: in any world where the piece stands on c at D and loses the contest,
- * the resolver says it does not hold c. Held enemies enter that contest at their
- * strongest admissible endpoint (`weightMax`, best tier), which is what keeps
- * the removal on the pessimistic side.
+ * the resolver says it does not hold c.
+ *
+ * ── WHICH ENDPOINT EACH SUBJECT CONTESTS AT ───────────────────────────────
+ *
+ * A contest reads two coordinates and both of them are INTERVALS while
+ * anything is held, so the reading has to pick an end — and the end is chosen
+ * against the reading, exactly as `materialFeature` chooses one: in `lo` OUR
+ * units contest at their weakest admissible strength and theirs at their
+ * strongest, and in `hi` the other way round. Every role the strength plays
+ * agrees about that direction. A weaker claim of ours is displaced by more of
+ * their pieces; a weaker challenger of ours displaces fewer of their cells;
+ * a stronger claim of theirs survives more of our pieces. All three move the
+ * count the pessimistic way, so one rule covers the plane's whole use of it.
+ *
+ * Pricing EVERY subject at `weightMax` — which this file did — is that rule
+ * applied to one side and forgotten on the other, and it is unsound rather
+ * than merely loose: a mover the settlement left whole may still be SEVERED by
+ * a held enemy, so its weight is contingent even though its cell is not. On a
+ * board with our three-cell trail unit and a held enemy pawn of weight three,
+ * the held reading contested at weight 3 and tied, the world in which the pawn
+ * cut us contested at weight 2 and lost fifteen cells, and the `lo` this file
+ * published sat above a world the resolver itself produced. The weakest
+ * admissible weight is `weightMin − partialLossMax`, the same expression the
+ * material fold reads, and it is deliberately conservative for a held unit —
+ * whose `weightMin` already carries the cut — because being low there costs
+ * tightness and being high costs the promise.
  *
  * ── AND WHAT PIECES CANNOT DO: DIVIDE GROUND NOBODY WALKS ──────────────────
  *
@@ -91,8 +114,14 @@ export interface TerritorySubject {
   readonly team: number;
   readonly kind: UnitType;
   readonly held: boolean;
+  /** The most this unit can weigh in any admitted world. */
   readonly weightMax: number;
+  /** The least, BEFORE a sever — see `partialLossMax`, and the header. */
+  readonly weightMin: number;
+  /** Weight a trail unit could still lose to a sever without dying. */
+  readonly partialLossMax: number;
   readonly tierMax: number;
+  readonly tierMin: number;
   readonly tierExpiresAtTurn: number | null;
   /**
    * The cells this unit STILL OCCUPIES in every world it is alive in — the
@@ -173,11 +202,19 @@ const emptyPartition = <S>(
   return { balance: 0, ours: 0, theirs: 0, open, trails: [], domain, certainDomain, openBoard };
 };
 
-/** The invulnerability tier a unit still carries at an absolute turn. */
-export function tierAtTurn(s: TerritorySubject, turn: number): number {
+/**
+ * The invulnerability tier a unit still carries at an absolute turn, at the
+ * endpoint the reading asks for. `weakest` is the side being read against
+ * itself — see the header's endpoint rule.
+ */
+export function tierAtTurn(s: TerritorySubject, turn: number, weakest = false): number {
   if (s.tierExpiresAtTurn !== null && turn >= s.tierExpiresAtTurn) return 0;
-  return s.tierMax;
+  return weakest ? s.tierMin : s.tierMax;
 }
+
+/** The strength endpoint this reading contests a subject at (header rule). */
+const weakestFor = (reading: 'lo' | 'hi', mine: boolean): boolean =>
+  reading === 'lo' ? mine : !mine;
 
 // ---------------------------------------------------------------------------
 // Reusable scratch — the evaluator is inside the engine's slab discipline now
@@ -227,6 +264,9 @@ export class TerritoryWorkspace {
   /** The same, for the held-cloud-free food board (`EvalContext.certainFood`).
    * A second slab because both boards are read side by side. */
   readonly certainFoodOut: Uint32Array;
+  /** And for the meal-a-contingent-eater-may-not-have-taken board
+   * (`EvalContext.wideFood`). Three boards, three slabs, all read together. */
+  readonly wideFoodOut: Uint32Array;
 
   domainFor(reading: 'lo' | 'hi'): Uint32Array {
     return this.domains[reading];
@@ -261,6 +301,7 @@ export class TerritoryWorkspace {
     this.certainDomains = { lo: new Uint32Array(w), hi: new Uint32Array(w) };
     this.foodOut = new Uint32Array(w);
     this.certainFoodOut = new Uint32Array(w);
+    this.wideFoodOut = new Uint32Array(w);
   }
 
   planeFor(index: number): Uint32Array {
@@ -391,6 +432,9 @@ export function partitionOf<S extends TerritorySubject>(
   shells: ReadonlyMap<UnitId, UnitShells>,
   asTeam: number,
   admit: Admission<S>,
+  /** Which reading this is — it decides the endpoint every contest is read at,
+   *  and nothing else. See the header. */
+  reading: 'lo' | 'hi',
   /** Where this reading's trail domain is written. One per reading — see
    * `Partition.domain`. Defaults to a fresh board for callers that ignore it. */
   domain: Uint32Array = new Uint32Array(ws.grid.words),
@@ -556,9 +600,9 @@ export function partitionOf<S extends TerritorySubject>(
       theirs += popcount32(((theirsBoard[i] as number) & mask) >>> 0);
     }
   } else {
-    for (const e of trails) fillScalars(e, tMin, tMax);
-    for (const e of pieces) fillScalars(e, tMin, tMax);
-    const counted = displace(ws, trails, pieces, asTeam, tMin);
+    for (const e of trails) fillScalars(e, tMin, tMax, weakestFor(reading, e.mine));
+    for (const e of pieces) fillScalars(e, tMin, tMax, weakestFor(reading, e.mine));
+    const counted = displace(ws, trails, pieces, asTeam, tMin, reading);
     ours = counted.ours;
     theirs = counted.theirs;
   }
@@ -596,16 +640,25 @@ export function partitionOf<S extends TerritorySubject>(
  *  The pairs are grown once and then REWRITTEN: only `[0, tMax - tMin]` is ever
  *  read (`displace` indexes `D - tMin`), so a longer pooled array is simply
  *  slack, never a stale answer. */
-function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax: number): void {
+function fillScalars<S extends TerritorySubject>(
+  e: Entry<S>,
+  tMin: number,
+  tMax: number,
+  weakest: boolean,
+): void {
   const out = e.scalars;
-  const weight = e.s.weightMax;
+  // The weakest admissible weight is the same expression `materialFeature`
+  // reads, and for the same reason: a unit's settled cell is certain long
+  // before its settled WEIGHT is, because a sever is the engine's one
+  // non-fatal contact and a held enemy can still make one.
+  const weight = weakest ? Math.max(0, e.s.weightMin - e.s.partialLossMax) : e.s.weightMax;
   for (let t = tMin, i = 0; t <= tMax; t++, i++) {
     let pair = out[i];
     if (pair === undefined) {
       pair = { tier: 0, weight: 0 };
       out.push(pair);
     }
-    pair.tier = tierAtTurn(e.s, t);
+    pair.tier = tierAtTurn(e.s, t, weakest);
     pair.weight = weight;
   }
 }
@@ -616,13 +669,34 @@ function fillScalars<S extends TerritorySubject>(e: Entry<S>, tMin: number, tMax
  * those wins, an equal-arrival tie is settled by the resolver's own comparator,
  * and a mutual kill leaves the trail claim alone. Skipped entirely on a
  * piece-free board, which is the shape the flag decision is measured on.
+ *
+ * ── A TIE IS NOT AN OUTCOME, AND WHY THAT MADE `lo` NON-MONOTONE ───────────
+ *
+ * `tied` used to send the cell straight to the plane-1 fallback in BOTH
+ * readings, and that is a resolution dressed as a refusal: it says the cell
+ * keeps its trail owner, which is the OPTIMISTIC answer whenever one of the
+ * tied challengers is theirs. It also made the whole plane non-monotone in a
+ * held enemy's arrival — the one quantity `lo` relies on being pessimistic.
+ * A held piece is dilated from a turn EARLIER than any world's version of it,
+ * so it ties with more of its own team-mates than the world does, and every
+ * one of those ties handed us a cell the world did not: on a board with a held
+ * knight and a located rook, `lo` counted 13 cells for them where the world in
+ * which the knight simply held counted 16, and the floor sat above it.
+ *
+ * So the tie is read the way every other interval in this file is: the end the
+ * reading is responsible for. In `lo` a tie containing one of THEIR pieces
+ * gives them the cell — in the world exactly one of the tied units is standing
+ * there, and that is a world this bound has to cover. In `hi` a tie containing
+ * one of OURS gives it to us, for the mirror reason. A tie with nothing of the
+ * relevant side in it still falls through to plane 1.
  */
 function displace<S extends TerritorySubject>(
   ws: TerritoryWorkspace,
   trails: ReadonlyArray<Entry<S>>,
   pieces: ReadonlyArray<Entry<S>>,
   asTeam: number,
-  tMin: number
+  tMin: number,
+  reading: 'lo' | 'hi'
 ): { ours: number; theirs: number } {
   const grid = ws.grid;
   const trailGrids = ws.trailGrids;
@@ -672,6 +746,9 @@ function displace<S extends TerritorySubject>(
     let winner: Entry<S> | null = null;
     let winnerScalar: Strength | null = null;
     let tied = false;
+    // Whose pieces are in the tie — the only thing the reading needs of it.
+    let tiedOurs = false;
+    let tiedTheirs = false;
     for (let k = 0; k < pieces.length; k++) {
       const a = (pieceGrids[k] as Int32Array)[c] as number;
       if (a > D) continue;
@@ -683,14 +760,20 @@ function displace<S extends TerritorySubject>(
         winner = e;
         winnerScalar = mine;
         tied = false;
+        tiedOurs = e.s.team === asTeam;
+        tiedTheirs = !tiedOurs;
       } else if (a === bestArrival) {
         const held = winnerScalar as Strength;
         if (outranks(mine, held)) {
           winner = e;
           winnerScalar = mine;
           tied = false;
+          tiedOurs = e.s.team === asTeam;
+          tiedTheirs = !tiedOurs;
         } else if (!outranks(held, mine)) {
           tied = true;
+          if (e.s.team === asTeam) tiedOurs = true;
+          else tiedTheirs = true;
         }
       }
     }
@@ -698,6 +781,13 @@ function displace<S extends TerritorySubject>(
     if (winner !== null && !tied) {
       if (winner.s.team === asTeam) ours++;
       else theirs++;
+      continue;
+    }
+    // A TIE IS NOT AN OUTCOME — see the header above. The reading takes the end
+    // it is responsible for, and only then does the plane-1 fallback apply.
+    if (tied && (reading === 'lo' ? tiedTheirs : tiedOurs)) {
+      if (reading === 'lo') theirs++;
+      else ours++;
       continue;
     }
     // A mutual kill among challengers settles nothing: a piece layer can change

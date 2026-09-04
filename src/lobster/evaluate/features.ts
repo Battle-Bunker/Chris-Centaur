@@ -48,7 +48,7 @@
 import { isPieceType, leavesTrail } from '../../engine-vendor/engine/moveGrammar';
 import type { UnitType } from '../../engine-vendor/shared/types/Game';
 import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
-import { boardOf } from '../bits';
+import { bbSet, bbTest, boardOf } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
 import {
@@ -57,6 +57,7 @@ import {
   moverSeverLoss,
   moverSurvival,
   moverWeightCeiling,
+  remainsOf,
 } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
@@ -108,6 +109,21 @@ export interface Standing {
    * engine's `Claim.certainIfAlive`. Empty for a mover: a mover's occupancy is
    * settled, not conditional. */
   readonly certainIfAlive: ReadonlyArray<number>;
+  /**
+   * WHETHER THIS UNIT ENDS THE TURN WHERE THE TIMELINE SAYS IT DOES.
+   *
+   * Survival and weight are bracketed; POSITION never was. The optimistic
+   * timeline stops a mover where a held claim's body happens to be standing,
+   * lets it through where the claim moved, and halts it on exhaustion where
+   * the claim halted it — so a mover the ledger names for any of those has a
+   * settled cell that is one world's answer rather than every world's, and a
+   * term reading its front off that cell is reading one world.
+   *
+   * A HELD unit is certain by construction here: its "position" is its whole
+   * claim cloud, which is the union over its worlds, and the readings already
+   * choose which side of that union each term is entitled to.
+   */
+  readonly positionCertain: boolean;
   /** Alive in the subject's WORST world. */
   readonly worstAlive: boolean;
   /** Alive in the subject's BEST world. */
@@ -158,6 +174,8 @@ export interface EvalContext {
    * a one-piece board is not safe on a four-piece one.
    */
   readonly pieceScale: number;
+  /** The heaviest unit the turn OPENED with — see `RosterConstants.weightCap`. */
+  readonly weightCap: number;
   /**
    * Absolute-turn arrival grids. Stamped from the same shells, so this is the
    * same array `CloudTimeline.arrival().earliest` returns — pinned cell for
@@ -185,6 +203,24 @@ export interface EvalContext {
    * nothing is held, so the readings still collapse to a point.
    */
   certainFood(): Bitboard;
+  /**
+   * THE FOOD THAT MAY STILL BE THERE — `food()` plus every meal only a
+   * CONTINGENT unit could have taken.
+   *
+   * `food()` is the board the OPTIMISTIC TIMELINE closed with, and that
+   * timeline lets a unit eat that a held enemy could have killed first. So it
+   * is not an upper bound on the food a world leaves standing, and a term that
+   * SUBTRACTS a reading of food — their pieces in `lo`, ours in `hi` — read off
+   * it was above its own worlds: measured as a floor of −35.72775 against a
+   * world of −35.805875, on a board where our contingent queen ate the meal
+   * their held queen was two cells from.
+   *
+   * A meal a unit that certainly survives is standing on is certainly gone;
+   * every other cell the turn opened with and the timeline cleared comes back.
+   * Equal to `food()` when nothing is contingent, so R3 is untouched, and it
+   * can only shrink under a refinement, so R2 is too.
+   */
+  wideFood(): Bitboard;
 }
 
 /**
@@ -196,6 +232,32 @@ export interface EvalContext {
  * ALIVE there — the subject's worst world is the one where the enemy came
  * through.
  */
+/**
+ * Divergence kinds that can change WHERE a mover ends the turn, or what its
+ * front looks like from there. `sever` cuts a tail and leaves the head; `food`
+ * and `potion` move weight and tier; `regicide` is death, which `worstAlive`
+ * already carries. Everything else can stop the unit short, let it through, or
+ * change the kind it moves as.
+ */
+const POSITION_KINDS: ReadonlySet<string> = new Set([
+  'contest',
+  'edge',
+  'bodyBlock',
+  'durable',
+  'exhaustion',
+  'grammar',
+  'promotion',
+]);
+
+/** Movers whose settled cell is one world's answer rather than every world's. */
+function displacedMovers(settlement: PartialSettlement): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const d of settlement.ledger) {
+    if (POSITION_KINDS.has(d.kind)) out.add(d.unitId);
+  }
+  return out;
+}
+
 export function standingOf(
   sub: EngineSubstrate,
   settlement: PartialSettlement,
@@ -203,11 +265,12 @@ export function standingOf(
 ): Standing[] {
   const out: Standing[] = [];
   const claimById = claimsById(settlement);
+  const displaced = displacedMovers(settlement);
   // ONE READING OF SURVIVAL, shared with the material fold: the peril this
   // plan cannot change, united with the peril it just made. See
   // `bounds/material.ts` — a fold that disagreed with the bank about who is
   // alive would be a second scoring pipeline in the one place it matters.
-  const survivals = claimSurvivals(settlement, sub.perilOf());
+  const survivals = claimSurvivals(settlement, sub.perilOf(), remainsOf(sub, settlement));
 
   for (const unit of sub.roster()) {
     const mine = unit.team === asTeam;
@@ -231,6 +294,7 @@ export function standingOf(
         energy: claim.energyMax,
         cell: unit.cells[0] as number,
         certainIfAlive: claim.certainIfAlive,
+        positionCertain: true,
         worstAlive: !claim.certainlyGone && (!mine || !contested),
         bestAlive: !claim.certainlyGone && (mine || !contested),
       });
@@ -259,7 +323,13 @@ export function standingOf(
     const possible = gone && !dead;
     const traversed = settlement.traversed[unit.wireId] ?? [];
     const weight = settled?.occupancy.length ?? 0;
-    const weightMax = possible ? moverWeightCeiling(sub, unit) : weight;
+    // See `moverWeightCeiling`: any mover the ledger names could have been fed
+    // by a world this timeline did not take — and, at the other end, could
+    // have gone hungry in one.
+    const contingentWeight = settlement.fates[unit.wireId] === 'contingent';
+    const weightMax =
+      possible || contingentWeight ? Math.max(weight, moverWeightCeiling(sub, unit)) : weight;
+    const weightFloor = contingentWeight ? Math.min(weight, unit.weight) : weight;
     // NOT `settlement.tiers`, which already carries this turn's pickup. A
     // standing's tier is the one the unit CARRIES IN, and the pickup's effect
     // enters the fold once, through `tiersAfterPickupBy`, priced over the
@@ -271,7 +341,7 @@ export function standingOf(
       kind: settlement.unitTypes[unit.wireId] ?? unit.type,
       isKing: unit.isKing,
       held: false,
-      weightMin: weight,
+      weightMin: weightFloor,
       weightMax,
       tierMin: unit.tier,
       tierMax: unit.tier,
@@ -283,6 +353,7 @@ export function standingOf(
         settled?.occupancy[0] ??
         (possible ? (traversed[traversed.length - 1] ?? (unit.cells[0] as number)) : (unit.cells[0] as number)),
       certainIfAlive: EMPTY_CELLS,
+      positionCertain: !displaced.has(unit.wireId),
       worstAlive: !dead && (!mine || !contingent),
       bestAlive: !dead && (mine || !contingent),
     });
@@ -352,6 +423,7 @@ export function makeContext(
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
   let foodCache: Bitboard | null = null;
   let certainFoodCache: Bitboard | null = null;
+  let wideFoodCache: Bitboard | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
     lo: null,
     hi: null,
@@ -371,6 +443,7 @@ export function makeContext(
     // profile that does not set the field.
     royalReachers: profile?.royalReachers ?? constants.royalReachers,
     pieceScale,
+    weightCap: constants.weightCap,
     command: profile?.command ?? null,
     energyReserveRatio: profile?.energyReserveRatio ?? null,
     shells() {
@@ -413,6 +486,7 @@ export function makeContext(
         ctx.shells(),
         asTeam,
         ADMISSION[reading],
+        reading,
         ws.domainFor(reading),
         ws.certainDomainFor(reading)
       );
@@ -447,6 +521,35 @@ export function makeContext(
         certainFoodCache = board;
       }
       return certainFoodCache;
+    },
+    wideFood() {
+      if (wideFoodCache === null) {
+        const board = ws.wideFoodOut;
+        board.set(ctx.food());
+        // The meals the turn OPENED with. A cell the timeline cleared is
+        // certainly cleared only when the unit standing on it certainly lives:
+        // a contingent eater is one an unknown could have taken first, and in
+        // that world nobody ate.
+        const opened = sub.marshalled.config.food;
+        if (opened.length > 0) {
+          let certainlyEaten: Set<number> | null = null;
+          for (const cell of opened) {
+            if (bbTest(board, cell)) continue;
+            if (certainlyEaten === null) {
+              certainlyEaten = new Set<number>();
+              for (const s of standing) {
+                if (s.held || !s.worstAlive || !s.bestAlive) continue;
+                const settled = resolution.board[sub.unitOf(s.unitId)?.wireId ?? ''];
+                if (settled === undefined) continue;
+                for (const c of settled.occupancy) certainlyEaten.add(c);
+              }
+            }
+            if (!certainlyEaten.has(cell)) bbSet(board, cell);
+          }
+        }
+        wideFoodCache = board;
+      }
+      return wideFoodCache;
     },
     food() {
       if (foodCache === null) {
@@ -518,6 +621,18 @@ interface RosterConstants {
    * behaviour does.
    */
   readonly royalReachers: boolean;
+  /**
+   * THE WEIGHT SCALE, off the ROSTER and never off the survivors.
+   *
+   * `kingMargin` divides by "the heaviest thing on the board", and reading
+   * that off `ctx.standing` made the DENOMINATOR a function of who a world
+   * kills: the world in which a held snake ran into itself dropped the cap
+   * from 3 to 2 and the same margin scored 0.5 against a ceiling of 0.333.
+   * A normaliser that moves with the world is not a normaliser — it is a
+   * second, unbracketed term — so it is a board constant like the other two
+   * scales beside it, floored at 1 so a board of singletons divides by one.
+   */
+  readonly weightCap: number;
 }
 
 const rosterConstants = new WeakMap<EngineSubstrate, RosterConstants>();
@@ -529,6 +644,7 @@ function rosterConstantsOf(sub: EngineSubstrate): RosterConstants {
     roomScale: trailScaleOf(sub),
     pieceScale: pieceScaleOf(sub),
     royalReachers: royalMargin(),
+    weightCap: Math.max(1, ...sub.roster().map((u) => u.weight)),
   }));
 }
 
@@ -989,8 +1105,8 @@ function commandSum(
   // TWO FOOD BOARDS, for the same reason and with the same flip: a meal a held
   // unit's cloud covers is one our floor may not count for our own piece and
   // one our ceiling may not withhold from it.
-  const ourFood = reading === 'lo' ? ctx.certainFood() : ctx.food();
-  const theirFood = reading === 'lo' ? ctx.food() : ctx.certainFood();
+  const ourFood = reading === 'lo' ? ctx.certainFood() : ctx.wideFood();
+  const theirFood = reading === 'lo' ? ctx.wideFood() : ctx.certainFood();
   const nextTurn = ctx.sub.arrivalTurn + 1;
   let total = 0;
   for (const s of ctx.standing) {
@@ -999,6 +1115,18 @@ function commandSum(
     if (s.isKing && !knobs.royal) continue;
     const mine = s.team === ctx.asTeam;
     if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
+    // A MOVER THE LEDGER DISPLACED HAS NO ONE FRONT TO READ. Its settled cell
+    // is the optimistic timeline's, and this term is a number in [0, 1], so
+    // the reading takes the end of that interval it is responsible for rather
+    // than a front from a world it does not own: nothing for a term it is
+    // adding, everything for one it is subtracting. Same rule as every other
+    // interval here — see `territory.ts`'s endpoint header.
+    if (!s.positionCertain) {
+      const weakest = (reading === 'lo') === mine;
+      const c = weakest ? 0 : 1;
+      total += mine ? c : -c;
+      continue;
+    }
     const sh = ctx.shells().get(s.unitId);
     if (sh === undefined) continue;
     const front = sh.frontAt(nextTurn);
@@ -1064,6 +1192,18 @@ function popcount32(x: number): number {
  * What this moves is `est` and `hi` — the channels that lead under fog and that
  * order candidates the floor ties — so the king's danger is visible on the
  * channel a starved decision actually reads.
+ *
+ * ── WHICH THREATS EACH READING MAY COUNT ──────────────────────────────────
+ *
+ * `hi` is the LARGEST margin any admitted world leaves, so the threat it
+ * subtracts has to be the smallest one every world keeps: a reacher that
+ * merely MIGHT be alive is gone in some world, and its weight is an interval
+ * whose bottom is what a world can hold it to. Counting a contingent reacher
+ * at `weightMax` there made `hi` a ceiling under its own worlds — the world in
+ * which the held unit killed our reacher scores a margin the ceiling forbids.
+ * The same for a reacher the ledger DISPLACED: its front is read off one
+ * timeline's cell, so `hi` may only count it where that cell is certain, and
+ * `lo` has to count it whether it reaches on this timeline or not.
  */
 export const kingMarginFeature: Feature<EvalContext> = {
   key: 'kingMargin',
@@ -1084,7 +1224,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
     // One membership test on the shells, not a whole arrival grid: the question
     // is "can this unit be on that ONE square by next turn".
     const shells = ctx.shells();
-    const cap = Math.max(1, ...ctx.standing.map((s) => s.weightMax));
+    const cap = ctx.weightCap;
     const nextTurn = ctx.sub.arrivalTurn + 1;
 
     const friendlyReachers = ctx.royalReachers;
@@ -1099,12 +1239,21 @@ export const kingMarginFeature: Feature<EvalContext> = {
         if (friendlyReachers ? s.unitId === king.unitId : s.team === ctx.asTeam) continue;
         const sh = shells.get(s.unitId);
         if (sh === undefined) continue;
-        if (!sh.reachesBy(king.cell, nextTurn)) continue;
-        if (s.worstAlive) worstThreat = Math.max(worstThreat, s.weightMax);
-        if (s.bestAlive && !s.held) bestThreat = Math.max(bestThreat, s.weightMax);
+        // A displaced mover's front is one timeline's; the worst reading may
+        // not require it to reach on that timeline, and the best may not
+        // believe it where it does.
+        const reaches = sh.reachesBy(king.cell, nextTurn);
+        if (s.worstAlive && (reaches || !s.positionCertain)) {
+          worstThreat = Math.max(worstThreat, s.weightMax);
+        }
+        if (s.worstAlive && s.bestAlive && !s.held && s.positionCertain && reaches) {
+          bestThreat = Math.max(bestThreat, Math.max(0, s.weightMin - s.partialLossMax));
+        }
       }
       lo = Math.min(lo, (king.weightMin - worstThreat) / cap);
-      hi = Math.min(hi, (king.weightMax - bestThreat) / cap);
+      // A king the ledger displaced has no one square to be threatened ON, so
+      // the best reading claims no threat at all rather than one square's.
+      hi = Math.min(hi, (king.weightMax - (king.positionCertain ? bestThreat : 0)) / cap);
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return point(0);
     const a = Math.min(lo, hi);
