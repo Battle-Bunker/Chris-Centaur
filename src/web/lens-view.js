@@ -41,6 +41,7 @@ var LensView = (() => {
     cursorState: () => cursorState,
     depthArrivals: () => depthArrivals,
     depthCell: () => depthCell,
+    dominanceClause: () => dominanceClause,
     emptyStateLine: () => emptyStateLine,
     frameAtSeq: () => frameAtSeq,
     gestureState: () => gestureState,
@@ -913,6 +914,7 @@ var LensView = (() => {
   function call(op, ...args) {
     return { op, args };
   }
+  var round1 = (n) => Number(n.toFixed(1));
   function depthCell(row) {
     const { h1, deepest, delta, confidence, terminal } = row.depth;
     const deepened = deepest.horizon > h1.horizon;
@@ -1052,6 +1054,11 @@ var LensView = (() => {
           Number((row.hi - row.lo).toFixed(2)),
           cell,
           leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
+          // THE `unless` CELL. Drawn on every row, leader included, and never
+          // omitted: a row with no clause and a row that leads on the proved
+          // floor are two different states and only "always draw it" tells them
+          // apart (Law A, applied to the reduction).
+          dominanceClause(row.dominance),
           row.moves.map((m) => `${m.unit}→${m.to}`),
           row.complement,
           row.key === selected?.key,
@@ -1077,9 +1084,9 @@ var LensView = (() => {
     }
     return ops;
   }
-  function decidingRung(selected, foil) {
-    const loser = selected.rank > foil.rank ? selected : foil;
-    const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
+  var RESIDUE_KEY = "#-1";
+  var namedUnit = (key) => key === RESIDUE_KEY ? "the evaluator residue" : key;
+  function dominanceClause(dominance) {
     if (dominance === null) return "unsealed — the barrier has not run";
     switch (dominance.kind) {
       case "leader":
@@ -1087,16 +1094,21 @@ var LensView = (() => {
       case "refuted-by-witness":
         return "refuted by a witness";
       case "incomparable-basis":
-        return "incomparable basis — not sorted against this row";
+        return "incomparable basis — not sorted against the leader";
       case "contingent":
-        return `contingent on ${dominance.onUnits.join(", ")} (${dominance.atStake} at stake)`;
+        return dominance.onUnits.length === 0 ? `wins on nothing named — ${round1(dominance.atStake)} at stake` : `${dominance.onUnits.map(namedUnit).join(", ")} resolve against us · ${round1(dominance.atStake)} at stake`;
       case "dominated":
-        return `dominated by ${dominance.by}`;
+        return `cannot win — dominated by ${round1(dominance.by)}`;
       case "advisory-only":
-        return `floors equal — advisory margin ${dominance.estMargin}`;
+        return `floors equal — advisory ${round1(dominance.estMargin)}`;
       case "indifferent":
         return "my proof rungs are silent here — your call beats my tie-break";
     }
+  }
+  function decidingRung(selected, foil) {
+    const loser = selected.rank > foil.rank ? selected : foil;
+    const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
+    return dominanceClause(dominance);
   }
   function breakdownOps(frame, cursor, selected) {
     if (selected === null) return [];

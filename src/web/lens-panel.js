@@ -167,8 +167,19 @@ const LensPanel = (() => {
 
     const rows = allOf(transcript, 'panel.movesets.row')
       .map((call) => {
-        const [rank, aggregate, width, cell, delta, assignment, complement, selected, staged, trail] =
-          ARGS(call);
+        const [
+          rank,
+          aggregate,
+          width,
+          cell,
+          delta,
+          unless,
+          assignment,
+          complement,
+          selected,
+          staged,
+          trail,
+        ] = ARGS(call);
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound: struck through, kept, never dropped.
         const cls = [
@@ -183,6 +194,10 @@ const LensPanel = (() => {
           `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
+          // THE `unless` CELL — what this moveset is betting on, per row. It is
+          // drawn on the leader too, where it reads "leads on the proved
+          // floor": a blank cell and a row that leads are different states.
+          `<td class="lens-unless">${escapeHTML(unless || '')}</td>` +
           `<td>${escapeHTML((assignment || []).join(' · '))}${trailHTML(trail, staged)}</td></tr>`
         );
       })

@@ -207,6 +207,56 @@ describe('the rail says what the design says it must', () => {
     expect(html).toContain('lens-row-unsorted');
   });
 
+  /**
+   * THE THREAT/OPPORTUNITY MAP, PER ROW (08 §3.4). It used to reach the
+   * operator for one pair of rows — the selected one and its foil — while the
+   * condition was computed and stored for all of them. These are the clauses
+   * the table now carries, one per row, on rows nobody selected.
+   */
+  test('every retained row draws its own `unless`, the leader included', () => {
+    const rows: ReadonlyArray<Moveset> = [
+      {
+        ...moveset({ key: 'u1', rank: 1, lo: 12.4, est: 12.9, hi: 15.3, units: [C, Q], staged: true }),
+        dominance: { kind: 'leader' },
+      },
+      {
+        ...moveset({ key: 'u2', rank: 2, lo: 11.7, est: 12.0, hi: 15.8, units: [C, Q] }),
+        dominance: { kind: 'contingent', onUnits: ['B-r3', 'B-q1'], atStake: 2.4 },
+      },
+      {
+        ...moveset({ key: 'u3', rank: 3, lo: 11.1, est: 11.4, hi: 12.3, units: [C, Q] }),
+        dominance: { kind: 'dominated', by: 1.9 },
+      },
+      {
+        ...moveset({ key: 'u4', rank: 4, lo: 9.6, est: 9.9, hi: 18.4, units: [C, Q] }),
+        dominance: { kind: 'advisory-only', estMargin: 0.3 },
+      },
+    ];
+    const f = frame({ movesets: { [`0|${C}|10`]: rows } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    // The owner's own row: named by unit, priced in the aggregate's own units.
+    expect(html).toContain('B-r3, B-q1 resolve against us · 2.4 at stake');
+    expect(html).toContain('cannot win — dominated by 1.9');
+    // The most important row in the table: the floors are equal and the leader
+    // won on the channel that never adjudicates.
+    expect(html).toContain('floors equal — advisory 0.3');
+    // The absence of a condition is drawn too, rather than left blank.
+    expect(html).toContain('leads on the proved floor');
+    expect(html.match(/lens-unless/g)).toHaveLength(4);
+  });
+
+  test('an unsealed row says the barrier has not run — never a blank cell', () => {
+    // `dominance` is null before the barrier by construction, and a blank cell
+    // would read as "nothing at stake", which is the opposite claim.
+    const rows: ReadonlyArray<Moveset> = [
+      moveset({ key: 'p1', rank: 1, lo: 12.4, hi: 15.3, units: [C, Q], staged: true }),
+    ];
+    const f = frame({ movesets: { [`0|${C}|10`]: rows } });
+    expect(LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)))).toContain(
+      'unsealed — the barrier has not run'
+    );
+  });
+
   test('the tie-break row asks for the operator rather than reporting a number', () => {
     const f = frame();
     const at2 = cursorAt(f, [{ t: 'focus', unit: C }, { t: 'moveset', key: 'a2' }]);

@@ -19,8 +19,16 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { recordLensRun } from '../lens/kernel';
 import { applyEvent, emptyStore, ingestLensEvents, makeSeqWriter } from '../lens/store';
-import { makeLiveDecisionSource, makeReplayDecisionSource, renderFrame } from '../lens/view';
-import type { FrameStore, LensFrame, TurnEvent } from '../lens/types';
+import {
+  applyCursorEvent,
+  dominanceClause,
+  initialCursor,
+  makeLiveDecisionSource,
+  makeReplayDecisionSource,
+  renderFrame,
+  rowsFor,
+} from '../lens/view';
+import type { FrameStore, LensFrame, Moveset, TurnEvent } from '../lens/types';
 import { FIXTURE_GAME, anchorEvent } from './lens-fixtures';
 
 const TURN = 1;
@@ -123,6 +131,55 @@ describe('the renderer produces identical draw-call transcripts', () => {
     // the shape of the drawing is one shape.
     expect(replay.map((c) => c.op)).toEqual(head.map((c) => c.op));
   }, 120_000);
+});
+
+/**
+ * THE MAP IS DRAWN FROM WHAT THE SEARCH ALREADY DECIDED (08 §3.4).
+ *
+ * A recorded decision, rendered: every retained row's `unless` cell comes off
+ * that row's own `DominanceCondition`, which the reservoir filled at the
+ * barrier from `better()`'s refusal branch. Nothing here prices anything, so
+ * the falsifier is not cost — it is a clause that disagrees with the condition
+ * stored beside it, or a row drawn without one.
+ */
+describe('every moveset row carries its condition into the transcript', () => {
+  it('draws one non-empty `unless` per row, and it is the row own condition', async () => {
+    const { store, events } = await recorded();
+    let drawn = 0;
+    // Rows are drawn for the cluster of the FOCUSED unit at the candidate the
+    // cursor stands on, so the sweep walks every seq and every member: an
+    // unfocused board draws no rows at all, by design.
+    for (const event of events) {
+      const at = { gameId: FIXTURE_GAME, turn: TURN, seq: event.seq };
+      const frame = makeReplayDecisionSource({ store, at }).frame();
+      for (const cluster of frame.partition) {
+        for (const unit of cluster.members) {
+          const cursor = applyCursorEvent(initialCursor(), frame, { t: 'focus', unit });
+          const rows = rowsFor(frame, cursor.unit, cursor.candidate);
+          const calls = renderFrame(frame, cursor).filter((c) => c.op === 'panel.movesets.row');
+          expect(calls).toHaveLength(rows.length);
+          calls.forEach((c, i) => {
+            // The clause is a READ of the condition stored on that row, in
+            // that row's own order — never a summary of the table.
+            expect(c.args[5]).toBe(dominanceClause((rows[i] as Moveset).dominance));
+            expect(c.args[5]).not.toBe('');
+          });
+          drawn += calls.length;
+        }
+      }
+    }
+    // Not vacuous: a real decision really drew rows.
+    expect(drawn).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('names the evaluator residue rather than printing the sentinel at the operator', () => {
+    expect(dominanceClause({ kind: 'contingent', onUnits: ['#-1', 'B-q1'], atStake: 2.44 })).toBe(
+      'the evaluator residue, B-q1 resolve against us · 2.4 at stake'
+    );
+    // Every branch says something, and the leader says it leads.
+    expect(dominanceClause({ kind: 'leader' })).toBe('leads on the proved floor');
+    expect(dominanceClause(null)).toBe('unsealed — the barrier has not run');
+  });
 });
 
 describe('no renderer branches on mode (structural)', () => {

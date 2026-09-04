@@ -548,6 +548,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // by ARITHMETIC, and the reservoir says `dominated` rather than
       // fabricating a certificate nobody holds.
       witness: trial.witnesses[0] ?? null,
+      // THE INSTRUMENT RIDES ALONG (08 §5 step 1). `Q` is measured in the
+      // bank's own B3 preamble; this is the seam it travels to the lens on,
+      // and no comparison below reads it.
+      loud: trial.loud,
     });
   };
 
@@ -593,7 +597,27 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     if (!acrossHorizons && trial.est !== incumbent.est) {
       return trial.est > incumbent.est ? ACCEPT : REFUSED.est;
     }
-    if (trial.bounds.best !== incumbent.bounds.best) {
+    // RUNG 5 IS HORIZON-LOCAL TOO (08 F-10), and for the mirror of F-4's
+    // reason rather than the same one.
+    //
+    // `hi` genuinely crosses a horizon boundary AS A BOUND: it is an upper
+    // bound on one horizon-independent quantity, proved to different depths,
+    // and the comment above is right that this is what lets a deep reading be
+    // compared with a shallow one at all. What it does not notice is that this
+    // rung does not use `hi` as a bound — it uses it AS A RANKING KEY
+    // PREFERRING THE LARGER. A deeper reading has a LOWER ceiling (that is the
+    // only thing depth can afford to move here), so a plan that was measured
+    // loses this rung to one that was not, purely for having been measured.
+    // That is a bias against evidence, and it would be invisible: the rung
+    // fires at an equal floor, where nothing else is watching.
+    //
+    // The guard DECLINES TO COMPARE rather than inventing an exchange rate,
+    // exactly as F-4's did. Across horizons the salted tie decides — an
+    // indifferent order, reproducibly — which is the honest answer when the
+    // two readings disagree about depth and no rung above them separated them.
+    // Byte-identical on this build, where every horizon is 1 and the guard is
+    // inert; installed now, while its installation can be proved harmless.
+    if (!acrossHorizons && trial.bounds.best !== incumbent.bounds.best) {
       return trial.bounds.best > incumbent.bounds.best ? ACCEPT : REFUSED.hi;
     }
     return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed)
@@ -1057,7 +1081,11 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (a.est > b.est) best = i;
         continue;
       }
-      if (a.bounds.best !== b.bounds.best) {
+      // THE SAME GUARD, on the same rung (08 F-10). The view's leader and the
+      // search's incumbent must not disagree about a plan, so the ladder here
+      // declines exactly where `better()` declines: a row with a horizon of
+      // its own is not sorted against one of another depth on its ceiling.
+      if (a.horizon === b.horizon && a.bounds.best !== b.bounds.best) {
         if (a.bounds.best > b.bounds.best) best = i;
         continue;
       }

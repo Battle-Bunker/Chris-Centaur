@@ -55,5 +55,8 @@ export type { ModelledView, ModellingSubstrate, RosterSubstrate } from "./substr
 
 export { WitnessSet, refutedAt, sameWitness, witnessKey, witnessOf, witnessUnits } from "./witness";
 
+export { loudReadingOf, observeLoud } from "./loud";
+export type { LoudReading, LoudUnitCount } from "./loud";
+
 export { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG } from "./bank";
 export type { BankConfig, BankInput, BankResult, MemberReport, Rung } from "./bank";

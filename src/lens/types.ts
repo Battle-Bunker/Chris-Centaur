@@ -37,7 +37,7 @@ import type {
   VacuityCause,
   Witness,
 } from '../lobster/contracts';
-import type { BasisKey } from '../lobster/bounds';
+import type { BasisKey, LoudReading } from '../lobster/bounds';
 import type { EmitRefusal } from '../lobster/kernel';
 import type { ConfidenceOrder } from '../lobster/voc';
 import type { BoardSnapshot } from '../types/battlesnake';
@@ -45,6 +45,7 @@ import type { BoardSnapshot } from '../types/battlesnake';
 export type {
   Assumption,
   BasisKey,
+  LoudReading,
   Bound,
   Candidate,
   CellIndex,
@@ -497,6 +498,10 @@ export type LensEvent =
       readonly clusterId: ClusterId;
       readonly rows: ReadonlyArray<Moveset>;
       readonly complementKey: string;
+      /** THE FRAME'S CONTEXT, not a row's: the loud product measured on the
+       *  rank-1 row's own plan (08 §5 step 1). Null ⇒ never measured on this
+       *  frame's leader — no gated enemy, or nothing modelled at all. */
+      readonly loud: LoudReading | null;
     }
   /** The `EmitRecord` verbatim — one object, two consumers. */
   | { readonly kind: 'emission'; readonly at: number; readonly record: EmitRecord }
@@ -670,6 +675,11 @@ export interface MovesetsPayload {
   readonly emissionSeq: number;
   readonly complementKey: string;
   readonly rows: ReadonlyArray<Moveset>;
+  /** `Q` and `P` for this frame's leader — the measurement 08 §4.4 says is the
+   *  one open empirical question, carried where the frame's other context is.
+   *  Read by nothing that decides; absent from the `movesets` PROJECTION,
+   *  which is a table of rows and this is a fact about a frame. */
+  readonly loud: LoudReading | null;
 }
 
 export interface EmissionPayload {
