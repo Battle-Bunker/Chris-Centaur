@@ -802,6 +802,69 @@ map IS the lookahead, and a ply that holds its own MAX layer cannot beat the
 leaf it approximates. Revisit only with a reply model (§3.5) whose single
 continuation is concrete, or a budget an order of magnitude larger.
 
-Its harness also found: **G-D3 fails** — 485 inversions on `potions` seed 4
-where a B1 floor sits above an exact concrete reply. That is a floor defect
-independent of the ply and is the next soundness item.
+Its harness also reported: **G-D3 fails** — 485 inversions on `potions` seed 4
+where a B1 floor sits above an exact concrete reply. **That report is now
+closed and it was wrong about the shipped bank; see §7.1.**
+
+## 7.1 The 485, followed up (2026-09-04): they do not reproduce
+
+**The instrument.** `src/lobster/bounds/exact-reply.ts` is the B4 harness's
+refutation without the rung. For a priced plan it takes the held set,
+enumerates each held unit's COMPLETE option list out of the engine's own
+enumerator, names every one of them at once and settles: nothing is held in
+the result, so the bracket the evaluator returns is a POINT and that point is
+the value of a game the two sides could really play. Then `floor ≤ value(w)`
+for every enumerated world, and `ceiling ≥ min over w` where the enumeration
+was complete. It holds for any SUBSET of worlds, which is what makes a sampled
+arm a proof rather than a sample. It may not spend the decision's clock — in
+the deterministic mode the clock IS the evaluator — so it scores through the
+unwrapped evaluator of the same declared identity, refuses to run against any
+other, and runs after the answer is assembled. Off (no `CENTAUR_EXACT_CHECK`)
+it is one null check per priced plan.
+
+**The measurement.** Over all sixteen gate arms — four scenarios at seeds 1–3
+for thirty turns, `potions` at sixty on seeds 4, 5, 6 and 8, one plan in ten —
+**432 148 checks over 44 859 582 concrete worlds: ZERO floors above a real
+reply and ZERO ceilings below a complete reply space.** On `potions` seed 4
+alone, 37 098 checks over 4 741 712 worlds, zero. The same sixteen arms print
+no `INVERSION` line under `CENTAUR_DEBUG_INVERSION=1`. The anti-vacuity arm
+shows the instrument still refutes a floor moved one unit up on the same
+worlds, so the zero is a reading and not a silence. **The whole-plan bracket
+is already exact on every real arm; the 485 were a fact about `origin/ceiling`'s
+own reading, not about the bank the ladder ships.**
+
+**What a finer instrument does find, and why it was measured and declined.**
+R1 is stated on the fold's TOTAL, and the fold is a non-negatively weighted sum
+— so a term whose own `lo` sits above its own value in some world is a broken
+bound that another term's slack is currently paying for.
+`src/lobster/evaluate/law-sweep.test.ts` checks R1 TERM BY TERM with the
+shipped evaluator over 240 generated boards carrying snakes, pieces, food and
+potions, and finds nine such classes. Branch `b1-sound` (kept on origin as the
+record) closed two of them at their cause — `command.hi` 600 → 199 via
+`command`'s food board and a displaced mover's front, `reach.lo` 128 → 106 via
+the piece contest's endpoint rule and a tie split gated on a claim — and **the
+repairs are NOT merged.** The A/B, per board class and never pooled
+(`docs/design/ab/2026-09-04-b1-sound-vs-57fd2da.md`): sparse byte-identical,
+but deaths up on `snakes` (+0.38/100), `mixed` (+0.15, all three seeds) and
+`potions` (+0.37), up on three of four classes and down on none. A
+correct-and-looser floor that fixes nothing the oracle can find in a real game
+and loses more games is not a repair we ship; the standing rule is that a
+change must be at least as good as the baseline per board class.
+
+**So the classes stay open, and they stay VISIBLE.** The law sweep pins each
+one as a ratchet at its unrepaired count, so a class can only go down and a
+tenth cannot appear unnoticed.
+
+**What a future repair has to show.** Both, together:
+
+1. a lower number in the law sweep's ratchet — the class it claims to close,
+   closed, term by term; and
+2. an A/B that is neutral or better on every board class, never pooled, at the
+   same seeds and budget; and
+3. ideally, a world the exact-reply oracle can point at. A class that no arm of
+   the oracle can make live is latent, and latent is worth exactly what it
+   costs — which so far is deaths.
+
+Nothing else is owed. The oracle, its classifier, the sixteen-arm gate and the
+law sweep are merged as instruments precisely so that the next attempt is
+argued with numbers rather than with a reading.
