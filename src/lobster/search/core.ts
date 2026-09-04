@@ -198,6 +198,58 @@ interface Rival {
  */
 const LEVER_ROWS = 8;
 
+/**
+ * WHAT THE ACCEPTANCE LADDER READS. `Rival` is one of these; so is a priced
+ * trial, minus the witnesses and the reason.
+ */
+export interface RankedRow {
+  readonly bounds: ScoreBounds;
+  readonly est: number;
+  /** The horizon THIS row's reading was proved at (06 F-2). */
+  readonly horizon: number;
+  readonly plan: JointPlan;
+}
+
+/**
+ * THE ACCEPTANCE ORDER OVER TWO PRICED ROWS: does `a` displace `b`?
+ *
+ * Floor first, under basis comparability, then `est`, then the ceiling, then
+ * the salted tie — the ladder `better()` climbs, restricted to what a row
+ * carries. A basis mismatch is a REFUSAL, not a tie: two plans priced under
+ * different assumption sets are not two answers to one question, so `b` keeps
+ * its place.
+ *
+ * BOTH MIDDLE RUNGS ARE HORIZON-LOCAL, and this function is where that is
+ * said once for the two callers that must not disagree about a plan — the
+ * search's incumbent and the lever view's leader.
+ *
+ * `est` (06 F-4) is the evaluator's advisory scalar taken from B0 alone, with
+ * no basis, no ledger and no soundness claim: two ests at two horizons are two
+ * evaluations of two different boards with no declared discount between them,
+ * and comparing them is Law H's forbidden fold. It is the same coordinate
+ * `RatchetBasis.horizon` carries for exactly this reason — a basis ENDS where
+ * its horizon changes, because the quantity being ratcheted stopped being the
+ * same quantity.
+ *
+ * `hi` (08 F-10) does cross a horizon AS A BOUND, but this rung does not use
+ * it as one — it uses it as a ranking key preferring the LARGER, and a deeper
+ * reading has a lower ceiling, so an unguarded rung refuses a plan for having
+ * been measured, at an equal floor, where no rung above it is watching.
+ *
+ * Across horizons the salted tie decides: an indifferent order, reproducibly,
+ * which is the honest answer when two readings disagree about depth and no
+ * rung that can speak separated them.
+ */
+export function ranksAbove(a: RankedRow, b: RankedRow, seed: number): boolean {
+  const cmp = compareFloors(a.bounds, b.bounds);
+  if (!cmp.comparable) return false;
+  if (cmp.order !== 0) return cmp.order > 0;
+  const acrossHorizons = a.horizon !== b.horizon;
+  if (!acrossHorizons && a.est !== b.est) return a.est > b.est;
+  if (!acrossHorizons && a.bounds.best !== b.bounds.best) return a.bounds.best > b.bounds.best;
+  return planTieKey(a.plan, seed) > planTieKey(b.plan, seed);
+}
+
 /** The two shapes `better()` returns, allocated once: a comparison in the
  *  hottest function in the search must not allocate to say "no". */
 const ACCEPT: Verdict = { accept: true };
@@ -1074,36 +1126,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * constant horizon column wearing a different hat.
    */
   const leaderOf = (rows: ReadonlyArray<Rival>): number => {
-    // The acceptance ladder, restricted to what a row carries: floor first,
-    // under basis comparability, then est, then ceiling, then the key. A basis
-    // mismatch is a REFUSAL — the incumbent keeps its place — exactly as in
-    // `better()`, because two plans priced under different assumption sets are
-    // not two answers to one question.
     let best = 0;
     for (let i = 1; i < rows.length; i++) {
-      const a = rows[i] as Rival;
-      const b = rows[best] as Rival;
-      const cmp = compareFloors(a.bounds, b.bounds);
-      if (!cmp.comparable) continue;
-      if (cmp.order !== 0) {
-        if (cmp.order > 0) best = i;
-        continue;
-      }
-      if (a.est !== b.est) {
-        if (a.est > b.est) best = i;
-        continue;
-      }
-      // THE SAME GUARD, on the same rung (08 F-10). The view's leader and the
-      // search's incumbent must not disagree about a plan, so the ladder here
-      // declines exactly where `better()` declines: a row with a horizon of
-      // its own is not sorted against one of another depth on its ceiling.
-      if (a.horizon === b.horizon && a.bounds.best !== b.bounds.best) {
-        if (a.bounds.best > b.bounds.best) best = i;
-        continue;
-      }
-      // The same salted, indifferent order `better()` breaks ties on, so the
-      // view's leader and the search's incumbent cannot disagree about a coin.
-      if (planTieKey(a.plan, cfg.seed) > planTieKey(b.plan, cfg.seed)) best = i;
+      if (ranksAbove(rows[i] as Rival, rows[best] as Rival, cfg.seed)) best = i;
     }
     return best;
   };
