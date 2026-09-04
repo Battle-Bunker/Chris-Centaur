@@ -1332,7 +1332,17 @@ var LensView = (() => {
     const pins = selected === null || cursor.unit === null ? 0 : members.filter(
       (v) => v === cursor.unit || (selected.moves.find((m) => m.unit === v)?.to ?? null) !== stagedCellOf(frame, v)
     ).length;
-    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : "[N] return to now and lock";
+    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : recordedLock(frame, members) ?? "— read-only —";
+  }
+  function recordedLock(frame, members) {
+    const scope = new Set(members);
+    const locked = [...frame.events].reverse().find(
+      (e) => (e.kind === "pin" || e.kind === "commit") && e.unit !== null && scope.has(e.unit) && e.payload?.tentative !== true
+    );
+    if (locked === void 0) return null;
+    const who = locked.actor.name ?? locked.actor.id ?? "an operator";
+    const at = locked.atWorkMs === null ? "" : ` at +${locked.atWorkMs}ms`;
+    return `locked by ${who}${at} → [jump]`;
   }
   var MODE_BADGE = {
     "live-head": "LIVE",
@@ -1343,9 +1353,14 @@ var LensView = (() => {
     observed: "observed",
     rerun: "re-derived"
   };
+  var WAY_BACK = {
+    "live-head": "",
+    "live-scrub": " · [N] return to now",
+    replay: ""
+  };
   function modeBadge(frame) {
     const head = headOf(frame);
-    return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}`;
+    return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}${WAY_BACK[frame.at.mode]}`;
   }
   function headOf(frame) {
     return frame.at.isHead ? "" : " · read-only";

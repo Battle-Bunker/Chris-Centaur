@@ -880,20 +880,31 @@ export function renderFrame(
 
 /**
  * THE DETERMINATION AFFORDANCE NEVER VANISHES — a greyed control teaches
- * nothing — so it RE-LABELS on `isHead`, which is the one field of the three
- * badge fields the transcript is allowed to read.
+ * nothing — so it RE-LABELS on `isHead`, the one field of the three badge
+ * fields the transcript is allowed to read.
  *
- * IT CANNOT TELL `replay` FROM `live-scrub`, and that is a real gap rather
- * than an oversight: a recorded turn is offered `[N] return to now and lock`,
- * naming a `now` a closed turn does not have, where 02 §1.4 asks for
- * `locked by Ada at +812ms → [jump]` or `— read-only —`. Distinguishing them
- * inside `renderFrame` means branching on `at.mode`, and `lens-panel.test.ts`
- * forbids that structurally — the transcript is the object the boundary test
- * compares between a live frame and a replayed one, and the three fields that
- * may legitimately differ are rendered by the BADGE component below and
- * nowhere else. The replay label therefore belongs beside `modeBadge`, which
- * is a surface the page composes rather than a call in the transcript, and
- * moving it there is a design call above this walk.
+ * IT DOES NOT TELL `replay` FROM `live-scrub`, AND IT MUST NOT. That was
+ * recorded as a gap; it is a boundary. The transcript is the object the two
+ * sources are compared on, and a frame carries no CONTENT that separates a
+ * recorded turn from a scrubbed live one — `at.mode` is on the frame precisely
+ * because the distinction is not derivable, which is why the structural gate
+ * refuses a renderer that reads it. So the line splits at the seam the design
+ * already draws:
+ *
+ *   · WHAT IS TRUE OF THE FRAME is here. At the head, the exact pin count.
+ *     Off it, §1.4's own replay sentence where the frame's events hold a lock
+ *     at this seq — `locked by Ada at +812ms → [jump]`, which is a READ of a
+ *     recorded row and therefore identical from both sources — and
+ *     `— read-only —` where they do not, which is true of both off-head modes:
+ *     determinations are legal only from the live head.
+ *   · THE WAY BACK is a fact about the SOURCE, so it rides `modeBadge`, the
+ *     sanctioned home of the three fields that may differ. Only `live-scrub`
+ *     has a `now` to return to, and only `live-scrub` now offers one; a
+ *     replayed turn is no longer offered a `now` a closed turn does not have.
+ *
+ * Nothing here reads `at.mode`, and the rail is byte-identical between a
+ * scrubbed live frame and a replayed one at the same seq — which is the gate,
+ * and the gate is right.
  */
 function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): string {
   const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -908,7 +919,31 @@ function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | nul
         ).length;
   return frame.at.isHead
     ? `[Space] lock — pins ${pins} of ${members.length}`
-    : '[N] return to now and lock';
+    : (recordedLock(frame, members) ?? '— read-only —');
+}
+
+/**
+ * §1.4's replay affordance: *"`locked by Ada at +812ms → [jump]` if such a lock
+ * exists at this `seq`"*. It is a read of the turn's own rows, so it says the
+ * same sentence off the socket and off the log — and it could not be said at
+ * all until the pin gesture became a row (O6). A TENTATIVE pin is a look and
+ * not a determination, and is not a lock.
+ */
+function recordedLock(frame: LensFrame, members: ReadonlyArray<UnitKey>): string | null {
+  const scope = new Set(members);
+  const locked = [...frame.events]
+    .reverse()
+    .find(
+      (e) =>
+        (e.kind === 'pin' || e.kind === 'commit') &&
+        e.unit !== null &&
+        scope.has(e.unit) &&
+        (e.payload as { tentative?: unknown } | undefined)?.tentative !== true
+    );
+  if (locked === undefined) return null;
+  const who = locked.actor.name ?? locked.actor.id ?? 'an operator';
+  const at = locked.atWorkMs === null ? '' : ` at +${locked.atWorkMs}ms`;
+  return `locked by ${who}${at} → [jump]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -931,12 +966,27 @@ const PROVENANCE_BADGE = {
   rerun: 're-derived',
 } as const;
 
+/**
+ * THE WAY BACK, and who has one.
+ *
+ * `[N] return to now` belongs to `live-scrub` and to nothing else: a closed
+ * turn has no `now` to return to, and offering one on a replayed turn names a
+ * thing that does not exist. It is a fact about the SOURCE rather than about
+ * the frame's content, so it lives here — with the two other badge fields —
+ * and not in the transcript, which must read identically from both sources.
+ */
+const WAY_BACK = {
+  'live-head': '',
+  'live-scrub': ' · [N] return to now',
+  replay: '',
+} as const;
+
 /** `⏸ SEQ 14/21` — loud, because a determination issued against a frame whose
  *  ordering has moved would break the display contract at the moment it
- *  matters. One key (`N`) gets you back. */
+ *  matters. One key (`N`) gets you back, and the badge is where it says so. */
 export function modeBadge(frame: LensFrame): string {
   const head = headOf(frame);
-  return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}`;
+  return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}${WAY_BACK[frame.at.mode]}`;
 }
 
 function headOf(frame: LensFrame): string {

@@ -23,7 +23,13 @@
  *    each had their own.
  */
 
-import { renderFrame, initialCursor, applyCursorEvent, renderTimeline } from '../lens/view';
+import {
+  renderFrame,
+  initialCursor,
+  applyCursorEvent,
+  modeBadge,
+  renderTimeline,
+} from '../lens/view';
 import type { CursorEvent, LensCursor, LensFrame, Moveset, UnitKey } from '../lens/types';
 import {
   clusterView,
@@ -416,15 +422,74 @@ describe('the empty state is one honest sentence, not two different ones', () =>
   test('reads the same off a scrubbed live frame and a replayed one', () => {
     const f = frame();
     const cursor = FOCUSED(f);
-    const scrub = renderFrame(
-      { ...f, at: lensAt({ mode: 'live-scrub', isHead: false }) },
-      cursor
-    );
-    const replay = renderFrame({ ...f, at: lensAt({ mode: 'replay', isHead: false }) }, cursor);
+    const scrubFrame = { ...f, at: lensAt({ mode: 'live-scrub', isHead: false }) };
+    const replayFrame = { ...f, at: lensAt({ mode: 'replay', isHead: false }) };
+    const scrub = renderFrame(scrubFrame, cursor);
+    const replay = renderFrame(replayFrame, cursor);
     expect(LensPanel.railHTML(replay)).toEqual(LensPanel.railHTML(scrub));
-    // Off the head the affordance re-labels rather than vanishing: a greyed
-    // control teaches nothing.
-    expect(LensPanel.movesetsHTML(replay)).toContain('return to now');
+
+    // 10 §4 O7. Off the head the affordance re-labels rather than vanishing —
+    // a greyed control teaches nothing — and what it says is true of BOTH
+    // off-head modes: determinations are legal only from the live head. The
+    // WAY BACK is a fact about the source, not about the frame, so it rides
+    // the badge component: only a scrubbed live turn has a `now`, and a
+    // replayed one is no longer offered one it does not have.
+    expect(LensPanel.movesetsHTML(replay)).toContain('— read-only —');
+    expect(LensPanel.movesetsHTML(replay)).not.toContain('return to now');
+    expect(modeBadge(scrubFrame)).toContain('[N] return to now');
+    expect(modeBadge(replayFrame)).not.toContain('return to now');
+    expect(modeBadge({ ...f, at: lensAt({ mode: 'live-head', isHead: true }) })).not.toContain(
+      'return to now'
+    );
+  });
+
+  /**
+   * §1.4's other replay label: `locked by Ada at +812ms → [jump]` where such a
+   * lock exists at this seq. It is a READ of the turn's own rows — so it is
+   * the same sentence off the socket and off the log — and it could not be
+   * said at all until the pin gesture became a row (O6).
+   */
+  test('a determined cluster names the operator who determined it', () => {
+    const f = frame();
+    const determined = {
+      ...f,
+      at: lensAt({ mode: 'replay', isHead: false }),
+      events: [
+        ...f.events,
+        turnEvent({
+          kind: 'pin',
+          seq: 2,
+          atWorkMs: 812,
+          unit: C,
+          actor: operatorActor('Ada'),
+          payload: { unit: C, to: 10, tentative: false },
+        }),
+      ],
+    };
+    expect(LensPanel.movesetsHTML(renderFrame(determined, FOCUSED(determined)))).toContain(
+      'locked by Ada at +812ms → [jump]'
+    );
+
+    // A LOOK IS NOT A LOCK. A tentative pin is a hint the search may
+    // speculate on, and reporting it as a determination would be the display
+    // contract lying about who decided.
+    const considered = {
+      ...determined,
+      events: [
+        ...f.events,
+        turnEvent({
+          kind: 'pin',
+          seq: 2,
+          atWorkMs: 812,
+          unit: C,
+          actor: operatorActor('Ada'),
+          payload: { unit: C, to: 10, tentative: true },
+        }),
+      ],
+    };
+    expect(LensPanel.movesetsHTML(renderFrame(considered, FOCUSED(considered)))).toContain(
+      '— read-only —'
+    );
   });
 });
 
