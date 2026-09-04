@@ -48,6 +48,7 @@ var LensView = (() => {
     makeLiveDecisionSource: () => makeLiveDecisionSource,
     makeReplayDecisionSource: () => makeReplayDecisionSource,
     modeBadge: () => modeBadge,
+    movesetListFor: () => movesetListFor,
     movesetListKey: () => movesetListKey,
     planLock: () => planLock,
     provenanceBadge: () => provenanceBadge,
@@ -498,14 +499,24 @@ var LensView = (() => {
   function reservoirListKey(cluster) {
     return String(cluster);
   }
-  function rowsFor(frame, unit, to) {
-    if (unit === null || to === null) return [];
+  var EMPTY_LIST = { rows: [], source: "none", retained: 0 };
+  function movesetListFor(frame, unit, to) {
+    if (unit === null || to === null) return EMPTY_LIST;
     const cluster = clusterOf(frame, unit);
-    if (cluster === null) return [];
+    if (cluster === null) return EMPTY_LIST;
     const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
-    if (conditional !== void 0) return conditional;
     const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
-    return retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to));
+    if (conditional !== void 0) {
+      return { rows: conditional, source: "conditional", retained: retained.length };
+    }
+    return {
+      rows: retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to)),
+      source: "restricted",
+      retained: retained.length
+    };
+  }
+  function rowsFor(frame, unit, to) {
+    return movesetListFor(frame, unit, to).rows;
   }
   function rankOne(rows) {
     return rows.reduce(
@@ -841,7 +852,7 @@ var LensView = (() => {
           fromGeneration: before.generation,
           toGeneration: after.generation,
           gained,
-          by: attributionFor(before.boundedBy, gained),
+          by: attributionFor(prev, before.boundedBy, gained),
           // What the cluster WAS. The banner adds the gained members to it, so
           // "cluster α is now 4 units" is arithmetic the reader can check
           // against the two halves of the same sentence.
@@ -874,8 +885,16 @@ var LensView = (() => {
     if (sameId !== void 0) return sameId;
     return next.partition.find((c) => c.lineage.includes(before.id));
   }
-  function attributionFor(boundedBy, gained) {
-    return boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+  function attributionFor(prev, boundedBy, gained) {
+    const declared = boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
+    if (declared !== null) return declared;
+    const row = prev.units.find((u) => gained.includes(u.unit) && u.owner !== null);
+    if (row !== void 0) return row.operator ?? row.owner;
+    const released = [...prev.events].reverse().find(
+      (e) => (e.kind === "pin" || e.kind === "unpin" || e.kind === "commit") && e.unit !== null && gained.includes(e.unit) && e.payload?.tentative !== true
+    );
+    if (released === void 0) return null;
+    return released.actor.name ?? released.actor.id ?? null;
   }
 
   // src/lens/view/index.ts
@@ -950,7 +969,8 @@ var LensView = (() => {
     if (unit !== null) {
       const bound = boundingOf(frame, unit);
       if (bound !== null) {
-        const by = bound.bound.by === null ? "" : ` by ${bound.bound.by}`;
+        const author = authorOf(frame, unit, bound.bound.by);
+        const by = author === null ? "" : ` by ${author}`;
         return `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ${bound.cluster.id}, not a variable the bot is solving`;
       }
       const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? "free";
@@ -964,6 +984,11 @@ var LensView = (() => {
     }
     if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
     return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
+  }
+  function authorOf(frame, unit, declared) {
+    if (declared !== null) return declared;
+    const row = frame.units.find((u) => u.unit === unit);
+    return row?.operator ?? row?.owner ?? null;
   }
   var FIXITY_VERB = {
     pin: "pinned",
@@ -979,7 +1004,9 @@ var LensView = (() => {
       const glyph = clusterGlyph(index);
       for (const member of cluster2.members) ops.push(call("cluster.chip", member, glyph, cluster2.id));
       for (const bound of cluster2.boundedBy) {
-        ops.push(call("fixed.chip", bound.unit, bound.why, bound.by, bound.to));
+        ops.push(
+          call("fixed.chip", bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+        );
       }
     });
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -1043,7 +1070,8 @@ var LensView = (() => {
     ];
   }
   function movesetOps(frame, cursor, selected, trails) {
-    const rows = rowsFor(frame, cursor.unit, cursor.candidate);
+    const list = movesetListFor(frame, cursor.unit, cursor.candidate);
+    const rows = list.rows;
     if (rows.length === 0) return [call("panel.movesets.empty", emptyStateLine(frame, cursor))];
     const leader = rankOne(rows);
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -1057,7 +1085,16 @@ var LensView = (() => {
         frame.at.seq,
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound. It is struck through and headed, never dropped.
-        rows.some((r) => r.complement === "stale")
+        rows.some((r) => r.complement === "stale"),
+        // WHAT THIS LIST IS. On the shipped build it is one row — the cluster's
+        // retained rows restricted to the ones that play this candidate — and a
+        // table headed `MOVESETS` over a single row with two inert keys tells
+        // the operator nothing about why. The head says which of the two lists
+        // this is and how many rows the reservoir retained for the cluster, so
+        // "there is nowhere for `]` to go" is a readable fact rather than a
+        // suspicion (10 §4 O1).
+        list.source,
+        list.retained
       )
     ];
     for (const row of rows) {
@@ -1067,6 +1104,10 @@ var LensView = (() => {
         call(
           "panel.movesets.row",
           row.rank,
+          // THE ROW'S OWN KEY. T6 names a click on a moveset row as a source of
+          // the cursor transition, and the rail could not offer one because the
+          // markup had no way to say which row was clicked (10 §4 O5).
+          row.key,
           // ONE CHANNEL PER ROW, AND IT IS THE ONE THAT ADJUDICATES. `lo` is the
           // proved floor: the quantity the reservoir ranks on (`byBetter`), the
           // quantity `⌈w⌉` is a width of, and the quantity Δ measures. Showing
@@ -1092,12 +1133,20 @@ var LensView = (() => {
       );
     }
     for (const bound of cluster?.boundedBy ?? []) {
-      ops.push(call("panel.movesets.fixed", bound.unit, bound.to, bound.why, bound.by));
-    }
-    const foil = foilRow(frame, cursor, selected);
-    if (foil !== null && selected !== null) {
       ops.push(
         call(
+          "panel.movesets.fixed",
+          bound.unit,
+          bound.to,
+          bound.why,
+          authorOf(frame, bound.unit, bound.by)
+        )
+      );
+    }
+    if (selected !== null) {
+      const foil = foilRow(frame, cursor, selected);
+      ops.push(
+        foil === null ? call("panel.foil", null, null, noFoilReason(list), null) : call(
           "panel.foil",
           foil.rank,
           Number((selected.lo - foil.lo).toFixed(2)),
@@ -1107,6 +1156,12 @@ var LensView = (() => {
       );
     }
     return ops;
+  }
+  function noFoilReason(list) {
+    if (list.source === "conditional") {
+      return "no runner-up — the conditional list has one row";
+    }
+    return list.retained <= 1 ? "no runner-up — the reservoir retained one row for this cluster" : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
   }
   var RESIDUE_KEY = "#-1";
   var namedUnit = (key) => key === RESIDUE_KEY ? "the evaluator residue" : key;
@@ -1199,7 +1254,8 @@ var LensView = (() => {
   function renderTimeline(events) {
     const ops = [call("timeline", events.length)];
     for (const event of events) {
-      const hover = event.payload?.hover === true;
+      const payload = event.payload;
+      const hover = payload?.hover === true || payload?.tentative === true;
       ops.push(
         call(
           "timeline.tick",
@@ -1209,7 +1265,12 @@ var LensView = (() => {
           event.kind,
           event.actor.id,
           event.actor.color,
-          hover ? "hollow" : "solid"
+          hover ? "hollow" : "solid",
+          // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
+          // and the operator — and the tick carried the kind and the time and
+          // nothing else, because no `pin` / `unpin` row existed to carry a name.
+          event.actor.name,
+          event.unit
         )
       );
     }
@@ -1225,7 +1286,8 @@ var LensView = (() => {
       const cluster = clusterOf(frame, cursor.unit);
       const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
       const home = cluster ?? bound?.cluster ?? null;
-      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${bound.bound.by === null ? "" : `, by ${bound.bound.by}`} — not a member`;
+      const boundBy = bound === null ? null : authorOf(frame, bound.bound.unit, bound.bound.by);
+      const why = bound === null ? null : `a constant of cluster ${bound.cluster.id}${boundBy === null ? "" : `, by ${boundBy}`} — not a member`;
       ops.push(
         call(
           "panel.focus",
@@ -1275,7 +1337,17 @@ var LensView = (() => {
     const pins = selected === null || cursor.unit === null ? 0 : members.filter(
       (v) => v === cursor.unit || (selected.moves.find((m) => m.unit === v)?.to ?? null) !== stagedCellOf(frame, v)
     ).length;
-    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : "[N] return to now and lock";
+    return frame.at.isHead ? `[Space] lock — pins ${pins} of ${members.length}` : recordedLock(frame, members) ?? "— read-only —";
+  }
+  function recordedLock(frame, members) {
+    const scope = new Set(members);
+    const locked = [...frame.events].reverse().find(
+      (e) => (e.kind === "pin" || e.kind === "commit") && e.unit !== null && scope.has(e.unit) && e.payload?.tentative !== true
+    );
+    if (locked === void 0) return null;
+    const who = locked.actor.name ?? locked.actor.id ?? "an operator";
+    const at = locked.atWorkMs === null ? "" : ` at +${locked.atWorkMs}ms`;
+    return `locked by ${who}${at} → [jump]`;
   }
   var MODE_BADGE = {
     "live-head": "LIVE",
@@ -1286,9 +1358,14 @@ var LensView = (() => {
     observed: "observed",
     rerun: "re-derived"
   };
+  var WAY_BACK = {
+    "live-head": "",
+    "live-scrub": " · [N] return to now",
+    replay: ""
+  };
   function modeBadge(frame) {
     const head = headOf(frame);
-    return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}`;
+    return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}${WAY_BACK[frame.at.mode]}`;
   }
   function headOf(frame) {
     return frame.at.isHead ? "" : " · read-only";

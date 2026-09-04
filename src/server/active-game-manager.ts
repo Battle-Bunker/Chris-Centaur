@@ -51,11 +51,13 @@ import {
 } from '../lens/store';
 import type {
   Actor,
+  EventId,
   LensDecision,
   LensDecisionPort,
   LensDecisionSummary,
   CellIndex,
   LensEvent,
+  PinEvent,
   TurnEvent,
   UnitKey,
 } from '../lens/types';
@@ -2500,6 +2502,49 @@ export class ActiveGameManager {
           console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
         }
       },
+      /**
+       * THE OPERATOR'S GESTURE, AS A ROW. `pin` / `unpin` / `commit` have been
+       * in `TurnEventKind` since the model was written and nothing ever wrote
+       * one, so the fold's fixity map was permanently empty and every fact
+       * derived from it — a unit's fixity, its owner, the operator on a lane
+       * tick, the author on a widen banner, an emission's `answers` — was the
+       * same null.
+       *
+       * WRITTEN BEFORE THE KERNEL IS TOLD, and the id handed back, because the
+       * writer refuses an answer whose question it has not written. The actor
+       * is the operator holding the unit: a pin is a determination and a
+       * determination has an author, and where nobody holds the unit (a
+       * waypoint's own step, the wire's own observation) the row says server
+       * rather than inventing one.
+       */
+      command: (event: PinEvent, atWorkMs?: number | null): EventId | null => {
+        const live = this.lensWriterFor(gameId);
+        if (!live || live.turn !== turn) return null;
+        const unitId = event.kind === 'pin' ? event.pin.unitId : event.unitId;
+        const unit = unitKeyOf(unitId);
+        if (unit === null) return null;
+        const game = this.games.get(gameId);
+        const holder = game?.controlledSnakes.get(unit)?.selectedBy ?? null;
+        const actor = ActiveGameManager.actorOf(
+          game === undefined ? null : this.operatorFor(game, holder)
+        );
+        const written = this.emitTurnEvent(gameId, {
+          kind: event.kind,
+          actor,
+          unit,
+          atWorkMs: atWorkMs ?? null,
+          payload: {
+            unit,
+            // An `unpin` and a `commit` name a unit and not a cell; the cell
+            // the unit is staged at is what the strip draws, and `-1` is the
+            // established "not reported" reading everywhere else in this file.
+            to: event.kind === 'pin' ? event.pin.to : -1,
+            tentative: event.kind === 'pin' && event.pin.tentative,
+          },
+        });
+        return written?.id ?? null;
+      },
+
       end: (summary: LensDecisionSummary): void => {
         try {
           this.emitTurnEvent(gameId, {

@@ -19,9 +19,28 @@
  * superseded when the new rank 1 lands.
  */
 
-import { applyCursorEvent, initialCursor, reactiveNotice, resolveCursor, rowTrails } from '../lens/view';
+import {
+  applyCursorEvent,
+  initialCursor,
+  reactiveNotice,
+  renderFrame,
+  resolveCursor,
+  rowTrails,
+} from '../lens/view';
 import type { LensCursor, LensFrame, Moveset, UnitKey, WidenNotice } from '../lens/types';
-import { clusterView, lensAt, lensFrame, moveset, unitKeysOf, SINGLETONS } from './lens-fixtures';
+import {
+  anchorEvent,
+  clusterView,
+  lensAt,
+  lensFrame,
+  moveset,
+  operatorActor,
+  turnEvent,
+  unitKeysOf,
+  SINGLETONS,
+} from './lens-fixtures';
+
+const LensPanel = require('../web/lens-panel.js');
 
 const [C, Q, S1] = unitKeysOf(SINGLETONS) as [UnitKey, UnitKey, UnitKey];
 const R = 'A-R';
@@ -83,6 +102,114 @@ describe('a widen is staged, never applied under the reader', () => {
     expect(notice.toGeneration).toBe(4);
   });
 
+  /**
+   * 10 §4 O6. `boundedBy[].by` is the PARTITION's field, and the kernel that
+   * mints it does not know operators — every producer fills it null, so the
+   * banner read `released A-R` with no author at all, on the owner's headline
+   * reactive case. The FOLD knows, once a `pin` row exists to fold: the
+   * author is on the unit's row in the frame the unit was still bound in.
+   */
+  it('takes the author off the fold when the partition carries none', () => {
+    const anonymous = narrowFrame({
+      partition: [
+        clusterView({
+          id: 0,
+          generation: 3,
+          members: [C, Q, S1],
+          boundedBy: [{ unit: R, to: 30, why: 'pin', by: null }],
+        }),
+      ],
+    });
+    const prev = {
+      ...anonymous,
+      units: [
+        ...anonymous.units,
+        {
+          unit: R as UnitKey,
+          kind: 'snake',
+          letter: 'R',
+          weight: 3,
+          health: 99,
+          orientation: { dx: 0, dy: 1 },
+          fixity: 'pinned' as const,
+          owner: 'u9',
+          operator: 'Ben',
+        },
+      ],
+    };
+    expect(widen(prev, widenedFrame()).by).toBe('Ben');
+    // And with neither, it stays honestly anonymous rather than inventing one.
+    expect(widen(anonymous, widenedFrame()).by).toBeNull();
+  });
+
+  /**
+   * 10 §4 O6's last null, and the walk is what found it. The fold DELETES a
+   * unit's fixity on `unpin`, and the partition recompute that produces the
+   * widen lands seqs later — so by the time there is a widen to attribute, the
+   * row the author stood on is already free and anonymous, and the banner read
+   * `released red-A, red-C` with no operator even after the `pin` rows existed.
+   * The turn's own rows still say who, and that is a read of a recorded event.
+   */
+  it('attributes a release the ROW has already forgotten, from the turn\'s rows', () => {
+    const released = narrowFrame({
+      // Ben's pin and his release are both in the turn's ledger; the partition
+      // has not caught up, and red-R's row is free again and unowned.
+      events: [
+        anchorEvent(),
+        turnEvent({
+          kind: 'pin',
+          seq: 12,
+          unit: R as UnitKey,
+          actor: operatorActor('Ben'),
+          payload: { unit: R, to: 30, tentative: false },
+        }),
+        turnEvent({
+          kind: 'unpin',
+          seq: 13,
+          unit: R as UnitKey,
+          actor: operatorActor('Ben'),
+          payload: { unit: R, to: -1, tentative: false },
+        }),
+      ],
+      partition: [
+        clusterView({
+          id: 0,
+          generation: 3,
+          members: [C, Q, S1],
+          boundedBy: [{ unit: R, to: 30, why: 'pin', by: null }],
+        }),
+      ],
+    });
+    expect(released.units.every((u) => u.owner === null)).toBe(true);
+    expect(widen(released, widenedFrame()).by).toBe('Ben');
+    expect(LensPanel.bannerHTML(widen(released, widenedFrame()), 4_000)).toContain('Ben released');
+  });
+
+  /** A look is not a determination, and does not get the credit for one. */
+  it('does not attribute a release to a TENTATIVE pin', () => {
+    const looked = narrowFrame({
+      events: [
+        anchorEvent(),
+        turnEvent({
+          kind: 'pin',
+          seq: 12,
+          unit: R as UnitKey,
+          actor: operatorActor('Ben'),
+          payload: { unit: R, to: 30, tentative: true },
+        }),
+      ],
+      partition: [
+        clusterView({
+          id: 0,
+          generation: 3,
+          members: [C, Q, S1],
+          boundedBy: [{ unit: R, to: 30, why: 'pin', by: null }],
+        }),
+      ],
+    });
+    expect(widen(looked, widenedFrame()).by).toBeNull();
+  });
+
   it('leaves everything under the cursor exactly where it was', () => {
     const prev = narrowFrame();
     const before = inspecting(prev);
@@ -90,6 +217,41 @@ describe('a widen is staged, never applied under the reader', () => {
     expect(notice.suspended).toBe(false);
     // Before accept, the cursor is untouched: the old list is still the list.
     expect(resolveCursor(before, prev, prev)).toEqual(before);
+  });
+
+  /**
+   * 10 §4 O8. The `stale @ seq n` flag rode the movesets panel's HEAD, which a
+   * cluster with no retained rows never draws — it draws its empty state
+   * instead. So a held widen over such a cluster put the banner up, froze the
+   * rail, and said nothing about the numbers under it answering the previous
+   * question. The banner is up in exactly the cases the hold applies to, so
+   * the flag belongs on the banner: one place, all of them.
+   */
+  it('says the rail is stale on the banner, where every held case can see it', () => {
+    const notice = widen(narrowFrame(), widenedFrame());
+    const banner = LensPanel.bannerHTML(notice, 4_000);
+    expect(banner).toContain('stale @ seq 14');
+    expect(notice.staleAtSeq).toBe(14);
+  });
+
+  /**
+   * THE FALSIFIER FOR O8, written as the case that used to fail: the cluster
+   * retains no rows for this candidate, so the movesets panel draws its empty
+   * state and no head — and the head is where the old flag lived. The body
+   * says nothing about staleness in this case and cannot; the banner over it
+   * must, or a held widen is a frozen rail with no reason on screen.
+   */
+  it('still flags staleness when the list under the banner is EMPTY', () => {
+    const bare = narrowFrame({ movesets: {} });
+    const body = LensPanel.railHTML(renderFrame(bare, inspecting(bare), []));
+    // The panel drew its empty state, so there is no head to hang a flag on.
+    expect(body).toContain('lens-empty');
+    expect(body).not.toContain('lens-stale-flag');
+
+    // The banner is up regardless, and it carries the seq the rail went stale.
+    const banner = LensPanel.bannerHTML(widen(bare, widenedFrame()), 4_000);
+    expect(banner).toContain('lens-stale-flag');
+    expect(banner).toContain('stale @ seq 14');
   });
 
   it('marks the old list stale at the seq it went stale, and does NOT blank it', () => {

@@ -407,7 +407,7 @@ function fakePorts(binding?: TeamDecisionPorts['botBinding']): TeamDecisionPorts
     pinSnakeIdOf: () => null,
     lensSink: (_gameId, _turn, decision) => {
       declared.push(decision);
-      return { frame: () => undefined, end: () => undefined };
+      return { frame: () => undefined, command: () => null, end: () => undefined };
     },
     botBinding: binding,
     log: () => undefined,

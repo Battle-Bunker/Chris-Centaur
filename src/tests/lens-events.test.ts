@@ -21,7 +21,8 @@
  * `atWorkMs` is NULL, never 0, when nothing measured it.
  */
 
-import { makeSeqWriter } from '../lens/store';
+import { ingestLensEvents, makeSeqWriter } from '../lens/store';
+import { recordLensRun } from '../lens/kernel';
 import type { SeqWriter } from '../lens/store';
 import type { TurnEvent } from '../lens/types';
 import { BOT_ACTOR, FIXTURE_GAME, operatorActor } from './lens-fixtures';
@@ -140,6 +141,64 @@ describe('`answers` names the operator event the emission responded to', () => {
       w.write(draft({ kind: 'emission', atWorkMs: 6, answers: `${FIXTURE_GAME}:${TURN}:99` }))
     ).toThrow();
   });
+});
+
+/**
+ * 10 §4 O6. `pin` / `unpin` have been in `TurnEventKind` since the model was
+ * written and NOTHING in the repository wrote one: the kernel's
+ * `onPinEvent(ev, id)` has taken an id all along and every caller passed
+ * nothing. So the fold's fixity map was permanently empty, the lane's operator
+ * ticks had no verb and no colour, the widen banner had no author, and every
+ * emission's `answers` was null — the single highest-value causal link in the
+ * model, never once written.
+ *
+ * This runs the SHIPPED recorded decision with the log port attached and
+ * asserts the causal order end to end: the command is a row, and the record
+ * that conforms to it names that row.
+ */
+describe('the operator gesture is a row, and the kernel answers it', () => {
+  it('writes the pin before the kernel is told, and the emission names it', async () => {
+    const w = writer();
+    w.write(draft({ kind: 'board.arrived' }));
+    const commands: TurnEvent[] = [];
+    const frames = await recordLensRun({
+      scenario: 'mixed',
+      seed: 1,
+      nodes: 550,
+      turns: 1,
+      command: (event, atWorkMs) => {
+        const unit = `u${event.kind === 'pin' ? event.pin.unitId : event.unitId}`;
+        const row = w.write(
+          draft({
+            kind: event.kind === 'pin' ? 'pin' : 'unpin',
+            actor: operatorActor('ada'),
+            unit,
+            atWorkMs,
+            payload: {
+              unit,
+              to: event.kind === 'pin' ? event.pin.to : -1,
+              tentative: event.kind === 'pin' && event.pin.tentative,
+            },
+          })
+        );
+        commands.push(row);
+        return row.id;
+      },
+    });
+
+    // The scripted operator pins its subject and releases it.
+    expect(commands.map((c) => c.kind)).toEqual(['pin', 'unpin']);
+    expect(commands.every((c) => c.actor.kind === 'operator')).toBe(true);
+
+    // The writer refuses an answer whose question it has not written, so this
+    // ingest THROWING would itself be the falsifier for the causal order.
+    const written = ingestLensEvents(w, frames);
+    const answered = written.filter((e) => e.answers !== null);
+    expect(answered.length).toBeGreaterThan(0);
+    for (const event of answered) {
+      expect(commands.some((c) => c.id === event.answers)).toBe(true);
+    }
+  }, 120_000);
 });
 
 describe('atWorkMs is null, never zero, when unmeasured', () => {

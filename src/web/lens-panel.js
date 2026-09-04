@@ -130,8 +130,9 @@ const LensPanel = (() => {
         // estimated one `~`; pricing every candidate is one queen at several
         // times a whole decision, so the rail grades rather than guesses.
         const value = aggregate == null ? '·' : `${num(aggregate, 1)}${escapeHTML(grade)}`;
+        // T3's other source: a click on the candidate cell.
         return (
-          `<tr class="${cursor ? 'lens-row-cursor' : ''}">` +
+          `<tr class="${cursor ? 'lens-row-cursor' : ''}" data-lens-candidate="${escapeHTML(to)}">` +
           `<td>${cursor ? '▸' : ''}</td><td>${escapeHTML(to)}</td>` +
           `<td>${value}</td>` +
           `<td>${incumbent ? 'incumbent' : escapeHTML(disposition || (legal ? '' : 'illegal'))}</td></tr>`
@@ -167,17 +168,41 @@ const LensPanel = (() => {
     return badges.length ? ` ${badges.join(' ')}` : '';
   }
 
+  /**
+   * The list's own provenance, in one line. `conditional` is the kernel's
+   * answer to *"what would a lock here stage"*; `restricted` is the fallback —
+   * the cluster's retained reservoir rows narrowed to the ones that assign
+   * this candidate — and on a build that answers no conditionals it is what
+   * the operator always reads. The count says how much was narrowed away, and
+   * a list of one says why the walk keys do nothing.
+   */
+  function sourceLine(source, retained, shown) {
+    if (source === 'conditional') {
+      return `conditional list — the rows a lock here would stage${
+        retained ? ` · ${escapeHTML(retained)} retained for the cluster` : ''
+      }`;
+    }
+    if (source !== 'restricted') return '';
+    const of = `${escapeHTML(shown)} of ${escapeHTML(retained)} retained rows play this candidate`;
+    return shown <= 1
+      ? `no conditional was answered — ${of}, so [ and ] have nowhere to go`
+      : `no conditional was answered — ${of}`;
+  }
+
   function movesetsHTML(transcript) {
     const empty = firstOf(transcript, 'panel.movesets.empty');
     if (empty) return `<div class="lens-empty">${escapeHTML(ARGS(empty)[0])}</div>`;
     const head = firstOf(transcript, 'panel.movesets');
     if (!head) return '';
-    const [clusterId, members, bounded, seq, stale] = ARGS(head);
+    const [clusterId, members, bounded, seq, stale, source, retained] = ARGS(head);
 
-    const rows = allOf(transcript, 'panel.movesets.row')
+    const rowCalls = allOf(transcript, 'panel.movesets.row');
+    const rowCount = rowCalls.length;
+    const rows = rowCalls
       .map((call) => {
         const [
           rank,
+          key,
           aggregate,
           width,
           cell,
@@ -198,8 +223,13 @@ const LensPanel = (() => {
         ]
           .filter(Boolean)
           .join(' ');
+        // T6's other source: a click on the row. The row carries its key so
+        // the page can issue the cursor transition; there are still NO pointer
+        // handlers here and no hover behaviour at all, because T4 says hover
+        // never commits the cursor.
         return (
-          `<tr class="${cls}"><td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
+          `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}">` +
+          `<td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
           `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
@@ -221,16 +251,29 @@ const LensPanel = (() => {
       })
       .join(' ');
 
+    // ALWAYS ONE LINE UNDER THE TABLE (§3.5). Where there is no rank 2 the
+    // line says so and says why, rather than vanishing: the foil is the
+    // highest-value cheap signal on the surface and a silent absence reads as
+    // "there is nothing to compare", which is a different claim.
     const foilCall = firstOf(transcript, 'panel.foil');
-    const foil = foilCall
-      ? `<div class="lens-foil">foil #${escapeHTML(ARGS(foilCall)[0])} · margin ${num(ARGS(foilCall)[1], 1)} · ${escapeHTML(ARGS(foilCall)[2])} · at ${escapeHTML(ARGS(foilCall)[3])}</div>`
-      : '';
+    const foilArgs = ARGS(foilCall);
+    const foil = !foilCall
+      ? ''
+      : foilArgs[0] == null
+        ? `<div class="lens-foil lens-foil-absent">${escapeHTML(foilArgs[2])}</div>`
+        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])} · margin ${num(foilArgs[1], 1)} · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
     const lock = firstOf(transcript, 'affordance.lock');
     return (
       `<div class="lens-panel-head">MOVESETS · cluster ${escapeHTML(clusterId)} · ` +
       `${escapeHTML(members)} of ${escapeHTML(members + bounded)} free · seq ${escapeHTML(seq)}` +
       `${stale ? ' · <span class="lens-stale-flag">stale</span>' : ''}</div>` +
+      // WHAT THE LIST IS. A `MOVESETS` head over a single row, with `[` and
+      // `]` that go nowhere, reads as a broken table; it is a RESTRICTION of
+      // the cluster's retained rows to the ones that play this candidate, and
+      // saying so — with the retained count beside it — turns the shortness
+      // into a fact the operator can check (10 §4 O1).
+      `<div class="lens-list-source">${sourceLine(source, retained, rowCount)}</div>` +
       // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
       // three of them mean something else elsewhere in the codebase. A reader
       // who has to be told what a column means is reading a number they
@@ -317,11 +360,24 @@ const LensPanel = (() => {
       : notice.queuedBehindLock
         ? 'will apply after your lock settles'
         : `auto ${Math.ceil((remainingMs == null ? notice.autoAcceptMs : remainingMs) / 1000)}s`;
+    // `stale @ seq n`, ON THE BANNER. The flag used to ride the movesets
+    // panel's HEAD, which a cluster with no retained rows never draws — it
+    // draws its empty state instead — so a held widen over such a cluster put
+    // the banner up, froze the rail, and said nothing about the numbers under
+    // it being answers to the previous question. The banner is up in exactly
+    // the cases the hold applies to, so the flag belongs on the banner: one
+    // place, all of them.
+    const stale =
+      notice.staleAtSeq == null
+        ? ''
+        : `<div class="lens-sub lens-stale-flag">the rail below is stale @ seq ${escapeHTML(
+            notice.staleAtSeq
+          )}</div>`;
     return (
       `<div class="lens-banner">⚑ ${who} ${escapeHTML(notice.gained.join(', '))} — ` +
       `cluster is now ${escapeHTML(notice.gained.length + (notice.members || 0))} units. ` +
       `<span class="lens-sub">${timer}</span>` +
-      `<button type="button" data-lens-accept="1">Show</button></div>`
+      `<button type="button" data-lens-accept="1">Show</button>${stale}</div>`
     );
   }
 
@@ -378,11 +434,18 @@ const LensPanel = (() => {
         .map((e) => {
           const left = (((e.seq - list[0].seq) / span) * 100).toFixed(2);
           const style = `left:${left}%${e.color ? `;color:${escapeHTML(e.color)}` : ''}`;
+          // `●Ada near(s2)` (§2.2): the verb, the unit it names and the
+          // operator who did it. The tick used to say the kind and the time
+          // and nothing else, because no `pin` / `unpin` row existed to carry
+          // an operator — so "who did that" was unanswerable even on hover.
+          const what = `${e.kind}${e.unit ? `(${e.unit})` : ''}`;
+          const who = e.operator ? `${e.operator} ` : '';
+          const at = e.atWorkMs == null ? '' : ` · +${e.atWorkMs}ms`;
           return (
             `<button type="button" class="lens-tick lens-tick-${escapeHTML(e.shape)}" ` +
             `data-seq="${escapeHTML(e.seq)}" style="${style}" ` +
-            `title="${escapeHTML(e.kind)} · seq ${escapeHTML(e.seq)}${e.atWorkMs == null ? '' : ` · +${escapeHTML(e.atWorkMs)}ms`}">` +
-            `${e.shape === 'hollow' ? '○' : '▲'}</button>`
+            `title="${escapeHTML(`${who}${what} · seq ${e.seq}${at}`)}">` +
+            `${e.shape === 'hollow' ? '○' : lane === 'operator' ? '●' : '▲'}</button>`
           );
         })
         .join('');

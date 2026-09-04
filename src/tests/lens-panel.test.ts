@@ -23,7 +23,13 @@
  *    each had their own.
  */
 
-import { renderFrame, initialCursor, applyCursorEvent } from '../lens/view';
+import {
+  renderFrame,
+  initialCursor,
+  applyCursorEvent,
+  modeBadge,
+  renderTimeline,
+} from '../lens/view';
 import type { CursorEvent, LensCursor, LensFrame, Moveset, UnitKey } from '../lens/types';
 import {
   clusterView,
@@ -31,7 +37,9 @@ import {
   lensAt,
   lensFrame,
   moveset,
+  operatorActor,
   reading,
+  turnEvent,
   unitKeysOf,
   SINGLETONS,
 } from './lens-fixtures';
@@ -282,6 +290,118 @@ describe('the rail says what the design says it must', () => {
     expect(LensPanel.movesetsHTML(renderFrame(f, at2))).toContain('pins 2 of 2');
   });
 
+  /**
+   * 10 §4 O1. The panel is a LIST OF ONE on the shipped build — no conditional
+   * is ever answered, so what draws is the cluster's retained rows restricted
+   * to those that play this candidate. The head must say which list it is and
+   * how much was narrowed away, or the operator reads a broken table with two
+   * dead keys and no way to tell that from a bug.
+   */
+  test('the moveset head says which list it is and how much it narrowed away', () => {
+    const conditional = LensPanel.movesetsHTML(renderFrame(frame(), FOCUSED(frame())));
+    expect(conditional).toContain('conditional list');
+
+    // The A2 fallback: the cluster's retained rows under the reservoir key,
+    // restricted to the one that plays C→10.
+    const rows: ReadonlyArray<Moveset> = [
+      moveset({ key: 'r1', rank: 1, lo: 12.4, hi: 15.3, units: [C, Q], staged: true }),
+      {
+        ...moveset({ key: 'r2', rank: 2, lo: 11.7, hi: 15.8, units: [C, Q] }),
+        moves: [
+          { unit: C, to: 11, path: [11] },
+          { unit: Q, to: 14, path: [14] },
+        ],
+      },
+    ];
+    const f = frame({ movesets: { '0': rows } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    expect(html).toContain('no conditional was answered');
+    expect(html).toContain('1 of 2 retained rows play this candidate');
+    expect(html).toContain('[ and ] have nowhere to go');
+  });
+
+  /**
+   * 10 §4 O3. §3.5 says the panel-side foil is ALWAYS visible; it was drawn
+   * only where the list held a rank 2, which by O1 is the uncommon case — so
+   * the highest-value cheap signal on the surface was silently absent in the
+   * ordinary case.
+   */
+  test('the foil line is on screen even when there is no runner-up', () => {
+    const withFoil = LensPanel.movesetsHTML(renderFrame(frame(), FOCUSED(frame())));
+    expect(withFoil).toContain('foil #2');
+
+    const one: ReadonlyArray<Moveset> = [
+      moveset({ key: 'o1', rank: 1, lo: 12.4, hi: 15.3, units: [C, Q], staged: true }),
+    ];
+    const f = frame({ movesets: { [`0|${C}|10`]: one } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    expect(html).toContain('no runner-up');
+    expect(html).toContain('the conditional list has one row');
+  });
+
+  /**
+   * 10 §4 O5. T3 and T6 both name a click — on a candidate cell, on a moveset
+   * row — as a source of the cursor transition, and the rail's rows carried no
+   * way to say WHICH row was clicked, so the panel was keyboard-only. The
+   * markup names the target; the page binds it. Hover stays inert (T4).
+   */
+  test('the rail names its click targets for T3 and T6', () => {
+    const f = frame();
+    const transcript = renderFrame(f, FOCUSED(f));
+    expect(LensPanel.candidatesHTML(transcript)).toContain('data-lens-candidate="10"');
+    const rows = LensPanel.movesetsHTML(transcript);
+    expect(rows).toContain('data-lens-moveset="a1"');
+    expect(rows).toContain('data-lens-moveset="a2"');
+    // No pointer handlers and no hover classes in the markup: the rail is a
+    // place to look until something is pressed.
+    expect(rows).not.toMatch(/onmouse|onclick|:hover/);
+  });
+
+  /**
+   * 10 §4 O6, in the rail. The partition's `boundedBy[].by` is the KERNEL's
+   * field and the kernel does not know operators — every producer fills it
+   * null. The fold does know, because it folds the `pin` rows the gesture now
+   * writes and puts the author on the unit's row. Rule E's sentence must read
+   * the one that has an answer.
+   */
+  test('Rule E names the operator off the fold when the partition cannot', () => {
+    const f = frame();
+    const anonymous = {
+      ...f,
+      partition: [
+        clusterView({
+          id: 0,
+          members: [C, Q],
+          // The kernel's own field, as every producer actually fills it.
+          boundedBy: [{ unit: 'A-R', to: 30, why: 'pin' as const, by: null }],
+        }),
+      ],
+      units: [
+        ...f.units,
+        {
+          unit: 'A-R' as UnitKey,
+          kind: 'snake',
+          letter: 'R',
+          weight: 3,
+          health: 99,
+          orientation: { dx: 0, dy: 1 },
+          // What the fold writes once a `pin` row exists to fold.
+          fixity: 'pinned' as const,
+          owner: 'u7',
+          operator: 'Ada',
+        },
+      ],
+    };
+    const html = LensPanel.movesetsHTML(renderFrame(anonymous, FOCUSED(anonymous)));
+    expect(html).toContain('Ada');
+
+    const cursorOnBound = applyCursorEvent(initialCursor(), anonymous, {
+      t: 'focus',
+      unit: 'A-R' as UnitKey,
+    });
+    expect(LensPanel.railHTML(renderFrame(anonymous, cursorOnBound))).toContain('by Ada');
+  });
+
   test('provenance is on every rail, small and always', () => {
     const html = LensPanel.railHTML(renderFrame(frame()));
     expect(html).toContain('bot:lens-fixture');
@@ -302,15 +422,74 @@ describe('the empty state is one honest sentence, not two different ones', () =>
   test('reads the same off a scrubbed live frame and a replayed one', () => {
     const f = frame();
     const cursor = FOCUSED(f);
-    const scrub = renderFrame(
-      { ...f, at: lensAt({ mode: 'live-scrub', isHead: false }) },
-      cursor
-    );
-    const replay = renderFrame({ ...f, at: lensAt({ mode: 'replay', isHead: false }) }, cursor);
+    const scrubFrame = { ...f, at: lensAt({ mode: 'live-scrub', isHead: false }) };
+    const replayFrame = { ...f, at: lensAt({ mode: 'replay', isHead: false }) };
+    const scrub = renderFrame(scrubFrame, cursor);
+    const replay = renderFrame(replayFrame, cursor);
     expect(LensPanel.railHTML(replay)).toEqual(LensPanel.railHTML(scrub));
-    // Off the head the affordance re-labels rather than vanishing: a greyed
-    // control teaches nothing.
-    expect(LensPanel.movesetsHTML(replay)).toContain('return to now');
+
+    // 10 §4 O7. Off the head the affordance re-labels rather than vanishing —
+    // a greyed control teaches nothing — and what it says is true of BOTH
+    // off-head modes: determinations are legal only from the live head. The
+    // WAY BACK is a fact about the source, not about the frame, so it rides
+    // the badge component: only a scrubbed live turn has a `now`, and a
+    // replayed one is no longer offered one it does not have.
+    expect(LensPanel.movesetsHTML(replay)).toContain('— read-only —');
+    expect(LensPanel.movesetsHTML(replay)).not.toContain('return to now');
+    expect(modeBadge(scrubFrame)).toContain('[N] return to now');
+    expect(modeBadge(replayFrame)).not.toContain('return to now');
+    expect(modeBadge({ ...f, at: lensAt({ mode: 'live-head', isHead: true }) })).not.toContain(
+      'return to now'
+    );
+  });
+
+  /**
+   * §1.4's other replay label: `locked by Ada at +812ms → [jump]` where such a
+   * lock exists at this seq. It is a READ of the turn's own rows — so it is
+   * the same sentence off the socket and off the log — and it could not be
+   * said at all until the pin gesture became a row (O6).
+   */
+  test('a determined cluster names the operator who determined it', () => {
+    const f = frame();
+    const determined = {
+      ...f,
+      at: lensAt({ mode: 'replay', isHead: false }),
+      events: [
+        ...f.events,
+        turnEvent({
+          kind: 'pin',
+          seq: 2,
+          atWorkMs: 812,
+          unit: C,
+          actor: operatorActor('Ada'),
+          payload: { unit: C, to: 10, tentative: false },
+        }),
+      ],
+    };
+    expect(LensPanel.movesetsHTML(renderFrame(determined, FOCUSED(determined)))).toContain(
+      'locked by Ada at +812ms → [jump]'
+    );
+
+    // A LOOK IS NOT A LOCK. A tentative pin is a hint the search may
+    // speculate on, and reporting it as a determination would be the display
+    // contract lying about who decided.
+    const considered = {
+      ...determined,
+      events: [
+        ...f.events,
+        turnEvent({
+          kind: 'pin',
+          seq: 2,
+          atWorkMs: 812,
+          unit: C,
+          actor: operatorActor('Ada'),
+          payload: { unit: C, to: 10, tentative: true },
+        }),
+      ],
+    };
+    expect(LensPanel.movesetsHTML(renderFrame(considered, FOCUSED(considered)))).toContain(
+      '— read-only —'
+    );
   });
 });
 
@@ -329,8 +508,72 @@ describe('the timeline lane', () => {
     expect(closed).toContain('seq 3');
   });
 
+  /**
+   * 10 §4 O4. The lane's hollow ticks and the expand toggle were built and
+   * unfed: nothing writes a `selection` with `hover`, so `operator.attention`
+   * was absent from the log entirely. The look that DOES reach the kernel is
+   * a TENTATIVE pin, and that is the shape the renderer must read as hollow —
+   * a tentative pin drawn solid would report a determination nobody made.
+   */
+  test('a tentative pin is an attention tick, hollow and hidden by default', () => {
+    const attention = renderTimeline([
+      turnEvent({ kind: 'emission', seq: 1, payload: { planKey: 'p', hover: false } }),
+      turnEvent({
+        kind: 'pin',
+        seq: 2,
+        actor: operatorActor('ada'),
+        payload: { unit: 'A-C', to: 10, tentative: true },
+      }),
+      turnEvent({
+        kind: 'pin',
+        seq: 3,
+        actor: operatorActor('ada'),
+        payload: { unit: 'A-C', to: 10, tentative: false },
+      }),
+    ]).filter((c) => c.op === 'timeline.tick');
+    expect(attention.map((c) => c.args[6])).toEqual(['solid', 'hollow', 'solid']);
+  });
+
   test('says so when a turn has no events yet', () => {
     expect(LensPanel.laneHTML([], { seq: 0 })).toContain('no events yet this turn');
+  });
+
+  /**
+   * 10 §4 O6, in the lane. §2.2 asks for `●Ada near(s2)`: the verb, the unit
+   * and the operator, in the operator's own colour. The tick said the kind and
+   * the time and nothing else, because no `pin` row existed to carry a name.
+   */
+  test('an operator tick carries the verb, the unit, the operator and the colour', () => {
+    const ticks = renderTimeline([
+      turnEvent({
+        kind: 'pin',
+        seq: 4,
+        atWorkMs: 149,
+        unit: 'red-A',
+        actor: operatorActor('Ada', '#7c4dff'),
+        payload: { unit: 'red-A', to: 94, tentative: false },
+      }),
+    ]).filter((c) => c.op === 'timeline.tick');
+    expect(ticks[0]?.args[0]).toBe('operator');
+
+    const html = LensPanel.laneHTML(
+      [
+        {
+          lane: 'operator',
+          seq: 4,
+          atWorkMs: 149,
+          kind: 'pin',
+          color: '#7c4dff',
+          shape: 'solid',
+          operator: 'Ada',
+          unit: 'red-A',
+        },
+      ],
+      { seq: 4 }
+    );
+    expect(html).toContain('title="Ada pin(red-A) · seq 4 · +149ms"');
+    expect(html).toContain('color:#7c4dff');
+    expect(html).toContain('●');
   });
 
   test('gives the turn anchors a lane of their own', () => {

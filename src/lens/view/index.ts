@@ -22,11 +22,13 @@
 
 import { anchorWithSettlement, applyEvent, emptyStore, reviveLens } from '../store';
 import { makeLiveSource, makeReplaySource } from '../store/sources';
+import type { MovesetList } from './cursor';
 import {
   boundingOf,
   clusterOf,
   incumbentCandidate,
   initialCursor,
+  movesetListFor,
   rankOne,
   reservoirListKey,
   rowsFor,
@@ -44,6 +46,7 @@ import type {
   LensFrame,
   LoudReading,
   Moveset,
+  OperatorId,
   RowTrail,
   TurnEvent,
   TurnEventKind,
@@ -297,7 +300,8 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
   if (unit !== null) {
     const bound = boundingOf(frame, unit);
     if (bound !== null) {
-      const by = bound.bound.by === null ? '' : ` by ${bound.bound.by}`;
+      const author = authorOf(frame, unit, bound.bound.by);
+      const by = author === null ? '' : ` by ${author}`;
       return (
         `${unit} is ${FIXITY_VERB[bound.bound.why]}${by} — it is a constant of cluster ` +
         `${bound.cluster.id}, not a variable the bot is solving`
@@ -319,6 +323,20 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
     `nothing retained for ${unit} at this candidate — ` +
     `${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`
   );
+}
+
+/**
+ * WHO FIXED IT. The partition's `boundedBy[].by` is the kernel's own field and
+ * the kernel does not know operators — every producer fills it `null` — while
+ * the fold DOES know, because it folds the `pin` rows the operator's gesture
+ * writes. So the declared author wins where there is one, and the frame's own
+ * unit row answers where there is not. Before the pin row existed both were
+ * null and Rule E's sentence had no author at all.
+ */
+function authorOf(frame: LensFrame, unit: UnitKey, declared: OperatorId | null): string | null {
+  if (declared !== null) return declared;
+  const row = frame.units.find((u) => u.unit === unit);
+  return row?.operator ?? row?.owner ?? null;
 }
 
 /**
@@ -346,7 +364,9 @@ function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null
     const glyph = clusterGlyph(index);
     for (const member of cluster.members) ops.push(call('cluster.chip', member, glyph, cluster.id));
     for (const bound of cluster.boundedBy) {
-      ops.push(call('fixed.chip', bound.unit, bound.why, bound.by, bound.to));
+      ops.push(
+        call('fixed.chip', bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+      );
     }
   });
 
@@ -453,7 +473,8 @@ function movesetOps(
   selected: Moveset | null,
   trails: ReadonlyArray<RowTrail>
 ): DrawCall[] {
-  const rows = rowsFor(frame, cursor.unit, cursor.candidate);
+  const list = movesetListFor(frame, cursor.unit, cursor.candidate);
+  const rows = list.rows;
   if (rows.length === 0) return [call('panel.movesets.empty', emptyStateLine(frame, cursor))];
 
   const leader = rankOne(rows);
@@ -471,7 +492,16 @@ function movesetOps(
       frame.at.seq,
       // A stale complement is a row whose QUESTION changed while its answer
       // stayed sound. It is struck through and headed, never dropped.
-      rows.some((r) => r.complement === 'stale')
+      rows.some((r) => r.complement === 'stale'),
+      // WHAT THIS LIST IS. On the shipped build it is one row — the cluster's
+      // retained rows restricted to the ones that play this candidate — and a
+      // table headed `MOVESETS` over a single row with two inert keys tells
+      // the operator nothing about why. The head says which of the two lists
+      // this is and how many rows the reservoir retained for the cluster, so
+      // "there is nowhere for `]` to go" is a readable fact rather than a
+      // suspicion (10 §4 O1).
+      list.source,
+      list.retained
     ),
   ];
 
@@ -485,6 +515,10 @@ function movesetOps(
       call(
         'panel.movesets.row',
         row.rank,
+        // THE ROW'S OWN KEY. T6 names a click on a moveset row as a source of
+        // the cursor transition, and the rail could not offer one because the
+        // markup had no way to say which row was clicked (10 §4 O5).
+        row.key,
         // ONE CHANNEL PER ROW, AND IT IS THE ONE THAT ADJUDICATES. `lo` is the
         // proved floor: the quantity the reservoir ranks on (`byBetter`), the
         // quantity `⌈w⌉` is a width of, and the quantity Δ measures. Showing
@@ -513,23 +547,54 @@ function movesetOps(
   // The constants strip. A fixed unit keeps its staged arrow and its place in
   // the plan; it is not a member, and the row says who fixed it.
   for (const bound of cluster?.boundedBy ?? []) {
-    ops.push(call('panel.movesets.fixed', bound.unit, bound.to, bound.why, bound.by));
-  }
-
-  const foil = foilRow(frame, cursor, selected);
-  if (foil !== null && selected !== null) {
     ops.push(
       call(
-        'panel.foil',
-        foil.rank,
-        Number((selected.lo - foil.lo).toFixed(2)),
-        whyItLost(selected, foil),
-        depthCell(foil).label
+        'panel.movesets.fixed',
+        bound.unit,
+        bound.to,
+        bound.why,
+        authorOf(frame, bound.unit, bound.by)
       )
     );
   }
 
+  // THE FOIL LINE IS ALWAYS ON SCREEN (§3.5: *"Panel side: always visible as
+  // one line under the moveset table"*). It used to be drawn only when the
+  // list held a rank 2 — which by O1 is the uncommon case — so the highest-
+  // value cheap signal on the surface was absent in the ordinary case and its
+  // absence was silent. An absence is drawn WITH ITS REASON, exactly as the
+  // depth cell draws `Q=0/33` rather than a bare `h1`.
+  if (selected !== null) {
+    const foil = foilRow(frame, cursor, selected);
+    ops.push(
+      foil === null
+        ? call('panel.foil', null, null, noFoilReason(list), null)
+        : call(
+            'panel.foil',
+            foil.rank,
+            Number((selected.lo - foil.lo).toFixed(2)),
+            whyItLost(selected, foil),
+            depthCell(foil).label
+          )
+    );
+  }
+
   return ops;
+}
+
+/**
+ * Why there is no runner-up, in the list's own terms. A conditional list of
+ * one is the kernel saying this lock has one answer; a restricted list of one
+ * is the reservoir having retained a single row that plays this candidate —
+ * two different facts, and the operator is owed the difference.
+ */
+function noFoilReason(list: MovesetList): string {
+  if (list.source === 'conditional') {
+    return 'no runner-up — the conditional list has one row';
+  }
+  return list.retained <= 1
+    ? 'no runner-up — the reservoir retained one row for this cluster'
+    : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
 }
 
 /**
@@ -691,7 +756,15 @@ const LANE_OF: Readonly<Record<TurnEventKind, string>> = {
 export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript {
   const ops: DrawCall[] = [call('timeline', events.length)];
   for (const event of events) {
-    const hover = (event.payload as { hover?: unknown } | undefined)?.hover === true;
+    // TWO SHAPES THE ATTENTION CHANNEL CAN ARRIVE IN, and both are hollow.
+    // §2.1 names focus and candidate hover as `selection` with `hover: true`;
+    // the same look also reaches the kernel as a TENTATIVE pin — a hint the
+    // search may speculate on, never a constraint (`notePinConsideration` →
+    // `PinEvents.tentativePin`) — and that is the form the log actually
+    // carries. A tentative pin drawn as a solid operator tick would say a
+    // determination was made where a look was taken.
+    const payload = event.payload as { hover?: unknown; tentative?: unknown } | undefined;
+    const hover = payload?.hover === true || payload?.tentative === true;
     ops.push(
       call(
         'timeline.tick',
@@ -701,7 +774,12 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
         event.kind,
         event.actor.id,
         event.actor.color,
-        hover ? 'hollow' : 'solid'
+        hover ? 'hollow' : 'solid',
+        // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
+        // and the operator — and the tick carried the kind and the time and
+        // nothing else, because no `pin` / `unpin` row existed to carry a name.
+        event.actor.name,
+        event.unit
       )
     );
   }
@@ -738,11 +816,12 @@ export function renderFrame(
     const cluster = clusterOf(frame, cursor.unit);
     const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
     const home = cluster ?? bound?.cluster ?? null;
+    const boundBy = bound === null ? null : authorOf(frame, bound.bound.unit, bound.bound.by);
     const why =
       bound === null
         ? null
         : `a constant of cluster ${bound.cluster.id}` +
-          `${bound.bound.by === null ? '' : `, by ${bound.bound.by}`} — not a member`;
+          `${boundBy === null ? '' : `, by ${boundBy}`} — not a member`;
     ops.push(
       call(
         'panel.focus',
@@ -801,20 +880,31 @@ export function renderFrame(
 
 /**
  * THE DETERMINATION AFFORDANCE NEVER VANISHES — a greyed control teaches
- * nothing — so it RE-LABELS on `isHead`, which is the one field of the three
- * badge fields the transcript is allowed to read.
+ * nothing — so it RE-LABELS on `isHead`, the one field of the three badge
+ * fields the transcript is allowed to read.
  *
- * IT CANNOT TELL `replay` FROM `live-scrub`, and that is a real gap rather
- * than an oversight: a recorded turn is offered `[N] return to now and lock`,
- * naming a `now` a closed turn does not have, where 02 §1.4 asks for
- * `locked by Ada at +812ms → [jump]` or `— read-only —`. Distinguishing them
- * inside `renderFrame` means branching on `at.mode`, and `lens-panel.test.ts`
- * forbids that structurally — the transcript is the object the boundary test
- * compares between a live frame and a replayed one, and the three fields that
- * may legitimately differ are rendered by the BADGE component below and
- * nowhere else. The replay label therefore belongs beside `modeBadge`, which
- * is a surface the page composes rather than a call in the transcript, and
- * moving it there is a design call above this walk.
+ * IT DOES NOT TELL `replay` FROM `live-scrub`, AND IT MUST NOT. That was
+ * recorded as a gap; it is a boundary. The transcript is the object the two
+ * sources are compared on, and a frame carries no CONTENT that separates a
+ * recorded turn from a scrubbed live one — `at.mode` is on the frame precisely
+ * because the distinction is not derivable, which is why the structural gate
+ * refuses a renderer that reads it. So the line splits at the seam the design
+ * already draws:
+ *
+ *   · WHAT IS TRUE OF THE FRAME is here. At the head, the exact pin count.
+ *     Off it, §1.4's own replay sentence where the frame's events hold a lock
+ *     at this seq — `locked by Ada at +812ms → [jump]`, which is a READ of a
+ *     recorded row and therefore identical from both sources — and
+ *     `— read-only —` where they do not, which is true of both off-head modes:
+ *     determinations are legal only from the live head.
+ *   · THE WAY BACK is a fact about the SOURCE, so it rides `modeBadge`, the
+ *     sanctioned home of the three fields that may differ. Only `live-scrub`
+ *     has a `now` to return to, and only `live-scrub` now offers one; a
+ *     replayed turn is no longer offered a `now` a closed turn does not have.
+ *
+ * Nothing here reads `at.mode`, and the rail is byte-identical between a
+ * scrubbed live frame and a replayed one at the same seq — which is the gate,
+ * and the gate is right.
  */
 function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): string {
   const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -829,7 +919,31 @@ function lockLabel(frame: LensFrame, cursor: LensCursor, selected: Moveset | nul
         ).length;
   return frame.at.isHead
     ? `[Space] lock — pins ${pins} of ${members.length}`
-    : '[N] return to now and lock';
+    : (recordedLock(frame, members) ?? '— read-only —');
+}
+
+/**
+ * §1.4's replay affordance: *"`locked by Ada at +812ms → [jump]` if such a lock
+ * exists at this `seq`"*. It is a read of the turn's own rows, so it says the
+ * same sentence off the socket and off the log — and it could not be said at
+ * all until the pin gesture became a row (O6). A TENTATIVE pin is a look and
+ * not a determination, and is not a lock.
+ */
+function recordedLock(frame: LensFrame, members: ReadonlyArray<UnitKey>): string | null {
+  const scope = new Set(members);
+  const locked = [...frame.events]
+    .reverse()
+    .find(
+      (e) =>
+        (e.kind === 'pin' || e.kind === 'commit') &&
+        e.unit !== null &&
+        scope.has(e.unit) &&
+        (e.payload as { tentative?: unknown } | undefined)?.tentative !== true
+    );
+  if (locked === undefined) return null;
+  const who = locked.actor.name ?? locked.actor.id ?? 'an operator';
+  const at = locked.atWorkMs === null ? '' : ` at +${locked.atWorkMs}ms`;
+  return `locked by ${who}${at} → [jump]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -852,12 +966,27 @@ const PROVENANCE_BADGE = {
   rerun: 're-derived',
 } as const;
 
+/**
+ * THE WAY BACK, and who has one.
+ *
+ * `[N] return to now` belongs to `live-scrub` and to nothing else: a closed
+ * turn has no `now` to return to, and offering one on a replayed turn names a
+ * thing that does not exist. It is a fact about the SOURCE rather than about
+ * the frame's content, so it lives here — with the two other badge fields —
+ * and not in the transcript, which must read identically from both sources.
+ */
+const WAY_BACK = {
+  'live-head': '',
+  'live-scrub': ' · [N] return to now',
+  replay: '',
+} as const;
+
 /** `⏸ SEQ 14/21` — loud, because a determination issued against a frame whose
  *  ordering has moved would break the display contract at the moment it
- *  matters. One key (`N`) gets you back. */
+ *  matters. One key (`N`) gets you back, and the badge is where it says so. */
 export function modeBadge(frame: LensFrame): string {
   const head = headOf(frame);
-  return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}`;
+  return `${MODE_BADGE[frame.at.mode]} · seq ${frame.at.seq}${head}${WAY_BACK[frame.at.mode]}`;
 }
 
 function headOf(frame: LensFrame): string {

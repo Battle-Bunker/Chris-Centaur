@@ -596,6 +596,28 @@ export interface LensDecisionSummary {
  */
 export interface LensDecisionPort {
   readonly frame: LensSink;
+  /**
+   * THE OPERATOR'S OWN GESTURE, written into the same order the kernel's
+   * frames are, and its id handed back.
+   *
+   * `pin` / `unpin` / `commit` are in `TurnEventKind` and nothing in the
+   * repository ever wrote one, so `frameAt`'s fixity map was permanently
+   * empty: `UnitRow.fixity` / `owner` / `operator` were always `free` / null,
+   * the timeline's operator ticks carried no verb and no colour, the widen
+   * banner said "released red-A" with no author, every emission's `answers`
+   * was null, and the client's ownership guard — which reads
+   * `frame.units[].owner` — was a no-op.
+   *
+   * THE ORDER IS CAUSAL AND NOT A CONVENIENCE. The command is written FIRST
+   * and the kernel is then told about it WITH the id it was written under, so
+   * the emission that conforms to it can name the question it answers (01
+   * §5.3). The writer refuses an answer whose question it has not written, so
+   * the other order is not merely wrong, it throws.
+   *
+   * Null when there is nothing to write against — no board, no open turn, or
+   * a unit this decision cannot name.
+   */
+  command(event: PinEvent, atWorkMs?: number | null): EventId | null;
   end(summary: LensDecisionSummary): void;
 }
 
