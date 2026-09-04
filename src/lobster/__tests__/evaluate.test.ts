@@ -693,18 +693,62 @@ describe('contest avoidance prices the rule turnEngine adjudicates', () => {
       ),
     ]);
 
+  /**
+   * THE CHARGE IS A CERTAINTY, NOT A FLAG (BEHAVIOUR-AUDIT.md D1). A cell one
+   * of an enemy's four legal moves lands on is charged a quarter of
+   * `CONTEST_LOSS`; the cell the enemy is STANDING on is charged all of it,
+   * because it either holds that square or leaves it across our own edge and
+   * either way we meet. Before D1 both were a boolean — which made a slider's
+   * saturated fan cancel across every option and priced the enemy's own square,
+   * the one meeting that cannot be avoided, at zero.
+   */
+  const share = (theirActions: number): number => CONTEST_LOSS / theirActions;
+
   test('a square a HEAVIER enemy head can reach is penalised', () => {
     // Their head at (5,3) can step to (4,3), and three beats our two: the cell
     // is theirs and we die on it.
     const contested = contestOf(facing(3), 'me', { x: 4, y: 3 });
     expect(contested.lo).toBeLessThan(0);
     expect(contested.est).toBeLessThan(0);
-    // One unit of ours, so the charge is the whole CONTEST_LOSS.
-    expect(contested.lo).toBeCloseTo(-CONTEST_LOSS, 9);
+    // One unit of ours, so the charge is that enemy's whole certainty at the
+    // cell: one of its four continuations.
+    expect(contested.lo).toBeCloseTo(-share(4), 9);
   });
 
   test('an EQUAL-weight enemy is penalised too, because a tie kills everyone', () => {
-    expect(contestOf(facing(2), 'me', { x: 4, y: 3 }).lo).toBeCloseTo(-CONTEST_LOSS, 9);
+    expect(contestOf(facing(2), 'me', { x: 4, y: 3 }).lo).toBeCloseTo(-share(4), 9);
+  });
+
+  test('and the square that enemy IS ON is charged the whole loss', () => {
+    // The same shape with their head ADJACENT, at (4,3), so the square they
+    // stand on is one of our own legal moves. A trail unit has no `stay` in its
+    // grammar, so before D1 that square was in no arrival set at all and cost
+    // nothing — while (3,4), which their three continuations do not touch,
+    // costs nothing then and now.
+    const board = boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 3, y: 3 },
+          { x: 2, y: 3 },
+        ],
+        { teamID: 'red', orientation: { dx: 1, dy: 0 } }
+      ),
+      makeSnake(
+        'them',
+        [
+          { x: 4, y: 3 },
+          { x: 5, y: 3 },
+          { x: 6, y: 3 },
+        ],
+        { teamID: 'blue', orientation: { dx: -1, dy: 0 } }
+      ),
+    ]);
+    const onThem = contestOf(board, 'me', { x: 4, y: 3 }).lo;
+    const beside = contestOf(board, 'me', { x: 3, y: 4 }).lo;
+    expect(onThem).toBeCloseTo(-CONTEST_LOSS, 9);
+    expect(beside).toBe(0);
+    expect(onThem).toBeLessThan(beside);
   });
 
   test('a square only a LIGHTER enemy can reach is not penalised', () => {

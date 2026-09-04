@@ -63,6 +63,42 @@
  * but its output is a SEED and an ordering; only a weighted term reaches the
  * move that is actually staged.
  *
+ * ── THE CELL AN ENEMY IS STANDING ON, AND HOW CERTAIN THE MEETING IS ───────
+ *
+ * Two corrections, one rule, from `docs/design/BEHAVIOUR-AUDIT.md` D1.
+ *
+ * (1) THE ORIGIN IS IN THE FIELD. A trail unit has no `stay` in its grammar
+ * ("staging their own square is not a move", `moveGrammar.ts`), so an enemy
+ * snake's OWN cell was in no arrival set and cost nothing — the one square on
+ * the board guaranteed to produce an adjudication this turn was the one square
+ * this term priced at zero. All three `edge` deaths in the audit's 23-game
+ * corpus are that: our unit stepped onto an adjacent enemy's head cell and
+ * `turnEngine.ts` c1 settled the head-on exchange against it. The enemy either
+ * HOLDS that cell (a c4 contest) or vacates it along our own edge (a c1
+ * exchange), so a meeting there is certain either way. It is the rules, not a
+ * heuristic: the field only ever WIDENS, which is the conservative direction.
+ *
+ * (2) THE CHARGE IS A CERTAINTY, NOT A FLAG. A boolean charge is equal across
+ * every cell inside a slider's fan, so a queen that can reach all three of our
+ * options cancels itself and decides nothing — while the one cell it is
+ * standing on, which it cannot fail to meet us on, was charged the same as a
+ * far corner of its ray. So each enemy carries the share of its own action set
+ * that lands on the cell,
+ *
+ *     p_e(c) = 1                                        c is e's turn-start cell
+ *            = |{a in actions(e) : a.to = c}| / |actions(e)|   otherwise
+ *     cost(u) = CONTEST_LOSS x max over e BEATING u of p_e(c)
+ *
+ * `p` is a share of a legal move set and never a probability model of an
+ * opponent: it is what the grammar admits, counted. `cost` stays in [0, 1] per
+ * unit, so the term's [-1, 0] range, the cliff inequality and the contract's
+ * monotonicity are all untouched.
+ *
+ * `contestField` — the boolean arrival field this file also exports, which
+ * `window.ts` reads for the potion peril — takes the widening (1) and not the
+ * grading (2): a cell an enemy occupies IS a cell it can be met on, and that
+ * reading is a set, not a scale.
+ *
  * ── SCALE, AND THE TWO GATES ───────────────────────────────────────────────
  *
  * One losing unit costs `CONTEST_LOSS / |ours|`, so the whole term's range is
@@ -89,7 +125,7 @@ import type { CellIndex } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
-import { perBoardPerTeam } from './memo';
+import { perBoard, perBoardPerTeam } from './memo';
 
 /**
  * What one of our units standing on a cell it cannot win costs. One, so the
@@ -210,16 +246,109 @@ export function beatenAt(field: ArrivalField, tier: number, weight: number, cell
   return !winsContest(tier, weight, field.tier[cell] as number, field.weight[cell] as number);
 }
 
-/** Every enemy of `asTeam`'s whole action set, as one arrival apiece. */
+/**
+ * Every enemy of `asTeam`'s whole action set UNION ITS OWN TURN-START CELL, as
+ * one arrival apiece.
+ *
+ * The origin is in the set because the rules put it there: the enemy either
+ * holds that cell and we contest it (c4) or leaves it across our own edge and
+ * we exchange (c1). A trail unit's grammar has no `stay`, so without this
+ * clause a snake's own square is in no arrival set at all — see the header.
+ */
 function* enemyArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arrival> {
   for (const unit of sub.roster()) {
     if (unit.team === asTeam) continue;
+    const origin = unit.cells[0];
+    const cells = sub.actionsOf(unit.unitId).map((a) => a.to);
     yield {
-      cells: sub.actionsOf(unit.unitId).map((a) => a.to),
+      cells: origin === undefined ? cells : [...cells, origin],
       tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
       weight: unit.weight,
     };
   }
+}
+
+/**
+ * ONE ENEMY'S ARRIVAL CERTAINTY over the cells it can be met on: its frozen
+ * (tier, weight), and `p_e(c)` for every cell in its reach.
+ */
+interface EnemyReach {
+  readonly tier: number;
+  readonly weight: number;
+  /** cell -> `p_e(cell)` in (0, 1]. Absent means the enemy cannot be met there. */
+  readonly p: ReadonlyMap<number, number>;
+}
+
+const REACHES = new WeakMap<object, Map<number, ReadonlyArray<EnemyReach>>>();
+
+/**
+ * Every enemy's reach with its certainty, one enumeration pass per enemy,
+ * cached per marshalled board per subject team exactly as `contestField` is
+ * and for the same reason (a modelled sibling is a `Proxy` over its parent).
+ *
+ * An enemy with NO legal action still holds its own cell at `p = 1`: it is
+ * where it is and the rules give it nowhere to go.
+ */
+function enemyReaches(sub: EngineSubstrate, asTeam: number): ReadonlyArray<EnemyReach> {
+  return perBoardPerTeam(REACHES, sub.marshalled, asTeam, () => {
+    const out: EnemyReach[] = [];
+    for (const unit of sub.roster()) {
+      if (unit.team === asTeam) continue;
+      const actions = sub.actionsOf(unit.unitId);
+      const p = new Map<number, number>();
+      if (actions.length > 0) {
+        const hits = new Map<number, number>();
+        for (const a of actions) hits.set(a.to, (hits.get(a.to) ?? 0) + 1);
+        for (const [cell, n] of hits) p.set(cell, n / actions.length);
+      }
+      // THE ORIGIN LAST, and it overwrites: a meeting on the cell the enemy
+      // already stands on is certain, whatever its action set says about it.
+      const origin = unit.cells[0];
+      if (origin !== undefined) p.set(origin, 1);
+      out.push({
+        tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
+        weight: unit.weight,
+        p,
+      });
+    }
+    return out;
+  });
+}
+
+const PRESSURE = new WeakMap<object, Map<string, Float64Array>>();
+
+/**
+ * `max over e BEATING (tier, weight) of p_e(c)`, one plane per distinct
+ * (team, tier, weight) our roster presents — three of them at most on the
+ * boards this plays, built once per board and then read one array index per
+ * unit per node, which is what the boolean field cost before.
+ *
+ * Keyed per RANK rather than per unit because the verdict is a function of the
+ * frozen pair and nothing else: two of our units at the same tier and weight
+ * are beaten by exactly the same enemies.
+ */
+export function contestPressure(
+  sub: EngineSubstrate,
+  asTeam: number,
+  tier: number,
+  weight: number
+): Float64Array {
+  const table = perBoard(PRESSURE, sub.marshalled, () => new Map<string, Float64Array>());
+  const key = `${asTeam}|${tier}|${weight}`;
+  const hit = table.get(key);
+  if (hit !== undefined) return hit;
+  const plane = new Float64Array(sub.grid.cells);
+  for (const enemy of enemyReaches(sub, asTeam)) {
+    // A trade we WIN is not a thing to avoid — the same clause the boolean
+    // field expressed through `beatenAt`.
+    if (winsContest(tier, weight, enemy.tier, enemy.weight)) continue;
+    for (const [cell, p] of enemy.p) {
+      if (cell < 0 || cell >= plane.length) continue;
+      if (p > (plane[cell] as number)) plane[cell] = p;
+    }
+  }
+  table.set(key, plane);
+  return plane;
 }
 
 /**
@@ -233,15 +362,21 @@ export function contestField(sub: EngineSubstrate, asTeam: number): ContestField
   );
 }
 
-/** `CONTEST_LOSS` where this unit's destination is a contest it does not win. */
-function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
+/**
+ * `CONTEST_LOSS x p` where this unit's destination is a contest it does not
+ * win, and `p` is how certain the beating enemy's arrival there is — 1 on the
+ * cell it already occupies.
+ */
+function costOf(ctx: EvalContext, s: Standing): number {
   const unit = ctx.sub.unitOf(s.unitId);
   if (unit === undefined) return 0;
   // FROZEN, both sides: the rules adjudicate this turn's collisions on the
   // tier and weight held at the START of it, so a unit that grew on a meal in
   // the position being scored still contests at the weight it set out with.
   const ourTier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
-  return beatenAt(field, ourTier, unit.weight, s.cell) ? CONTEST_LOSS : 0;
+  const plane = contestPressure(ctx.sub, ctx.asTeam, ourTier, unit.weight);
+  if (s.cell < 0 || s.cell >= plane.length) return 0;
+  return CONTEST_LOSS * (plane[s.cell] as number);
 }
 
 /**
@@ -267,10 +402,8 @@ export const contestFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let field: ContestField | undefined;
     return ourUnitTerm(ctx, (s) => {
-      if (field === undefined) field = contestField(ctx.sub, ctx.asTeam);
-      const c = costOf(ctx, s, field);
+      const c = costOf(ctx, s);
       return [-c, -c];
     });
   },
