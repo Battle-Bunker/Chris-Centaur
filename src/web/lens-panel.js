@@ -167,14 +167,37 @@ const LensPanel = (() => {
     return badges.length ? ` ${badges.join(' ')}` : '';
   }
 
+  /**
+   * The list's own provenance, in one line. `conditional` is the kernel's
+   * answer to *"what would a lock here stage"*; `restricted` is the fallback —
+   * the cluster's retained reservoir rows narrowed to the ones that assign
+   * this candidate — and on a build that answers no conditionals it is what
+   * the operator always reads. The count says how much was narrowed away, and
+   * a list of one says why the walk keys do nothing.
+   */
+  function sourceLine(source, retained, shown) {
+    if (source === 'conditional') {
+      return `conditional list — the rows a lock here would stage${
+        retained ? ` · ${escapeHTML(retained)} retained for the cluster` : ''
+      }`;
+    }
+    if (source !== 'restricted') return '';
+    const of = `${escapeHTML(shown)} of ${escapeHTML(retained)} retained rows play this candidate`;
+    return shown <= 1
+      ? `no conditional was answered — ${of}, so [ and ] have nowhere to go`
+      : `no conditional was answered — ${of}`;
+  }
+
   function movesetsHTML(transcript) {
     const empty = firstOf(transcript, 'panel.movesets.empty');
     if (empty) return `<div class="lens-empty">${escapeHTML(ARGS(empty)[0])}</div>`;
     const head = firstOf(transcript, 'panel.movesets');
     if (!head) return '';
-    const [clusterId, members, bounded, seq, stale] = ARGS(head);
+    const [clusterId, members, bounded, seq, stale, source, retained] = ARGS(head);
 
-    const rows = allOf(transcript, 'panel.movesets.row')
+    const rowCalls = allOf(transcript, 'panel.movesets.row');
+    const rowCount = rowCalls.length;
+    const rows = rowCalls
       .map((call) => {
         const [
           rank,
@@ -231,6 +254,12 @@ const LensPanel = (() => {
       `<div class="lens-panel-head">MOVESETS · cluster ${escapeHTML(clusterId)} · ` +
       `${escapeHTML(members)} of ${escapeHTML(members + bounded)} free · seq ${escapeHTML(seq)}` +
       `${stale ? ' · <span class="lens-stale-flag">stale</span>' : ''}</div>` +
+      // WHAT THE LIST IS. A `MOVESETS` head over a single row, with `[` and
+      // `]` that go nowhere, reads as a broken table; it is a RESTRICTION of
+      // the cluster's retained rows to the ones that play this candidate, and
+      // saying so — with the retained count beside it — turns the shortness
+      // into a fact the operator can check (10 §4 O1).
+      `<div class="lens-list-source">${sourceLine(source, retained, rowCount)}</div>` +
       // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
       // three of them mean something else elsewhere in the codebase. A reader
       // who has to be told what a column means is reading a number they

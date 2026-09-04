@@ -48,6 +48,7 @@ var LensView = (() => {
     makeLiveDecisionSource: () => makeLiveDecisionSource,
     makeReplayDecisionSource: () => makeReplayDecisionSource,
     modeBadge: () => modeBadge,
+    movesetListFor: () => movesetListFor,
     movesetListKey: () => movesetListKey,
     planLock: () => planLock,
     provenanceBadge: () => provenanceBadge,
@@ -498,14 +499,24 @@ var LensView = (() => {
   function reservoirListKey(cluster) {
     return String(cluster);
   }
-  function rowsFor(frame, unit, to) {
-    if (unit === null || to === null) return [];
+  var EMPTY_LIST = { rows: [], source: "none", retained: 0 };
+  function movesetListFor(frame, unit, to) {
+    if (unit === null || to === null) return EMPTY_LIST;
     const cluster = clusterOf(frame, unit);
-    if (cluster === null) return [];
+    if (cluster === null) return EMPTY_LIST;
     const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
-    if (conditional !== void 0) return conditional;
     const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
-    return retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to));
+    if (conditional !== void 0) {
+      return { rows: conditional, source: "conditional", retained: retained.length };
+    }
+    return {
+      rows: retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to)),
+      source: "restricted",
+      retained: retained.length
+    };
+  }
+  function rowsFor(frame, unit, to) {
+    return movesetListFor(frame, unit, to).rows;
   }
   function rankOne(rows) {
     return rows.reduce(
@@ -1043,7 +1054,8 @@ var LensView = (() => {
     ];
   }
   function movesetOps(frame, cursor, selected, trails) {
-    const rows = rowsFor(frame, cursor.unit, cursor.candidate);
+    const list = movesetListFor(frame, cursor.unit, cursor.candidate);
+    const rows = list.rows;
     if (rows.length === 0) return [call("panel.movesets.empty", emptyStateLine(frame, cursor))];
     const leader = rankOne(rows);
     const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
@@ -1057,7 +1069,16 @@ var LensView = (() => {
         frame.at.seq,
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound. It is struck through and headed, never dropped.
-        rows.some((r) => r.complement === "stale")
+        rows.some((r) => r.complement === "stale"),
+        // WHAT THIS LIST IS. On the shipped build it is one row — the cluster's
+        // retained rows restricted to the ones that play this candidate — and a
+        // table headed `MOVESETS` over a single row with two inert keys tells
+        // the operator nothing about why. The head says which of the two lists
+        // this is and how many rows the reservoir retained for the cluster, so
+        // "there is nowhere for `]` to go" is a readable fact rather than a
+        // suspicion (10 §4 O1).
+        list.source,
+        list.retained
       )
     ];
     for (const row of rows) {

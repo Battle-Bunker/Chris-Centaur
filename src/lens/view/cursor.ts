@@ -138,6 +138,36 @@ export function reservoirListKey(cluster: number): string {
 }
 
 /**
+ * WHAT THE LIST IS, and not only what is in it.
+ *
+ * The panel is the whole point of the lens and on the shipped build it is a
+ * LIST OF ONE — `07-MEASURED.md` §1 records zero conditional frames in 180
+ * bot-only decisions, so the A2 fallback below is what draws, and a
+ * restriction of the cluster's retained rows to the ones that play this
+ * candidate is usually a single row. That is a fact about what the reservoir
+ * retains, not a defect in the selection; but a table that says `MOVESETS`
+ * over one row, with `[` and `]` that do nothing, tells the operator none of
+ * it. So the list carries its OWN provenance — which of the two it is, and how
+ * many rows the reservoir retained for the whole cluster — and the panel head
+ * says it in words. Same reason the depth cell draws `Q=0/33` rather than a
+ * bare `h1`: an absence is worth drawing when its cause is knowable.
+ */
+export interface MovesetList {
+  readonly rows: ReadonlyArray<Moveset>;
+  /**
+   * `conditional` — the kernel answered `L(C, u↦m)` and this is that answer.
+   * `restricted` — nobody asked, or nobody answered, so these are the
+   * cluster's own retained reservoir rows filtered to the ones that assign
+   * this candidate to this unit. `none` — the unit is in no cluster.
+   */
+  readonly source: 'conditional' | 'restricted' | 'none';
+  /** Rows the reservoir retained for the whole cluster, restricted or not. */
+  readonly retained: number;
+}
+
+const EMPTY_LIST: MovesetList = { rows: [], source: 'none', retained: 0 };
+
+/**
  * The rows behind one `(unit, candidate)`, in the order the reservoir ranked
  * them.
  *
@@ -152,18 +182,33 @@ export function reservoirListKey(cluster: number): string {
  * in 180 decisions). A replayed turn was drawing an empty table while the
  * frame it was drawing from held the rows.
  */
+export function movesetListFor(
+  frame: LensFrame,
+  unit: UnitKey | null,
+  to: CellIndex | null
+): MovesetList {
+  if (unit === null || to === null) return EMPTY_LIST;
+  const cluster = clusterOf(frame, unit);
+  if (cluster === null) return EMPTY_LIST;
+  const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
+  const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
+  if (conditional !== undefined) {
+    return { rows: conditional, source: 'conditional', retained: retained.length };
+  }
+  return {
+    rows: retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to)),
+    source: 'restricted',
+    retained: retained.length,
+  };
+}
+
+/** The rows alone, for the callers that only rank and select over them. */
 export function rowsFor(
   frame: LensFrame,
   unit: UnitKey | null,
   to: CellIndex | null
 ): ReadonlyArray<Moveset> {
-  if (unit === null || to === null) return [];
-  const cluster = clusterOf(frame, unit);
-  if (cluster === null) return [];
-  const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
-  if (conditional !== undefined) return conditional;
-  const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
-  return retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to));
+  return movesetListFor(frame, unit, to).rows;
 }
 
 export function rankOne(rows: ReadonlyArray<Moveset>): Moveset | null {

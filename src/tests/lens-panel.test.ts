@@ -282,6 +282,36 @@ describe('the rail says what the design says it must', () => {
     expect(LensPanel.movesetsHTML(renderFrame(f, at2))).toContain('pins 2 of 2');
   });
 
+  /**
+   * 10 §4 O1. The panel is a LIST OF ONE on the shipped build — no conditional
+   * is ever answered, so what draws is the cluster's retained rows restricted
+   * to those that play this candidate. The head must say which list it is and
+   * how much was narrowed away, or the operator reads a broken table with two
+   * dead keys and no way to tell that from a bug.
+   */
+  test('the moveset head says which list it is and how much it narrowed away', () => {
+    const conditional = LensPanel.movesetsHTML(renderFrame(frame(), FOCUSED(frame())));
+    expect(conditional).toContain('conditional list');
+
+    // The A2 fallback: the cluster's retained rows under the reservoir key,
+    // restricted to the one that plays C→10.
+    const rows: ReadonlyArray<Moveset> = [
+      moveset({ key: 'r1', rank: 1, lo: 12.4, hi: 15.3, units: [C, Q], staged: true }),
+      {
+        ...moveset({ key: 'r2', rank: 2, lo: 11.7, hi: 15.8, units: [C, Q] }),
+        moves: [
+          { unit: C, to: 11, path: [11] },
+          { unit: Q, to: 14, path: [14] },
+        ],
+      },
+    ];
+    const f = frame({ movesets: { '0': rows } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    expect(html).toContain('no conditional was answered');
+    expect(html).toContain('1 of 2 retained rows play this candidate');
+    expect(html).toContain('[ and ] have nowhere to go');
+  });
+
   test('provenance is on every rail, small and always', () => {
     const html = LensPanel.railHTML(renderFrame(frame()));
     expect(html).toContain('bot:lens-fixture');
