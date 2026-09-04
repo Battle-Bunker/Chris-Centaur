@@ -7,7 +7,7 @@
  * END VENDORED HEADER
  */
 
-import { Clash, UnitDeath, UnitType } from "@shared/types/Game"
+import { Clash, UnitDeath, UnitMaxEnergy, UnitType } from "@shared/types/Game"
 import { Orientation, leavesTrail, traversesEdges } from "./moveGrammar"
 import { BoardShape, stagedAction } from "./queries"
 import { EngineUnit, ExhaustionEvent, REASON, runTurnEngine } from "./turnEngine"
@@ -67,7 +67,7 @@ export interface ResolveTurnInput {
   hazardDamage: number
   food: number[]
   /** Per-kind max energy; kinds absent here use `defaultMaxEnergy`. */
-  maxEnergy?: { [K in UnitType]?: number }
+  maxEnergy?: UnitMaxEnergy
   /** Default max energy for kinds `maxEnergy` does not name. Defaults to 100. */
   defaultMaxEnergy?: number
   /**
