@@ -18,7 +18,7 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - Opponent baseline (`--opponent`, against a NON-mirror field — see `resolveOpponent` in local-game.ts): `node dist/tests/local-game.js sum mixed,snakes,potions 30 3 --nodes --opponent=material-only --json=vs-material-only.jsonl --label=vs-material-only`; team 0's meals/100↑deaths/100 vs the seed-1-3 mirror baseline: mixed 7.78→13.17 / 0.00→1.23, snakes 18.33→18.33 / 0.00→0.00, potions 9.96→11.02 / 0.40→1.22 — a material-only field neither seeks food (weight 0) nor avoids a contest the way the default profile does, which is why team 0 eats more and dies more against it than it does mirroring itself.
 
 ## Active wave (update on every launch/merge) — 2026-09-04 18:22Z
-Merged: SIMPLIFY-PLAN-3 (aef112a; 12 Sonnet items, net −660; items 3, 12 wait for lens-audit; 6, 11, 9 wait for b1-sound), entrap (d4c0886), the A/B record (90418c4 = `stable/one-engine-lens-v3`), TacticToes SIMPLIFY-PLAN-2 (602b4d8; headline: one adjudication mirror left in frontend GameFinished.tsx, wrong on mutual wipe; −493 lines across items 1–9; E-a deferred, it needs a ruling on whether a new engine export widens the vendored surface — orchestrator's ruling: defer, −8 lines is not worth the debate; item 4 has no automated gate, left for the owner).
+Merged: SIMPLIFY-PLAN-3 (aef112a; 12 Sonnet items, net −660; items 3, 12 wait for lens-audit; 6, 11, 9 wait for b1-sound), entrap (d4c0886), the A/B record (90418c4 = `stable/one-engine-lens-v3`), TacticToes plan-2 items 1, 5, 9a/b/d/e (fbcf8cd; 9c skipped: teamOf is private to the processor, folds into item 6/7 territory), TacticToes SIMPLIFY-PLAN-2 (602b4d8; headline: one adjudication mirror left in frontend GameFinished.tsx, wrong on mutual wipe; −493 lines across items 1–9; E-a deferred, it needs a ruling on whether a new engine export widens the vendored surface — orchestrator's ruling: defer, −8 lines is not worth the debate; item 4 has no automated gate, left for the owner).
 b1-sound: died on a 429 at 16:44Z; WIP recovered as f3a5474; resumed by message (merge d4c0886 first). Stashes are shared across worktrees: NO `git stash` in any brief.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
@@ -27,7 +27,6 @@ b1-sound: died on a 429 at 16:44Z; WIP recovered as f3a5474; resumed by message 
 | p3-b (CC) | sonnet | PLAN-3 item 2 (one write queue; FK-ordering trap) | write-path suites, full jest |
 | p3-c (CC) | sonnet | PLAN-3 items 4, 8, 5 (claims input, perBoard hold-outs, generation rig) | byte-identical runner between items; soundness sweep; named suites |
 | lens-audit (CC) | opus | lens UI audit (09-AUDIT.md) + fixes in src/lens/**, src/web/lens-view.js | tsc, eslint, build:lens, lens suites, parity + determinism green |
-| tt-exec-1 (TT) | opus | TT plan-2 items 1, 5, 9a–9e | functions suite green; frontend tsc -b + vite build clean |
 | tt-exec-2 (TT) | sonnet | TT plan-2 items 2, 3, 6, 7, 8 in order | functions suite green after each; no golden re-recorded |
 Queued: PLAN-3 items 3, 12 after lens-audit; PLAN-3 items 6, 11, 9 and PLAN-2 item 7 after b1-sound; TT PR #24 body refresh after tt-exec-* merge; TT checkpoint v3 then; drives rebase after #17.
 Ping: send_later 55 min, re-armed on each firing (current trig_017jnfNAoaPGKSQUSHY7JWPn, fires 18:24Z).
