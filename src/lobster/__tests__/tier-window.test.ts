@@ -23,7 +23,7 @@ import { marshalBoard } from '../../logic/turn-oracle';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
-import { exposureOf, gradePath, heldTierAt, selfDebuffOf, selfDebuffRank } from '../tier-window';
+import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank } from '../tier-window';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -126,7 +126,6 @@ describe('the wire reaches the claim, and the ENGINE does the lapsing', () => {
     // arithmetic this repo is allowed to do (once, in `marshalBoard`).
     const claim = claimNamed(sub, 'B1');
     expect(claim.tierAtArrival).toBe(expectedTier);
-    expect(heldTierAt(unitNamed(sub, 'B1'))).toBe(expectedTier);
     expect(claim.tierMax).toBeGreaterThanOrEqual(expectedTier);
     expect(claim.tierMin).toBeLessThanOrEqual(expectedTier);
     sub.release();

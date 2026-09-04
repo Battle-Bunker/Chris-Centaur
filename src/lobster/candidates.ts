@@ -74,18 +74,22 @@ import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } fr
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import {
   allyBodyCollision,
+  boardBearsPiece,
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
   stagingSafety,
 } from './staging-safety';
-import type { StagingSafety } from './staging-safety';
+import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
+import { makeSearchCore } from './search/core';
+import { perBoard } from './evaluate/memo';
 import type {
   Candidate,
   CandidateGenerator,
   CandidateSet,
   CellIndex,
   EncounterVerdict,
+  SearchCore,
   Substrate,
   TraversalVerdict,
   Trit,
@@ -314,6 +318,34 @@ export function flaggedKnobs(): CandidateKnobs {
   return knobsForSafety(stagingSafety());
 }
 
+/**
+ * The safety->generator->core preamble every decision assembly opens with:
+ * resolve the staging-safety level for this board, build a generator tuned to
+ * it, and build a search core whose `rungZeroRepair`/`seedDeconflict` follow
+ * the same resolved level. Those two couplings are RULES (`search/core.ts`
+ * asserts them again as fallbacks), not a call-site choice, so one function
+ * states them once.
+ */
+export interface DecisionRig {
+  readonly safety: ResolvedStagingSafety;
+  readonly gen: GrammarCandidateGenerator;
+  readonly search: SearchCore;
+}
+
+export function rigFor(
+  sub: EngineSubstrate,
+  over?: { level?: StagingSafety; seed?: number; candidates?: CandidateKnobs }
+): DecisionRig {
+  const safety = resolveStagingSafety(over?.level ?? stagingSafety(), boardBearsPiece(sub));
+  const gen = new GrammarCandidateGenerator({ ...knobsForSafety(safety), ...over?.candidates });
+  const search = makeSearchCore({
+    rungZeroRepair: safety === 'full',
+    seedDeconflict: safety !== 'off',
+    ...(over?.seed !== undefined ? { seed: over.seed } : {}),
+  });
+  return { safety, gen, search };
+}
+
 // ---------------------------------------------------------------------------
 // What the risk layer says about one action
 // ---------------------------------------------------------------------------
@@ -438,28 +470,18 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
-    const hit = this.shadows.get(sub);
-    if (hit !== undefined) return hit;
-    const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
-    this.shadows.set(sub, made);
-    return made;
+    return perBoard(this.shadows, sub, () =>
+      this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>()
+    );
   }
 
   private regicideFor(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> | null {
     if (!this.knobs.gainOrdering) return null;
-    const hit = this.regicideCells.get(sub);
-    if (hit !== undefined) return hit;
-    const made = enemyRegicideCells(sub);
-    this.regicideCells.set(sub, made);
-    return made;
+    return perBoard(this.regicideCells, sub, () => enemyRegicideCells(sub));
   }
 
   private victimsFor(sub: EngineSubstrate): VictimTable {
-    const hit = this.victims.get(sub);
-    if (hit !== undefined) return hit;
-    const made = victimTable(sub);
-    this.victims.set(sub, made);
-    return made;
+    return perBoard(this.victims, sub, () => victimTable(sub));
   }
 }
 

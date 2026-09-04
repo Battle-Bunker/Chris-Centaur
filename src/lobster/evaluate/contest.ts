@@ -88,6 +88,7 @@
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
+import { perBoardPerTeam } from './memo';
 
 /**
  * What one of our units standing on a cell it cannot win costs. One, so the
@@ -124,8 +125,13 @@ export interface ContestField {
  */
 const FIELDS = new WeakMap<object, Map<number, ContestField>>();
 
-/** The tier a unit still carries at the turn its arrival is adjudicated on. */
-function frozenTier(tier: number, expiresAtTurn: number | null, turn: number): number {
+/**
+ * The tier a unit still carries at the turn its arrival is adjudicated on.
+ * `expiresAtTurn` is EXCLUSIVE — the first turn at which the tier no longer
+ * governs — and the conversion from the wire's inclusive figure happens once,
+ * in `marshalBoard`.
+ */
+export function frozenTier(tier: number, expiresAtTurn: number | null, turn: number): number {
   return expiresAtTurn !== null && turn >= expiresAtTurn ? 0 : tier;
 }
 
@@ -150,14 +156,10 @@ export function winsContest(
  * subject team.
  */
 export function contestField(sub: EngineSubstrate, asTeam: number): ContestField {
-  let perTeam = FIELDS.get(sub.marshalled);
-  if (perTeam === undefined) {
-    perTeam = new Map<number, ContestField>();
-    FIELDS.set(sub.marshalled, perTeam);
-  }
-  const hit = perTeam.get(asTeam);
-  if (hit !== undefined) return hit;
+  return perBoardPerTeam(FIELDS, sub.marshalled, asTeam, () => computeContestField(sub, asTeam));
+}
 
+function computeContestField(sub: EngineSubstrate, asTeam: number): ContestField {
   const cells = sub.grid.cells;
   const reached = new Uint8Array(cells);
   const tier = new Int32Array(cells);
@@ -184,9 +186,7 @@ export function contestField(sub: EngineSubstrate, asTeam: number): ContestField
       }
     }
   }
-  const field: ContestField = { reached, tier, weight };
-  perTeam.set(asTeam, field);
-  return field;
+  return { reached, tier, weight };
 }
 
 /** `CONTEST_LOSS` where this unit's destination is a contest it does not win. */

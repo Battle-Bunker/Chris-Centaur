@@ -82,24 +82,24 @@ import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
+import { perBoard } from './memo';
 
 /** Per substrate: the cell each unit occupied BEFORE its last move. */
 const CAME_FROM = new WeakMap<EngineSubstrate, ReadonlyMap<UnitId, number>>();
 
 function cameFrom(sub: EngineSubstrate): ReadonlyMap<UnitId, number> {
-  const hit = CAME_FROM.get(sub);
-  if (hit !== undefined) return hit;
-  const out = new Map<UnitId, number>();
-  const width = sub.grid.width;
-  for (const marshalled of sub.marshalled.units) {
-    const unit = sub.unitOfWireId(marshalled.id);
-    if (unit === undefined) continue;
-    const { dx, dy } = marshalled.orientation;
-    if (dx === 0 && dy === 0) continue;
-    out.set(unit.unitId, (unit.cells[0] as number) - (dy * width + dx));
-  }
-  CAME_FROM.set(sub, out);
-  return out;
+  return perBoard(CAME_FROM, sub, () => {
+    const out = new Map<UnitId, number>();
+    const width = sub.grid.width;
+    for (const marshalled of sub.marshalled.units) {
+      const unit = sub.unitOfWireId(marshalled.id);
+      if (unit === undefined) continue;
+      const { dx, dy } = marshalled.orientation;
+      if (dx === 0 && dy === 0) continue;
+      out.set(unit.unitId, (unit.cells[0] as number) - (dy * width + dx));
+    }
+    return out;
+  });
 }
 
 /** Cost of landing back where you came from. */

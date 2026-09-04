@@ -83,6 +83,7 @@ import type { UnitId } from '../contracts';
 import type { UnitType } from '../../engine-vendor/shared/types/Game';
 import type { UnitShells } from './shells';
 import { ShellTable } from './shells';
+import { perBoard } from './memo';
 
 /** A standing the partition can read. Structural, so `features.ts` owns it. */
 export interface TerritorySubject {
@@ -332,17 +333,14 @@ export function workspaceFor(sub: EngineSubstrate): TerritoryWorkspace {
   // for exactly the reason the reuse across evaluations is: one evaluation
   // runs at a time, which is what the scratch fields already assume.
   const family = sub.family;
-  let ws = workspaces.get(family);
-  if (ws === undefined) {
+  return perBoard(workspaces, family, () => {
     const roster = family.roster().length;
-    ws = new TerritoryWorkspace(
+    return new TerritoryWorkspace(
       family.grid,
       family.terrain,
       new ShellTable(family, Math.max(256, roster * 64))
     );
-    workspaces.set(family, ws);
-  }
-  return ws;
+  });
 }
 
 // ---------------------------------------------------------------------------

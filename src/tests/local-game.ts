@@ -23,12 +23,10 @@ import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
 import { EngineSubstrate, makeSubstrate, clearGeometryCache } from '../lobster/substrate';
-import { GrammarCandidateGenerator, knobsForSafety } from '../lobster/candidates';
+import { rigFor } from '../lobster/candidates';
 import { defaultEvaluator } from '../lobster/evaluate';
 import type { Evaluator, JointPlan, Candidate, UnitId, KernelInput } from '../lobster/contracts';
-import { makeSearchCore } from '../lobster/search';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
-import { boardBearsPiece, resolveStagingSafety, stagingSafety } from '../lobster/staging-safety';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
 import { mulberry32 } from '../lobster/bounds/testkit';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
@@ -395,12 +393,7 @@ export async function decideTeam(
   const sub = makeSubstrate({ gameId: 'local', board, turn, asTeam: teamId, modeled: ourIds });
   try {
     const asTeam = sub.teamNumber(teamId);
-    const safety = resolveStagingSafety(stagingSafety(), boardBearsPiece(sub));
-    const gen = new GrammarCandidateGenerator(knobsForSafety(safety));
-    const search = makeSearchCore({
-      rungZeroRepair: safety === 'full',
-      seedDeconflict: safety !== 'off',
-    });
+    const { gen, search } = rigFor(sub);
     // The kernel options `TeamDecisionEngine.kernelOptions()` ships, so the
     // deadline behaviour a game measures is production's. `minWriteIntervalMs`
     // is the WIRE's rate policy and there is no wire here, so it is the one
