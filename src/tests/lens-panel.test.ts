@@ -333,10 +333,16 @@ describe('the timeline lane', () => {
     expect(LensPanel.laneHTML([], { seq: 0 })).toContain('no events yet this turn');
   });
 
-  test('reads its rows straight off the transcript', () => {
-    const rows = LensPanel.laneEventsFromTranscript(renderFrame(frame()));
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows[0].lane).toBe('anchor');
+  test('gives the turn anchors a lane of their own', () => {
+    // `board.arrived` and `turn.resolved` are the two ends the lane is
+    // DEFINED between, and neither had a row to be drawn in.
+    const anchored = [
+      { lane: 'anchor', seq: 0, atWorkMs: null, kind: 'board.arrived', color: null, shape: 'solid' },
+      { lane: 'kernel', seq: 1, atWorkMs: 12, kind: 'emission', color: null, shape: 'solid' },
+    ];
+    const html = LensPanel.laneHTML(anchored, { seq: 1 });
+    expect(html).toContain('data-lane="anchor"');
+    expect(html.match(/data-seq=/g)?.length).toBe(2);
   });
 });
 

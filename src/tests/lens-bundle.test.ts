@@ -65,6 +65,12 @@ describe('the bundle exposes exactly what the page calls', () => {
     'checkDivergence',
     'clusterOf',
     'rowsFor',
+    // The badge component and the replay entry point: the page calls both
+    // now, which is what stops a replayed turn claiming it is scrubbed.
+    'replayFrameAtSeq',
+    'modeBadge',
+    'provenanceBadge',
+    'emptyStateLine',
   ];
 
   it.each(CALLED_BY_THE_PAGE)('exports %s', (name) => {

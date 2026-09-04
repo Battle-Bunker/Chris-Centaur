@@ -137,6 +137,9 @@ export class GameWebSocketServer {
   // switch: it is the state "no decision is answering questions right now",
   // and it produces a typed refusal rather than a silence.
   private lensPort: LensInspectionPort | null = null;
+  // The current turn's `board.arrived` per game — the anchor a mid-turn
+  // joiner never receives, because a broadcast carries only new events.
+  private lensAnchors: Map<string, TurnEvent> = new Map();
 
   /** Attached by whoever owns the running decision. */
   attachLensPort(port: LensInspectionPort | null): void {
@@ -160,7 +163,31 @@ export class GameWebSocketServer {
     head: boolean
   ): void {
     if (events.length === 0) return;
+    // THE TURN'S ANCHOR, KEPT FOR WHOEVER JOINS NEXT. Only NEW events are
+    // broadcast, so a client that subscribed mid-turn folded onto whatever
+    // arrived first: the fold treats its earliest event as the anchor, drops
+    // it, and the board comes out 0×0. `board.arrived` is the one event a
+    // late joiner cannot do without, so the last one seen per game is held
+    // here and replayed to them on subscribe.
+    for (const event of events) {
+      if (event.kind === 'board.arrived') this.lensAnchors.set(gameId, event);
+    }
     this.broadcastToGame(gameId, { type: 'lens-frames', gameId, turn, events, head });
+  }
+
+  /** The turn-so-far's beginning, to a client that arrived after it. Sent as
+   *  an ordinary `lens-frames` envelope, because it IS one — the same event,
+   *  the same fold, `head: false` since this is not new news. */
+  private sendLensAnchor(client: WSClient, gameId: string): void {
+    const anchor = this.lensAnchors.get(gameId);
+    if (anchor === undefined) return;
+    this.send(client.ws, {
+      type: 'lens-frames',
+      gameId,
+      turn: anchor.turn,
+      events: [anchor],
+      head: false,
+    });
   }
 
   broadcastFirebaseStatus(status: unknown): void {
@@ -482,6 +509,10 @@ export class GameWebSocketServer {
         });
 
         this.broadcastSelectionsUpdate(gameId);
+        // The lens's fold begins at the turn's anchor. A client that joined
+        // mid-turn has missed it, so it is replayed here — otherwise its
+        // first frame anchors on a partition and draws an empty board.
+        this.sendLensAnchor(client, gameId);
         break;
       }
 

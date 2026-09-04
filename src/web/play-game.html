@@ -241,6 +241,11 @@
       font-size: 11px; font-weight: 700; letter-spacing: .04em;
       color: #B39DFF; margin-bottom: 6px;
     }
+    /* The legend, under the head that needs one: four tokens on that table
+       have no gloss anywhere else, and three of them mean something else in
+       the rest of the codebase. Quiet, and always — a reader who has to be
+       told what a column means is reading a number they cannot check. */
+    .lens-legend { font-size: 10px; color: #7d7d7d; margin: -2px 0 6px; }
     .lens-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
     .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
@@ -966,7 +971,7 @@
         const body = lensTranscript.length
           ? LensPanel.railHTML(lensTranscript)
           : `<section class="lens-panel"><div class="lens-empty">` +
-            LensPanel.escapeHTML(lensEmptyLine()) + `</div></section>`;
+            LensPanel.escapeHTML(lensEmptyText(view, frame)) + `</div></section>`;
         rail.innerHTML = banner + body;
         rail.classList.toggle('lens-held', !!lensHeld);
       }
@@ -975,19 +980,25 @@
         lane.innerHTML = LensPanel.laneHTML(lensLaneRows(), {
           seq: lensSeq,
           expanded: lensLaneExpanded,
-          badge: lensAtHead ? null : '⏸ SCRUBBED · [N] to return to now',
+          // THE BADGE COMPONENT, not a copy of it. `modeBadge` and
+          // `provenanceBadge` are the sanctioned home of the three fields
+          // that may legitimately differ between live and replay; a page that
+          // wrote its own said `⏸ SCRUBBED` about a REPLAYED turn, which is
+          // how a recorded frame came to offer `[N] return to now`.
+          badge:
+            frame && view ? `${view.modeBadge(frame)} · ${view.provenanceBadge(frame)}` : null,
         });
       }
     }
 
-    // The honest empty state: what HAS happened, and at which seq. Not "no
-    // data" — that sentence was written twice, once for live and once for
-    // replay, and the two had already drifted apart.
-    function lensEmptyLine() {
-      const emissions = lensEvents.filter((e) => e.kind === 'emission').length;
-      if (lensEvents.length === 0) return 'no decision events yet this turn';
-      if (emissions === 0) return `fast-pass only — no kernel emission yet at seq ${lensSeq}`;
-      return `no cluster under the cursor at seq ${lensSeq}`;
+    // The honest empty state, from THE VIEW-MODEL — the one that tells the
+    // four emptinesses apart (no emission yet, a unit the bot is not choosing
+    // for, an ask in flight, a reservoir that honestly retained nothing). The
+    // page's own second copy of that sentence is gone: it knew one cause and
+    // said it about all four.
+    function lensEmptyText(view, frame) {
+      if (!view || !frame) return 'no decision events yet this turn';
+      return view.emptyStateLine(frame, lensCursor || undefined);
     }
 
     // The lane is a view of EVENTS, so it draws from them directly and needs
@@ -1002,6 +1013,9 @@
       'stage.requested': 'staging', 'stage.confirmed': 'staging',
       'stage.retry': 'staging', 'commit.observed': 'staging',
       advice: 'advice',
+      // The two the lane is DEFINED between (02 §4): the turn's arrival and
+      // its resolution.
+      'board.arrived': 'anchor', 'turn.resolved': 'anchor',
     };
     function lensLaneRows() {
       return lensEvents.map((e) => ({
@@ -2133,9 +2147,19 @@
         case 'lens-conditional-rows':
         case 'lens-breakdown-rows': {
           lensPending.delete(msg.requestId);
-          // A refusal is an ANSWER and is rendered as one. `source: 'empty'`
-          // reads as *searching*; a spent reserve says so; neither is silence
-          // and neither is a bare gap in the table.
+          // THE ROWS ARE NOT READ OFF THIS REPLY, and that is the point: the
+          // kernel emits both answers as frames, so a conditional ranking and
+          // a drilled breakdown reach this page through `lens-frames` and the
+          // fold — the same bytes replay reads. A page that painted from the
+          // reply would be a second data path around the store's
+          // stored-answer-first rule, which is the clause that makes a
+          // drilled row in replay the row the operator drilled live (Law C).
+          //
+          // What the reply carries that the fold cannot is the REFUSAL: an
+          // ask nobody could afford produces no frame, and a refusal is an
+          // answer and is rendered as one. `source: 'empty'` reads as
+          // *searching*; a spent reserve says so; neither is silence and
+          // neither is a bare gap in the table.
           if (msg.ok === false) {
             showBannerNotice(`lens: ${msg.refusal} — ${msg.detail || ''}`.trim());
           }
@@ -4113,11 +4137,13 @@
     /**
      * THE REPLAYED FRAME — the same fold, off the stored bytes.
      *
-     * `frameAtSeq` is the function the live page calls on the events the
-     * socket delivered; the events here came out of `turn_events` instead,
-     * verbatim, so the two are one fold over one event type. `isHead` is false
-     * because a recorded turn is closed: determinations are legal iff the
-     * playhead is at the live head, and this is not.
+     * `replayFrameAtSeq` is the same fold the live page runs, stamped by the
+     * REPLAY source: the events here came out of `turn_events` instead of a
+     * socket, verbatim, so the two are one fold over one event type. It is
+     * the replay source and not `frameAtSeq(..., false)` because a recorded
+     * turn is CLOSED, not scrubbed — a live frame off its head offers `[N]
+     * return to now`, and one keypress later a lock would be issued against a
+     * frame from the past (09 §A1).
      */
     function historicFrameFor(turn) {
       const view = lensView();
@@ -4125,7 +4151,7 @@
       if (!view || !events || events.length === 0) return null;
       const last = events[events.length - 1];
       try {
-        return view.frameAtSeq(events, last.seq, false);
+        return view.replayFrameAtSeq(events, last.seq);
       } catch (e) {
         console.error('replay fold unavailable:', e && e.message ? e.message : e);
         return null;
