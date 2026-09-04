@@ -15,14 +15,13 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — 2026-09-04 ~17:20Z
-Merged: SIMPLIFY-PLAN-2 (a48a006; 15 items, ≈ −990/+350; §5 names two defects: leaderOf compares est across horizons; two complementKey producers sort differently).
+## Active wave (update on every launch/merge) — 2026-09-04 ~18:30Z
+Merged: PLAN-2 items 1, 4 and the complementKey fix (cd29cdc; −507 test-harness lines; one piece term table; one key producer). Head cd29cdc.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
 | potion-sound (CC) | opus | potion-board inversions (60t, seeds 1–10); extend the standing gate | zero inversions on the extended arms; A/B reported |
 | ceiling (CC) | opus | 08 §5 step 4: B4 rung + ceiling ply; lens depth column | soundness vs exhaustive depth-2; A/B per board class; snakes/sparse byte-identical |
-| simp2-a (CC) | sonnet | PLAN-2 items 1 (test harness), 4 (piece term table), §5.2 complementKey one producer | byte-identical decisions + suite green |
-Queued after ceiling/potion-sound land (same files): PLAN-2 items 2 (ourUnitTerm absorbs tier+potion), 3 (one arrival field), 5 (one unit-ascent step), 7 (B1/B3 fold), §5.1 leaderOf est-across-horizons fix; runner `--opponent=<profile>`; entrapment with the ceiling-ply horizon.
+Queued after those land: PLAN-2 items 2, 3, 5, 7 and §5.1 (leaderOf est across horizons) — Sonnet for 3/5/7, Opus for 2 and §5.1; runner `--opponent=<profile>` (Sonnet); entrapment with the ceiling-ply horizon (Opus).
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
