@@ -268,35 +268,65 @@ export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: numb
 }
 
 /**
- * Minimum lo improvement before the staged move switches leader at the same
- * horizon (RESULTS F1). Raw anytime streams without it had mid-budget regret
- * spikes of ~1000 from tie-flips and ≤4-point h=1 refutations that reversed at
- * h=2.
+ * Minimum improvement before the staged move switches leader (RESULTS F1). Raw
+ * anytime streams without it had mid-budget regret spikes of ~1000 from
+ * tie-flips and ≤4-point h=1 refutations that reversed at h=2.
  *
  * ── WHY IT IS NOT FIVE ANY MORE ────────────────────────────────────────────
  *
- * Five was calibrated against material, and against a stream that reached
- * horizon 2. Neither holds. On this build the horizon is always 1
- * (`kernel.ts` reads `run.lastView?.horizon ?? 1` and the production search
- * core is not a `Refiner`, so the view is never built) — so the "refutation
- * that reverses at h=2" the margin was protecting against cannot occur. And the
- * whole POSITIONAL vocabulary — reach, room, command, food, momentum,
- * energyEconomy — spans about four points at its widest, against material's ten
- * per unit of weight. A margin of five therefore did not damp positional churn:
- * it made positional value UNSTAGEABLE. Nothing the evaluator could say about
- * where a unit should go was ever worth five, so the staged plan was whatever
- * `seedPlan` picked first — the generator's ordered-first candidate — for the
- * whole game unless half a unit of material changed hands.
- *
- * That is what a bot looks like when its snakes walk in straight lines past the
- * food and its pieces never move: the traces are in
+ * Five was calibrated against material. The whole POSITIONAL vocabulary —
+ * reach, room, command, food, momentum, energyEconomy — spans about four points
+ * at its widest, against material's ten per unit of weight, so a margin of five
+ * did not damp positional churn: it made positional value UNSTAGEABLE. Nothing
+ * the evaluator could say about where a unit should go was ever worth five, so
+ * the staged plan was whatever `seedPlan` picked first — the generator's
+ * ordered-first candidate — for the whole game unless half a unit of material
+ * changed hands. That is what a bot looks like when its snakes walk in straight
+ * lines past the food and its pieces never move: the traces are in
  * `docs/BASIC-INTELLIGENCE.md`, and 80% of all staged moves in a recorded game
  * were the seed, untouched.
  *
- * The margin's real job is to refuse a switch that is worth nothing — floating
- * point noise, and exact ties. Exact ties are already refused by the strict
- * `>`; noise is bounded well below a hundredth. So the margin is now one
- * thousandth of the lightest unit's material: large enough that no rounding
+ * ── WHY IT IS STILL A CONSTANT AT DEPTH (06 F-6) ───────────────────────────
+ *
+ * Its second calibration was made on the premise that no deep reading could
+ * arrive, which is no longer true, so the number is re-derived rather than
+ * inherited. The margin and the horizon guard were one mechanism and they are
+ * re-decided in one place: the GUARD does the horizon work, exactly (F-4/F-5
+ * above), and the MARGIN does the noise work, which is horizon-independent.
+ * Three steps, each read off the bounds layer rather than chosen:
+ *
+ *  1. THE ARTIFACT A BIGGER MARGIN WOULD BE PROTECTING AGAINST CANNOT REACH IT.
+ *     The fear is a deep floor movement that is an artifact of a truncated deep
+ *     enumeration. But a min-side truncation may not move a floor at all unless
+ *     it is DECLARED: `declareTruncatedFloor` → `withNarrowing` (`score.ts`) →
+ *     a `narrowing` assumption → a different `BasisKey` → `compareFloors`
+ *     answers `{comparable:false, refusal:'basis_mismatch'}` and the row is not
+ *     sorted against the others at all. Sound deep floors and unsound ones are
+ *     separated by basis IDENTITY, which is exact. A magnitude threshold cannot
+ *     make that separation in either direction — it would refuse sound deep
+ *     proofs below its size while still admitting unsound ones above it — so it
+ *     is the wrong instrument for the job, at any setting.
+ *
+ *  2. BRACKET WIDTH IS NOT AVAILABLE AS A SCALE WHERE THE MARGIN ADJUDICATES.
+ *     The one arm where the margin decides rather than damps is the est arm,
+ *     and that arm runs only under FOGGED-VACUOUS — where every candidate's
+ *     `lo` sits on the cliff and `DEAD` is `−∞`. The bracket is unbounded below
+ *     and its width is infinite, so a width-proportional margin there is an
+ *     infinite margin, which freezes the wire at whatever happened to be staged
+ *     when the posture flipped. That is precisely the passivity the posture
+ *     exists to escape.
+ *
+ *  3. WHAT IS LEFT IS THE MARGIN'S REAL JOB, and both of its bounds are
+ *     horizon-free. Exact ties are already refused by the strict `>`. Float
+ *     drift is bounded by the bounds layer's own declared tolerance,
+ *     `BOUND_EPSILON = 1e-9`, accumulated over a fold of a dozen weighted
+ *     features — many orders of magnitude below a hundredth. And the smallest
+ *     distinction the criterion profile can draw is a positional term's own
+ *     resolution, well above a hundredth. Neither the arithmetic tolerance nor
+ *     the profile's resolution is a function of how many plies proved a number,
+ *     so the value that sits strictly between them does not move with depth.
+ *
+ * One thousandth of the lightest unit's material: large enough that no rounding
  * difference can restage a move, small enough that every distinction the
  * criterion profile is capable of drawing can.
  */

@@ -26,6 +26,8 @@ import {
   type StagingCandidate,
 } from "../lobster/voc"
 import { bounds, cand, ledgerEntry, plan, score } from "./lobster-harness"
+import { BOUND_EPSILON, compareFloors, widthOf, withNarrowing } from "../lobster/bounds"
+import { DEFAULT_DEAD_BELOW, detectVacuity } from "../lobster/postures"
 
 const SIGHTED = channelPolicyFor("SIGHTED")
 
@@ -196,6 +198,71 @@ describe("leader selection", () => {
     const rows = [row({ key: "L", lo: 10, hi: 90 }), row({ key: "R", lo: 0, hi: 25 })]
     expect(rootSlack(rows, 0)).toBe(15) // 25 − 10, not 90 − 10
     expect(rootSlack([rows[0]], 0)).toBe(0)
+  })
+})
+
+describe("the switch margin is re-derived, not inherited (06 F-6)", () => {
+  it("is a NOISE threshold: the depth artifact it would guard is refused by basis identity", () => {
+    // The fear behind a bigger margin at depth is a floor movement that is an
+    // artifact of a truncated deep enumeration. It cannot reach the margin: a
+    // min-side truncation may not move a floor unless it is DECLARED, and a
+    // declared narrowing lands in the assumption set, changes the basis key,
+    // and makes the comparison refuse outright. Exact separation, made by
+    // identity — which is why a magnitude threshold is the wrong instrument
+    // whatever it is set to.
+    const honest = bounds(10, 20)
+    const truncated = withNarrowing(bounds(10 + 5 * DEFAULT_SWITCH_MARGIN, 20), {
+      kind: "narrowing",
+      unitId: 9,
+      note: "deep sweep cut short",
+    })
+    expect(compareFloors(honest, honest).comparable).toBe(true)
+    const across = compareFloors(truncated, honest)
+    expect(across.comparable).toBe(false)
+    expect(across).toMatchObject({ refusal: "basis_mismatch" })
+    // …and the same two bounds, with the narrowing NOT declared, compare
+    // perfectly well — so the refusal is about the declaration, never the size.
+    expect(compareFloors(bounds(10 + 5 * DEFAULT_SWITCH_MARGIN, 20), honest)).toEqual({
+      comparable: true,
+      order: 1,
+    })
+  })
+
+  it("cannot be a fraction of the bracket, because the arm it adjudicates has no width", () => {
+    // The one arm where the margin decides rather than damps is the est arm,
+    // and it runs only under FOGGED-VACUOUS — where every candidate's floor is
+    // ON the cliff and the production cliff is −∞. A width-proportional margin
+    // there is an infinite margin.
+    const onTheCliff = bounds(DEFAULT_DEAD_BELOW, 40, { ledger: [ledgerEntry(9)] })
+    expect(widthOf(onTheCliff)).toBe(Number.POSITIVE_INFINITY)
+    expect(detectVacuity(onTheCliff).cause).toBe("cloud-contingent-dead")
+
+    const ccd = "cloud-contingent-dead" as const
+    const rows = (est: number): StagingCandidate[] => [
+      row({ key: "a", lo: DEFAULT_DEAD_BELOW, est: 10, hi: 40, vacuity: ccd }),
+      row({ key: "b", lo: DEFAULT_DEAD_BELOW, est, hi: 40, vacuity: ccd }),
+    ]
+    // An infinite margin freezes the wire at whatever was staged when the
+    // posture flipped — the exact passivity the posture exists to escape.
+    const frozen = new StickyStager(widthOf(onTheCliff))
+    frozen.stage(rows(10), VACUOUS)
+    expect(frozen.stage(rows(900), VACUOUS).staged.key).toBe("a")
+    // The constant lets the gradient move, which is the whole point of it.
+    const live = new StickyStager()
+    live.stage(rows(10), VACUOUS)
+    expect(live.stage(rows(900), VACUOUS).staged.key).toBe("b")
+  })
+
+  it("sits strictly between the arithmetic tolerance and the smallest real distinction", () => {
+    // Both bounds are horizon-free: neither the bounds layer's float tolerance
+    // nor the criterion profile's resolution is a function of how many plies
+    // proved a number, so the value between them does not move with depth.
+    const FEATURES_IN_THE_FOLD = 12
+    expect(BOUND_EPSILON * FEATURES_IN_THE_FOLD).toBeLessThan(DEFAULT_SWITCH_MARGIN)
+    // The positional vocabulary spans about four points at its widest; a
+    // hundredth is three orders inside it, so every distinction it can draw
+    // still restages.
+    expect(DEFAULT_SWITCH_MARGIN).toBeLessThan(4 / 100)
   })
 })
 
