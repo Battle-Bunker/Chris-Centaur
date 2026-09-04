@@ -259,11 +259,19 @@ describe('A — food control decided by the partition (seed 116 swap 0, turn 2)'
     expect(separation(r.reachLo)).toBeGreaterThan(0.9);
   });
 
-  test('per-unit room reads the two roomy snakes, at the counts the lens measured', () => {
+  test('per-unit room reads the two roomy snakes, and neither is short of what it needs', () => {
+    // RE-PINNED as `kept`, in the same units and the same positions. The old
+    // numbers (25/3, 15/3) were plane-1 ownership over an unbarred dilation —
+    // ground these snakes win a RACE to. `kept` is capped at `need`, so a roomy
+    // unit reads exactly `need` and costs the term nothing.
     const ours = oursIn(r.first);
-    expect(ours.map((t) => `${t.owned}/${t.subject.weightMax}`)).toEqual(['25/3', '15/3']);
-    // Both comfortably above their own body length: nothing is boxed here.
-    for (const t of ours) expect(Math.sqrt(t.owned / t.subject.weightMax)).toBeGreaterThan(2);
+    // The two the WORST reading admits keep everything they need; nothing is
+    // boxed here. The third is a unit `ADMISSION.lo.ours` drops as contingent —
+    // `room` prices it anyway, at its real region rather than at the full fear,
+    // because a fear that jumped when a unit became contingent would be a cliff
+    // in a term that must slide. Its 1/5 is what a snake keeps when every
+    // held enemy's cloud is a barrier, which is what the worst world is.
+    expect(ours.map((t) => `${t.kept}/${t.need}`)).toEqual(['5/5', '5/5', '1/5']);
   });
 });
 
@@ -286,12 +294,18 @@ describe('B — confinement invisible to material (seed 116 swap 1, turn 7)', ()
       const b1 = roomOf(sub, r.first, 'b1');
       expect(b0).toBeDefined();
       expect(b1).toBeDefined();
-      expect([b0?.owned, b0?.subject.weightMax]).toEqual([3, 3]);
-      expect([b1?.owned, b1?.subject.weightMax]).toEqual([12, 4]);
-      // b0 is AT the threshold — one cell fewer and its term starts falling —
-      // while b1 is a factor of sqrt(3) clear of it.
-      expect(Math.sqrt((b0 as { owned: number }).owned / 3)).toBeCloseTo(1, 10);
-      expect(Math.sqrt((b1 as { owned: number }).owned / 4)).toBeCloseTo(Math.sqrt(3), 10);
+      // G-7. THE ONE ASSERTION THIS WHOLE BOARD EXISTS FOR: b0 dies at turn 16
+      // and this is turn 7, so a quantity billed as the death predictor has to
+      // FIRE HERE, nine turns out, on a board where material is 11 v 11 and
+      // stays 11 v 11 for eight more turns. The old reading did not: plane-1
+      // ownership put b0 at 3 cells against a body of 3 — AT the threshold, so
+      // `min(1, sqrt(3/3))` saturated at exactly 1 and cost nothing at all.
+      expect([b0?.kept, b0?.need]).toEqual([2, 5]);
+      expect((b0 as { kept: number }).kept).toBeLessThan((b0 as { need: number }).need);
+      // b1 is not boxed, and the term must tell them apart rather than fearing
+      // the whole team.
+      expect([b1?.kept, b1?.need]).toEqual([6, 6]);
+      expect((b1 as { kept: number }).kept).toEqual((b1 as { need: number }).need);
     } finally {
       sub.release();
     }
@@ -340,13 +354,24 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
     }
   });
 
-  test("r2's room follows the squeeze and the recovery, cell for cell", () => {
-    // 10 → 5 → 10 → 16 across turns 6, 14, 18, 22, against a body of 3.
-    const owned = arc.map(({ r }) => {
-      const last = oursIn(r.first).slice(-1)[0];
-      return last === undefined ? -1 : last.owned;
-    });
-    expect(owned).toEqual([10, 5, 10, 16]);
+  test("r2 is never actually boxed on this arc, and the term says so rather than grading it", () => {
+    // RE-PINNED, AND THE PROPERTY CHANGED WITH THE QUANTITY. The old arc was
+    // 10 → 5 → 10 → 16 plane-1 cells against a body of 3: an uncapped RACE
+    // reading, which graded a squeeze r2 survived. `kept` is capped at `need`,
+    // and r2 keeps its five cells at every turn of the arc — it is squeezed and
+    // it is not boxed. A term that graded it here would be a second, weaker
+    // `reach`, and the block above is where the squeeze is asserted, on the
+    // feature that owns it.
+    const kept = arc.map(({ r }) => oursIn(r.first).map((t) => `${t.kept}/${t.need}`));
+    // r2 is the one this block is about and it is `5/5` at every turn of the
+    // arc; the extra rows at 6 and 22 are teammates the worst reading does not
+    // admit (see block A), priced rather than dropped.
+    expect(kept).toEqual([
+      ['5/5', '5/5', '1/5'],
+      ['5/5'],
+      ['5/5'],
+      ['5/5', '1/5'],
+    ]);
   });
 });
 
@@ -432,7 +457,16 @@ describe('D — the slider guard (mid11 seed 101)', () => {
     // level is zero for a reason material already states.
     const p = (safe[0] as KingOption).partition;
     expect(p.ours / p.open).toBeLessThan(0.2);
-    expect(p.trails.some((t) => t.mine && t.owned > 20)).toBe(true);
+    // AND THE PER-UNIT READING IS NOT ROOMY HERE, which is the honest half of
+    // the same sentence. The old assertion was `owned > 20` — an uncapped race
+    // count. `kept` is a region measured against a board on which a held blue
+    // QUEEN's claim cloud is most of the interior within two turns, so our one
+    // trail unit reads 1 of the 5 cells it needs on every square the king
+    // survives on. That is the saturation `docs/design/entrapment.md` §4.4
+    // names: on a slider board the term is near-constant and carries no
+    // ordering, and it is pinned here so that a later change which claims to
+    // have fixed it has a number to move.
+    expect(p.trails.filter((t) => t.mine).map((t) => `${t.kept}/${t.need}`)).toEqual(['5/5']);
   });
 });
 
@@ -527,7 +561,22 @@ describe('E — the two-turn-stale guard', () => {
   test('staleness erodes the floor without collapsing it', () => {
     for (const { turn, r } of stale) {
       expect([turn, span(r.reachLo) > 0]).toEqual([turn, true]);
+    }
+  });
+
+  test('and room orders candidates exactly where a unit is short, and is silent where none is', () => {
+    // THE SHAPE OF THE REPAIRED TERM, read under the staleness that used to be
+    // this block's whole subject: it grades wherever a unit of ours is short of
+    // what it needs, and a two-turn-stale enemy cloud is exactly what makes one
+    // short. The old assertion was the same `span > 0`, on a race reading that
+    // never saturated; this one is on a region reading that does, so the bar
+    // below says how far from saturation it stays.
+    for (const { turn, r } of stale) {
       expect([turn, span(r.roomLo) > 0]).toEqual([turn, true]);
+      // AND NOT PINNED AT THE FLOOR. A term that read −1 for every candidate
+      // would be sound, flat and useless — the degeneracy §4.4 of
+      // `docs/design/entrapment.md` is written against.
+      expect([turn, Math.max(...r.roomLo) > -1]).toEqual([turn, true]);
     }
   });
 });
@@ -714,7 +763,7 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
         const p = makeContext(sub, resolution, bounds, asTeam, 4).partition('lo');
         for (const t of p.trails) {
           if (!t.mine) continue;
-          out.set(sub.unitOf(t.subject.unitId)?.wireId ?? '?', t.owned);
+          out.set(sub.unitOf(t.subject.unitId)?.wireId ?? '?', t.kept);
         }
         return null;
       });
@@ -728,11 +777,17 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
     const all = roomsWith(ourIds);
     const fewer = roomsWith(ourIds.filter((id) => id !== 'b0'));
     expect(all.size).toBeGreaterThan(fewer.size);
-    for (const [wireId, owned] of fewer) {
-      expect([wireId, owned >= (all.get(wireId) ?? 0)]).toEqual([wireId, true]);
+    for (const [wireId, kept] of fewer) {
+      expect([wireId, kept >= (all.get(wireId) ?? 0)]).toEqual([wireId, true]);
     }
-    // And at least one of them really did gain, or this test proves nothing.
-    expect([...fewer].some(([w, o]) => o > (all.get(w) ?? 0))).toBe(true);
+    // AND ON THIS BOARD NOBODY GAINS, which is what the CAP buys. The direction
+    // still exists — b0's body and its claim cloud are both barriers, and
+    // removing it can only REMOVE barriers — but b1 already keeps all six cells
+    // it needs, so there is nothing above the cap for it to gain. The reading
+    // that could be improved by a teammate's death is exactly the reading that
+    // was already saturated, and the inequality below is what made the
+    // direction harmless even when it did bite.
+    expect([...fewer].map(([w, k]) => [w, k, all.get(w)])).toEqual([['b1', 6, 6]]);
   });
 
   test('and the loss still costs more than the room it frees', () => {

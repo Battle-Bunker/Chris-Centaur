@@ -652,3 +652,149 @@ Stated in advance, because the first arm's post-mortem could not say it:
 * **G-7's `b0` does not fire.** The geometry is wrong, whatever the constructed
   boards say — a fixture proves it for one board, and B is a real position from a
   real match in which the unit actually died.
+
+---
+
+## 9. What was built, and what it measured
+
+Implemented over two commits on `entrap`: the instrument alone, then the repair.
+Everything below is measured, not predicted; where a prediction and a
+measurement disagree the measurement is written down and the prediction is left
+standing above it.
+
+### 9.1 P-1, read on the baseline before the repair was written
+
+`snakes`, 30 turns, seeds 1–5, `--nodes`, at `eba4b94` (the instrument commit is
+behaviour-identical to it):
+
+| | |
+|---|---|
+| deaths | 4 — `bodyBlock` 3, `contest` 1, **`self` 0** |
+| `fatalEntrapments` | **4** — every death was preceded by an open episode |
+| `entrapmentEpisodes` | 40, of which 26 escaped |
+| `entrapmentLeadSum` / mean lead | 9 / **2.25 turns** |
+
+**P-1 PASSES on the criterion §8 registered** — `fatalEntrapments ≥ 3` and mean
+lead `≥ 2`. The per-death distribution is written down too, because it is weaker
+than the mean suggests: the four fatal episodes led their deaths by 1, 3, 4 and
+1 turns, so two of the four gave the two turns of gradient the design asks for
+and two gave one. Note also that HEAD had moved since §1's table was taken: this
+baseline has no `self` deaths at thirty turns at all, and 4 deaths rather than 5.
+
+At 60 turns the same reading is much stronger: 17 deaths (`self` 6, `bodyBlock`
+10, `contest` 1), 17 fatal episodes, mean lead **3.65 turns**.
+
+### 9.2 P-2 FAILS, and it voids G-5
+
+`sparse` is not empty: `entrappedUnitTurns = 4` over 3 seeds at 30 turns, in 4
+episodes, all of which escaped. §8 says in terms that this voids the
+byte-identity gate, so G-5 was not measured as an identity. What was measured
+instead: `sparse` deaths stay 0 → 0 and `meals/100` goes 6.94 → 7.50. The board
+is still the cleanest evidence available that the repair is nearly inert where
+there is nothing to fear.
+
+P-3 was not measured: the `pocket` scenario was not added, because the runner is
+co-owned this wave and the scope agreed for this worker was the five counters.
+
+### 9.3 The A/B, per board class, against the instrument commit
+
+`node scripts/ab-compare.js`, `--nodes`, paired by seed. The baseline is
+`eba4b94` and not `stable/one-engine-lens-v2`: v2 is 37 commits behind, so an
+A/B against it would measure everything merged since as well as this.
+
+| board | turns | deaths A→B | meals/100 A→B | unit-turns A→B | nodes/decision | episodes | fatal | fatal/episode |
+|---|---|---|---|---|---|---|---|---|
+| snakes | 30 | **4 → 2** | 17.86 → 16.38 (−8.3%) | 851 → 885 | +2.7% | 40 → 44 | 4 → 2 | **0.100 → 0.045** |
+| snakes | 60 | **17 → 14** | 17.05 → 16.89 (−0.9%) | 1431 → 1557 | −0.3% | 86 → 95 | 17 → 14 | **0.198 → 0.147** |
+| mixed | 30 | **10 → 5** | 17.40 → 18.08 (+3.9%) | 1115 → 1145 | +3.0% | 15 → 15 | 7 → 1 | **0.467 → 0.067** |
+| mixed | 60 | 17 → 17 | 20.63 → 18.48 (−10.4%) | 1881 → 2073 | +7.4% | 15 → 15 | 10 → 8 | 0.667 → 0.533 |
+| sparse | 30 | 0 → 0 | 6.94 → 7.50 (+8.0%) | 360 → 360 | +3.7% | 4 → 1 | 0 → 0 | — |
+| potions | 30 | 2 → 3 | 15.86 → 18.29 (+15.3%) | 700 → 689 | −2.7% | 20 → 18 | 1 → 2 | 0.050 → 0.111 |
+
+**PREDICTIONS VS MEASURED.** G-4's two death gates are met and exceeded — 30
+turns predicted `bodyBlock+self 4 → ≤ 3` and measured `3 → 2` on a baseline that
+had three of them; 60 turns predicted `17 → ≤ 15` and measured `17 → 14`. The
+sign test over the ten `snakes` pairs puts `deathsPer100` DOWN on 10 of 10,
+p = 0.002, which is the strongest reading five seeds can produce. The
+mechanism gate is met on both horizons and on `mixed`: `fatalEntrapments /
+entrapmentEpisodes` falls everywhere it is defined except `potions`, and
+episodes do not collapse — the bot still enters pockets, it stops dying in them.
+
+**THE TWO MISSES ARE BOTH THE SAME ARTEFACT AND ARE NAMED AS ONE.** `meals/100`
+is outside ±3% on `snakes` at 30 turns (−8.3%) and `mixed` at 60 (−10.4%), and
+both are boards where the arm SURVIVED LONGER: unit-turns rose 4% and 10%. In
+absolute meals the two are 152 → 145 and 388 → 383 — flat to within a handful
+over five seeds — so the rate fell because its denominator grew, not because the
+bot stopped eating. It is still a real ±3% miss and is recorded as one.
+
+`nodes` per decision is inside ±5% on five of the six cells and +7.4% on `mixed`
+at 60 turns, against G-8's ±5%. The flood is `O(need × k)` per our trail unit
+per reading against a per-unit whole-board plane fill and popcount that went
+away; the honest prediction was a wash and the honest measurement is a wash on
+snake boards and slightly over on the longest mixed board.
+
+Zero bound inversions on all sixteen gate arms (G-3), `laws.ts` R1/R2/R3 green at
+both profiles over the existing corpus and the two constructed boards (G-2),
+`basic-intelligence` green, and B's boxed `b0` reads `kept = 2 / need = 5` at
+turn 7, nine turns before it dies (G-7) — where the old reading gave it `3/3`,
+saturated `g` at exactly 1, and charged nothing.
+
+### 9.4 What the measurement changed in the design
+
+**PIECES DO NOT BAR (§3.2 clause (d) is restricted to trail units).** As
+specified, a held slider's dilation covers most of an 11×11 interior inside two
+turns, so every snake on `mixed` read a shortfall on every option — 383 of 1115
+living unit-turns entrapped by the instrument, and `room` pinned within 0.018 of
+−1 across the king's nine options on `mid11`. That is §4.4's saturation exactly,
+and it had a hard consequence: `src/tests/lens-inspection-cost.test.ts`'s "the
+sink does not move a decision" failed on `mixed` seeds 1–3, because a term that
+is nearly flat but not flat makes the pick budget-sensitive, and the lens
+reserve carves budget. Restricting clause (d) to trail units — the same
+relaxation the two-plane rule at the top of `territory.ts` already makes, for
+the same measured reason — removed the saturation, restored budget stability to
+the baseline's (1, 1, 3 distinct plays over six budgets, against 2, 3, 4 with
+pieces admitted) and made the term identically zero on a board whose only
+crowders are pieces. It is a change to what `v(w)` IS rather than a bound
+loosened, so R1 is untouched. What it costs: a snake boxed in by a queen is not
+seen. The INSTRUMENT still admits pieces, so its `mixed` and `potions` counters
+measure a wider notion than the member prices; on `snakes` and `sparse` the two
+coincide exactly, which is where G-4 is read.
+
+**A PIECE READS EXACTLY ZERO, and the divisor is why.** `ourUnitTerm` divides by
+our own non-held count, which GROWS when a held teammate becomes a mover in a
+world `laws.ts` enumerates. A piece has no trail and no entry in the partition's
+trail list, so the missing-unit fallback charged it the full fear, and a knight
+priced at 1 in the world and absent from the partial reading's divisor put `lo`
+1.5 above ninety worlds of the two-held-enemies board. R1 caught it.
+
+**THE CLAIM HORIZON IS A PARAMETER, not `sh.horizonTurn`.** `Shells` are
+interned per decision and `extendTo` is monotone, so a shells object another
+caller pushed further carries stamps past this reading's horizon and `earliest()`
+would hand back barriers whose existence depends on cache history. `earliest`
+takes a minimum, so clamping the comparison at `arrivalTurn + horizonTurns` makes
+every stamp at or below it final — and it is also §3.1's own rule for a horizon
+that outruns the shells.
+
+**OUR OWN UNADMITTED UNITS ARE PRICED, not charged the full fear.**
+`ADMISSION.lo.ours` drops a contingent unit of ours; a fear that jumped a whole
+unit when a unit became contingent would be a cliff in a term declaring
+`cliff: false`. They are floodable movers with settled bodies, so they are
+flooded.
+
+**C's SQUEEZE ARC IS FLAT NOW, and that is the term working.** `r2` reads
+`5/5` at all four turns of `territory-acceptance.test.ts`'s arc where the old
+reading slid 10 → 5 → 10 → 16. It is squeezed and it is not boxed; a term that
+graded it would be a second, weaker `reach`. The squeeze is asserted on `reach`,
+which owns it.
+
+### 9.5 Verdict
+
+**Kept.** The predictions hold in direction on every board class: `snakes` deaths
+fall at both horizons with the mechanism ratio falling with them, `mixed` deaths
+fall at thirty and hold at sixty, `sparse` stays dead-free, and the two meals
+misses are a denominator that grew because the bot stopped dying. Deleted with
+it: `crowdCertain` and `roomSum` from `features.ts`, and from `territory.ts` the
+per-unit ownership planes (`own` / `planeFor`), the per-team `seen`/`multi`
+sweep, its `hit`/`others` scratch and the held-teammate tie exemption — 84 lines
+of code and three special cases, against one `∩ ¬barrier` and one stamped
+barrier grid.

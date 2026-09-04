@@ -39,15 +39,25 @@ const SEED = 1;
  *  `mixed` board only; `snake` is byte-identical to the original recording,
  *  which is the evidence that the lens itself still costs nothing. The
  *  re-recording is the same measurement on the same commit's runner with the
- *  sink absent, and it is what a later lens change is now compared against. */
+ *  sink absent, and it is what a later lens change is now compared against.
+ *
+ *  AND BOTH PAIRS WERE RE-TAKEN AGAIN, for the same class of reason and not for
+ *  the lens: `docs/design/entrapment.md`'s repair changes what `room` measures —
+ *  from the ground a unit wins the race to, to the ground it can KEEP — so the
+ *  fold returns different numbers, the search visits different plans, and the
+ *  counters move with them on BOTH boards this time. What the gate still says
+ *  is what it always said: these are the counters with the sink ABSENT, taken
+ *  on this build, and a lens change that touched the hot loop would move them.
+ *  The claim that the lens does not move the PLAY is a different test and lives
+ *  in `src/tests/lens-inspection-cost.test.ts`. */
 const RECORDED = {
   snake: {
-    550: { nodes: 6946, reads: 296183, slices: 6444, decisions: 18 },
-    1100: { nodes: 13668, reads: 613032, slices: 13166, decisions: 18 },
+    550: { nodes: 6932, reads: 297514, slices: 6430, decisions: 18 },
+    1100: { nodes: 13639, reads: 615890, slices: 13137, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7283, reads: 218465, slices: 1355, decisions: 18 },
-    1100: { nodes: 11394, reads: 769281, slices: 3195, decisions: 18 },
+    550: { nodes: 7330, reads: 218566, slices: 1356, decisions: 18 },
+    1100: { nodes: 11396, reads: 769163, slices: 3201, decisions: 18 },
   },
 } as const;
 
