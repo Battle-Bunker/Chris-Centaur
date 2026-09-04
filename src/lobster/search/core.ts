@@ -679,6 +679,15 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   // ------------------------------------------------------------------ moves
 
+  /** Price one proposal against the incumbent and take it iff `better()` says so.
+   *  ACCEPTANCE IS `better()` AND NOTHING ELSE — every rung inherits it here. */
+  const consider = (s: Session, best: BankResult, moves: ReadonlyArray<Candidate>): BankResult => {
+    const trial = s.bank.price(withMoves(best.plan, moves));
+    const verdict = better(trial, best);
+    observe(trial, best, verdict);
+    return verdict.accept ? trial : best;
+  };
+
   /**
    * ONE COORDINATE-ASCENT PASS — for each unit in `units`, price its top
    * `perUnit` candidates against the incumbent, judge each with `better()`,
@@ -704,10 +713,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       for (const candidate of topCandidates(set.candidates, perUnit)) {
         if (budget.shouldStop()) break;
         if (current !== undefined && candidate.to === current.to && samePath(candidate, current)) continue;
-        const trial = s.bank.price(withMove(best.plan, candidate));
-        const verdict = better(trial, best);
-        observe(trial, best, verdict);
-        if (verdict.accept) best = trial;
+        best = consider(s, best, [candidate]);
       }
     }
     return best;
@@ -761,10 +767,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
-          const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
-          const verdict = better(trial, best);
-          observe(trial, best, verdict);
-          if (verdict.accept) best = trial;
+          best = consider(s, best, [ca, cb]);
         }
       }
     }
@@ -793,10 +796,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (budget.shouldStop()) return;
       const list = lists[i];
       if (list === undefined) {
-        const trial = s.bank.price(withMoves(best.plan, acc));
-        const verdict = better(trial, best);
-        observe(trial, best, verdict);
-        if (verdict.accept) best = trial;
+        best = consider(s, best, acc);
         return;
       }
       for (const candidate of list) {
