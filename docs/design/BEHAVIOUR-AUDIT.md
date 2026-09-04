@@ -371,8 +371,12 @@ Length-independent by construction, so it is a rule and not a case.
 The rule was implemented exactly as written: one profile knob `roomCells`, default 6,
 replacing `need` as `fearsOf`'s denominator (`features.ts`), validated at construction
 beside the command knobs and parsed by `bot-binding.ts`. `tsc`, `eslint`, `soundness`,
-`territory-acceptance`, `entrapment` and `law-sweep` all green on it — it is SOUND, and
-it is still wrong.
+`territory-acceptance`, `entrapment` and `law-sweep` all green on it, and all sixteen
+inversion arms clean ON THE D3 ARM ITSELF (`CENTAUR_DEBUG_INVERSION=1`, four classes ×
+seeds 1–3 at 30 turns, `potions` seeds 4, 5, 6, 8 at 60) — checked so that this revert
+cannot be read as a soundness failure. The bound arithmetic is fine: `lo` still takes
+`weightMax` for `need` and a constant denominator makes larger `need` a strictly larger
+fear, which is the direction that reading wants. It is SOUND, and it is still wrong.
 
 Measured against this branch's head (D2 in, which is byte-identical to the working-branch
 head on `snakes` and `sparse`), all four classes, seeds 1–3, 60 turns, `--nodes --json`,
