@@ -49,24 +49,15 @@ const SEED = 1;
  *  is what it always said: these are the counters with the sink ABSENT, taken
  *  on this build, and a lens change that touched the hot loop would move them.
  *  The claim that the lens does not move the PLAY is a different test and lives
- *  in `src/tests/lens-inspection-cost.test.ts`.
- *
- *  AND THE `mixed` PAIR ONCE MORE, again not for the lens: D1
- *  (`docs/design/BEHAVIOUR-AUDIT.md`) puts an enemy's own turn-start cell into
- *  the contest field and replaces the boolean charge with the certainty of the
- *  meeting, so `contest` returns different numbers on any board where an enemy
- *  is within a step, the search visits different plans, and the counters move
- *  with them. `snake` is byte-identical to the previous recording at both
- *  budgets — six turns of that board never puts a head next to a head — which
- *  is again the evidence that the lens itself still costs nothing. */
+ *  in `src/tests/lens-inspection-cost.test.ts`. */
 const RECORDED = {
   snake: {
     550: { nodes: 6932, reads: 297514, slices: 6430, decisions: 18 },
     1100: { nodes: 13639, reads: 615890, slices: 13137, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7804, reads: 142722, slices: 521, decisions: 18 },
-    1100: { nodes: 12935, reads: 600415, slices: 1413, decisions: 18 },
+    550: { nodes: 7330, reads: 218566, slices: 1356, decisions: 18 },
+    1100: { nodes: 11396, reads: 769163, slices: 3201, decisions: 18 },
   },
 } as const;
 
