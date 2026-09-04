@@ -48,6 +48,8 @@ import {
 } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
+// model/terminal@1 — the OTHER half of the boundary (06 F-7). See terminal.ts.
+import { capVerdicts } from './terminal';
 import type { EvalContext } from './features';
 
 export * from './bound';
@@ -296,9 +298,32 @@ export function checkWeights(
  */
 export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
   const { worst, best } = terminalVerdicts(ctx);
+  // THE OTHER HALF OF THE BOUNDARY (06 F-7). Elimination above, the turn cap
+  // here, in the same ordering and by the same replacement — a game that ends
+  // on the count has ended, and the fold has nothing to say about a board with
+  // no next turn. `none` on every board but the last one, at the cost of one
+  // comparison; a DRAW is `none` too, because a draw is neither lattice element
+  // and replacing the interior value with either is the wash error again.
+  const cap = capVerdicts(ctx);
 
-  const lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : evaluation.total.lo;
-  const hi = best.subjectGone ? DEAD : best.othersGone ? WIN : evaluation.total.hi;
+  const lo = worst.subjectGone
+    ? DEAD
+    : worst.othersGone
+      ? WIN
+      : cap.worst === 'loss'
+        ? DEAD
+        : cap.worst === 'win'
+          ? WIN
+          : evaluation.total.lo;
+  const hi = best.subjectGone
+    ? DEAD
+    : best.othersGone
+      ? WIN
+      : cap.best === 'loss'
+        ? DEAD
+        : cap.best === 'win'
+          ? WIN
+          : evaluation.total.hi;
 
   // Elimination in the BEST world implies elimination in the worst (our
   // best-world alive set contains our worst-world one), and a clean sweep in
@@ -322,8 +347,8 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
     basis,
     ledgerSize: ctx.resolution.ledger.length,
     terminal: {
-      loClamped: worst.subjectGone || worst.othersGone,
-      hiClamped: best.subjectGone || best.othersGone,
+      loClamped: worst.subjectGone || worst.othersGone || cap.worst === 'loss' || cap.worst === 'win',
+      hiClamped: best.subjectGone || best.othersGone || cap.best === 'loss' || cap.best === 'win',
     },
   };
 }

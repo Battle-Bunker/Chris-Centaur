@@ -76,7 +76,6 @@ import {
   asRefiner,
   planKey,
   rootSlack,
-  type CandidateView,
   type Lever,
   type LeverView,
   type Refiner,
@@ -782,6 +781,21 @@ interface RatchetBasis {
    * est can never lower the promise.
    */
   readonly channel: "lo" | "est"
+  /**
+   * THE HORIZON COORDINATE OF THE RATCHETED CHANNEL (06 F-8).
+   *
+   * Inert under `lo` and load-bearing under `est`, for the reason the whole of
+   * F-4 turns on: a floor is a claim about a horizon-independent quantity, so
+   * two floors proved at two depths ratchet against each other unharmed, while
+   * an `est` is a summary AT a horizon and two of them are two answers to two
+   * questions. Under FOGGED-VACUOUS the ratcheted `value` IS the clamped est,
+   * so without this coordinate a deeper reading's est would be read as a
+   * retraction of a shallower one — or, worse, as a promise kept. The basis
+   * ENDS where its coordinate changes, which is the same thing a posture flip
+   * does and for the same reason: the quantity being ratcheted stopped being
+   * the same quantity.
+   */
+  readonly horizon: number
   floorLo: number
   floorChannel: number
   stagedHi: number
@@ -791,10 +805,11 @@ interface RatchetBasis {
   emits: number
 }
 
-function newBasis(epoch: number, posture: Posture): RatchetBasis {
+function newBasis(epoch: number, posture: Posture, horizon = 1): RatchetBasis {
   return {
     epoch,
     posture,
+    horizon,
     channel: channelPolicyFor(posture).orderBy,
     floorLo: Number.NEGATIVE_INFINITY,
     floorChannel: Number.NEGATIVE_INFINITY,
@@ -1561,7 +1576,7 @@ export class LobsterKernel implements Kernel {
     // A NEW basis object. The old one is dropped on the floor: no map from
     // epoch to floor exists, so nothing in the new epoch can be compared with
     // anything proved in the old one.
-    run.basis = newBasis(run.epoch, run.governor.current)
+    run.basis = newBasis(run.epoch, run.governor.current, run.basis.horizon)
     // Plans proved under the old pins are not comparable under the new ones —
     // and neither is the refinement view that ranked them.
     run.plans.clear()
@@ -1728,7 +1743,14 @@ export class LobsterKernel implements Kernel {
     if (entry.speculative) return
     const key = planKey(score.plan)
     const bound = this.evaluateBound(run, score.plan)
-    const horizon = run.lastView?.horizon ?? 1
+    // THE PLAN'S HORIZON, NOT THE SLICE'S (06 F-2). This used to read
+    // `run.lastView?.horizon` — the view's, i.e. whatever depth the slice's
+    // LEADER had reached — and wrote it onto every plan the slice absorbed.
+    // But `deepen` names ONE plan (`voc.ts`: `{ kind: "deepen", planKey }`), so
+    // attributing that plan's depth to its neighbours is attributing a proof to
+    // something it was never run on. The reading carries its own horizon now,
+    // and absent it the honest default is 1.
+    const horizon = score.horizon ?? 1
     const existing = run.plans.get(key)
     if (existing === undefined) {
       run.plans.set(key, { key, plan: score.plan, score, bound, horizon })
@@ -1740,33 +1762,29 @@ export class LobsterKernel implements Kernel {
   }
 
   /**
-   * Map a staging row back to a plan. With a lever surface the rows include
-   * RIVALS the kernel has never scored itself — root slack is a rival
-   * quantity, not a bound gap — so a rival row is materialised from the view
-   * (no extra evaluation: the view already carries the triple).
+   * Map a staging row back to a plan. Every row comes from `run.plans` (see
+   * `rows`), so every row maps back; the null is the impossible case said out
+   * loud rather than asserted away.
    */
   private candidateFor(run: Run, row: StagingCandidate): PlanCandidate | null {
-    const existing = run.plans.get(row.key)
-    if (existing !== undefined) return existing
-    const c = run.lastView?.candidates.find((x) => x.key === row.key)
-    if (c === undefined) return null
-    const cand: PlanCandidate = {
-      key: c.key,
-      plan: c.plan,
-      score: null,
-      bound: { lo: c.lo, est: c.est, hi: c.hi },
-      horizon: c.horizon,
-    }
-    run.plans.set(c.key, cand)
-    return cand
+    return run.plans.get(row.key) ?? null
   }
 
   /**
-   * The slack that goes on the wire. With a lever surface this is the true
-   * root slack `max_R(R.hi − L.lo)`. Without one the kernel sees a single
-   * incumbent and cannot know the rivals, so it reports the incumbent's own
-   * bound gap and the report says the lever order was advisory. Integrator
-   * item: the real SearchCore should supply the pair.
+   * The slack that goes on the wire: the true root slack `max_R(R.hi − L.lo)`
+   * whenever a rival exists, and the incumbent's own bound gap only when one
+   * does not.
+   *
+   * THE RIVAL SET WAS NEVER MISSING (06 F-9). The guard used to be
+   * `run.lastView !== null` — a lever surface with no producer — so the field
+   * degraded to the incumbent's bound gap on every decision this bot has ever
+   * taken, which is a DIFFERENT QUANTITY wearing the same name: a bound gap
+   * says how unsure we are of the leader, root slack says how much of the
+   * decision is still open. `rows()` has always built its table from
+   * `run.plans`, the per-decision map holding every plan `absorb` saw, so the
+   * rivals were in hand the whole time and only the guard refused them. The
+   * guard now asks the honest question — is there a rival at all — and the
+   * degraded answer is reserved for the case that has none.
    */
   private slackFor(
     run: Run,
@@ -1784,7 +1802,11 @@ export class LobsterKernel implements Kernel {
     // root slack, computable for the first time.
     const retained = this.lensSlack(run, plan)
     if (retained !== null) return retained
-    if (run.lastView !== null && idx >= 0) return rootSlack(rows, idx)
+    // Clamped at zero exactly as `lensSlack` clamps its own: a negative root
+    // slack means every rival's ceiling already sits below the leader's floor,
+    // which is a decision with nothing left open, not a negative amount of
+    // openness.
+    if (idx >= 0 && rows.length > 1) return Math.max(0, rootSlack(rows, idx))
     return Math.max(0, row.hi - row.lo)
   }
 
@@ -1890,7 +1912,7 @@ export class LobsterKernel implements Kernel {
     }))
     const carried = run.basis.staged
     const carriedPlan = run.basis.stagedPlan
-    run.basis = newBasis(run.epoch, flip.to)
+    run.basis = newBasis(run.epoch, flip.to, run.basis.horizon)
     if (carried !== null && carriedPlan !== null) {
       // The SAME-EVALUATOR RULE: a tier re-measures the incumbent under its own
       // evaluator before it may be replaced. Here the "tier" is the channel the
@@ -1928,8 +1950,15 @@ export class LobsterKernel implements Kernel {
             .filter((u) => u.rung !== "advanced")
             .every((u) => u.cloudSize >= Math.max(1, view.interiorCells))
     const cited = score === null ? new Set<UnitId>() : detectVacuity(score.bounds, this.opts.deadBelow).citedUnits
+    // AN UNANSWERED QUESTION IS NOT A VERDICT. A view with no held-unit surface
+    // — the production search core offers none, because a claim narrowing is a
+    // marshalling-time input and entanglement gating decides `advanced` for
+    // itself — cannot say whether the residue is dischargeable, and reading its
+    // silence as "no" would flip the governor into FOGGED-VACUOUS on a question
+    // nobody asked. Same posture the kernel takes toward an unanswerable
+    // substrate everywhere else.
     const dischargeable =
-      view === null
+      view === null || view.units.length === 0
         ? true
         : cited.size === 0
           ? true
@@ -1946,18 +1975,21 @@ export class LobsterKernel implements Kernel {
 
   // ---------------------------------------------------------- staging + gates
 
+  /**
+   * THE STAGING TABLE HAS ONE SOURCE, AND IT IS `run.plans`.
+   *
+   * It used to prefer the refinement view's candidate list whenever one
+   * existed. Two lists, and they are not two views of one thing: the view's
+   * `est` is the bank's — B0's advisory scalar, clamped — while `run.plans`
+   * carries the kernel's OWN `evaluateBound`, which is the number `gate()`
+   * ratchets and `record()` publishes. Ranking on one and ratcheting on the
+   * other puts two answers to one question in one sorted list, and it would do
+   * so only on the builds where a refiner happens to exist, which is the worst
+   * possible way to acquire a difference. The view is the SEARCH's lever
+   * surface; the candidate table is the KERNEL's rival set (06 F-9), and each
+   * stays what it is.
+   */
   private rows(run: Run): StagingCandidate[] {
-    const view = run.lastView
-    if (view !== null && view.candidates.length > 0) {
-      return view.candidates.map((c: CandidateView) => ({
-        key: c.key,
-        lo: c.lo,
-        est: c.est,
-        hi: c.hi,
-        horizon: c.horizon,
-        vacuity: c.vacuity,
-      }))
-    }
     const out: StagingCandidate[] = []
     for (const cand of run.plans.values()) {
       const bounds = cand.score?.bounds
@@ -2038,6 +2070,20 @@ export class LobsterKernel implements Kernel {
     horizon: number,
     forced: boolean,
   ): EmitRecord | null {
+    // THE BASIS ENDS WHERE ITS COORDINATE CHANGES (06 F-8). Under `lo` the
+    // horizon is inert and this never fires; under `est` — the FOGGED-VACUOUS
+    // channel, where the ratcheted value IS the clamped est — a reading proved
+    // at another depth is not a stronger or weaker version of this basis's
+    // promise, it is a promise about a different question. So the basis is
+    // replaced rather than compared across, exactly as a posture flip replaces
+    // it, and the staged record carries over because the WIRE did not change.
+    if (run.basis.channel === "est" && row.horizon !== run.basis.horizon) {
+      const carried = run.basis.staged
+      const carriedPlan = run.basis.stagedPlan
+      run.basis = newBasis(run.epoch, run.governor.current, row.horizon)
+      run.basis.staged = carried
+      run.basis.stagedPlan = carriedPlan
+    }
     const basis = run.basis
     const lo = row.lo
     const hi = Math.max(row.hi, row.lo)
@@ -2531,7 +2577,9 @@ export class LobsterKernel implements Kernel {
     const cited = new Set<UnitKey>()
     for (const e of trial.bounds.ledger) cited.add(unitKeyOf(sub, e.unitId))
     const reading = {
-      horizon: 1,
+      // THE READING'S OWN HORIZON (06 F-2), never `EmitRecord.horizon`, which
+      // is a property of an emission rather than of a proof.
+      horizon: trial.horizon ?? 1,
       lo,
       est: trial.est,
       hi,

@@ -1704,3 +1704,82 @@ function popcount(x: number): number {
   v = (v + (v >>> 4)) & 0x0f0f0f0f;
   return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
 }
+
+// ---------------------------------------------------- model/terminal@1 (F-7)
+
+describe('the turn cap is seated, and it is the engine that decides it', () => {
+  /** Two teams alone on a board, at whatever weights, at `turn`. */
+  const capBoard = (ourWeight: number, theirWeight: number, maxTurns?: number | null): Board =>
+    boardOf(
+      [
+        piece('me', { x: 1, y: 1 }, 'rook', ourWeight, { teamID: 'red', health: 90 }),
+        piece('them', { x: 5, y: 5 }, 'rook', theirWeight, { teamID: 'blue', health: 90 }),
+      ],
+      maxTurns === undefined ? {} : ({ maxTurns } as Partial<Board>)
+    );
+
+  /** The bound the default evaluator gives the do-nothing joint plan. */
+  const priced = (board: Board): { lo: number; hi: number; clamped: [boolean, boolean] } => {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const ev = defaultEvaluator.evaluatePlan(sub, defaultPlan(sub), 0);
+    return {
+      lo: ev.bound.lo,
+      hi: ev.bound.hi,
+      clamped: [ev.terminal.loClamped, ev.terminal.hiClamped],
+    };
+  };
+
+  it('says nothing at all while the game is still running', () => {
+    // TURN is 40 and the arrival turn 41, so a default 100-turn game is nowhere
+    // near its limit and the fold's own value stands. This is the case that
+    // must cost nothing: one comparison, no board view, no adjudication.
+    const running = priced(capBoard(3, 1));
+    expect(Number.isFinite(running.lo)).toBe(true);
+    expect(Number.isFinite(running.hi)).toBe(true);
+    expect(running.clamped).toEqual([false, false]);
+    // And a game that opted out of the limit entirely stays unclamped AT the
+    // turn a limited game would end on.
+    const unlimited = priced(capBoard(3, 1, null));
+    expect(Number.isFinite(unlimited.lo)).toBe(true);
+  });
+
+  it('prices the last board by the rule the game actually settles by', () => {
+    // The arrival turn is 41, so a game capped at 41 ends on this board: the
+    // heaviest team wins. Nothing in this evaluator knew that before — a bot
+    // with no turn cap prices every line as if the game were infinite, which is
+    // 100% of the flow fold's residual and all of its game-length dependence.
+    const ahead = priced(capBoard(3, 1, TURN + 1));
+    expect(ahead.lo).toBe(WIN);
+    expect(ahead.clamped).toEqual([true, true]);
+
+    const behind = priced(capBoard(1, 3, TURN + 1));
+    expect(behind.hi).toBe(DEAD);
+    expect(behind.clamped).toEqual([true, true]);
+
+    // A DRAW is neither lattice element. Tied teams draw, and replacing the
+    // interior value with WIN or DEAD would be the mutual-annihilation wash
+    // error running in the other direction.
+    const level = priced(capBoard(2, 2, TURN + 1));
+    expect(Number.isFinite(level.lo)).toBe(true);
+    expect(Number.isFinite(level.hi)).toBe(true);
+    expect(level.clamped).toEqual([false, false]);
+  });
+
+  it('gives a bot a reason to prefer the shorter line — the turn-limit razor', () => {
+    // 16-TERMINAL's own cheap falsifier. One turn from the cap, holding a
+    // winning weight is a WIN and giving it away is a LOSS; one turn earlier
+    // the two are separated by a positional term and nothing more. A bot that
+    // cannot see the boundary cannot decline the trade, at any weighting,
+    // because the difference is unrepresentable to it.
+    const winning = priced(capBoard(3, 1, TURN + 1));
+    const traded = priced(capBoard(1, 3, TURN + 1));
+    expect(winning.lo).toBe(WIN);
+    expect(traded.hi).toBe(DEAD);
+    // The same two boards while the game continues: a real difference, but a
+    // finite one on the heuristic scale — no lattice element in sight.
+    const winningEarly = priced(capBoard(3, 1));
+    const tradedEarly = priced(capBoard(1, 3));
+    expect(Number.isFinite(winningEarly.lo)).toBe(true);
+    expect(Number.isFinite(tradedEarly.hi)).toBe(true);
+  });
+});
