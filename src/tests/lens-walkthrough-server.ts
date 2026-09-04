@@ -394,6 +394,23 @@ async function main(): Promise<void> {
         // wire's pin stream. Calling `onPinEvent` directly — as this harness
         // did — is the one thing that would keep the lane's operator ticks
         // verbless and colourless in a walk whose whole job is to look at them.
+        // THE ATTENTION CHANNEL, WITH A PRODUCER (10 §4 O4). A look is a
+        // TENTATIVE pin — a hint the search may speculate on, never a
+        // constraint — and it travels the same two lines as a binding one, so
+        // the lane has a hollow tick to hide behind its expand toggle and the
+        // toggle stops being a control over nothing. It precedes the binding
+        // pin because that is the order an operator produces them in, and the
+        // ledger's precedence rule (a hover never weakens a binding pin) is
+        // the thing that makes the order safe.
+        if (subject !== undefined && emitted === 1) {
+          const to = rec.plan.get(subject)?.to;
+          if (to !== undefined) {
+            operatorAct(kernel, lens, clock, t0, {
+              kind: 'pin',
+              pin: { unitId: subject, to, tentative: true },
+            });
+          }
+        }
         if (subject !== undefined && emitted === 2) {
           const to = rec.plan.get(subject)?.to;
           if (to !== undefined) {

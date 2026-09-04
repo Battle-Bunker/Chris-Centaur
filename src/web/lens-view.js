@@ -889,7 +889,12 @@ var LensView = (() => {
     const declared = boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
     if (declared !== null) return declared;
     const row = prev.units.find((u) => gained.includes(u.unit) && u.owner !== null);
-    return row?.operator ?? row?.owner ?? null;
+    if (row !== void 0) return row.operator ?? row.owner;
+    const released = [...prev.events].reverse().find(
+      (e) => (e.kind === "pin" || e.kind === "unpin" || e.kind === "commit") && e.unit !== null && gained.includes(e.unit) && e.payload?.tentative !== true
+    );
+    if (released === void 0) return null;
+    return released.actor.name ?? released.actor.id ?? null;
   }
 
   // src/lens/view/index.ts

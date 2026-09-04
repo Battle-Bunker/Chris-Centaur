@@ -820,12 +820,23 @@ function successorOf(before: ClusterView, next: LensFrame): ClusterView | undefi
 /**
  * Who caused the widen: the operator whose fixity the gained unit just lost.
  *
- * TWO PLACES KNOW, and only the second one ever does. `boundedBy[].by` is the
- * PARTITION's field and the kernel that mints it does not know operators, so
- * every producer fills it null; the FOLD knows, because it folds the `pin`
- * rows the gesture writes and puts the author on the unit's row. Before those
- * rows existed the banner read `released red-A, red-C` with no operator at
- * all — the owner's headline reactive case, unattributed.
+ * THREE PLACES COULD KNOW, and the third is the one that usually does.
+ * `boundedBy[].by` is the PARTITION's field and the kernel that mints it does
+ * not know operators, so every producer fills it null. The unit's ROW knows
+ * while it is still bound — but only while: the fold DELETES the fixity on
+ * `unpin` (`store/index.ts`), and the partition recompute that produces the
+ * widen lands one or more seqs after the release, so by the time there is a
+ * widen to attribute the row is already free and anonymous. That is why the
+ * walk's banner still read `released red-A, red-C` with no operator after the
+ * `pin` rows existed: the rows were there and the reader was looking one frame
+ * too late.
+ *
+ * SO THE LAST RESORT IS THE ROWS THEMSELVES. `prev.events` is the turn's own
+ * ledger and a release is a row in it; reading the last determination that
+ * named this unit is the same move `recordedLock` makes, and it is sound for
+ * the same reason — it is a read of a recorded event, identical off the socket
+ * and off the log. A TENTATIVE pin is a look and not a determination, so it
+ * attributes nothing.
  */
 function attributionFor(
   prev: LensFrame,
@@ -834,8 +845,19 @@ function attributionFor(
 ): OperatorId | null {
   const declared = boundedBy.find((b) => gained.includes(b.unit))?.by ?? null;
   if (declared !== null) return declared;
-  // The unit was BOUND in `prev` and is free in `next`, so `prev` is where its
-  // author still stands.
+  // Still bound in `prev`: the author stands on the row.
   const row = prev.units.find((u) => gained.includes(u.unit) && u.owner !== null);
-  return row?.operator ?? row?.owner ?? null;
+  if (row !== undefined) return row.operator ?? row.owner;
+  // Already released in `prev`: the author stands in the turn's rows.
+  const released = [...prev.events]
+    .reverse()
+    .find(
+      (e) =>
+        (e.kind === 'pin' || e.kind === 'unpin' || e.kind === 'commit') &&
+        e.unit !== null &&
+        gained.includes(e.unit) &&
+        (e.payload as { tentative?: unknown } | undefined)?.tentative !== true
+    );
+  if (released === undefined) return null;
+  return released.actor.name ?? released.actor.id ?? null;
 }

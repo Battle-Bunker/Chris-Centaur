@@ -410,86 +410,119 @@ change is a refusal predicate and a boolean that was asserted instead of asked.
 
 ---
 
-## 4. Left open, with file and function
+## 4. Closed here, and what is left
 
-**O1 — the moveset list is a list of one.** `view/cursor.ts::rowsFor`. With no
-conditional frame in the log (07 §1: **0 in 180 bot-only decisions**), the list
-is the cluster's retained reservoir rows restricted to those assigning this
-candidate to this unit — usually one. `[` / `]` are then inert and there is no
-rank 2. Not a bug in `rowsFor`; a fact about what the reservoir retains, and it
-is what the operator's experience of the panel actually is. Whether the client
-should ask for a conditional list on focus (it does — `lensAskConditional`) and
-why none is ever answered belongs to `src/lobster/kernel.ts::rankConditional`
-and the reserve: off a running decision the port answers `off-head`, and by the
-time a browser looks the decision is over.
+Eight items were open when this walk was first written. Seven are closed; one
+is closed on the surface with its cause still upstream, and says so. Every
+claim below cites the run that is in `walkthrough/` now, re-shot against
+`src/tests/lens-walkthrough-server.ts` after the last of these commits.
 
-**O2 — `evalVersion` is never populated.** `lens/store/index.ts::provenanceOf`
-reads it out of the kernel-options digest, and
-`src/lobster/team-decision-engine.ts::kernelOptions()` / `digestOf` do not carry
-one — `KernelOptions` has no such field. So the field 02 §2.3 calls mandatory
-(*"a number without its `evalVersion` … is a cross-fiber comparison waiting to
-happen"*) is empty on every shipped frame. The rail now draws the absence
-(`eval —`) instead of a blank, but the value has to come from the decision
-layer: the evaluator already declares `evaluationIdentity`
-(`src/lobster/evaluate`, forwarded by `local-game.ts::meteredEvaluator`), and
-`digestOf` is where it would join the seed. **Kernel-side.**
+**The lens still moves no decision.** Twenty-seven of the thirty-two PNGs
+changed and every one of them changed in the rail; the board-only shots —
+`03c-board.png`, `05b-board.png`, `08b-foil-board.png`, `19c-replay-board.png`
+— are BYTE-IDENTICAL to the run that opened these items, which is the cheapest
+available statement that eight items' worth of work moved nothing but what an
+operator reads. No feature flags: there is one code path and the walk is on it.
 
-**O3 — the foil line is not "always visible".** `view/index.ts::foilRow` /
-`movesetOps`. §3.5 says the panel-side foil is always on screen; it is drawn
-only when the list has a rank 2, which by O1 is the uncommon case. Either the
-clause should be relaxed to "when a runner-up exists" or the absence should be
-drawn with its reason, the way the depth cell now is.
+**O1 — the moveset list is a list of one. CLOSED on the surface; the CAUSE is
+upstream.** `view/cursor.ts::movesetListFor` now answers with the rows *and*
+their provenance — which of the two lists this is, and how many rows the
+reservoir retained for the cluster before the restriction — and
+`view/index.ts::movesetOps` puts it on the head. `07-movesets-panel.png` reads
+*"no conditional was answered — 1 of 5 retained rows play this candidate, so
+`[` and `]` have nowhere to go"*, so the shortness is a fact the operator can
+check rather than a table that looks broken. WHAT REMAINS is the reason for it,
+and it is not on this surface: no conditional list is ever answered, because
+off a running decision the port answers `off-head` and by the time a browser
+looks the decision is over. 07 §1's **0 conditional frames in 180 bot-only
+decisions** is unchanged and this walk did not try to change it.
+**Kernel-side:** `src/lobster/kernel.ts::rankConditional` and the reserve.
 
-**O4 — the attention channel is not logged.** No producer writes a lens event
-with `payload.hover`, so `LensPanel.laneHTML`'s hollow ticks and
-`play-game.html`'s lane-expand toggle have nothing to show, and §2.1's
-`operator.attention` row is absent. The client does call
-`notePinConsideration` over `lens-conditional`
+**O2 — `evalVersion` is never populated. CLOSED.** The field 02 §2.3 calls
+mandatory is on every shipped frame. The version is a property of the
+EVALUATOR and not of `KernelOptions`, which is why adding it to the latter was
+the wrong repair: `src/lobster/team-decision-engine.ts::digestOf` now takes the
+decision's evaluator and joins the `evaluationIdentity` the bound evaluator
+already declares — hashed FNV-1a, because the identity is the profile spelled
+out and the rail is 380 px wide. The provenance footer in every rail shot ends
+`lobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 3q`. An evaluator
+that declares nothing reads `eval:unknown` rather than an unverifiable version.
+Gated by `src/tests/lens-reducer.test.ts`.
+
+**O3 — the foil line is not "always visible". CLOSED.** `view/index.ts::foilRow`
+/ `movesetOps` draw the line unconditionally for a selected row, and where
+there is no rank 2 the absence carries its reason — the same move the depth
+cell makes with `Q=0/33`. Under the table in `07-movesets-panel.png`:
+*"no runner-up — only 1 of 5 retained rows plays this candidate"*. §3.5's
+clause is now true as written rather than true in the uncommon case.
+
+**O4 — the attention channel is not logged. CLOSED, producer and reader.** The
+look does reach the kernel, in a shape §2.1 did not name: a TENTATIVE pin, a
+hint the search may speculate on and never a constraint
 (`websocket-server.ts` case `'lens-conditional'` →
-`ActiveGameManager.notePinConsideration`), but that writes no turn event. 02
-§5 Q4/Q9 left this deliberately open; the walk records that the UI for it is
-built and unfed.
+`ActiveGameManager.notePinConsideration` → `PinEvents.tentativePin`). Since O6
+that gesture is a row, so `view/index.ts::renderTimeline` reading `tentative`
+beside `hover` now has something to read. Evidence is the pair `09-lane.png`
+and `10-lane-expanded.png`, which used to be byte-identical and are not: the
+collapsed lane draws four solid operator ticks, and expanding it reveals a
+hollow `○` at `+149ms` — the look, hidden until asked for, and never drawn as
+a determination nobody made. The harness drives one so the walk can see it
+(`lens-walkthrough-server.ts`, the `emitted === 1` act).
 
-**O5 — the rail's rows are not clickable.** `play-game.html` binds
-`pointerdown` on `#lensLane` (ticks) and on `#lensRail` (only
-`[data-lens-accept]`). T3 and T6 both name a click on a candidate cell / a
-moveset row as a source, and `lensSelectCandidate` exists with no caller from
-the rail. Keyboard-only today.
+**O5 — the rail's rows are not clickable. CLOSED.** The markup names the
+target and the page binds it: `panel.movesets.row` carries the row's own key,
+`panel.candidates.row` its candidate, and `play-game.html`'s `#lensRail`
+`pointerdown` routes `[data-lens-candidate]` to `lensSelectCandidate` and
+`[data-lens-moveset]` to `lensSelectMoveset`, which is what T3 and T6 always
+said the rail did. Hover stays inert, per T4. Gated by
+`src/tests/lens-panel.test.ts` *"the rail names its click targets for T3 and
+T6"*, which also asserts the markup carries no `onmouse` / `onclick` / `:hover`
+— the walk itself still drives the cursor from the keyboard, so the click path's
+evidence is that test and the markup rather than a PNG.
 
-**O6 — no `pin` / `unpin` turn event exists anywhere.** Nothing in the
-repository writes one:
-`src/lobster/team-decision-engine.ts::routeToKernel` calls
-`kernel.onPinEvent(translated)` with **no event id**, and
-`src/server/active-game-manager.ts` has no emitter for the `pin` / `unpin`
-kinds. Consequences the walk saw: `frameAt`'s `fixities` map is always empty,
-so `UnitRow.fixity` / `owner` / `operator` are always `free` / `null` (which is
-what made F9 visible); the widen banner reads `released red-A, red-C` with no
-operator; the lane's operator ticks carry no colour and no verb; every
-emission's `answers` is null; and `planLock`'s client-side ownership guard —
-which reads `frame.units[].owner` — is a no-op, so the server's refusal is the
-only guard there is. `src/lens/kernel/record.ts` documents the intended order
-(*"the active game manager writes the `pin`, then hands its id to
-`onPinEvent`"*) and production does not do it. **Kernel- and manager-side:**
-`active-game-manager.ts::emitTurnEvent` needs a `pin`/`unpin` caller, and
-`team-decision-engine.ts::routeToKernel` needs to pass its id.
+**O6 — no `pin` / `unpin` turn event exists anywhere. CLOSED.** The manager now
+implements `LensDecisionPort.command`: it resolves the unit, attributes the row
+to the operator holding it, writes through the one `seq` writer, and hands the
+id back; `team-decision-engine.ts::routeToKernel` calls it and passes that id to
+`kernel.onPinEvent`. The order is causal and not a convenience — the writer
+refuses an answer whose question it has not written. Everything downstream that
+was permanently null now reads: `report.json`'s `operatorTicks` are
+`pin(red-A) · seq 9 · +149.57ms` and `unpin(red-A) · seq 19 · +263.63ms` in the
+operator's colour where they were a verbless `operator · seq 11`; the widen
+banner in `16-widen-banner.png` names its author off the fold; and the replay
+rail reads `locked by Ada at +149.53ms`. `frameAt`'s fixity map is populated,
+so `planLock`'s client-side ownership guard is a guard again rather than a
+no-op. One new row per gesture, and an id.
 
-**O7 — a replayed turn is offered `[N] return to now and lock`.**
-`view/index.ts::lockLabel` keys on `at.isHead`, which collapses `replay` into
-`live-scrub`; §1.4 asks for `locked by Ada at +812ms → [jump]`, or
-`— read-only —`. This **cannot** be fixed inside `renderFrame`: I wrote it,
-and `src/tests/lens-panel.test.ts`'s structural gate *"no renderer branches on
-mode"* failed, along with the two transcript-equality gates. That gate is
-right — the transcript is the object the boundary test compares — so the
-replay label belongs beside `modeBadge` / `provenanceBadge`, which is a surface
-the page composes rather than a call in the transcript. A design call above
-this walk; the reasoning is recorded in the comment above `lockLabel`.
+**O7 — a replayed turn is offered `[N] return to now and lock`. CLOSED, at the
+seam the design already draws.** This was recorded as a gap in `lockLabel`; it
+is a boundary. A frame carries no CONTENT that separates a recorded turn from a
+scrubbed live one — `at.mode` is on the frame precisely because the distinction
+is not derivable — so `lens-panel.test.ts`'s structural gate is right to refuse
+a renderer that reads it. What is true of the FRAME stayed in the transcript:
+`view/index.ts::recordedLock` draws §1.4's own sentence where the turn's rows
+hold a lock at this `seq`, and `— read-only —` where they do not, which is true
+of both off-head modes. THE WAY BACK is a fact about the SOURCE, so it moved to
+`WAY_BACK` beside `modeBadge`. Read the two badges side by side:
+`12-scrub-emission.png` is `⏸ SCRUBBED · seq 9 · read-only · [N] return to now`
+and `19b-replay-rail.png` is `REPLAY · seq 39 · read-only` with no `now` offered
+at all, over a lock line reading `locked by Ada at +149.53ms → [jump]` — a
+sentence that was unsayable until O6 made the pin a row.
 
-**O8 — a widen's staleness is invisible when the table is empty.** The
-`stale @ seq n` flag rides `panel.movesets`'s head
-(`view/index.ts::movesetOps`), and a held widen over a cluster whose list is
-empty draws `panel.movesets.empty` instead — so the banner is up, the rail is
-frozen, and nothing says the numbers under it are stale. Visible in
-`16-widen-banner.png`.
+**O8 — a widen's staleness is invisible when the table is empty. CLOSED.** The
+`stale @ seq n` flag rode `panel.movesets`'s head, and a cluster with no
+retained rows never draws that head — `movesetsHTML` returns its empty state
+and nothing else — so the one case where the rail said least about itself was
+the one case where nothing said it was frozen. The flag moved to the banner
+(`lens-panel.js::bannerHTML`), which is up in exactly the cases the hold applies
+to: one place, all of them. `16-widen-banner.png` is the case that used to fail
+— the movesets panel is its empty state, *"red-A is pinned — it is a constant
+of cluster 1, not a variable the bot is solving"*, struck through by the new
+`.lens-held .lens-movesets .lens-empty` rule, under a banner reading *"the rail
+below is stale @ seq 21"*. The falsifier is written as the failing case in
+`src/tests/lens-widen.test.ts` *"still flags staleness when the list under the
+banner is EMPTY"*, which asserts the body carries no `lens-stale-flag` and the
+banner does.
 
 ---
 
