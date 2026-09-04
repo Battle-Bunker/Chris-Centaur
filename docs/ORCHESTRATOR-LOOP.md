@@ -23,7 +23,7 @@ Merged: PLAN-2 item 2 + §5.1 (d165582: tier and potion are one window member fa
 |---|---|---|---|
 | b1-sound (CC) | opus | exact-reply oracle as a standing check; fix B1-floor-vs-exact-reply classes | seed 4 zero; sweep green; A/B reported |
 | entrap (CC) | opus | entrapment: instrument, P-1 falsifier, repair of room | keep only if predictions hold; sixteen arms zero |
-Queued: PLAN-2 item 7 (B1/B3 fold, after b1-sound); third audit once plan 2 is executed; stable checkpoint v3 after entrap/b1-sound land; PR #17 body refresh at a ping.
+Queued: PLAN-2 item 7 (B1/B3 fold, after b1-sound); third audit once plan 2 is executed; stable checkpoint v3 after entrap/b1-sound land; PR #17 body refreshed 2026-09-04.
 Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
