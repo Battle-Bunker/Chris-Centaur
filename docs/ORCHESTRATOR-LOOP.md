@@ -15,15 +15,16 @@ nothing goes to `develop`/`main` directly (PRs #17 Chris-Centaur, #24 TacticToes
 - TacticToes `stable/one-engine-v1` = the branch head after the presence/grammar fix.
 - Runner recordings for A/B: `node dist/tests/local-game.js <mixed|snakes|sparse|potions> 30 <seed> --nodes --json=F`; compare with `node scripts/ab-compare.js base.jsonl new.jsonl`.
 
-## Active wave (update on every launch/merge) — launched 2026-09-04 ~09:50Z
+## Active wave (update on every launch/merge) — 2026-09-04 ~10:40Z
+Merged this cycle: goto fix (c1a3e2c), bot SIMPLIFY-PLAN (3d4a3f0), TT SIMPLIFY-PLAN (84229d3). Head 3d4a3f0.
 | worktree/branch | model | task | merge rule |
 |---|---|---|---|
-| audit (CC) | opus | read-only simplification plan → docs/design/SIMPLIFY-PLAN.md | merge doc; spawn Sonnet executors per MECHANICAL item |
 | depth (CC) | opus | F-1..F-9 depth preconditions, then depth 2 for piece clusters, gated | merge preconditions; engagement only if A/B not worse per board class |
-| telemetry-rm (CC) | sonnet | delete unconsumed src/lobster/telemetry.ts and orphans | ff-merge if full suite green |
-| goto-fix (CC) | sonnet | goto weight defect (drives/01 M1), minimal fix + real fixture | merge if suite green |
-| (TT checkout) | opus | read-only simplification plan → TacticToes docs/SIMPLIFY-PLAN.md | merge doc; spawn Sonnet executors |
-Ping: send_later 55 min, re-armed on each firing (trigger name "Orchestrator 55-minute loop ping").
+| simp-a (CC) | sonnet | SIMPLIFY-PLAN items 1, 5, 13 (telemetry dead half; dead wire fields; mulberry32) | ff/merge if byte-identical runner + suite green |
+| simp-b (CC) | sonnet | SIMPLIFY-PLAN items 3, 4, 8, 9, 2-mechanical (candidates/evaluate) | same |
+| (TT checkout) | sonnet | TT SIMPLIFY-PLAN items 2, 3, 4 (mechanical) | goldens unchanged + suite green |
+Deferred until depth lands (same files): bot items 10 (board memo), 11 (bank sweep), 12 (contracts hub), 6 (decision rig), 7 (tier-freeze). TT item 1 (expandTeams shared) and 5 are JUDGEMENT → Opus later.
+Ping: send_later 55 min, re-armed on each firing.
 
 ## Queue, ranked (nearness-to-fruition × value × complexity deleted)
 1. Simplification audit (post-cut dead code, special cases, duplicated abstractions) → Sonnet executors.
