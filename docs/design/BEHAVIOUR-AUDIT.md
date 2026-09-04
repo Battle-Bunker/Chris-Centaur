@@ -19,7 +19,8 @@ work-unit clock, so every number below is reproducible from (build, scenario, se
 | `mixed`/`snakes` seeds 1–3 vs `material-only` | 6 | 1928 | 14.2 | 23 | 1.8% | 9.1% |
 
 \* `parked` is the TRUE stationary share — a unit whose head cell is the same at the
-start of two consecutive turns. It is not the runner's `stationary` counter; see D6.
+start of two consecutive turns. It was not the runner's `stationary` counter; see D6,
+which is now fixed, so as of `beh-contest` the counter reads this quantity.
 
 `CENTAUR_DEBUG_INVERSION=1` over 10 runs (`potions` 1,2,3,4,5,7,8; `mixed` 1; `snakes` 1;
 `sparse` 1) at 60 turns: **zero bound inversions**, on every board. `crashed: null` in all 23.
@@ -104,6 +105,65 @@ stage onto an enemy-occupied cell at all (60 events), 0.0–0.3% on `snakes`, 0 
 * `snakes`: `bodyBlock` + `self` unchanged ±1 (the field widens by 3 cells per snake).
 * `sparse`: byte-identical (no enemy is ever within one step; verified 0 events in 720
   unit-turns).
+
+### STATUS — instrument merged, rule MEASURED AND REVERTED (`beh-contest`)
+
+**The counter is in.** `enemyOccupiedEntries` / `enemyOccupiedEntriesLost` in
+`src/tests/local-game.ts`, read off the board each decision was taken on with
+that decision's own staged destinations, split by `winsContest`. It costs
+nothing: over the corpus below every counter but the new and the D6-redefined
+ones is byte-identical to the pre-instrument build, work and loud histogram
+included. Baseline, 60 turns, `--nodes`:
+
+| board | entries | lost | entries/100 | lost/100 |
+|---|---|---|---|---|
+| `mixed` seeds 1–3 | 29 | 5 | 2.31 | 0.40 |
+| `potions` seeds 1–8 | 63 | 4 | 2.07 | 0.13 |
+| `snakes` seeds 1–3 | 1 | 0 | 0.10 | 0.00 |
+| `sparse` seeds 1–3 | 0 | 0 | 0.00 | 0.00 |
+
+All three reproductions fire it, each an `ENEMY-CELL … LOST` line immediately
+above the `edge` death: `mixed` seed 1 turns 10 and 47, `potions` seed 6 turn 31.
+
+**The rule was implemented exactly as written above — origin clause and
+certainty weight — and taken back out.** A/B by seed against the instrument
+commit, per board class, `scripts/ab-compare.js`, never pooled:
+
+| board | deaths A→B | `edge` | `lost` | meals | parked share |
+|---|---|---|---|---|---|
+| `mixed` | 10 → **9** | 2 → **0** | 5 → 3 | 246 → **215** | 7.2% → **12.3%** |
+| `potions` | 26 → **28** | 1 → **0** | 4 → 4 | 595 → 586 | 10.4% → 6.5% |
+| `snakes` | 7 → 7 | 0 → 0 | 0 → 0 | 157 → 157 | byte-identical |
+| `sparse` | 0 → 0 | 0 → 0 | 0 → 0 | 52 → 52 | every game counter identical (`nodes` +12) |
+
+Sixteen-arm inversion gate clean, `laws.ts` R1/R2/R3 green at both profiles.
+
+The headline prediction HOLDS: `edge` deaths **3 → 0**, and those three are the
+deaths D1 explains. Two of the three registered predictions do not.
+`enemyOccupiedEntriesLost` falls **9 → 7**, a 22% drop against the 60%
+predicted — the rule stops the losing entries it was aimed at and the bot finds
+new ones. `contest` deaths are **up**, 31 → 33. And `potions` is worse on deaths
+outright (contest +1, bodyBlock +1, self +1, plus the corpus's first
+`deathsWhileDebuffed`), so the keep-criterion "no board class gets worse on
+deaths" is not met and the change is reverted to the instrument-only state.
+
+**What the measurement says about the rule, for whoever re-opens this.** The two
+clauses are not separable the way the counter implies. The origin clause ALONE
+cannot fix reproduction A — with a boolean charge all three of blue-C's options
+are charged 1.00, they cancel, and the tie-break still takes the enemy's square;
+that is reproduction C's argument applied to A. But the certainty weight divides
+every non-origin charge by the enemy's action count, 1/3 to 1/5 in practice, so
+`contest` loses about three quarters of its seated strength against a weight
+(`contest: 3`) calibrated on the boolean reading — and the tempo terms move in
+behind it: `mixed`'s parked share 7.2% → 12.3%, its longest park 8 → 49 turns,
+its meals 246 → 215. The shape to measure next is a rule that keeps the seated
+scale — the boolean charge LIGHTENED by a knob, `1 − ε + ε·p`, so the enemy's own
+cell is the only full certainty and `ε = 0` recovers today's term — and it wants
+its own calibration arm rather than a re-run of this one.
+
+`src/lobster/__tests__/contest-occupied-cell.test.ts` holds reproduction A's
+board unit for unit and pins TODAY's pricing: the entry onto the occupied cell
+costs 0 and the hold costs the whole `CONTEST_LOSS`. A repair inverts that line.
 
 ---
 
@@ -314,6 +374,24 @@ turn — and keep the staged cell only for the dither signature. Add `longestPar
 Prediction: `stationary` on `mixed`/`potions` roughly doubles with no behaviour change at
 all; `snakes` and `sparse` unchanged at 0 (no kind on those boards can rotate).
 
+### STATUS — FIXED and measured (`beh-contest`)
+
+`stationary` now compares the cell HELD — `tr.from` against the same unit's
+`tr.from` last turn — and the staged cell is kept for the dither signature and
+for the (unchanged) reversal reading; a unit's first turn is neither parked nor
+moved, because there is no previous cell to compare it against. `longestPark` is
+in beside it, and the trace prints ` PARKED` on the row.
+
+**The prediction holds, and so does "no behaviour change at all":** over the
+whole corpus every other counter is byte-identical to the pre-fix build, `work`
+and `loud` included.
+
+| board | `stationary` before | after | `longestPark` |
+|---|---|---|---|
+| `mixed` seeds 1–3 | 2.54% | **7.15%** | 8 |
+| `potions` seeds 1–8 | 4.17% | **10.41%** | 20 |
+| `snakes`, `sparse` | 0.00% | 0.00% | 0 |
+
 ---
 
 # Behaviour that is already right
@@ -333,7 +411,9 @@ Do not re-litigate these. Each has its evidence.
 4. **The bound is sound at head.** Zero `ScoreBounds` inversions over ten 60-turn runs
    spanning all four scenarios, including `potions` seeds 5, 7 and 8. This **contradicts**
    `potions.md` §3's record of 875 inversions on `potions` seed 7 and 103 with the member on;
-   whatever produced them is gone. That is a repaired finding, not an open one.
+   whatever produced them is gone. That is a repaired finding, not an open one. Re-confirmed
+   on `beh-contest` over sixteen arms (all four boards, seeds 1–3 at 30 turns, plus `potions`
+   seeds 4, 5, 6, 8 at 60): zero on every one. `potions.md` §3 now says so at the figures.
 5. **`room` works on a trail-only board.** `snakes` seeds 1–3: 56 entrapment episodes, **45
    escaped**, 7 fatal. The term detects the shortfall and the bot walks out of it four times
    in five.
@@ -393,3 +473,30 @@ The cheapest thing that closes it: a `sparse-lean` scenario — `SPARSE_SCENARIO
 Prediction to pre-register: at seeds 1–3, 60 turns, `grownMeals / foodEaten` is at least 0.5
 and starvation deaths stay at 0. If either fails, the food/material balance is the next
 defect class and it belongs above D4.
+
+### STATUS — the gap is CLOSED, and 50 was the wrong value (`beh-contest`)
+
+`grownMeals` is in beside `foodEaten` (and `ate` is now settlement's own
+collection test — a survivor whose head finished on a cell the turn opened with
+food on — rather than an occupancy-growth reading, which on a lean board would
+report a board where nothing eats). `GameSpec.foodEnergy` rides through
+`buildBoard`, `--food-energy=N` states it per invocation, and the recorded arm
+is `sparse-lean`.
+
+**At the suggested `foodEnergy: 50` the arm exercises nothing.** Swept over
+seeds 1–3 at 60 turns:
+
+    foodEnergy   100    50     40     25     20     15     10
+    meals         52    52     52     51     45     46     61
+    grown/meals 1.00  1.00   0.98   0.92   0.84   0.70   0.36
+
+A unit on `sparse` is almost never more than fifty short when it eats, so at 50
+every meal still fills and still grows and the whole run is byte-identical to
+`sparse` itself. `sparse-lean` is therefore `foodEnergy: 20`, where one meal in
+six is fuel and no length while the board keeps the property that made it the
+base: **0 deaths, 0 starvation deaths, `grownMeals / foodEaten` = 0.84** over
+seeds 1–3 (45 meals, 38 grown, 720 unit-turns, meals/100 6.25 against `sparse`'s
+7.22). The pre-registered prediction PASSES at every value down to 15 (0.70) and
+FAILS at 10 (0.36), where the bot eats a fifth more often for a third of the
+growth — so the food/material balance is sound in the regime this board can be
+run at, and 10 is the value at which it stops being.

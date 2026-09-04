@@ -238,16 +238,27 @@ The one pickup the AFTER arm did take on that seed is turn 42, `blue-A` onto
 point. Blue had TWO allies to arm (a queen and a pawn) where green-A had one,
 and that is the entire margin.
 
-### Bound inversions: pre-existing on this board
+### Bound inversions: REPAIRED SINCE, and the figures below are history
 
-The `potions` scenario inverts the bank's floor against its ceiling with the
-member OFF: 875 `ScoreBounds` inversions on seed 7 over seeds 1–10, 60 turns.
-With the member ON the same sweep gives 103 (26 on seed 5, 77 on seed 8, none
-elsewhere). So inversions are a property of this board rather than of this term
-— it moves which trajectories reach them, and over ten seeds it reaches them
-less. That latent unsoundness is somewhere else and is not this member's to fix,
-but it is written down here because "zero inversions" is not a gate the
-`potions` scenario can currently pass in either arm.
+**Corrected.** What this section recorded — with the member OFF, 875
+`ScoreBounds` inversions on seed 7 over seeds 1–10 at 60 turns, and 103 with the
+member ON (26 on seed 5, 77 on seed 8) — is no longer what the board does.
+`docs/design/BEHAVIOUR-AUDIT.md` §"behaviour that is already right" item 4 read
+`CENTAUR_DEBUG_INVERSION=1` over ten 60-turn runs spanning all four scenarios,
+`potions` seeds 5, 7 and 8 among them, and found **zero** inversions on every
+one; the same reading was re-taken over sixteen arms on the `beh-contest` branch
+(`mixed`, `snakes`, `sparse`, `potions` seeds 1–3 at 30 turns, plus `potions`
+seeds 4, 5, 6 and 8 at 60) and is again zero everywhere. Whatever produced the
+875 and the 103 was fixed somewhere else between then and now — the soundness
+repairs to `evaluate/features.ts` and `bounds/material.ts` are the obvious
+candidates, and neither was this member's.
+
+So the sentence this section used to end on — that "zero inversions" is not a
+gate the `potions` scenario can pass in either arm — is withdrawn. It is a gate
+that board passes today, and it is used as one. The old numbers stay written
+down because they were measured and because a claim about latent unsoundness
+should not be quietly deleted once it stops reproducing; they are history, not
+a live reading.
 
 ## 4. What the next attempt should look at
 

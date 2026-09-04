@@ -1945,11 +1945,51 @@ export const POTION_SCENARIO: GameSpec = {
   potionWindowTurns: DEFAULT_POTION_WINDOW_TURNS,
 };
 
+/**
+ * THE FILL-TO-GROW BOARD — `sparse` with a meal worth half a tank.
+ *
+ * `docs/design/BEHAVIOUR-AUDIT.md`, "the gap the corpus cannot close": none of
+ * the four scenarios sets `foodEnergy`, so `resolveTurn` uses
+ * `DEFAULT_FOOD_ENERGY = 100`, which equals `defaultMaxEnergy` — every meal
+ * fills and every meal grows, which is the OLD rule. The fold's pieces are
+ * pinned at the level of one evaluation (`evaluate.test.ts`, "material prices
+ * the meal that FILLS") and the behaviour over sixty turns has never been
+ * watched.
+ *
+ * `grownMeals / foodEaten` is then the division of labour between `food`'s
+ * hunger pull (weight 4, hardest on the emptiest unit — the one whose meal will
+ * NOT top it off) and `material`'s growth credit (weight 10, paid to the unit
+ * whose meal will). `sparse` is the base because it is the board with no deaths
+ * and no potions: a change in the meal counters there is the food rule and
+ * nothing else.
+ *
+ * TWENTY, AND THE AUDIT'S FIFTY IS WHY. The value was swept over seeds 1-3 at
+ * 60 turns on this board (`--food-energy=N`, the same runs the flag exists for):
+ *
+ *     foodEnergy   100    50     40     25     20     15     10
+ *     meals         52    52     52     51     45     46     61
+ *     grown/meals 1.00  1.00   0.98   0.92   0.84   0.70   0.36
+ *
+ * At the audit's suggested 50 the arm is byte-identical to `sparse` itself —
+ * a unit on this board is almost never more than fifty short when it eats, so
+ * every meal still fills and still grows, and the board exercises nothing. The
+ * rule only starts to bite at 20, where one meal in six is fuel and no length,
+ * and the board keeps the property that made it the base: zero deaths, zero
+ * starvation. Below that it is a different game — at 10 the bot eats a fifth
+ * more often for a third of the growth, and `grownMeals / foodEaten` falls
+ * under the audit's pre-registered 0.5.
+ */
+export const SPARSE_LEAN_SCENARIO: GameSpec = {
+  ...SPARSE_SCENARIO,
+  foodEnergy: 20,
+};
+
 export const SCENARIOS: Record<string, GameSpec> = {
   snakes: SNAKE_SCENARIO,
   mixed: MIXED_SCENARIO,
   sparse: SPARSE_SCENARIO,
   potions: POTION_SCENARIO,
+  'sparse-lean': SPARSE_LEAN_SCENARIO,
 };
 
 // ---------------------------------------------------------------------------
@@ -1985,6 +2025,14 @@ export interface RunSummary {
    * experiment and are never subtracted against each other.
    */
   readonly opponent?: string;
+  /**
+   * WHAT A MEAL WAS WORTH, when the board said. Absent means the engine's
+   * `DEFAULT_FOOD_ENERGY`, which is what every scenario but `sparse-lean` runs,
+   * so a summary from before this field existed is byte-identical to one taken
+   * now — and `ab-compare.js` pairs on it, because a lean board and a full one
+   * are two experiments over the same geometry.
+   */
+  readonly foodEnergy?: number;
   readonly mode: 'ms' | 'nodes';
   /** Milliseconds in `ms` mode, work units in `nodes` mode. */
   readonly budget: number;
@@ -2061,6 +2109,8 @@ export function summaryOf(
      *  `RunSummary.opponent`. Threaded through rather than re-derived: an
      *  `Evaluator` exposes nothing a name could be read back off. */
     opponent?: string;
+    /** The spec's `foodEnergy`, or absent where it stated none. */
+    foodEnergy?: number;
   },
   budget: DecisionBudget
 ): RunSummary {
@@ -2077,6 +2127,8 @@ export function summaryOf(
     // never set, which is what keeps a mirror run's JSON byte-identical to a
     // build that never heard of `--opponent`.
     opponent: where.opponent,
+    // Absent when the spec states none, exactly as `opponent` is.
+    foodEnergy: where.foodEnergy,
     mode: budget.kind,
     budget: budget.kind === 'ms' ? budget.ms : budget.nodes,
     turnsRequested: where.turnsRequested,
@@ -2231,7 +2283,14 @@ async function summarise(
       JSON.stringify(
         summaryOf(
           r.metrics,
-          { label: out.label, scenario, seed, turnsRequested: turns, opponent: out.opponent?.name },
+          {
+            label: out.label,
+            scenario,
+            seed,
+            turnsRequested: turns,
+            opponent: out.opponent?.name,
+            foodEnergy: spec.foodEnergy,
+          },
           budget
         )
       )
@@ -2341,6 +2400,14 @@ Flags
                  Absent: every team mirrors the default profile, exactly as
                  before this flag existed. The JSON summary then carries
                  \`opponent\` with NAME; a mirror run carries no such field.
+  --food-energy=N  WHAT ONE MEAL IS WORTH (\`GameSetup.foodEnergy\`). Absent: the
+                 scenario's own value, which for every scenario but
+                 \`sparse-lean\` is nothing at all, so the engine reads
+                 \`DEFAULT_FOOD_ENERGY\` = 100 = the default max energy and every
+                 meal both fills and grows the eater. Below a kind's max, a unit
+                 needs several meals to fill and grows only on the one that tops
+                 it off — the fill-to-grow rule, which no scenario exercised
+                 before \`sparse-lean\`. Watch \`grownMeals\` beside \`meals\`.
 
 Examples
   node dist/tests/local-game.js mixed 30 1 150
@@ -2354,6 +2421,10 @@ interface Flags {
   readonly json: string | boolean;
   readonly label: string;
   readonly opponent: string | null;
+  /** `--food-energy=N`, or null for "whatever the scenario says", which for
+   *  every scenario but `sparse-lean` is nothing at all and therefore the
+   *  engine's own `DEFAULT_FOOD_ENERGY`. */
+  readonly foodEnergy: number | null;
   readonly positional: string[];
 }
 
@@ -2363,6 +2434,7 @@ function parseFlags(argv: readonly string[]): Flags {
   let json: string | boolean = false;
   let label = 'local';
   let opponent: string | null = null;
+  let foodEnergy: number | null = null;
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -2387,6 +2459,14 @@ function parseFlags(argv: readonly string[]): Flags {
         }
         opponent = value;
         break;
+      case 'food-energy': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error('--food-energy requires a positive number, e.g. --food-energy=50');
+        }
+        foodEnergy = n;
+        break;
+      }
       case 'help':
         console.log(HELP);
         process.exit(0);
@@ -2395,15 +2475,24 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, opponent, positional };
+  return { nodes, json, label, opponent, foodEnergy, positional };
 }
 
-function scenariosNamed(which: string): Array<[string, GameSpec]> {
+/**
+ * THE OVERRIDE, in one place. `--food-energy` states what a meal is worth for
+ * this invocation; absent, the scenario's own field rides through, and where
+ * the scenario states nothing the board carries no `foodEnergy` at all and the
+ * engine reads `DEFAULT_FOOD_ENERGY` exactly as it always has.
+ */
+const withFoodEnergy = (spec: GameSpec, foodEnergy: number | null): GameSpec =>
+  foodEnergy === null ? spec : { ...spec, foodEnergy };
+
+function scenariosNamed(which: string, foodEnergy: number | null = null): Array<[string, GameSpec]> {
   const names = which === 'all' ? Object.keys(SCENARIOS) : which.split(',');
   return names.map((name): [string, GameSpec] => {
     const spec = SCENARIOS[name];
     if (spec === undefined) throw new Error(`unknown scenario ${name}`);
-    return [name, spec];
+    return [name, withFoodEnergy(spec, foodEnergy)];
   });
 }
 
@@ -2439,7 +2528,7 @@ async function main(): Promise<void> {
       flags.nodes === null
         ? { kind: 'ms', ms: Number(argv[4] ?? 100) }
         : { kind: 'nodes', nodes: flags.nodes };
-    for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes')) {
+    for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
       await summarise(name, spec, turns, seeds, budget, {
         label: flags.label,
         json: emitJson,
@@ -2458,8 +2547,9 @@ async function main(): Promise<void> {
     flags.nodes === null
       ? { kind: 'ms', ms: Number(argv[3] ?? 150) }
       : { kind: 'nodes', nodes: flags.nodes };
-  const spec = SCENARIOS[which];
-  if (spec === undefined) throw new Error(`unknown scenario ${which}`);
+  const named = SCENARIOS[which];
+  if (named === undefined) throw new Error(`unknown scenario ${which}`);
+  const spec = withFoodEnergy(named, flags.foodEnergy);
   const result = await runGame(
     {
       ...spec,
@@ -2473,7 +2563,14 @@ async function main(): Promise<void> {
     JSON.stringify(
       summaryOf(
         result.metrics,
-        { label: flags.label, scenario: which, seed, turnsRequested: turns, opponent: opponent?.name },
+        {
+          label: flags.label,
+          scenario: which,
+          seed,
+          turnsRequested: turns,
+          opponent: opponent?.name,
+          foodEnergy: spec.foodEnergy,
+        },
         budget
       )
     )
