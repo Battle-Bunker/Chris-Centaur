@@ -89,6 +89,16 @@ export interface GameSpec {
   readonly potionRespawnTurns?: number;
   /** How long a pickup's debuff and its allies' buffs last. */
   readonly potionWindowTurns?: number;
+  /**
+   * ENERGY ONE MEAL RESTORES — `GameSetup.foodEnergy`, straight through to
+   * `resolveTurn`. Absent means the engine's own `DEFAULT_FOOD_ENERGY` (100),
+   * which equals `defaultMaxEnergy`, so every meal fills and every meal grows:
+   * the old rule, and the reason no scenario in this file has ever exercised
+   * fill-to-grow (`docs/design/BEHAVIOUR-AUDIT.md`, "the gap the corpus cannot
+   * close"). Set it BELOW a kind's max and a unit needs several meals to fill,
+   * and grows only on the one that tops it off.
+   */
+  readonly foodEnergy?: number;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -419,6 +429,11 @@ export function buildBoard(spec: GameSpec): Board {
     pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
     maxHealthPerUnit: {},
     snakes,
+    // ONE MEAL'S WORTH OF ENERGY, and absent unless the spec names it: a board
+    // that states nothing is the input `marshalBoard` has always been handed,
+    // and `resolveTurn` then reads `DEFAULT_FOOD_ENERGY`. Stating it is what
+    // makes fill-to-grow visible (`--food-energy`).
+    ...(spec.foodEnergy === undefined ? {} : { foodEnergy: spec.foodEnergy }),
     // A POTION-FREE BOARD CARRIES NO POTION FIELDS AT ALL, not empty ones.
     // `marshalBoard` reads "potions enabled" off the board's own contents when
     // the flag is absent, and `Simulator` decides whether a unit's expiry turn
@@ -712,6 +727,15 @@ export interface TurnOutcome {
   /** Every unit the turn removed, with the tier it was ADJUDICATED at. */
   readonly deaths: ReadonlyArray<{ id: string; cause: string; tier: number }>;
   readonly ate: ReadonlyArray<string>;
+  /**
+   * Units the turn's meal GREW, which under fill-to-grow is the subset of
+   * `ate` whose meal reached the kind's maximum energy (`resolveTurn`'s food
+   * phase: "it grows the eater by one weight/length only when it brings the
+   * unit TO that max"). At the shipped `foodEnergy = DEFAULT_FOOD_ENERGY` the
+   * two lists are equal, which is what makes the split free on every board
+   * that does not set it.
+   */
+  readonly grown: ReadonlyArray<string>;
   /** Potions collected this turn, as the difference in the module's own list. */
   readonly potionsTaken: number;
   /** Units whose tier ROSE over the turn — an ally of a collector, mostly. */
@@ -790,6 +814,7 @@ export function stepGame(
   const hadSchedule = board.activeEffects !== undefined;
   const snakes: Snake[] = [];
   const ate: string[] = [];
+  const grown: string[] = [];
   const tierUps: string[] = [];
   const tierDowns: string[] = [];
   for (const snake of board.snakes ?? []) {
@@ -797,7 +822,16 @@ export function stepGame(
     if (!settled) continue;
     const cells = settled.occupancy.map((c) => toApiCoord(c, w, h));
     const piece = snake.unitType !== undefined && snake.unitType !== 'snake';
-    if (settled.occupancy.length > (before.get(snake.id) ?? 0)) ate.push(snake.id);
+    // A MEAL AND A GROWTH ARE TWO EVENTS, and at the shipped `foodEnergy` they
+    // coincide. `ate` is settlement's own collection test, read exactly as
+    // `collectors` reads a potion — a survivor whose head finished on a cell
+    // the turn OPENED with food on — so it counts a meal that only fuels.
+    // `grown` is the occupancy the meal bought, which under fill-to-grow is
+    // the meal that topped the tank off and nothing else. Reading growth alone
+    // (what this counted before `foodEnergy` was reachable from a scenario)
+    // would report a lean board as a board where nothing eats.
+    if (marshalled.config.food.includes(settled.occupancy[0] as number)) ate.push(snake.id);
+    if (settled.occupancy.length > (before.get(snake.id) ?? 0)) grown.push(snake.id);
     const tier = result.tiers[snake.id] ?? 0;
     const was = tierBefore.get(snake.id) ?? 0;
     if (tier > was) tierUps.push(snake.id);
@@ -899,6 +933,7 @@ export function stepGame(
     board: next,
     deaths,
     ate,
+    grown,
     potionsTaken: marshalled.potions.length - result.potions.length,
     tierUps,
     tierDowns,
@@ -1190,6 +1225,71 @@ export function entrappedAt(board: Board, turn: number): EntrapmentReading[] {
 }
 
 // ---------------------------------------------------------------------------
+// THE ENEMY-OCCUPIED ENTRY INSTRUMENT — docs/design/BEHAVIOUR-AUDIT.md D1
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW OFTEN DOES A UNIT STAGE THE CELL AN ENEMY IS STANDING ON, AND HOW OFTEN
+ * DOES IT LOSE THERE?
+ *
+ * D1's counter, and it goes in before the rule it judges. The audit's three
+ * `edge` deaths are all one shape: our unit staged the square an adjacent
+ * enemy head occupied at the START of the turn, `turnEngine.ts` c1 adjudicated
+ * the head-on exchange over that edge, and we lost it. So the thing to count
+ * is exactly that — a staged destination equal to an enemy's turn-start head
+ * cell — split by whether `winsContest` says we survive it.
+ *
+ * It follows `bounds/loud.ts:19-34`'s rule for what an instrument may do: it
+ * counts. It reads the board the decision was taken on and the destinations
+ * that decision staged, settles nothing, evaluates nothing, reads no clock and
+ * makes no evaluator call, so under the runner's node clock it cannot move a
+ * counter. `winsContest` is `strictMaximum`'s own tier-then-weight order,
+ * imported rather than paraphrased, and a piece's weight is its occupancy
+ * repeat exactly as `substrate.ts` reads it.
+ *
+ * BOTH HALVES ARE REPORTED. `entries` is the opportunity — how often the bot
+ * walks at an occupied square at all, which a fix must not simply drive to
+ * zero, since taking a square off a lighter enemy is a capture and not a
+ * blunder — and `lost` is the blunder.
+ */
+export interface EnemyOccupiedEntry {
+  /** Ours, the one that staged it. */
+  readonly id: string;
+  /** Theirs, the one standing on the cell when the turn opened. */
+  readonly enemy: string;
+  /** `winsContest` says we do not survive the meeting. */
+  readonly lost: boolean;
+}
+
+export function enemyOccupiedEntriesAt(
+  board: Board,
+  turn: number,
+  staged: ReadonlyMap<string, number>
+): EnemyOccupiedEntry[] {
+  const m = marshalBoard(board, turn);
+  const occupant = new Map<number, ResolveUnit>();
+  for (const u of m.units) {
+    const head = u.occupancy[0];
+    if (head !== undefined) occupant.set(head, u);
+  }
+  const out: EnemyOccupiedEntry[] = [];
+  for (const u of m.units) {
+    const to = staged.get(u.id);
+    if (to === undefined) continue;
+    const them = occupant.get(to);
+    // A unit staging its own cell is a hold, and an ally's cell is not a
+    // contest the rules adjudicate between two teams.
+    if (them === undefined || them.id === u.id || them.teamID === u.teamID) continue;
+    out.push({
+      id: u.id,
+      enemy: them.id,
+      lost: !winsContest(u.tier, u.occupancy.length, them.tier, them.occupancy.length),
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // The game loop, and the counters a gate reads
 // ---------------------------------------------------------------------------
 
@@ -1197,6 +1297,13 @@ export interface GameMetrics {
   turns: number;
   unitTurns: number;
   foodEaten: number;
+  /**
+   * MEALS THAT GREW THE EATER. Under the shipped `foodEnergy` every meal fills
+   * and every meal grows, so this equals `foodEaten` on every board that does
+   * not set one; on a lean board `grownMeals / foodEaten` is the division of
+   * labour the fill-to-grow rule creates and the audit's open gap.
+   */
+  grownMeals: number;
   /** Moves that put a unit's head back on the cell it left last turn. */
   reversals: number;
   /**
@@ -1207,8 +1314,22 @@ export interface GameMetrics {
    * better. Only counted when the runner is scoring options (`scores: true`).
    */
   unjustifiedReversals: number;
-  /** Unit-turns that ended where they began — a hold, or a pawn's rotation. */
+  /**
+   * THE TRUE PARKED SHARE — a unit whose head cell is the same at the start of
+   * two consecutive turns.
+   *
+   * D6 (`docs/design/BEHAVIOUR-AUDIT.md`): this used to compare `from` against
+   * the STAGED `to`, and a pawn's rotation stages a side square it never
+   * enters (`moveGrammar.planUnitAction`, the `rotate` branch), so nineteen
+   * parked turns registered as fifteen moves. A rotation is a rotation: the
+   * cell HELD is what says whether the unit went anywhere, and the staged cell
+   * is kept only for the dither signature below. The reading is therefore one
+   * turn behind — it is a fact about the turn that has already resolved — and
+   * a unit's first turn is neither parked nor moved.
+   */
   stationary: number;
+  /** The longest run of consecutive parked turns any one unit had. */
+  longestPark: number;
   /**
    * THE DITHER SIGNATURE. The unit did not move, and the destination it staged
    * is not the one it staged last turn: a pawn rotating left, then right, then
@@ -1267,6 +1388,12 @@ export interface GameMetrics {
   deathsWhileDebuffed: number;
   /** Deaths of a unit adjudicated at a positive tier — invulnerability is not immunity. */
   deathsWhileBuffed: number;
+  // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT (BEHAVIOUR-AUDIT.md D1) --------
+  /** Unit-turns staging the cell an enemy head occupied at the turn's start. */
+  enemyOccupiedEntries: number;
+  /** Those of them `winsContest` says we do not survive — D1's counter. */
+  enemyOccupiedEntriesLost: number;
+  // --- end enemy-occupied entry instrument --------------------------------
   // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ----------
   // Five counters, computed post hoc on the concrete board the turn left. They
   // read the rules; they never touch the decision, so they cannot move any
@@ -1386,9 +1513,11 @@ export async function runGame(
     turns: 0,
     unitTurns: 0,
     foodEaten: 0,
+    grownMeals: 0,
     reversals: 0,
     unjustifiedReversals: 0,
     stationary: 0,
+    longestPark: 0,
     dithers: 0,
     movesWithChoice: 0,
     seedKept: 0,
@@ -1405,6 +1534,8 @@ export async function runGame(
     potionTierDowns: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    enemyOccupiedEntries: 0,
+    enemyOccupiedEntriesLost: 0,
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -1438,10 +1569,14 @@ export async function runGame(
     exposed: boolean;
   }[] = [];
   const potionWindow = spec.potionWindowTurns ?? DEFAULT_POTION_WINDOW_TURNS;
-  // wireId -> the cell it stood on BEFORE its last move.
+  // wireId -> the cell it HELD at the start of the previous turn. Compared
+  // against the cell it holds now, that is the parked reading (D6); compared
+  // against the cell it stages now, it is the reversal reading.
   const previousCell = new Map<string, string>();
   /** wireId -> the destination it staged last turn, for the dither signature. */
   const previousStage = new Map<string, string>();
+  /** wireId -> consecutive parked turns so far, for `longestPark`. */
+  const parkRun = new Map<string, number>();
   // --- entrapment instrument: one open episode per unit, keyed by wireId ----
   const entrapmentOpen = new Map<string, number>();
   // --- end entrapment instrument -------------------------------------------
@@ -1489,14 +1624,30 @@ export async function runGame(
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
-          const moved = key(tr.from) !== key(tr.to);
           const lastStage = previousStage.get(tr.wireId);
-          if (moved) metrics.movesWithChoice++;
-          else {
+          // THE CELL HELD, not the cell staged (D6). A pawn's rotation stages a
+          // side square it never enters, so `from !== to` counts a rotation as
+          // a move and hides a park; `from` against the same unit's `from` last
+          // turn is where the unit actually IS, two turns running.
+          const parked = prev !== undefined && prev === key(tr.from);
+          if (prev === undefined) {
+            // A unit's first turn has no previous cell to compare and is
+            // neither parked nor moved. Counting it either way would price an
+            // arrival that never happened.
+          } else if (parked) {
             metrics.stationary++;
+            const run = (parkRun.get(tr.wireId) ?? 0) + 1;
+            parkRun.set(tr.wireId, run);
+            metrics.longestPark = Math.max(metrics.longestPark, run);
             if (lastStage !== undefined && lastStage !== key(tr.to)) metrics.dithers++;
+          } else {
+            metrics.movesWithChoice++;
+            parkRun.set(tr.wireId, 0);
           }
-          if (moved && prev !== undefined && prev === key(tr.to)) {
+          // THE REVERSAL READING IS UNCHANGED and stays a fact about the
+          // STAGED cell: staging the square this unit held a turn ago is the
+          // undo, whatever the rotation grammar does with the side squares.
+          if (key(tr.from) !== key(tr.to) && prev !== undefined && prev === key(tr.to)) {
             metrics.reversals++;
             const best = tr.top[0];
             if (best !== undefined && key(best.to) !== key(tr.to)) {
@@ -1517,8 +1668,9 @@ export async function runGame(
           rows.push(
             `  T${String(turn).padStart(3)} ${tr.wireId.padEnd(10)} ${tr.kind.padEnd(6)} ` +
               `hp${String(tr.health).padStart(3)} (${tr.from.x},${tr.from.y})->(${tr.to.x},${tr.to.y})` +
-              `${prev === key(tr.to) && moved ? ' REVERSAL' : ''}` +
-              `${!moved && lastStage !== undefined && lastStage !== key(tr.to) ? ' DITHER' : ''}` +
+              `${prev === key(tr.to) && key(tr.from) !== key(tr.to) ? ' REVERSAL' : ''}` +
+              `${parked ? ' PARKED' : ''}` +
+              `${parked && lastStage !== undefined && lastStage !== key(tr.to) ? ' DITHER' : ''}` +
               `${tr.seeded ? ' [seed]' : ''}  top3: ${opts3}`
           );
           previousCell.set(tr.wireId, key(tr.from));
@@ -1535,8 +1687,21 @@ export async function runGame(
       bodies.set(s.id, s.body.map((c) => `(${c.x},${c.y})`).join(''));
       teamOf.set(s.id, s.teamID as string);
     }
+    // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT (BEHAVIOUR-AUDIT.md D1) -------
+    // Read off the board the decision was taken on, with that decision's own
+    // staged destinations, BEFORE settlement moves anything. It counts; it
+    // cannot reach the decision it is counting.
+    for (const e of enemyOccupiedEntriesAt(board, turn, staged)) {
+      metrics.enemyOccupiedEntries++;
+      if (e.lost) metrics.enemyOccupiedEntriesLost++;
+      rows.push(
+        `  ENEMY-CELL ${e.id} -> ${e.enemy}'s square  ${e.lost ? 'LOST' : 'won'}`
+      );
+    }
+    // --- end enemy-occupied entry instrument -------------------------------
     const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule);
     metrics.foodEaten += outcome.ate.length;
+    metrics.grownMeals += outcome.grown.length;
     metrics.potionPickups += outcome.potionsTaken;
     // Score the windows already open BEFORE opening this turn's: a buff is
     // stamped at the end of the turn it is collected on and decides nothing
@@ -1598,7 +1763,17 @@ export async function runGame(
           `  body was ${before ?? '?'}`
       );
     }
-    if (outcome.ate.length > 0) emit(`  ATE ${outcome.ate.join(', ')}`);
+    if (outcome.ate.length > 0) {
+      // The growth half is named only where it differs — on a board at the
+      // shipped `foodEnergy` every meal grows and the note would be noise.
+      const same =
+        outcome.grown.length === outcome.ate.length &&
+        outcome.grown.every((id) => outcome.ate.includes(id));
+      emit(
+        `  ATE ${outcome.ate.join(', ')}` +
+          (same ? '' : `  GREW ${outcome.grown.join(', ') || '(none)'}`)
+      );
+    }
     if (outcome.potionsTaken > 0) {
       emit(
         `  POTION x${outcome.potionsTaken}  tier up: ${outcome.tierUps.join(', ') || '(none)'}` +
@@ -1770,11 +1945,51 @@ export const POTION_SCENARIO: GameSpec = {
   potionWindowTurns: DEFAULT_POTION_WINDOW_TURNS,
 };
 
+/**
+ * THE FILL-TO-GROW BOARD — `sparse` with a meal worth half a tank.
+ *
+ * `docs/design/BEHAVIOUR-AUDIT.md`, "the gap the corpus cannot close": none of
+ * the four scenarios sets `foodEnergy`, so `resolveTurn` uses
+ * `DEFAULT_FOOD_ENERGY = 100`, which equals `defaultMaxEnergy` — every meal
+ * fills and every meal grows, which is the OLD rule. The fold's pieces are
+ * pinned at the level of one evaluation (`evaluate.test.ts`, "material prices
+ * the meal that FILLS") and the behaviour over sixty turns has never been
+ * watched.
+ *
+ * `grownMeals / foodEaten` is then the division of labour between `food`'s
+ * hunger pull (weight 4, hardest on the emptiest unit — the one whose meal will
+ * NOT top it off) and `material`'s growth credit (weight 10, paid to the unit
+ * whose meal will). `sparse` is the base because it is the board with no deaths
+ * and no potions: a change in the meal counters there is the food rule and
+ * nothing else.
+ *
+ * TWENTY, AND THE AUDIT'S FIFTY IS WHY. The value was swept over seeds 1-3 at
+ * 60 turns on this board (`--food-energy=N`, the same runs the flag exists for):
+ *
+ *     foodEnergy   100    50     40     25     20     15     10
+ *     meals         52    52     52     51     45     46     61
+ *     grown/meals 1.00  1.00   0.98   0.92   0.84   0.70   0.36
+ *
+ * At the audit's suggested 50 the arm is byte-identical to `sparse` itself —
+ * a unit on this board is almost never more than fifty short when it eats, so
+ * every meal still fills and still grows, and the board exercises nothing. The
+ * rule only starts to bite at 20, where one meal in six is fuel and no length,
+ * and the board keeps the property that made it the base: zero deaths, zero
+ * starvation. Below that it is a different game — at 10 the bot eats a fifth
+ * more often for a third of the growth, and `grownMeals / foodEaten` falls
+ * under the audit's pre-registered 0.5.
+ */
+export const SPARSE_LEAN_SCENARIO: GameSpec = {
+  ...SPARSE_SCENARIO,
+  foodEnergy: 20,
+};
+
 export const SCENARIOS: Record<string, GameSpec> = {
   snakes: SNAKE_SCENARIO,
   mixed: MIXED_SCENARIO,
   sparse: SPARSE_SCENARIO,
   potions: POTION_SCENARIO,
+  'sparse-lean': SPARSE_LEAN_SCENARIO,
 };
 
 // ---------------------------------------------------------------------------
@@ -1810,6 +2025,14 @@ export interface RunSummary {
    * experiment and are never subtracted against each other.
    */
   readonly opponent?: string;
+  /**
+   * WHAT A MEAL WAS WORTH, when the board said. Absent means the engine's
+   * `DEFAULT_FOOD_ENERGY`, which is what every scenario but `sparse-lean` runs,
+   * so a summary from before this field existed is byte-identical to one taken
+   * now — and `ab-compare.js` pairs on it, because a lean board and a full one
+   * are two experiments over the same geometry.
+   */
+  readonly foodEnergy?: number;
   readonly mode: 'ms' | 'nodes';
   /** Milliseconds in `ms` mode, work units in `nodes` mode. */
   readonly budget: number;
@@ -1818,9 +2041,12 @@ export interface RunSummary {
     readonly turns: number;
     readonly unitTurns: number;
     readonly meals: number;
+    /** Meals that reached the eater's maximum and grew it — see `grownMeals`. */
+    readonly grownMeals: number;
     readonly reversals: number;
     readonly unjustifiedReversals: number;
     readonly stationary: number;
+    readonly longestPark: number;
     readonly dithers: number;
     readonly movesWithChoice: number;
     readonly seedKept: number;
@@ -1836,6 +2062,9 @@ export interface RunSummary {
     readonly potionTierDowns: number;
     readonly deathsWhileDebuffed: number;
     readonly deathsWhileBuffed: number;
+    // --- enemy-occupied entry instrument (BEHAVIOUR-AUDIT.md D1) -----------
+    readonly enemyOccupiedEntries: number;
+    readonly enemyOccupiedEntriesLost: number;
     // --- entrapment instrument (docs/design/entrapment.md §7.2) ------------
     readonly entrappedUnitTurns: number;
     readonly entrapmentEpisodes: number;
@@ -1880,6 +2109,8 @@ export function summaryOf(
      *  `RunSummary.opponent`. Threaded through rather than re-derived: an
      *  `Evaluator` exposes nothing a name could be read back off. */
     opponent?: string;
+    /** The spec's `foodEnergy`, or absent where it stated none. */
+    foodEnergy?: number;
   },
   budget: DecisionBudget
 ): RunSummary {
@@ -1896,6 +2127,8 @@ export function summaryOf(
     // never set, which is what keeps a mirror run's JSON byte-identical to a
     // build that never heard of `--opponent`.
     opponent: where.opponent,
+    // Absent when the spec states none, exactly as `opponent` is.
+    foodEnergy: where.foodEnergy,
     mode: budget.kind,
     budget: budget.kind === 'ms' ? budget.ms : budget.nodes,
     turnsRequested: where.turnsRequested,
@@ -1903,9 +2136,11 @@ export function summaryOf(
       turns: metrics.turns,
       unitTurns: ut,
       meals: metrics.foodEaten,
+      grownMeals: metrics.grownMeals,
       reversals: metrics.reversals,
       unjustifiedReversals: metrics.unjustifiedReversals,
       stationary: metrics.stationary,
+      longestPark: metrics.longestPark,
       dithers: metrics.dithers,
       movesWithChoice: metrics.movesWithChoice,
       seedKept: metrics.seedKept,
@@ -1921,6 +2156,9 @@ export function summaryOf(
       potionTierDowns: metrics.potionTierDowns,
       deathsWhileDebuffed: metrics.deathsWhileDebuffed,
       deathsWhileBuffed: metrics.deathsWhileBuffed,
+      // --- enemy-occupied entry instrument -----------------------------------
+      enemyOccupiedEntries: metrics.enemyOccupiedEntries,
+      enemyOccupiedEntriesLost: metrics.enemyOccupiedEntriesLost,
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurns: metrics.entrappedUnitTurns,
       entrapmentEpisodes: metrics.entrapmentEpisodes,
@@ -1933,6 +2171,7 @@ export function summaryOf(
     },
     rates: {
       mealsPer100: per(metrics.foodEaten),
+      grownMealsPer100: per(metrics.grownMeals),
       reversalsPer100: per(metrics.reversals),
       unjustifiedReversalsPer100: per(metrics.unjustifiedReversals),
       stationaryPer100: per(metrics.stationary),
@@ -1944,6 +2183,9 @@ export function summaryOf(
       recklessPickupsPer100: per(metrics.recklessPickups),
       profitableSafePickupsPer100: per(metrics.profitableSafePickups),
       potionTierUpsPer100: per(metrics.potionTierUps),
+      // --- enemy-occupied entry instrument -----------------------------------
+      enemyOccupiedEntriesPer100: per(metrics.enemyOccupiedEntries),
+      enemyOccupiedEntriesLostPer100: per(metrics.enemyOccupiedEntriesLost),
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurnsPer100: per(metrics.entrappedUnitTurns),
       entrapmentEpisodesPer100: per(metrics.entrapmentEpisodes),
@@ -1987,6 +2229,7 @@ async function summarise(
   const totals: Record<string, number> = {
     unitTurns: 0,
     foodEaten: 0,
+    grownMeals: 0,
     reversals: 0,
     unjustifiedReversals: 0,
     stationary: 0,
@@ -2001,6 +2244,8 @@ async function summarise(
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
+    enemyOccupiedEntries: 0,
+    enemyOccupiedEntriesLost: 0,
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -2013,6 +2258,9 @@ async function summarise(
   const loud = emptyLoudHistogram();
   let worst = 0;
   let nodes = 0;
+  // A MAXIMUM, NOT A SUM — the longest park any one unit had on any seed. It
+  // is kept out of `totals` because everything in there is added up.
+  let longestPark = 0;
   for (let seed = 1; seed <= seeds; seed++) {
     const r = await runGame(
       {
@@ -2028,13 +2276,21 @@ async function summarise(
     }
     for (const [c, n] of Object.entries(r.metrics.deathsByCause)) causes[c] = (causes[c] ?? 0) + n;
     worst = Math.max(worst, r.metrics.worstDecisionMs);
+    longestPark = Math.max(longestPark, r.metrics.longestPark);
     nodes += r.metrics.nodes;
     addLoud(loud, r.metrics.loud);
     out.json?.(
       JSON.stringify(
         summaryOf(
           r.metrics,
-          { label: out.label, scenario, seed, turnsRequested: turns, opponent: out.opponent?.name },
+          {
+            label: out.label,
+            scenario,
+            seed,
+            turnsRequested: turns,
+            opponent: out.opponent?.name,
+            foodEnergy: spec.foodEnergy,
+          },
           budget
         )
       )
@@ -2047,7 +2303,8 @@ async function summarise(
     `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''} seeds=${seeds} ` +
       `unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
-      `stationary%=${per(totals.stationary as number)} seedKept%=${per(totals.seedKept as number)} ` +
+      `stationary%=${per(totals.stationary as number)} longestPark=${longestPark} ` +
+      `seedKept%=${per(totals.seedKept as number)} ` +
       `starvation=${totals.starvationDeaths} otherDeaths=${totals.otherDeaths} ` +
       `causes=${JSON.stringify(causes)} ` +
       ((totals.potionPickups as number) > 0
@@ -2058,6 +2315,21 @@ async function summarise(
         : '') +
       `nodes=${nodes} ` +
       (budget.kind === 'ms' ? `worstMs=${worst.toFixed(0)}` : 'deterministic')
+  );
+  // --- THE ENEMY-OCCUPIED ENTRY INSTRUMENT, on its own line (D1). `meals` and
+  // `grown` ride here too: on a lean board they differ, and `grown/meals` is
+  // the fill-to-grow division of labour the audit's gap is about.
+  out.say(
+    `${scenario} D1: enemyOccupiedEntries=${totals.enemyOccupiedEntries} ` +
+      `lost=${totals.enemyOccupiedEntriesLost} ` +
+      `entries/100=${per(totals.enemyOccupiedEntries as number)} ` +
+      `lost/100=${per(totals.enemyOccupiedEntriesLost as number)} ` +
+      `meals=${totals.foodEaten} grown=${totals.grownMeals} ` +
+      `grown/meals=${
+        (totals.foodEaten as number) === 0
+          ? 'n/a'
+          : ((totals.grownMeals as number) / (totals.foodEaten as number)).toFixed(2)
+      }`
   );
   // --- THE ENTRAPMENT INSTRUMENT, on its own line (docs/design/entrapment.md
   // §7.2). `lead` is the mean warning in turns over the fatal episodes, which
@@ -2128,6 +2400,14 @@ Flags
                  Absent: every team mirrors the default profile, exactly as
                  before this flag existed. The JSON summary then carries
                  \`opponent\` with NAME; a mirror run carries no such field.
+  --food-energy=N  WHAT ONE MEAL IS WORTH (\`GameSetup.foodEnergy\`). Absent: the
+                 scenario's own value, which for every scenario but
+                 \`sparse-lean\` is nothing at all, so the engine reads
+                 \`DEFAULT_FOOD_ENERGY\` = 100 = the default max energy and every
+                 meal both fills and grows the eater. Below a kind's max, a unit
+                 needs several meals to fill and grows only on the one that tops
+                 it off — the fill-to-grow rule, which no scenario exercised
+                 before \`sparse-lean\`. Watch \`grownMeals\` beside \`meals\`.
 
 Examples
   node dist/tests/local-game.js mixed 30 1 150
@@ -2141,6 +2421,10 @@ interface Flags {
   readonly json: string | boolean;
   readonly label: string;
   readonly opponent: string | null;
+  /** `--food-energy=N`, or null for "whatever the scenario says", which for
+   *  every scenario but `sparse-lean` is nothing at all and therefore the
+   *  engine's own `DEFAULT_FOOD_ENERGY`. */
+  readonly foodEnergy: number | null;
   readonly positional: string[];
 }
 
@@ -2150,6 +2434,7 @@ function parseFlags(argv: readonly string[]): Flags {
   let json: string | boolean = false;
   let label = 'local';
   let opponent: string | null = null;
+  let foodEnergy: number | null = null;
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -2174,6 +2459,14 @@ function parseFlags(argv: readonly string[]): Flags {
         }
         opponent = value;
         break;
+      case 'food-energy': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error('--food-energy requires a positive number, e.g. --food-energy=50');
+        }
+        foodEnergy = n;
+        break;
+      }
       case 'help':
         console.log(HELP);
         process.exit(0);
@@ -2182,15 +2475,24 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, opponent, positional };
+  return { nodes, json, label, opponent, foodEnergy, positional };
 }
 
-function scenariosNamed(which: string): Array<[string, GameSpec]> {
+/**
+ * THE OVERRIDE, in one place. `--food-energy` states what a meal is worth for
+ * this invocation; absent, the scenario's own field rides through, and where
+ * the scenario states nothing the board carries no `foodEnergy` at all and the
+ * engine reads `DEFAULT_FOOD_ENERGY` exactly as it always has.
+ */
+const withFoodEnergy = (spec: GameSpec, foodEnergy: number | null): GameSpec =>
+  foodEnergy === null ? spec : { ...spec, foodEnergy };
+
+function scenariosNamed(which: string, foodEnergy: number | null = null): Array<[string, GameSpec]> {
   const names = which === 'all' ? Object.keys(SCENARIOS) : which.split(',');
   return names.map((name): [string, GameSpec] => {
     const spec = SCENARIOS[name];
     if (spec === undefined) throw new Error(`unknown scenario ${name}`);
-    return [name, spec];
+    return [name, withFoodEnergy(spec, foodEnergy)];
   });
 }
 
@@ -2226,7 +2528,7 @@ async function main(): Promise<void> {
       flags.nodes === null
         ? { kind: 'ms', ms: Number(argv[4] ?? 100) }
         : { kind: 'nodes', nodes: flags.nodes };
-    for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes')) {
+    for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
       await summarise(name, spec, turns, seeds, budget, {
         label: flags.label,
         json: emitJson,
@@ -2245,8 +2547,9 @@ async function main(): Promise<void> {
     flags.nodes === null
       ? { kind: 'ms', ms: Number(argv[3] ?? 150) }
       : { kind: 'nodes', nodes: flags.nodes };
-  const spec = SCENARIOS[which];
-  if (spec === undefined) throw new Error(`unknown scenario ${which}`);
+  const named = SCENARIOS[which];
+  if (named === undefined) throw new Error(`unknown scenario ${which}`);
+  const spec = withFoodEnergy(named, flags.foodEnergy);
   const result = await runGame(
     {
       ...spec,
@@ -2260,7 +2563,14 @@ async function main(): Promise<void> {
     JSON.stringify(
       summaryOf(
         result.metrics,
-        { label: flags.label, scenario: which, seed, turnsRequested: turns, opponent: opponent?.name },
+        {
+          label: flags.label,
+          scenario: which,
+          seed,
+          turnsRequested: turns,
+          opponent: opponent?.name,
+          foodEnergy: spec.foodEnergy,
+        },
         budget
       )
     )
@@ -2280,6 +2590,11 @@ async function main(): Promise<void> {
   say(`  unjustified: ${pct(result.metrics.unjustifiedReversals, result.metrics.unitTurns)}%`);
   say(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
   say(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
+  say(`longest park:  ${result.metrics.longestPark} turns`);
+  say(
+    `enemy-cell entries: ${result.metrics.enemyOccupiedEntries} ` +
+      `(lost ${result.metrics.enemyOccupiedEntriesLost})`
+  );
   finish();
 }
 

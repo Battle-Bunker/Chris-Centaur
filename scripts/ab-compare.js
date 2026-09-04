@@ -49,6 +49,7 @@ const path = require('path');
 // everything), then the raw sizes that say whether the run itself changed.
 const DEFAULT_METRICS = [
   'rates.mealsPer100',
+  'rates.grownMealsPer100',
   'rates.deathsPer100',
   'rates.reversalsPer100',
   'rates.unjustifiedReversalsPer100',
@@ -61,6 +62,11 @@ const DEFAULT_METRICS = [
   'counters.turns',
   'counters.deathsWhileDebuffed',
   'counters.deathsWhileBuffed',
+  // D1's instrument (docs/design/BEHAVIOUR-AUDIT.md): how often a unit walks at
+  // the square an enemy is standing on, and how often it loses there.
+  'rates.enemyOccupiedEntriesPer100',
+  'rates.enemyOccupiedEntriesLostPer100',
+  'counters.longestPark',
 ];
 
 /** Lower is better for these; everything else reads "higher is better". */
@@ -72,6 +78,8 @@ const LOWER_IS_BETTER = new Set([
   'rates.stationaryPer100',
   'rates.seedKeptPer100',
   'counters.deathsWhileDebuffed',
+  'rates.enemyOccupiedEntriesLostPer100',
+  'counters.longestPark',
 ]);
 
 function readRuns(target) {
@@ -109,7 +117,15 @@ function readRuns(target) {
 // on `undefined`, so it prints and pairs like any other named arm instead of
 // vanishing from a `Map` key.
 const opponentOf = (run) => run.opponent ?? 'none';
-const keyOf = (run) => `${run.scenario}|${run.seed}|${opponentOf(run)}`;
+// AND SO IS WHAT A MEAL IS WORTH. `sparse` and `sparse` at `foodEnergy: 50` are
+// the same geometry under two different food rules — every meal fills and grows
+// on one, only the meal that tops a tank off grows on the other — so they pair
+// no more than two different boards do. A run with no `foodEnergy` field (every
+// scenario but `sparse-lean`, and every summary taken before the field existed)
+// keys on the literal string 'default', for the same reason `opponent` keys on
+// 'none': an `undefined` in a `Map` key would make it vanish rather than print.
+const foodEnergyOf = (run) => (run.foodEnergy === undefined ? 'default' : String(run.foodEnergy));
+const keyOf = (run) => `${run.scenario}|${run.seed}|${opponentOf(run)}|${foodEnergyOf(run)}`;
 const pick = (run, dotted) =>
   dotted.split('.').reduce((o, k) => (o === undefined || o === null ? undefined : o[k]), run);
 
@@ -214,17 +230,31 @@ function main() {
     // ('none') and a run against 'material-only' are different experiments
     // over the same board, so each gets its own block below rather than a
     // shared mean across both.
-    const opponents = [
-      ...new Set(before.filter((r) => r.scenario === scenario).map(opponentOf)),
+    // WHAT A MEAL IS WORTH SPLITS THE BLOCK TOO, for the same reason: the same
+    // board under two food rules is two experiments.
+    const arms = [
+      ...new Set(
+        before
+          .filter((r) => r.scenario === scenario)
+          .map((r) => `${opponentOf(r)}|${foodEnergyOf(r)}`)
+      ),
     ].sort();
-    for (const opponent of opponents) {
-      const pairKey = (seed) => `${scenario}|${seed}|${opponent}`;
+    for (const arm of arms) {
+      const [opponent, foodEnergy] = arm.split('|');
+      const pairKey = (seed) => `${scenario}|${seed}|${opponent}|${foodEnergy}`;
       const seeds = before
-        .filter((r) => r.scenario === scenario && opponentOf(r) === opponent)
+        .filter(
+          (r) =>
+            r.scenario === scenario &&
+            opponentOf(r) === opponent &&
+            foodEnergyOf(r) === foodEnergy
+        )
         .map((r) => r.seed)
         .filter((seed) => byKeyB.has(pairKey(seed)))
         .sort((a, b) => a - b);
-      const label = opponent === 'none' ? scenario : `${scenario} / opponent=${opponent}`;
+      const label =
+        (opponent === 'none' ? scenario : `${scenario} / opponent=${opponent}`) +
+        (foodEnergy === 'default' ? '' : ` / foodEnergy=${foodEnergy}`);
       process.stdout.write(`\n=== ${label}  (${seeds.length} paired seeds) ===\n`);
       if (seeds.length === 0) continue;
 
