@@ -17,6 +17,7 @@ import {
   Orientation,
   PieceAction,
   canHold,
+  fullDims,
   grammarUnitAt,
   legalStagingCandidates,
   stagingActionFor,
@@ -2792,8 +2793,7 @@ export class ActiveGameManager {
     const head = you?.head || you?.body?.[0];
     if (!board || !you || !head) return null;
 
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
+    const { fullW, fullH } = fullDims(board);
     const originIdx = apiCoordToIndex(head, fullW, fullH);
     const intent = controlled.intent;
 
@@ -2955,8 +2955,7 @@ export class ActiveGameManager {
     if (!gs || !head) return [];
 
     const board = gs.board;
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
+    const { fullW, fullH } = fullDims(board);
     const unitType = controlled.unitType ?? 'snake';
     const legal = legalStagingCandidates(
       grammarUnitAt(unitType, apiCoordToIndex(head, fullW, fullH), gs.you.orientation),

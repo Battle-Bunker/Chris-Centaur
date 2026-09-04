@@ -357,9 +357,6 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
  * what production runs. */
 export const defaultEvaluator = new BoundEvaluator();
 
-/** The same thing under the name that says what it carries. */
-export const territoryEvaluator = defaultEvaluator;
-
 /** A material-only evaluator: the reflex rung's, the differential's, and the
  * explicit fallback profile if territory ever has to be backed out. */
 export const materialEvaluator = new BoundEvaluator(MATERIAL_ONLY_PROFILE);

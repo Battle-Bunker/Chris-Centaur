@@ -85,9 +85,6 @@ export const scale = (a: Bound, k: number): Bound => {
   return bound(a.lo * k, a.est * k, a.hi * k);
 };
 
-/** Sound negation: the interval flips end for end. */
-export const negate = (a: Bound): Bound => bound(-a.hi, -a.est, -a.lo);
-
 /** Union of the possible: widens. Used when extremizing a non-monotone input. */
 export const join = (a: Bound, b: Bound): Bound =>
   bound(Math.min(a.lo, b.lo), (a.est + b.est) / 2, Math.max(a.hi, b.hi));
