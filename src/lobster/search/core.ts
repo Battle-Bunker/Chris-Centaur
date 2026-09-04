@@ -576,7 +576,23 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
     if (!cmp.comparable) return REFUSED.basis;
     if (cmp.order !== 0) return cmp.order > 0 ? ACCEPT : REFUSED.floor;
-    if (trial.est !== incumbent.est) return trial.est > incumbent.est ? ACCEPT : REFUSED.est;
+    // RUNG 4 IS HORIZON-LOCAL (06 F-4, Q-L7).
+    //
+    // `lo` and `hi` cross a horizon boundary because they are claims about a
+    // horizon-INDEPENDENT quantity, proved to different depths. `est` does not:
+    // it is the evaluator's advisory scalar taken from B0 alone, with no basis,
+    // no ledger and no soundness claim, and two ests at two horizons are two
+    // evaluations of two different boards with no declared discount between
+    // them. Comparing them is Law H's forbidden fold, and the shape of the trap
+    // is on record — an arena depth layer that published a proved floor into a
+    // mean slot composed a downward bias with an upward one and nobody could
+    // see it. So the rung is skipped where it cannot speak, and the ceiling,
+    // which is a bound, decides instead. One line, and it is why depth needs no
+    // fourth fiber coordinate.
+    const acrossHorizons = horizonOfPlan(trial.plan) !== horizonOfPlan(incumbent.plan);
+    if (!acrossHorizons && trial.est !== incumbent.est) {
+      return trial.est > incumbent.est ? ACCEPT : REFUSED.est;
+    }
     if (trial.bounds.best !== incumbent.bounds.best) {
       return trial.bounds.best > incumbent.bounds.best ? ACCEPT : REFUSED.hi;
     }
@@ -702,7 +718,23 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     trials = ctx.trials ?? null;
     try {
       rung = "seed";
-      let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+      const seeded = seedPlan(s, ctx.incumbent?.plan ?? null);
+      // A DEEP READING SURVIVES THE SLICE BOUNDARY. The kernel resumes a
+      // decision by handing back the incumbent it emitted, so a horizon proved
+      // in an earlier slice has to arrive with it or every slice would start
+      // over at one ply — and `better()`'s rung-4 guard would then never see
+      // the boundary it exists to refuse to cross. Two plan keys per call, and
+      // only when the incumbent claims a depth at all.
+      const carried = ctx.incumbent;
+      if (
+        carried !== null &&
+        carried.horizon !== undefined &&
+        carried.horizon > 1 &&
+        viewPlanKey(seeded) === viewPlanKey(carried.plan)
+      ) {
+        deepHorizon.set(seeded as object, carried.horizon);
+      }
+      let best = s.bank.price(seeded);
       // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
       // whole slice never touched would have no row at all, and the operator
       // would read an empty table for the units the search is happiest about.

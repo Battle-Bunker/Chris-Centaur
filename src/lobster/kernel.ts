@@ -781,6 +781,21 @@ interface RatchetBasis {
    * est can never lower the promise.
    */
   readonly channel: "lo" | "est"
+  /**
+   * THE HORIZON COORDINATE OF THE RATCHETED CHANNEL (06 F-8).
+   *
+   * Inert under `lo` and load-bearing under `est`, for the reason the whole of
+   * F-4 turns on: a floor is a claim about a horizon-independent quantity, so
+   * two floors proved at two depths ratchet against each other unharmed, while
+   * an `est` is a summary AT a horizon and two of them are two answers to two
+   * questions. Under FOGGED-VACUOUS the ratcheted `value` IS the clamped est,
+   * so without this coordinate a deeper reading's est would be read as a
+   * retraction of a shallower one — or, worse, as a promise kept. The basis
+   * ENDS where its coordinate changes, which is the same thing a posture flip
+   * does and for the same reason: the quantity being ratcheted stopped being
+   * the same quantity.
+   */
+  readonly horizon: number
   floorLo: number
   floorChannel: number
   stagedHi: number
@@ -790,10 +805,11 @@ interface RatchetBasis {
   emits: number
 }
 
-function newBasis(epoch: number, posture: Posture): RatchetBasis {
+function newBasis(epoch: number, posture: Posture, horizon = 1): RatchetBasis {
   return {
     epoch,
     posture,
+    horizon,
     channel: channelPolicyFor(posture).orderBy,
     floorLo: Number.NEGATIVE_INFINITY,
     floorChannel: Number.NEGATIVE_INFINITY,
@@ -1560,7 +1576,7 @@ export class LobsterKernel implements Kernel {
     // A NEW basis object. The old one is dropped on the floor: no map from
     // epoch to floor exists, so nothing in the new epoch can be compared with
     // anything proved in the old one.
-    run.basis = newBasis(run.epoch, run.governor.current)
+    run.basis = newBasis(run.epoch, run.governor.current, run.basis.horizon)
     // Plans proved under the old pins are not comparable under the new ones —
     // and neither is the refinement view that ranked them.
     run.plans.clear()
@@ -1896,7 +1912,7 @@ export class LobsterKernel implements Kernel {
     }))
     const carried = run.basis.staged
     const carriedPlan = run.basis.stagedPlan
-    run.basis = newBasis(run.epoch, flip.to)
+    run.basis = newBasis(run.epoch, flip.to, run.basis.horizon)
     if (carried !== null && carriedPlan !== null) {
       // The SAME-EVALUATOR RULE: a tier re-measures the incumbent under its own
       // evaluator before it may be replaced. Here the "tier" is the channel the
@@ -2054,6 +2070,20 @@ export class LobsterKernel implements Kernel {
     horizon: number,
     forced: boolean,
   ): EmitRecord | null {
+    // THE BASIS ENDS WHERE ITS COORDINATE CHANGES (06 F-8). Under `lo` the
+    // horizon is inert and this never fires; under `est` — the FOGGED-VACUOUS
+    // channel, where the ratcheted value IS the clamped est — a reading proved
+    // at another depth is not a stronger or weaker version of this basis's
+    // promise, it is a promise about a different question. So the basis is
+    // replaced rather than compared across, exactly as a posture flip replaces
+    // it, and the staged record carries over because the WIRE did not change.
+    if (run.basis.channel === "est" && row.horizon !== run.basis.horizon) {
+      const carried = run.basis.staged
+      const carriedPlan = run.basis.stagedPlan
+      run.basis = newBasis(run.epoch, run.governor.current, row.horizon)
+      run.basis.staged = carried
+      run.basis.stagedPlan = carriedPlan
+    }
     const basis = run.basis
     const lo = row.lo
     const hi = Math.max(row.hi, row.lo)

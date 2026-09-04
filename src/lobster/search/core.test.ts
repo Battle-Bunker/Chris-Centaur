@@ -755,3 +755,59 @@ describe('the refiner seam has a producer (06 F-1)', () => {
     }
   }, 120_000);
 });
+
+describe('est never crosses a horizon (06 F-4)', () => {
+  /**
+   * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED — i.e.
+   * every comparison made against the reading whose horizon the test set. Once
+   * the search accepts something the incumbent is a fresh one-ply reading and
+   * the two horizons agree again, which is the guard working rather than the
+   * guard being absent.
+   */
+  function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefined): string[] {
+    const h = harness(spec);
+    const because: string[] = [];
+    try {
+      // The incumbent is the plan an unconstrained search already settled on,
+      // so nothing displaces it and every trial in the run below is compared
+      // against THIS reading — which is what makes the horizon under test the
+      // horizon on the other side of every comparison.
+      const settled = makeSearchCore().improve(h.ctx);
+      const seedKey = planKey(settled.plan);
+      const incumbent: PlanScore = {
+        plan: settled.plan,
+        bounds: settled.bounds,
+        witnesses: settled.witnesses,
+        ...(incumbentHorizon === undefined ? {} : { horizon: incumbentHorizon }),
+      };
+      makeSearchCore().improve({
+        ...h.ctx,
+        incumbent,
+        trials: (t) => {
+          if (t.because !== null && planKey(t.incumbentPlan) === seedKey) because.push(t.because);
+        },
+      });
+    } finally {
+      h.close();
+    }
+    return because;
+  }
+
+  test('rung 4 decides within a horizon and is skipped across one', () => {
+    const specs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => seededBoard(n, 6, 2));
+    // The situation is REACHABLE: at one ply the ladder really does fall
+    // through to est against this very incumbent, so the guard below refuses
+    // something rather than asserting a vacuous truth.
+    const level = specs.flatMap((spec) => refusalsAgainstSeed(spec, undefined));
+    expect(level).toContain('est');
+    // Now the incumbent's reading was proved two plies out and every trial one.
+    // `est` is the evaluator's advisory scalar with no basis, no ledger and no
+    // soundness claim, taken from B0 alone; two of them at two horizons are two
+    // evaluations of two different boards with no declared discount between
+    // them. The rung says nothing, and the ceiling — a bound — decides instead.
+    const across = specs.flatMap((spec) => refusalsAgainstSeed(spec, 2));
+    expect(across).not.toContain('est');
+    // The ladder is still a ladder: every rung that CAN cross still fires.
+    expect(across.length).toBeGreaterThan(0);
+  }, 180_000);
+});

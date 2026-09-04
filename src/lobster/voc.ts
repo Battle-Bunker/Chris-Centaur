@@ -191,6 +191,24 @@ export function stagingRowOf(
  * Both modes fall back, in order, to the un-vetoed candidates and then to the
  * whole set ordered by hi, so a leader always exists: staging nothing is never
  * an outcome of this function.
+ *
+ * ── EST NEVER CROSSES A HORIZON (06 F-4) ───────────────────────────────────
+ *
+ * `lo` and `hi` are claims about a horizon-independent quantity proved to
+ * different depths, so they compare across horizons unharmed. `est` is a
+ * summary AT a horizon — the evaluator's advisory scalar, from B0 alone, with
+ * no basis and no soundness claim — so two of them from two depths answer two
+ * questions and no field declares a discount between them. This was compared
+ * with no guard at both of this function's est reads: as the tie-break under
+ * `adjudicate`, and as the PRIMARY key under `veto`, which is precisely the
+ * FOGGED-VACUOUS posture where est is the channel that adjudicates.
+ *
+ * The fix is one coordinate in the ladder, not a fourth coordinate in the
+ * basis: HORIZON sits immediately above every est comparison, so est only ever
+ * compares readings of the same depth, and where depths differ the deeper
+ * reading is preferred — the same direction the sticky stager's own guard
+ * points, held deliberately rather than by inheritance. Depth therefore needs
+ * no fiber coordinate of its own (06 §1.5, Q-L7).
  */
 export function pickLeader(
   rows: ReadonlyArray<StagingCandidate>,
@@ -199,30 +217,39 @@ export function pickLeader(
   if (rows.length === 0) return -1
   const admissible: number[] = []
   for (let i = 0; i < rows.length; i++) if (!vetoed(rows[i].vacuity)) admissible.push(i)
+  const lo = (r: StagingCandidate): number => r.lo
+  const hi = (r: StagingCandidate): number => r.hi
+  const est = (r: StagingCandidate): number => r.est
+  const at = (r: StagingCandidate): number => r.horizon
 
   if (policy.loRole === "veto") {
     const pool = admissible.length > 0 ? admissible : rows.map((_, i) => i)
-    return bestOf(rows, pool, (r) => r.est, (r) => r.hi)
+    // est is the ORDERING channel here, so the horizon guard goes ABOVE it.
+    return bestOf(rows, pool, [at, est, hi])
   }
 
   const alive = admissible.filter((i) => rows[i].vacuity === "alive")
-  if (alive.length > 0) return bestOf(rows, alive, (r) => r.lo, (r) => r.est)
-  if (admissible.length > 0) return bestOf(rows, admissible, (r) => r.hi, (r) => r.est)
-  return bestOf(rows, rows.map((_, i) => i), (r) => r.hi, (r) => r.est)
+  if (alive.length > 0) return bestOf(rows, alive, [lo, at, est])
+  if (admissible.length > 0) return bestOf(rows, admissible, [hi, at, est])
+  return bestOf(rows, rows.map((_, i) => i), [hi, at, est])
 }
 
+/** Argmax on a lexicographic ladder of numeric keys, first index wins ties. */
 function bestOf(
   rows: ReadonlyArray<StagingCandidate>,
   pool: ReadonlyArray<number>,
-  primary: (r: StagingCandidate) => number,
-  secondary: (r: StagingCandidate) => number,
+  keys: ReadonlyArray<(r: StagingCandidate) => number>,
 ): number {
   let best = pool[0]
   for (const i of pool) {
     const a = rows[i]
     const b = rows[best]
-    if (primary(a) > primary(b) || (primary(a) === primary(b) && secondary(a) > secondary(b))) {
-      best = i
+    for (const key of keys) {
+      const ka = key(a)
+      const kb = key(b)
+      if (ka === kb) continue
+      if (ka > kb) best = i
+      break
     }
   }
   return best
@@ -358,8 +385,17 @@ export class StickyStager {
       }
     }
     if (incumbentVacuous && policy.vacuousMayWin) {
+      // THE GUARD IS REQUIRED HERE (06 F-5), and it is stronger than a `>=`.
+      // This arm dethrones on `est`, and an est from another horizon is not a
+      // bigger or smaller est — it is an answer to another question, so the
+      // MARGIN cannot adjudicate it either. Three cases, and only one of them
+      // is a number comparison: a strictly deeper leader takes the stage
+      // because it is the better-informed reading of the same decision; an
+      // equal-horizon leader must clear the margin, which is what the margin
+      // is for; a shallower one is refused outright.
       const better =
-        leader.horizon >= incumbent.horizon && leader.est > incumbent.est + this.margin
+        leader.horizon > incumbent.horizon ||
+        (leader.horizon === incumbent.horizon && leader.est > incumbent.est + this.margin)
       if (better) {
         this.stagedKey = leader.key
         return {
@@ -381,8 +417,16 @@ export class StickyStager {
       }
     }
 
-    // F1: a ≥margin lo improvement at an equal-or-deeper horizon.
-    if (leader.horizon >= incumbent.horizon && leader.lo > incumbent.lo + this.margin) {
+    // F1: a ≥margin lo improvement. AND NOT "at an equal-or-deeper horizon"
+    // (06 F-5): a floor is a floor whatever proved it — `compareFloors` reads
+    // `worst` and nothing else — so refusing a strictly better PROVED floor
+    // because a shallower reading proved it is preferring ignorance to a proof.
+    // The guard's stated motivation, the "≤4-point h=1 refutation that reversed
+    // at h=2", is an est-channel phenomenon: a refutation on sound ceilings
+    // cannot reverse under contraction-only refinement. So it stays on the est
+    // arm above, where it is required, and comes off the floor arm, where it
+    // was inherited.
+    if (leader.lo > incumbent.lo + this.margin) {
       this.stagedKey = leader.key
       return {
         staged: leader,

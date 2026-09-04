@@ -818,6 +818,52 @@ describe("FOGGED-VACUOUS on the wire", () => {
   })
 })
 
+describe("the ratchet's basis carries the horizon coordinate (06 F-8)", () => {
+  const cloudDead = [ledgerEntry(9)]
+
+  it("ends the est basis where the horizon changes, instead of reading a retraction", async () => {
+    // Under FOGGED-VACUOUS the ratcheted value IS the clamped est, and est is a
+    // summary AT a horizon. Here the deeper reading's est is LOWER than the
+    // shallow one the basis is standing on — which is not a retraction, it is
+    // an answer to a different question — so the basis ends and the deeper
+    // reading takes the wire. Without the coordinate the gate reads it as a
+    // broken refinement lattice and refuses it forever.
+    const ests = new Map<string, number>([
+      [planKey(P1), -900],
+      [planKey(P2), -500],
+      [planKey(P3), -700],
+    ])
+    const r = rig(
+      [
+        step({ plan: P1, worst: -1000, best: 40, ledger: cloudDead, horizon: 1 }),
+        step({ plan: P2, worst: -1000, best: 35, ledger: cloudDead, horizon: 1 }),
+        step({ plan: P3, worst: -1000, best: 30, ledger: cloudDead, horizon: 2 }),
+      ],
+      { switchMargin: 1, deadBelow: CLIFF },
+      {
+        baseline: P1,
+        evaluator: new StubEvaluator((p: JointPlan) => ({
+          lo: -1000,
+          est: ests.get(planKey(p)) ?? -1000,
+          hi: 40,
+        })),
+      }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    const vacuous = out.filter((rec) => rec.posture === "FOGGED-VACUOUS")
+    expect(vacuous.length).toBeGreaterThan(1)
+    const last = vacuous[vacuous.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    expect(last.horizon).toBe(2)
+    // It landed because the basis ended, not because the ratchet was waived:
+    // nothing was refused as a retraction on the way.
+    expect(reportOf(r.kernel).refusals["ratchet-floor"]).toBe(0)
+    // And the floor never weakened — `lo` keeps its own basis-scoped floor
+    // underneath whatever the leading channel does.
+    for (const rec of vacuous) expect(rec.lo).toBe(-1000)
+  })
+})
+
 // ===========================================================================
 
 describe("humans always win", () => {
