@@ -916,6 +916,14 @@ export interface LensFrame {
   /** Keyed `${clusterId}|${unitKey}|${to}` — one list per conditional. */
   readonly movesets: Readonly<Record<string, ReadonlyArray<Moveset>>>;
   readonly breakdown: Readonly<Record<MovesetKey, MovesetBreakdown>>;
+  /**
+   * `Q` and `P` as the bank measured them on each cluster's leader, keyed by
+   * `String(clusterId)` — the frame's own context, carried on every `movesets`
+   * frame and, until now, folded away unread. It is what the depth cell says
+   * INSTEAD of a bare `h1 ·`: the absence of a ply, drawn with its reason
+   * (08 §4.5, gate G-D6). Absent on a frame nobody measured.
+   */
+  readonly loud?: Readonly<Record<string, LoudReading>>;
   readonly staged: Readonly<Record<UnitKey, StagedMoveView>>;
   readonly routes: Readonly<Record<UnitKey, RouteView>>;
   readonly waypoints: Readonly<Record<UnitKey, WaypointView>>;
@@ -1097,6 +1105,10 @@ export interface WidenNotice {
   readonly toGeneration: number;
   readonly gained: ReadonlyArray<UnitKey>;
   readonly by: OperatorId | null;
+  /** The cluster's size BEFORE the widen. The banner reads
+   *  `gained + members` — one sentence whose arithmetic the reader can check.
+   *  Without it the banner said "cluster is now 1 units" (09 §A4). */
+  readonly members: number;
   /** `min(6s, 0.25 × (turnExpiryTime − now))` (04 §3 Q8). */
   readonly autoAcceptMs: number;
   /** Suspended while the drill panel is open; queued behind an in-flight lock. */
@@ -1109,7 +1121,10 @@ export interface WidenNotice {
 export interface NarrowNote {
   readonly cluster: ClusterId;
   readonly lost: ReadonlyArray<UnitKey>;
-  readonly why: FixityReason;
+  /** A fixity when somebody fixed it, `'gone'` when the unit simply left the
+   *  board. Only a fixity has an author, and calling a death a pin would
+   *  attribute a determination nobody made. */
+  readonly why: FixityReason | 'gone';
   readonly by: OperatorId | null;
 }
 

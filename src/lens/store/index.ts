@@ -49,6 +49,7 @@ import type {
   LensAt,
   LensEvent,
   LensFrame,
+  LoudReading,
   Moveset,
   MovesetProjectionRow,
   MovesetsPayload,
@@ -199,6 +200,12 @@ function unitRowsOf(
 /** The reservoir for a cluster, and the conditional lists hung off a lock.
  *  One keyspace, two shapes of key, so a consumer that has a cluster and a
  *  consumer that has a lock both index the same record (`LensFrame.movesets`). */
+/** The slices spent by the time these rows were priced — `Reading.quanta`,
+ *  which the kernel stamps from the slice's own start reading. */
+function quantaOf(rows: ReadonlyArray<Moveset>): number {
+  return rows.reduce((most, row) => Math.max(most, row.depth.deepest.quanta), 0);
+}
+
 function reservoirKey(cluster: ClusterId): string {
   return String(cluster);
 }
@@ -278,8 +285,14 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
   const fixities = new Map<UnitKey, UnitFixity>();
   const dead = new Set<UnitKey>();
 
+  const loud: Record<string, LoudReading> = {};
+
   let input: DecisionInput | null = null;
   let emissionSeq = anchor.seq;
+  // SLICES, not frames. `quantaSpent` is read at the operator as `1,180q` —
+  // search quanta — and counting emissions instead would have written the
+  // wrong order of magnitude next to the word (07 §1: 7–10 emissions a turn).
+  // The reading the rows carry is the real one.
   let quantaSpent = 0;
   let last: TurnEvent = anchor;
 
@@ -293,6 +306,11 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
       case 'movesets': {
         const p = payloadOf<MovesetsPayload>(event);
         movesets[reservoirKey(p.cluster)] = p.rows;
+        // THE FRAME'S CONTEXT, kept: `Q` and `P` on this cluster's leader.
+        // Measured by the bank, shipped on every frame, stored — and read by
+        // nothing until the depth cell drew the decline with its reason.
+        if (p.loud !== null) loud[reservoirKey(p.cluster)] = p.loud;
+        quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
         noteCandidates(priced, p.rows, true);
         break;
       }
@@ -301,12 +319,12 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
         for (const lock of p.locks) {
           movesets[conditionalKey(p.cluster, lock.unit, lock.to)] = p.rows;
         }
+        quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
         noteCandidates(priced, p.rows, true);
         break;
       }
       case 'emission': {
         emissionSeq = event.seq;
-        quantaSpent += 1;
         break;
       }
       case 'decision.begin': {
@@ -390,7 +408,11 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     gameId: anchor.gameId,
     turn: store.turn,
     seq,
-    tMono: last.atWall - anchor.atWall,
+    // THE AXIS THAT REPLAYS. `atWorkMs` is the kernel's own clock from t0 —
+    // `nodes × NODE_COST + reads × READ_COST` — and it is what the ticks
+    // carry; the wall delta is the fallback for an event nobody measured, and
+    // it is a different axis from the one the lane is laid out on.
+    tMono: last.atWorkMs ?? last.atWall - anchor.atWall,
     tWall: last.atWall,
     mode: 'replay',
     isHead: false,
@@ -404,6 +426,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     candidates: candidatesOf(priced),
     movesets,
     breakdown: {},
+    loud,
     staged,
     routes,
     waypoints,

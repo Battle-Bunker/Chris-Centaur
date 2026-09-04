@@ -23,18 +23,18 @@
 import { applyEvent, emptyStore, reviveLens } from '../store';
 import { makeLiveSource, makeReplaySource } from '../store/sources';
 import {
+  boundingOf,
   clusterOf,
   incumbentCandidate,
   initialCursor,
   rankOne,
+  reservoirListKey,
   rowsFor,
   stagedCellOf,
 } from './cursor';
 import type {
   CandidateRow,
-  ConditionalHandle,
   DominanceCondition,
-  ConditionalRequest,
   Cursor,
   DecisionSource,
   DrawCall,
@@ -42,14 +42,9 @@ import type {
   FrameStore,
   LensCursor,
   LensFrame,
-  LensRefusal,
+  LoudReading,
   Moveset,
-  MovesetBreakdown,
-  MovesetKey,
-  Provenanced,
-  RequestId,
   RowTrail,
-  SourceDelta,
   TurnEvent,
   TurnEventKind,
   UnitKey,
@@ -61,29 +56,10 @@ export * from './cursor';
 // The two sources
 // ---------------------------------------------------------------------------
 
-/**
- * The transport a LIVE source asks its two questions through: the conditional
- * ranking behind a candidate, and the breakdown behind a row. Both are served
- * out of the kernel's declared inspection reserve, so both can be REFUSED —
- * and a refusal comes back typed, on the same channel, never as silence.
- *
- * Absent ⇒ the source still folds, still frames, still draws. It simply has
- * nothing to ask with, which it says in words.
- */
-export interface LensTransport {
-  conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal>;
-  breakdown(
-    moveset: MovesetKey,
-    members?: ReadonlyArray<UnitKey>
-  ): Promise<Provenanced<MovesetBreakdown> | LensRefusal>;
-  cancel?(requestId: RequestId): void;
-}
-
 export interface LiveSourceInput {
   readonly store: FrameStore;
   readonly at: Cursor;
   readonly isHead: boolean;
-  readonly transport?: LensTransport;
 }
 
 export interface ReplaySourceInput {
@@ -96,46 +72,12 @@ export interface ReplaySourceInput {
  *
  * The fold, the cursor, the subscriber set and the three badge fields all live
  * in `../store/sources` — a source is a cursor over an event array, and the
- * array and the reducer both belong to the store. What the view adds is the
- * TRANSPORT: in the browser the two questions a source can ask (the
- * conditional ranking behind a candidate, the breakdown behind a row) go over
- * a websocket rather than into an in-process kernel port, and that is the only
- * difference there is between the page's source and the server's.
- *
- * So these are wrappers and not implementations. A second fold living up here
- * is precisely the fork this module was written to delete, and it would drift
- * the same way the old one did — quietly, in the empty states, where nobody
- * looks.
+ * array and the reducer both belong to the store. These are the names the
+ * browser reaches for; they are wrappers and not implementations, because a
+ * second fold living up here is precisely the fork this module was written to
+ * delete, and it would drift the same way the old one did — quietly, in the
+ * empty states, where nobody looks.
  */
-function withTransport(
-  base: DecisionSource,
-  transport: LensTransport | undefined
-): DecisionSource {
-  return {
-    kind: base.kind,
-    get at(): Cursor {
-      return base.at;
-    },
-    seek(to: Cursor): void {
-      base.seek(to);
-    },
-    frame(): LensFrame {
-      return base.frame();
-    },
-    timeline(): ReadonlyArray<TurnEvent> {
-      return base.timeline();
-    },
-    breakdown(moveset: MovesetKey): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
-      return transport === undefined ? base.breakdown(moveset) : transport.breakdown(moveset);
-    },
-    conditional(req: ConditionalRequest): Promise<ConditionalHandle | LensRefusal> {
-      return transport === undefined ? base.conditional(req) : transport.conditional(req);
-    },
-    subscribe(fn: (d: SourceDelta) => void): () => void {
-      return base.subscribe(fn);
-    },
-  };
-}
 
 /**
  * LIVE. A CURSOR over a store, not a copy of one: the fold is pure and the
@@ -145,10 +87,7 @@ function withTransport(
  * move nobody else's playhead.
  */
 export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
-  return withTransport(
-    makeLiveSource({ store: input.store, at: input.at, isHead: input.isHead }),
-    input.transport
-  );
+  return makeLiveSource(input);
 }
 
 /**
@@ -159,7 +98,7 @@ export function makeLiveDecisionSource(input: LiveSourceInput): DecisionSource {
  * so a drilled row in replay is the row the operator drilled live.
  */
 export function makeReplayDecisionSource(input: ReplaySourceInput): DecisionSource {
-  return withTransport(makeReplaySource({ store: input.store, at: input.at }), undefined);
+  return makeReplaySource(input);
 }
 
 /**
@@ -183,54 +122,57 @@ export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<Tu
   return events.map((e) => reviveLens(e));
 }
 
-export function frameAtSeq(
-  events: ReadonlyArray<TurnEvent>,
-  seq: number,
-  isHead: boolean
-): LensFrame {
+/** The turn's events, folded onto their own `board.arrived` anchor. Shared by
+ *  both entry points below, because the fold is the half that must not differ
+ *  between a live turn and a recorded one. */
+function storeOf(events: ReadonlyArray<TurnEvent>): { store: FrameStore; at: Cursor } {
   const anchor = events.find((e) => e.kind === 'board.arrived') ?? events[0];
   if (anchor === undefined) throw new Error('a turn with no events has no frame');
   const store = events
     .filter((e) => e.seq > anchor.seq)
     .reduce<FrameStore>((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-  return makeLiveDecisionSource({
-    store,
-    at: { gameId: anchor.gameId, turn: anchor.turn, seq },
-    isHead,
-  }).frame();
+  return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
 }
 
-export function requestConditional(
-  source: DecisionSource,
-  req: ConditionalRequest
-): Promise<ConditionalHandle | LensRefusal> {
-  return source.conditional(req);
+export function frameAtSeq(
+  events: ReadonlyArray<TurnEvent>,
+  seq: number,
+  isHead: boolean
+): LensFrame {
+  const { store, at } = storeOf(events);
+  return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
 }
 
-export function requestBreakdown(
-  source: DecisionSource,
-  moveset: MovesetKey
-): Promise<Provenanced<MovesetBreakdown> | LensRefusal> {
-  return source.breakdown(moveset);
+/**
+ * THE SAME FOLD, THROUGH THE REPLAY SOURCE. A recorded turn is not a live turn
+ * an operator has scrubbed back on: it is closed, `N` returns to no head that
+ * exists, and no determination may ever be issued from it. `frameAtSeq` could
+ * not say that — every frame it built came out of the live source — so a
+ * replayed turn badged itself `SCRUBBED`, offered `[N] return to now`, and one
+ * keypress later would accept a lock against a frame from the past (09 §A1).
+ *
+ * The fold, the frame and the transcript are identical; the three badge fields
+ * are the whole of the difference, which is Law C exactly as it is written.
+ */
+export function replayFrameAtSeq(events: ReadonlyArray<TurnEvent>, seq: number): LensFrame {
+  const { store, at } = storeOf(events);
+  return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
 }
 
 // ---------------------------------------------------------------------------
-// The ink
+// The board's vocabulary
 //
 // ONE RULE: violet means hypothetical. Nothing else on the board is violet
 // today and nothing else may become violet. Shape carries the meaning and
 // colour only reinforces it — filled / hollow / dotted separate cursor,
 // implied and foil with the hues collapsed — so the vocabulary survives a
 // deuteranope reader and a dark board equally.
+//
+// THE TOKENS THEMSELVES LIVE WITH THE BRUSH THAT PAINTS THEM,
+// `board-renderer.js::LENS_THEME`, which is the pair `lens-ink.test.ts`
+// checks. A second copy here was a palette nothing drew with and everything
+// could drift from.
 // ---------------------------------------------------------------------------
-
-export const LENS_INK = {
-  lens: { light: '#7B4FE0', dark: '#B39DFF' },
-  lensWash: { light: 'rgba(123,79,224,.07)', dark: 'rgba(179,157,255,.12)' },
-  foil: { light: '#00897B', dark: '#4DB6AC' },
-  fixed: { light: '#6B6B6B', dark: '#9A9A9A' },
-  refuter: { light: '#D84315', dark: '#FF8A65' },
-} as const;
 
 /** α β γ … — a cluster's name on the board, stable within a partition. */
 const CLUSTER_GLYPHS = 'αβγδεζηθικλμν';
@@ -258,13 +200,29 @@ const round1 = (n: number): number => Number(n.toFixed(1));
 
 export interface DepthCell {
   readonly label: string;
-  readonly width: number;
   readonly marks: ReadonlyArray<string>;
   readonly delta: number | null;
   readonly sorted: boolean;
 }
 
-export function depthCell(row: Moveset): DepthCell {
+/** The bracket width of the reading the cell is about — the DEEPEST one, which
+ *  is the number `⌈w⌉` beside the aggregate is a width of. It equals the row's
+ *  own `hi − lo` while nothing deepens, and stops equalling it on the first
+ *  row that does. */
+export function bracketWidth(row: Moveset): number {
+  const { deepest } = row.depth;
+  return Number((deepest.hi - deepest.lo).toFixed(2));
+}
+
+/**
+ * `loud` is the frame's context and not a row's: the bank measured it on the
+ * LEADER's own plan, so only the leader's cell may carry it. `Q` is the count
+ * of enemy replies that touch our staged footprint — the quantity a ceiling
+ * ply would have to enumerate — and `P` is the whole reply product beside it,
+ * which is what makes Finding D-1's anti-correlation readable rather than
+ * asserted (08 §4.4).
+ */
+export function depthCell(row: Moveset, loud: LoudReading | null = null): DepthCell {
   const { h1, deepest, delta, confidence, terminal } = row.depth;
   const deepened = deepest.horizon > h1.horizon;
   const narrowed = deepest.basis !== h1.basis;
@@ -275,32 +233,19 @@ export function depthCell(row: Moveset): DepthCell {
   if (confidence === 'incomparable') marks.push('↕');
   if (narrowed) marks.push('✂');
   if (terminal !== 'none') marks.push('⊤');
+  // THE ABSENCE OF DEPTH IS DRAWN, AND NOW IT IS DRAWN WITH ITS REASON. `h1 ·`
+  // says a ply was not taken; `h1 · Q=340/4096` says how much there was to
+  // enumerate and how much of it could touch us, which is the number the
+  // decision to decline was made on (08 §4.5, gate G-D6).
+  const decline = deepened || loud === null ? '·' : `· Q=${loud.q}/${loud.product}`;
   return {
     label: `h${deepest.horizon}`,
-    width: Number((deepest.hi - deepest.lo).toFixed(2)),
-    marks: marks.length > 0 || deepened ? marks : ['·'],
+    marks: marks.length > 0 || deepened ? marks : [decline],
     delta: deepened ? Number((delta.lo !== 0 ? delta.lo : delta.hi).toFixed(2)) : null,
     // A declared narrowing means `compareFloors` refuses: the row is present
     // and is NOT sorted against the others.
     sorted: !narrowed,
   };
-}
-
-/** 06 §4.2: depth is not an event. It is one predicate over two frames, and
- *  the timeline draws it as a badge on the kernel tick that carried it. */
-export function depthArrivals(prev: LensFrame, next: LensFrame): ReadonlyArray<MovesetKey> {
-  const before = new Map<MovesetKey, number>();
-  for (const rows of Object.values(prev.movesets)) {
-    for (const row of rows) before.set(row.key, row.depth.deepest.horizon);
-  }
-  const arrived: MovesetKey[] = [];
-  for (const rows of Object.values(next.movesets)) {
-    for (const row of rows) {
-      const was = before.get(row.key);
-      if (was !== undefined && row.depth.deepest.horizon > was) arrived.push(row.key);
-    }
-  }
-  return arrived;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,14 +263,46 @@ function foilRow(frame: LensFrame, cursor: LensCursor, selected: Moveset | null)
   return rows.filter((r) => r.key !== selected.key).sort((a, b) => a.rank - b.rank)[0] ?? null;
 }
 
-/** The emptiness the frame actually has, in words. Not "no data": the honest
- *  sentence names what HAS happened and at which seq, which is a different
- *  and much more useful thing to read. */
-export function emptyStateLine(frame: LensFrame): string {
+/**
+ * The emptiness the frame actually has, in words. Not "no data" — and not one
+ * sentence for four different situations either, which is what it was: a table
+ * is empty because the decision has not spoken yet, because the unit under the
+ * cursor is not a variable the bot is solving, because the conditional behind
+ * this candidate has not answered, or because the reservoir honestly retained
+ * nothing (07 §2: 13 of 90 `snakes` decisions). Those are four different
+ * things to know and only the first of them was ever said.
+ */
+export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCursor()): string {
+  const unit = cursor.unit;
+
+  // RULE E, IN THE RAIL. A unit with a fixity is not a member: the bot is not
+  // choosing its move, and the sentence names the reason and its author rather
+  // than blaming the kernel for a silence it is not responsible for.
+  if (unit !== null) {
+    const bound = boundingOf(frame, unit);
+    if (bound !== null) {
+      const by = bound.bound.by === null ? '' : ` by ${bound.bound.by}`;
+      return (
+        `${unit} is ${bound.bound.why}${by} — it is a constant of cluster ` +
+        `${bound.cluster.id}, not a variable the bot is solving`
+      );
+    }
+    const dead = frame.units.find((u) => u.unit === unit)?.fixity ?? 'free';
+    if (dead === 'dead') return `${unit} is dead — there is nothing left to choose for it`;
+  }
+
   const emissions = frame.events.filter((e) => e.kind === 'emission').length;
-  const fastpass = frame.events.some((e) => e.kind === 'stage.fastpass');
-  const staged = fastpass ? 'fast-pass only' : 'nothing staged yet';
-  return `${staged} — no kernel emission yet at seq ${frame.at.seq}` + (emissions > 0 ? '' : '');
+  if (emissions === 0) {
+    const fastpass = frame.events.some((e) => e.kind === 'stage.fastpass');
+    const staged = fastpass ? 'fast-pass only' : 'nothing staged yet';
+    return `${staged} — no kernel emission yet at seq ${frame.at.seq}`;
+  }
+
+  if (unit === null) return `${emissions} emissions at seq ${frame.at.seq} — no unit is focused`;
+  return (
+    `nothing retained for ${unit} at this candidate — ` +
+    `${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`
+  );
 }
 
 function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): DrawCall[] {
@@ -378,16 +355,38 @@ function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null
     // The foil draws where it DIFFERS and nowhere else: two movesets that
     // differ in one unit produce exactly one teal arrow and one Δ badge,
     // which is the picture of the decision.
+    //
+    // THE BADGE IS THAT MEMBER'S CONTRIBUTION DIFFERENCE (02 §3.5) and it is
+    // drawn only where the frame actually holds one. It used to carry the
+    // whole moveset's margin on every differing cell — the same cluster-level
+    // number, on two units, labelled as each unit's own.
     for (const move of foil.moves) {
       const same = selected.moves.find((m) => m.unit === move.unit)?.to === move.to;
-      if (!same) {
-        ops.push(call('foil.arrow', move.unit, move.to));
-        ops.push(call('foil.delta', move.unit, Number((foil.lo - selected.lo).toFixed(2))));
-      }
+      if (same) continue;
+      ops.push(call('foil.arrow', move.unit, move.to));
+      const delta = memberDelta(frame, foil, selected, move.unit);
+      if (delta !== null) ops.push(call('foil.delta', move.unit, delta));
     }
   }
 
   return ops;
+}
+
+/** One member's own contribution, foil minus selected, out of the two rows'
+ *  breakdowns. Null when either breakdown is not in the frame — which is the
+ *  ordinary case until a drill has been answered, and a missing badge is
+ *  honest where a cluster-level number wearing a member's name is not. */
+function memberDelta(
+  frame: LensFrame,
+  foil: Moveset,
+  selected: Moveset,
+  unit: UnitKey
+): number | null {
+  const of = (row: Moveset): number | null =>
+    frame.breakdown[row.key]?.marginals.find((m) => m.unit === unit)?.delta.lo ?? null;
+  const mine = of(foil);
+  const theirs = of(selected);
+  return mine === null || theirs === null ? null : Number((mine - theirs).toFixed(2));
 }
 
 function candidateOps(frame: LensFrame, cursor: LensCursor): DrawCall[] {
@@ -395,7 +394,11 @@ function candidateOps(frame: LensFrame, cursor: LensCursor): DrawCall[] {
   const rows: ReadonlyArray<CandidateRow> = frame.candidates[cursor.unit] ?? [];
   const incumbent = incumbentCandidate(frame, cursor.unit);
   return [
-    call('panel.candidates', rows.length, 'scored as best-of-cluster'),
+    // WHAT THE LIST IS: the destinations THIS DECISION priced, scored as the
+    // best the whole cluster can do given that candidate. It is not the unit's
+    // legal-move count, and a header that read like one invited the operator
+    // to conclude the bot had considered four moves when it had priced four.
+    call('panel.candidates', rows.length, 'priced here · scored as best-of-cluster'),
     ...rows.map((row) =>
       call(
         'panel.candidates.row',
@@ -422,10 +425,14 @@ function movesetOps(
   trails: ReadonlyArray<RowTrail>
 ): DrawCall[] {
   const rows = rowsFor(frame, cursor.unit, cursor.candidate);
-  if (rows.length === 0) return [call('panel.movesets.empty', emptyStateLine(frame))];
+  if (rows.length === 0) return [call('panel.movesets.empty', emptyStateLine(frame, cursor))];
 
   const leader = rankOne(rows);
   const cluster = cursor.unit === null ? null : clusterOf(frame, cursor.unit);
+  // The frame's own loud reading, measured on this cluster's leader. It rides
+  // the leader's depth cell and no other row's, because that is the plan it
+  // was taken on.
+  const loud = cluster === null ? null : (frame.loud?.[reservoirListKey(cluster.id)] ?? null);
   const ops: DrawCall[] = [
     call(
       'panel.movesets',
@@ -440,7 +447,7 @@ function movesetOps(
   ];
 
   for (const row of rows) {
-    const cell = depthCell(row);
+    const cell = depthCell(row, row.key === leader?.key ? loud : null);
     // The rank trail — `#3 ▲was #1` — and the displaced badge on the row a
     // re-resolution had to fall to. Both decay after two emissions: a trail
     // that outlives the change it describes is furniture.
@@ -449,8 +456,15 @@ function movesetOps(
       call(
         'panel.movesets.row',
         row.rank,
-        row.channel === 'lo' ? row.lo : row.est,
-        Number((row.hi - row.lo).toFixed(2)),
+        // ONE CHANNEL PER ROW, AND IT IS THE ONE THAT ADJUDICATES. `lo` is the
+        // proved floor: the quantity the reservoir ranks on (`byBetter`), the
+        // quantity `⌈w⌉` is a width of, and the quantity Δ measures. Showing
+        // `est` here when the posture ordered by it put three numbers from two
+        // channels on one row with nothing saying which was which — and `est`
+        // is the channel that never adjudicates. It keeps its own voice in the
+        // `unless` cell, where `advisory-only` prices it and names it.
+        row.lo,
+        bracketWidth(row),
         cell,
         leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
         // THE `unless` CELL. Drawn on every row, leader included, and never
@@ -480,7 +494,7 @@ function movesetOps(
         'panel.foil',
         foil.rank,
         Number((selected.lo - foil.lo).toFixed(2)),
-        decidingRung(selected, foil),
+        whyItLost(selected, foil),
         depthCell(foil).label
       )
     );
@@ -549,16 +563,19 @@ export function dominanceClause(dominance: DominanceCondition | null): string {
 }
 
 /**
- * WHY this row is not the leader, taken from `better()`'s own branch read
- * backwards — the same clause every row now carries, read for the PAIR.
+ * WHY the losing half of the pair lost, taken from `better()`'s own branch
+ * read backwards.
+ *
+ * The interesting half is the LOSER: `better()`'s branch is the reason the row
+ * that did not win did not win, and reading the winner's "leads on the proved
+ * floor" back at the operator answers nothing. WHICH IS EXACTLY WHAT IT DID —
+ * the clause fell back to the OTHER row's condition whenever the loser's own
+ * was still null, so the line offered the winner's reason as the loser's. A
+ * row whose condition the barrier has not filled says so.
  */
-function decidingRung(selected: Moveset, foil: Moveset): string {
-  // The interesting half of the pair is the LOSER: `better()`'s branch is the
-  // reason the row that did not win did not win, and reading the winner's
-  // "leads on the proved floor" back at the operator answers nothing.
+function whyItLost(selected: Moveset, foil: Moveset): string {
   const loser = selected.rank > foil.rank ? selected : foil;
-  const dominance = loser.dominance ?? (loser === selected ? foil.dominance : selected.dominance);
-  return dominanceClause(dominance);
+  return `#${loser.rank} ${dominanceClause(loser.dominance)}`;
 }
 
 function breakdownOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null): DrawCall[] {
@@ -682,7 +699,19 @@ export function renderFrame(
 
   if (cursor.unit !== null) {
     const row = frame.units.find((u) => u.unit === cursor.unit);
+    // A FIXED UNIT HAS A CLUSTER TOO — the one it is a constant of. It is not a
+    // member, so `clusterOf` does not find it, and the panel used to answer
+    // "unclustered" for a unit that is very much part of a cluster's problem.
+    // Rule E is a display invariant in both directions: a member is a variable
+    // the bot is still solving, and a constant says whose determination made
+    // it one.
     const cluster = clusterOf(frame, cursor.unit);
+    const bound = cluster === null ? boundingOf(frame, cursor.unit) : null;
+    const home = cluster ?? bound?.cluster ?? null;
+    const why =
+      bound === null
+        ? null
+        : `${bound.bound.why}${bound.bound.by === null ? '' : ` by ${bound.bound.by}`} · a constant, not a member`;
     ops.push(
       call(
         'panel.focus',
@@ -692,11 +721,14 @@ export function renderFrame(
         row?.health ?? null,
         row?.weight ?? null,
         row?.fixity ?? null,
-        cluster?.id ?? null,
-        cluster?.members.length ?? 0,
+        home?.id ?? null,
+        home?.members.length ?? 0,
         // "Locking narrows" is the word, everywhere: the header counts what is
         // still free, and a lock moves a unit into the bounded strip.
-        cluster === null ? null : `${cluster.members.length} of ${cluster.members.length + cluster.boundedBy.length} free`
+        why ??
+          (home === null
+            ? null
+            : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`)
       )
     );
   }
