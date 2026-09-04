@@ -80,7 +80,7 @@
 import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
-import { type Feature, bound, point } from './bound';
+import { type Feature, envelope, point } from './bound';
 import type { EvalContext, Standing } from './features';
 
 /** Per substrate: the cell each unit occupied BEFORE its last move. */
@@ -159,6 +159,6 @@ export const momentumFeature: Feature<EvalContext> = {
     if (ours === 0) return point(0);
     const lo = worst / ours;
     const hi = best / ours;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return envelope(lo, hi);
   },
 };

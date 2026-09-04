@@ -93,6 +93,12 @@ export const join = (a: Bound, b: Bound): Bound =>
   bound(Math.min(a.lo, b.lo), (a.est + b.est) / 2, Math.max(a.hi, b.hi));
 
 /**
+ * The two-reading envelope: which endpoint is which is a property of the
+ * term's sign, not of the reading, so the constructor decides it.
+ */
+export const envelope = (a: number, b: number): Bound => bound(Math.min(a, b), (a + b) / 2, Math.max(a, b));
+
+/**
  * Put `est` back inside `[lo, hi]`. Written so that an infinite end behaves:
  * with lo = DEAD and hi = WIN the estimate passes through untouched, and with
  * both ends at the same lattice element the estimate becomes it. A finite `e`

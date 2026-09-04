@@ -97,7 +97,7 @@
  */
 
 import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
-import { type Feature, bound, point } from './bound';
+import { type Feature, envelope, point } from './bound';
 import { foodDistance } from './food';
 import type { EvalContext, Standing } from './features';
 
@@ -192,6 +192,6 @@ export const energyFeature: Feature<EvalContext> = {
     }
     const lo = worst / ours;
     const hi = best / ours;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return envelope(lo, hi);
   },
 };
