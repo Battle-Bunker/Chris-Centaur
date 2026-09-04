@@ -137,6 +137,28 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * `./energy.ts`.
    */
   energy: 8,
+  /**
+   * The pickup trade. TWO, matching `tier`, and for the same reasons plus one
+   * of its own:
+   *
+   * · the term's range is [−2, 1] by construction — the collector's peril is a
+   *   share in [0, 1] scaled by `PERIL_WEIGHT`, each ally's profit is a share
+   *   in [0, 1], and the whole sum is divided by our unit count — so `2 × 2`
+   *   sits well inside the cliff ceiling of `10 × lightest unit weight` and can
+   *   never buy or sell a unit's life;
+   * · it must be able to OUTWEIGH `tier` on the same pickup, or the fold could
+   *   never decline one: `tier` prices the +1 an ally gains at its own cell and
+   *   nothing else about the trade, and at equal weight a term whose peril half
+   *   reaches 2 covers a `tier` credit that reaches 1;
+   * · and it sits under `contest` (3) and `food` (4) like everything else that
+   *   orders moves: a unit does not walk into a lost square, or past a meal it
+   *   needs, to arrange a window for somebody else.
+   *
+   * Identically zero on a board with potions off or none standing, and zero
+   * again on any plan that collects nothing — so it is dark on every scenario
+   * but `potions`. See `./potion.ts`.
+   */
+  potion: 2,
 };
 
 /**
@@ -400,6 +422,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     contest: 0,
     tier: 0,
     energy: 0,
+    potion: 0,
   },
   reachHorizonTurns: 0,
 };

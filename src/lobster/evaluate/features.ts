@@ -71,6 +71,7 @@ import { contestFeature } from './contest';
 import { energyFeature } from './energy';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
+import { potionFeature } from './potion';
 import { tierFeature } from './tier';
 
 // ---------------------------------------------------------------------------
@@ -1112,6 +1113,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   contestFeature,
   tierFeature,
   energyFeature,
+  potionFeature,
 ];
 
 export type { Bound };

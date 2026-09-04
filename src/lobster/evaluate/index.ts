@@ -82,6 +82,7 @@ export { energyCostOf, energyFeature, tripOf } from './energy';
 export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
 export { tierFeature, tierIsLive } from './tier';
+export { potionFeature, PERIL_WEIGHT } from './potion';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
