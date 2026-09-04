@@ -781,3 +781,22 @@ level down and for one commit's worth of work.
   loud replies are few enough to enumerate.* Every decision that member can
   change is a decision it declined to take on a certificate, which is the
   conservative direction by construction rather than by threshold.
+
+## 7. Measured (2026-09-04): the ceiling ply is sound and vacuous — not merged
+
+Built on branch `ceiling` (origin, 72f2fc6; not merged). B4 = the loud-subset
+ceiling ply, last on the ladder, `LOUD_CAP=12`, every other held unit pinned to
+the first of its own enumerated replies, truncations declared as narrowings.
+Cost 5.4 settlements/decision (p95 8–12, bound 24) — inside §4.4. Soundness
+gates G-D1/4/5/7 green. **G-D6 half**: the ply is sound but never tightens —
+holding everything is looser than the concrete leaf 31/31 times (median +237),
+so no row ever reads h2 and the A/B on mixed/potions is inside noise. Shipped
+inert behind `b4:false`, which the standing rules forbid, so it is not merged;
+the finding stands: at production budgets, the one-ply bracket plus the threat
+map IS the lookahead, and a ply that holds its own MAX layer cannot beat the
+leaf it approximates. Revisit only with a reply model (§3.5) whose single
+continuation is concrete, or a budget an order of magnitude larger.
+
+Its harness also found: **G-D3 fails** — 485 inversions on `potions` seed 4
+where a B1 floor sits above an exact concrete reply. That is a floor defect
+independent of the ply and is the next soundness item.
