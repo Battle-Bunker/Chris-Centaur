@@ -526,6 +526,19 @@ export type LensEvent =
       readonly channel: 'lo' | 'est';
     }
   | { readonly kind: 'conditional'; readonly at: number; readonly ranking: ConditionalRanking }
+  /**
+   * THE DRILLED ROW, RECORDED. `explainMoveset` answered a question the
+   * operator asked; the answer is a fact about this decision and is emitted
+   * beside the `conditional` it sits next to, so the fold holds it and replay
+   * shows the operator the row they drilled live rather than a permanent
+   * *"[B] to price this row"* (09 §A6).
+   */
+  | {
+      readonly kind: 'breakdown';
+      readonly at: number;
+      readonly moveset: MovesetKey;
+      readonly breakdown: MovesetBreakdown;
+    }
   | {
       readonly kind: 'refusal';
       readonly at: number;
@@ -614,6 +627,7 @@ export type TurnEventKind =
   | 'operator'
   | 'posture'
   | 'conditional'
+  | 'breakdown'
   | 'refusal'
   // produced by the GAME MANAGER (01 §5.2), all of which it already computes:
   | 'board.arrived'
@@ -720,6 +734,25 @@ export interface ConditionalPayload {
   readonly final: boolean;
 }
 
+/**
+ * THE BREAKDOWN AS IT IS STORED — the `MovesetBreakdown` field for field, and
+ * a row of it holds what 01 §3.3 says it holds: the moveset it is about, the
+ * basis it was taken on, LEVEL 1 (`aggregate`, one `explainPlan` on the
+ * witness plan, null where the evaluator does not explain), LEVEL 2
+ * (`marginals`, one contrastive delta per named member, against the reference
+ * action it was priced against) and the NAMED `residual` — `aggregate − Σ
+ * marginals`, mandatory and carried at zero, because a display that shows the
+ * marginals without it shows a total that does not add up and hides the fact
+ * (Law C2).
+ */
+export interface BreakdownPayload {
+  readonly moveset: MovesetKey;
+  readonly basis: BasisKey;
+  readonly aggregate: MovesetAggregate | null;
+  readonly marginals: ReadonlyArray<MemberMarginal>;
+  readonly residual: JointResidual;
+}
+
 export interface RefusalPayload {
   readonly refusal: EmitRefusal;
   readonly planKey: PlanKey;
@@ -811,6 +844,7 @@ export interface TurnEventPayloads {
   readonly operator: OperatorFramePayload;
   readonly posture: PosturePayload;
   readonly conditional: ConditionalPayload;
+  readonly breakdown: BreakdownPayload;
   readonly refusal: RefusalPayload;
   readonly 'board.arrived': BoardArrivedPayload;
   readonly 'stage.fastpass': StagePayload;

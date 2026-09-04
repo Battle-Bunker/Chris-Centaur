@@ -100,6 +100,34 @@ const ONE_OF_EACH: ReadonlyArray<TurnEvent> = [
       final: false,
     },
   }),
+  // THE DRILLED ROW. `aggregate` is level 1, `marginals` level 2, and the
+  // `residual` is `aggregate − Σ marginals` — mandatory, and carried even
+  // when it is zero (Law C2).
+  turnEvent({
+    kind: 'breakdown',
+    seq: 23,
+    atWorkMs: 12,
+    payload: {
+      moveset: 'ms:0:1',
+      basis: 'basis:[]',
+      aggregate: {
+        profile: 'territory',
+        bound: { lo: 12.4, est: 12.9, hi: 15.3 },
+        features: [{ key: 'space', value: { lo: 1, est: 1.5, hi: 2 }, weight: 3, contribution: { lo: 3, est: 4.5, hi: 6 } }],
+        exact: false,
+        ledgerSize: 4,
+      },
+      marginals: [
+        {
+          unit: UNIT,
+          delta: { lo: 1.1, est: 1.4, hi: 1.9 },
+          features: [{ key: 'space', delta: { lo: 0.4, est: 0.5, hi: 0.7 } }],
+          against: { to: 21 },
+        },
+      ],
+      residual: { total: { lo: 0.3, est: 0.4, hi: 0.6 }, features: [{ key: 'space', delta: { lo: 0.1, est: 0.1, hi: 0.2 } }] },
+    },
+  }),
   turnEvent({ kind: 'refusal', seq: 9, payload: { refusal: 'ratchet-floor', planKey: 'plan:2' } }),
   turnEvent({
     kind: 'operator.command',
@@ -144,7 +172,8 @@ const ONE_OF_EACH: ReadonlyArray<TurnEvent> = [
 describe('every kind survives the row round-trip byte-identically', () => {
   it('covers every TurnEventKind the model names', () => {
     const kinds: ReadonlyArray<TurnEventKind> = [
-      'partition', 'movesets', 'emission', 'operator', 'posture', 'conditional', 'refusal',
+      'partition', 'movesets', 'emission', 'operator', 'posture', 'conditional', 'breakdown',
+      'refusal',
       'board.arrived', 'stage.fastpass', 'decision.begin', 'decision.end', 'operator.command',
       'pin', 'unpin', 'commit', 'pin.refused', 'stage.requested', 'stage.confirmed',
       'stage.retry', 'commit.observed', 'advice', 'selection', 'turn.resolved',
@@ -250,6 +279,7 @@ describe('the retention fold leaves a turn inspectable', () => {
     );
     const kept = new Set(folded.kept.map((e) => e.kind));
     expect(kept.has('refusal')).toBe(false);
+    expect(kept.has('breakdown')).toBe(false);
     expect(folded.kept.some((e) => e.kind === 'selection' && (e.payload as { hover: boolean }).hover)).toBe(false);
     expect(folded.dropped).toBeGreaterThan(0);
   });

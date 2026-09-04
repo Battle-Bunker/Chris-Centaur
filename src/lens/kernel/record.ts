@@ -85,6 +85,17 @@ export interface LensRunSpec {
    * array cannot reproduce.
    */
   readonly sink?: (event: LensEvent) => void;
+  /**
+   * THE SCRIPTED OPERATOR ALSO DRILLS — `[B]` on the leader of the cluster it
+   * is hovering, once, at the first emission that has one.
+   *
+   * OPT-IN, and it must be: an explanation is `1 + |members|` evaluations off
+   * the inspection reserve, and they charge the same work clock the search is
+   * abandoned on. A determinism run that drilled would be a recording of a
+   * different decision from the one every other gate records, so the default
+   * is the run that does not.
+   */
+  readonly drill?: boolean;
 }
 
 const SCENARIOS: Readonly<Record<string, GameSpec>> = {
@@ -204,12 +215,24 @@ export async function recordLensRun(spec: LensRunSpec): Promise<ReadonlyArray<Le
     const roster = sub.commandable(asTeam);
     const subject = roster[0];
     let emitted = 0;
+    let drilled = false;
     for await (const rec of kernel.decide(kin)) {
       emitted++;
       // THE INSPECTOR, hovering. One conditional per emission, on the cluster
       // the subject is in — the first paint, which is a read of rows the
       // decision already priced and costs it no evaluation.
       const cluster = port.partition().find((c) => c.members.length > 0);
+      // AND DRILLING, when the run is scripted to: the reserve is one
+      // inspection wide, so the drill goes FIRST and the hover takes what is
+      // left. Whichever asks second is refused, which is the reserve doing
+      // exactly what it is for.
+      if (cluster !== undefined && spec.drill === true && !drilled) {
+        const leader = port.movesets(cluster.id)[0];
+        if (leader !== undefined) {
+          await port.explainMoveset(leader.key);
+          drilled = true;
+        }
+      }
       if (cluster !== undefined) {
         const lock = lockFor(cluster.members[0] as string, rec.plan, sub.unitIdOf(cluster.members[0] as string));
         if (lock !== null) port.rankConditional(cluster.id, [lock]);

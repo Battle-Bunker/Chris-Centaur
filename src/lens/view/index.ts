@@ -632,6 +632,7 @@ const LANE_OF: Readonly<Record<TurnEventKind, string>> = {
   operator: 'operator',
   posture: 'kernel',
   conditional: 'kernel',
+  breakdown: 'kernel',
   refusal: 'kernel',
   'board.arrived': 'anchor',
   'stage.fastpass': 'kernel',
