@@ -19,7 +19,14 @@
  * superseded when the new rank 1 lands.
  */
 
-import { applyCursorEvent, initialCursor, reactiveNotice, resolveCursor, rowTrails } from '../lens/view';
+import {
+  applyCursorEvent,
+  initialCursor,
+  reactiveNotice,
+  renderFrame,
+  resolveCursor,
+  rowTrails,
+} from '../lens/view';
 import type { LensCursor, LensFrame, Moveset, UnitKey, WidenNotice } from '../lens/types';
 import { clusterView, lensAt, lensFrame, moveset, unitKeysOf, SINGLETONS } from './lens-fixtures';
 
@@ -139,13 +146,34 @@ describe('a widen is staged, never applied under the reader', () => {
    * cluster with no retained rows never draws — it draws its empty state
    * instead. So a held widen over such a cluster put the banner up, froze the
    * rail, and said nothing about the numbers under it answering the previous
-   * question. The banner is up in exactly the cases the hold applies to.
+   * question. The banner is up in exactly the cases the hold applies to, so
+   * the flag belongs on the banner: one place, all of them.
    */
   it('says the rail is stale on the banner, where every held case can see it', () => {
     const notice = widen(narrowFrame(), widenedFrame());
     const banner = LensPanel.bannerHTML(notice, 4_000);
     expect(banner).toContain('stale @ seq 14');
     expect(notice.staleAtSeq).toBe(14);
+  });
+
+  /**
+   * THE FALSIFIER FOR O8, written as the case that used to fail: the cluster
+   * retains no rows for this candidate, so the movesets panel draws its empty
+   * state and no head — and the head is where the old flag lived. The body
+   * says nothing about staleness in this case and cannot; the banner over it
+   * must, or a held widen is a frozen rail with no reason on screen.
+   */
+  it('still flags staleness when the list under the banner is EMPTY', () => {
+    const bare = narrowFrame({ movesets: {} });
+    const body = LensPanel.railHTML(renderFrame(bare, inspecting(bare), []));
+    // The panel drew its empty state, so there is no head to hang a flag on.
+    expect(body).toContain('lens-empty');
+    expect(body).not.toContain('lens-stale-flag');
+
+    // The banner is up regardless, and it carries the seq the rail went stale.
+    const banner = LensPanel.bannerHTML(widen(bare, widenedFrame()), 4_000);
+    expect(banner).toContain('lens-stale-flag');
+    expect(banner).toContain('stale @ seq 14');
   });
 
   it('marks the old list stale at the seq it went stale, and does NOT blank it', () => {
