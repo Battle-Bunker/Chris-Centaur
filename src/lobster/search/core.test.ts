@@ -756,43 +756,43 @@ describe('the refiner seam has a producer (06 F-1)', () => {
   }, 120_000);
 });
 
-describe('est never crosses a horizon (06 F-4)', () => {
-  /**
-   * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED — i.e.
-   * every comparison made against the reading whose horizon the test set. Once
-   * the search accepts something the incumbent is a fresh one-ply reading and
-   * the two horizons agree again, which is the guard working rather than the
-   * guard being absent.
-   */
-  function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefined): string[] {
-    const h = harness(spec);
-    const because: string[] = [];
-    try {
-      // The incumbent is the plan an unconstrained search already settled on,
-      // so nothing displaces it and every trial in the run below is compared
-      // against THIS reading — which is what makes the horizon under test the
-      // horizon on the other side of every comparison.
-      const settled = makeSearchCore().improve(h.ctx);
-      const seedKey = planKey(settled.plan);
-      const incumbent: PlanScore = {
-        plan: settled.plan,
-        bounds: settled.bounds,
-        witnesses: settled.witnesses,
-        ...(incumbentHorizon === undefined ? {} : { horizon: incumbentHorizon }),
-      };
-      makeSearchCore().improve({
-        ...h.ctx,
-        incumbent,
-        trials: (t) => {
-          if (t.because !== null && planKey(t.incumbentPlan) === seedKey) because.push(t.because);
-        },
-      });
-    } finally {
-      h.close();
-    }
-    return because;
+/**
+ * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED — i.e.
+ * every comparison made against the reading whose horizon the test set. Once
+ * the search accepts something the incumbent is a fresh one-ply reading and
+ * the two horizons agree again, which is the guard working rather than the
+ * guard being absent.
+ */
+function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefined): string[] {
+  const h = harness(spec);
+  const because: string[] = [];
+  try {
+    // The incumbent is the plan an unconstrained search already settled on,
+    // so nothing displaces it and every trial in the run below is compared
+    // against THIS reading — which is what makes the horizon under test the
+    // horizon on the other side of every comparison.
+    const settled = makeSearchCore().improve(h.ctx);
+    const seedKey = planKey(settled.plan);
+    const incumbent: PlanScore = {
+      plan: settled.plan,
+      bounds: settled.bounds,
+      witnesses: settled.witnesses,
+      ...(incumbentHorizon === undefined ? {} : { horizon: incumbentHorizon }),
+    };
+    makeSearchCore().improve({
+      ...h.ctx,
+      incumbent,
+      trials: (t) => {
+        if (t.because !== null && planKey(t.incumbentPlan) === seedKey) because.push(t.because);
+      },
+    });
+  } finally {
+    h.close();
   }
+  return because;
+}
 
+describe('est never crosses a horizon (06 F-4)', () => {
   test('rung 4 decides within a horizon and is skipped across one', () => {
     const specs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => seededBoard(n, 6, 2));
     // The situation is REACHABLE: at one ply the ladder really does fall
@@ -809,5 +809,31 @@ describe('est never crosses a horizon (06 F-4)', () => {
     expect(across).not.toContain('est');
     // The ladder is still a ladder: every rung that CAN cross still fires.
     expect(across.length).toBeGreaterThan(0);
+  }, 180_000);
+});
+
+describe('the ceiling rung never crosses a horizon either (08 F-10)', () => {
+  /**
+   * F-4's mirror, and the reason it is a separate finding: `hi` DOES cross a
+   * horizon as a BOUND — an upper bound on one horizon-independent quantity,
+   * proved to different depths — but this rung uses it as a ranking key
+   * PREFERRING THE LARGER, and a deeper reading has a lower ceiling. Left
+   * open, the rung refuses a plan for having been measured, at an equal floor,
+   * where no rung above it is watching.
+   *
+   * The harness is F-4's own, one describe down, so the two guards are tested
+   * against the same reachability argument rather than two different ones.
+   */
+  test('rung 5 decides within a horizon and is skipped across one', () => {
+    const specs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => seededBoard(n, 6, 2));
+    const level = specs.flatMap((spec) => refusalsAgainstSeed(spec, undefined));
+    // Reachable: at one ply the ladder really does fall through to the ceiling.
+    expect(level).toContain('hi');
+    const across = specs.flatMap((spec) => refusalsAgainstSeed(spec, 2));
+    expect(across).not.toContain('hi');
+    // And the ladder still decides: what is left is the salted tie, which is
+    // an indifferent order rather than a preference for the looser bound.
+    expect(across.length).toBeGreaterThan(0);
+    expect(across).toContain('tie');
   }, 180_000);
 });
