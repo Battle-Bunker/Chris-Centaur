@@ -627,16 +627,31 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   // ------------------------------------------------------------------ moves
 
-  const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
-    rung = "sweep";
+  /**
+   * ONE COORDINATE-ASCENT PASS — for each unit in `units`, price its top
+   * `perUnit` candidates against the incumbent, judge each with `better()`,
+   * observe it, take it if it wins. `sweep`, `conform`'s legality repair and
+   * `repairSelfHarm` are this loop at three different unit lists and caps;
+   * `skipIncumbent` is `sweep`'s only real difference — it skips the trial
+   * that would just be `withMove(plan, plan's own candidate)`.
+   */
+  const climb = (
+    s: Session,
+    budget: SearchContext["budget"],
+    start: BankResult,
+    units: Iterable<UnitId>,
+    perUnit: number,
+    skipIncumbent: boolean,
+  ): BankResult => {
     let best = start;
-    for (const unitId of dangerOrder(s.sub, s.ours, best.worstResolution, s.pinned)) {
+    for (const unitId of units) {
       if (budget.shouldStop()) break;
-      const set = s.sets.get(unitId) as CandidateSet;
-      const current = best.plan.get(unitId) as Candidate;
-      for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
+      const set = s.sets.get(unitId);
+      if (set === undefined) continue;
+      const current = skipIncumbent ? (best.plan.get(unitId) as Candidate) : undefined;
+      for (const candidate of topCandidates(set.candidates, perUnit)) {
         if (budget.shouldStop()) break;
-        if (candidate.to === current.to && samePath(candidate, current)) continue;
+        if (current !== undefined && candidate.to === current.to && samePath(candidate, current)) continue;
         const trial = s.bank.price(withMove(best.plan, candidate));
         const verdict = better(trial, best);
         observe(trial, best, verdict);
@@ -644,6 +659,26 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       }
     }
     return best;
+  };
+
+  /** Price a plan, count it as an ACCEPTed observation, and enter it in the witness set. */
+  const seat = (s: Session, plan: JointPlan): BankResult => {
+    const scored = s.bank.price(plan);
+    observe(scored, scored, ACCEPT);
+    remember(s, scored);
+    return scored;
+  };
+
+  const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
+    rung = "sweep";
+    return climb(
+      s,
+      budget,
+      start,
+      dangerOrder(s.sub, s.ours, start.worstResolution, s.pinned),
+      cfg.candidateCap,
+      true,
+    );
   };
 
   /**
@@ -758,12 +793,10 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       ) {
         deepHorizon.set(seeded as object, carried.horizon);
       }
-      let best = s.bank.price(seeded);
       // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
       // whole slice never touched would have no row at all, and the operator
       // would read an empty table for the units the search is happiest about.
-      observe(best, best, ACCEPT);
-      remember(s, best);
+      let best = seat(s, seeded);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
@@ -886,29 +919,13 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // 2. repair legality — only the units the splice actually disturbed.
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
-        let scored = s.bank.price(plan);
-        observe(scored, scored, ACCEPT);
-        remember(s, scored);
-        for (const unitId of disturbed) {
-          if (ctx.budget.shouldStop()) break;
-          const set = s.sets.get(unitId) as CandidateSet;
-          for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
-            if (ctx.budget.shouldStop()) break;
-            const trial = s.bank.price(withMove(scored.plan, candidate));
-            const verdict = better(trial, scored);
-            observe(trial, scored, verdict);
-            if (verdict.accept) scored = trial;
-          }
-        }
+        const scored = climb(s, ctx.budget, seat(s, plan), disturbed, cfg.conformRepairPerUnit, false);
         plan = scored.plan;
       }
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        const scored = s.bank.price(plan);
-        observe(scored, scored, ACCEPT);
-        remember(s, scored);
-        plan = pairRepair(s, ctx.budget, scored).plan;
+        plan = pairRepair(s, ctx.budget, seat(s, plan)).plan;
       }
       return plan;
     } finally {
@@ -944,19 +961,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     rung = "conform";
     const victims = ourCasualties(s, seed);
     if (victims.length === 0) return seed;
-    let best = seed;
-    for (const unitId of victims.slice(0, Math.max(0, cfg.rungZeroRepairVictims))) {
-      if (ctx.budget.shouldStop()) break;
-      const set = s.sets.get(unitId);
-      if (set === undefined) continue;
-      for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
-        if (ctx.budget.shouldStop()) break;
-        const trial = s.bank.price(withMove(best.plan, candidate));
-        const verdict = better(trial, best);
-        observe(trial, best, verdict);
-        if (verdict.accept) best = trial;
-      }
-    }
+    let best = climb(
+      s,
+      ctx.budget,
+      seed,
+      victims.slice(0, Math.max(0, cfg.rungZeroRepairVictims)),
+      cfg.conformRepairPerUnit,
+      false,
+    );
     // The 2-opt the coordinate step above structurally cannot make: a pair
     // where moving either unit alone is no improvement while moving both is.
     // Skipped when the single-unit pass already cleared the board.
