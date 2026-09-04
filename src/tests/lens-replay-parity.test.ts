@@ -16,8 +16,8 @@
  * survives in memory does not survive that.
  *
  * Then, FROM THE ROWS ALONE, the store is rebuilt with `storeFromRows` — the
- * function `loadTurnStore` is two reads away from — and folded to every
- * `(turn, seq)` the live client visited. The two frames must be deep-equal
+ * one the replay path builds through, two reads from the tables — and folded
+ * to every `(turn, seq)` the live client visited. The two frames must be deep-equal
  * except `at.mode`, `at.isHead` and `provenance.kind`, which are content the
  * operator is entitled to and are rendered as badges, never as branches.
  *
