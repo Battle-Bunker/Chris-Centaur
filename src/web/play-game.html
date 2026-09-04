@@ -284,6 +284,11 @@
     /* While a widen is held the whole list is visibly superseded — struck, and
        still there, which is the entire point of the policy. */
     .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #999; }
+    /* A HELD WIDEN OVER AN EMPTY LIST IS STILL HELD. The strike-through only
+       ever reached the table, and a cluster with no retained rows draws its
+       empty state instead — so the one case where the rail says least about
+       itself was also the one case where nothing said it was frozen. */
+    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #999; }
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {

@@ -23,6 +23,8 @@ import { applyCursorEvent, initialCursor, reactiveNotice, resolveCursor, rowTrai
 import type { LensCursor, LensFrame, Moveset, UnitKey, WidenNotice } from '../lens/types';
 import { clusterView, lensAt, lensFrame, moveset, unitKeysOf, SINGLETONS } from './lens-fixtures';
 
+const LensPanel = require('../web/lens-panel.js');
+
 const [C, Q, S1] = unitKeysOf(SINGLETONS) as [UnitKey, UnitKey, UnitKey];
 const R = 'A-R';
 
@@ -130,6 +132,20 @@ describe('a widen is staged, never applied under the reader', () => {
     expect(notice.suspended).toBe(false);
     // Before accept, the cursor is untouched: the old list is still the list.
     expect(resolveCursor(before, prev, prev)).toEqual(before);
+  });
+
+  /**
+   * 10 §4 O8. The `stale @ seq n` flag rode the movesets panel's HEAD, which a
+   * cluster with no retained rows never draws — it draws its empty state
+   * instead. So a held widen over such a cluster put the banner up, froze the
+   * rail, and said nothing about the numbers under it answering the previous
+   * question. The banner is up in exactly the cases the hold applies to.
+   */
+  it('says the rail is stale on the banner, where every held case can see it', () => {
+    const notice = widen(narrowFrame(), widenedFrame());
+    const banner = LensPanel.bannerHTML(notice, 4_000);
+    expect(banner).toContain('stale @ seq 14');
+    expect(notice.staleAtSeq).toBe(14);
   });
 
   it('marks the old list stale at the seq it went stale, and does NOT blank it', () => {

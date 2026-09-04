@@ -360,11 +360,24 @@ const LensPanel = (() => {
       : notice.queuedBehindLock
         ? 'will apply after your lock settles'
         : `auto ${Math.ceil((remainingMs == null ? notice.autoAcceptMs : remainingMs) / 1000)}s`;
+    // `stale @ seq n`, ON THE BANNER. The flag used to ride the movesets
+    // panel's HEAD, which a cluster with no retained rows never draws — it
+    // draws its empty state instead — so a held widen over such a cluster put
+    // the banner up, froze the rail, and said nothing about the numbers under
+    // it being answers to the previous question. The banner is up in exactly
+    // the cases the hold applies to, so the flag belongs on the banner: one
+    // place, all of them.
+    const stale =
+      notice.staleAtSeq == null
+        ? ''
+        : `<div class="lens-sub lens-stale-flag">the rail below is stale @ seq ${escapeHTML(
+            notice.staleAtSeq
+          )}</div>`;
     return (
       `<div class="lens-banner">⚑ ${who} ${escapeHTML(notice.gained.join(', '))} — ` +
       `cluster is now ${escapeHTML(notice.gained.length + (notice.members || 0))} units. ` +
       `<span class="lens-sub">${timer}</span>` +
-      `<button type="button" data-lens-accept="1">Show</button></div>`
+      `<button type="button" data-lens-accept="1">Show</button>${stale}</div>`
     );
   }
 
