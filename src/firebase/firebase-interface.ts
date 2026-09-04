@@ -1452,7 +1452,6 @@ export class TacticToesFirebaseInterface {
             gameState: view,
             moveEvaluations: [],
             territoryCells: {},
-            safeMoves: [],
             botRecommendation: quick,
             timestamp: Date.now(),
           });

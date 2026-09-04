@@ -53,7 +53,6 @@ function makeTurnData(gs: GameState, move: Direction): TurnData {
     gameState: gs,
     moveEvaluations: [],
     territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
     botRecommendation: move,
     timestamp: Date.now(),
   };

@@ -327,7 +327,6 @@ describe('ActiveGameManager goto/near intents', () => {
       return {
         move,
         score,
-        numStates: 1,
         breakdown: {
           engine: 'lobster',
           profile: 'lobster-territory',
@@ -350,7 +349,6 @@ describe('ActiveGameManager goto/near intents', () => {
       gameState: gs,
       moveEvaluations: evaluations,
       territoryCells: {},
-      safeMoves: ['up', 'left', 'right'],
       botRecommendation: botMove,
       timestamp: Date.now(),
     };

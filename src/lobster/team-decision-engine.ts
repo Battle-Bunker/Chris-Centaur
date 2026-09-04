@@ -33,7 +33,7 @@
  * per-game state on this engine, never module scope.
  */
 
-import type { Board as ApiBoard, CentaurMove, Direction, GameState } from '../types/battlesnake';
+import type { Board as ApiBoard, CentaurMove, GameState } from '../types/battlesnake';
 import type { TurnData } from '../server/active-game-manager';
 import type { BotIdentity, BotSpec } from '../config/bot-identity';
 import { botIdentityOf } from '../config/bot-identity';
@@ -1129,7 +1129,6 @@ export class TeamDecisionEngine {
         gameState: view,
         moveEvaluations: [],
         territoryCells: {},
-        safeMoves: [],
         botRecommendation: move,
         timestamp: this.now(),
         bot,
@@ -1206,9 +1205,6 @@ export class TeamDecisionEngine {
           gameState: view,
           moveEvaluations: row.moveEvaluations,
           territoryCells: {},
-          // Sound only because this branch is snakes-only: a snake's offerable
-          // set IS its direction words. A piece's would be destination ids.
-          safeMoves: row.safeMoves as Direction[],
           botRecommendation: move,
           timestamp: this.now(),
           bot: args.bot,

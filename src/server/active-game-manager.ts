@@ -68,9 +68,7 @@ export interface MoveEvaluation {
   // CentaurMove value staging puts on the wire.
   move: CentaurMove;
   score: number;
-  numStates?: number;
   breakdown?: any;
-  projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
   // The candidate's destination cell (api coords). Always present on piece
   // rows (the enumerator computes it); present on snake rows when the engine's
   // projection pass ran. Optional so legacy rows stay valid.
@@ -130,7 +128,6 @@ export interface TurnData {
   gameState: GameState;
   moveEvaluations: MoveEvaluation[];
   territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  safeMoves: Direction[];
   // A Direction for a snake; a FULL-BOARD destination index for a chess piece
   // (own square = stay), the same CentaurMove split staging uses. Pieces had
   // no bot route at all until the piece recommendation channel existed — see
@@ -3107,7 +3104,6 @@ export class ActiveGameManager {
       return {
         move: candidate.move,
         score: candidate.score,
-        numStates: 0,
         breakdown: {
           healthLoss: candidate.healthCost,
           deaths,
@@ -3215,7 +3211,6 @@ export class ActiveGameManager {
       gameState,
       moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
-      safeMoves: [],
       botRecommendation,
       timestamp: Date.now(),
     };
@@ -3758,7 +3753,6 @@ export class ActiveGameManager {
       ? {
           ...turnData,
           moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
-          safeMoves: [],
           botRecommendation: move,
         }
       : turnData;

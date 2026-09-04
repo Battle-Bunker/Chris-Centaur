@@ -68,9 +68,6 @@ export interface TelemetryEvaluation {
 export interface UnitDecisionRow {
   readonly snakeId: string;
   readonly moveEvaluations: TelemetryEvaluation[];
-  /** The offerable set, as strings — a snake's own move words, a piece's
-   * destination ids. */
-  readonly safeMoves: string[];
 }
 
 // ------------------------------------------------------------------- inputs
@@ -135,7 +132,7 @@ export function buildDecisionRows(input: TelemetryInput): UnitDecisionRow[] {
       rows.push(built.row);
     } catch {
       // One unit's row failing must not cost the others theirs.
-      rows.push({ snakeId: unit.wireId, moveEvaluations: [], safeMoves: [] });
+      rows.push({ snakeId: unit.wireId, moveEvaluations: [] });
     }
   }
   return rows;
@@ -225,7 +222,6 @@ function buildRow(
     explained: explainedHere,
     row: {
       snakeId: unit.wireId,
-      safeMoves: evaluations.map((e) => String(e.move)),
       moveEvaluations: evaluations,
     },
   };
