@@ -509,6 +509,88 @@ async function heuristic(context) {
   });
   await shot(page, 'h03e-after-space', 'the bar after a `Space` that did nothing', '#lensControls');
 
+  // ── THE SAME QUESTION, WITH A `moveState` TO ANSWER IT ───────────────────
+  //
+  // The two reads above are silent for a reason the walkthrough server cannot
+  // help: it never sends `controlled-snake-turn-data`, so
+  // `setupMoveStateForSnake` has no `moveEvaluations` and `moveState.moves`
+  // is `{}` for the whole run. `Space` cannot stage anything here whatever
+  // the rail does, which means the harness has NEVER exercised staging — and
+  // the rail's candidate click has to be tested against a `moveState` that
+  // exists.
+  //
+  // So one is built, in exactly the shape `processMoveEvaluations` produces
+  // for a SNAKE — `move` a Direction string, `position`/`positionKey` the
+  // destination cell — over the rail's own candidate cells. Then the rail row
+  // is clicked and `userSelectedMove` is read. That is the whole defect: `to`
+  // is a full-board index and `moves[k].move` is `'up'`, so the lookup that
+  // decides between `selectMove` (which arms `Space`) and `lensSelectCandidate`
+  // (which does not) compared `'up'` against `'109'` and never hit.
+  const synthetic = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('.lens-candidates [data-lens-candidate]')].map((e) =>
+      parseInt(e.getAttribute('data-lens-candidate'), 10)
+    );
+    const board = currentGameState && currentGameState.board;
+    if (!board || cells.length === 0) return { built: false };
+    const dirs = ['up', 'down', 'left', 'right'];
+    const moves = {};
+    const byPos = new Map();
+    cells.forEach((to, i) => {
+      const c = BoardRenderer.moveDestinationCell(to, board);
+      if (!c) return;
+      const dir = dirs[i % 4];
+      moves[dir] = {
+        key: dir,
+        move: dir,
+        direction: dir,
+        kind: 'move',
+        label: dir.toUpperCase(),
+        position: c,
+        positionKey: `${c.x},${c.y}`,
+        isSafe: true,
+        isEvaluated: true,
+        displayScore: 0,
+      };
+      byPos.set(moves[dir].positionKey, moves[dir]);
+    });
+    const head =
+      (board.snakes.find((s) => s.id === selectedSnakeId) || {}).head || { x: 0, y: 0 };
+    moveState = {
+      head,
+      moves,
+      selectedMove: null,
+      candidatesByPosition: byPos,
+      holdCandidate: null,
+      selectedSnake: selectedSnakeId,
+    };
+    userSelectedMove = null;
+    return { built: true, cells, keys: Object.keys(moves) };
+  });
+  let syntheticClick = { skipped: true };
+  if (synthetic.built) {
+    const target = synthetic.cells[synthetic.cells.length - 1];
+    const cell = await page.$(`.lens-candidates [data-lens-candidate="${target}"]`);
+    if (cell) {
+      await cell.click({ force: true });
+      await sleep(900);
+    }
+    syntheticClick = {
+      skipped: false,
+      target,
+      ...(await page.evaluate(() => ({
+        userSelectedMove: typeof userSelectedMove === 'undefined' ? null : userSelectedMove,
+        selectedMove: moveState && moveState.selectedMove,
+      }))),
+    };
+  }
+  found.push({
+    id: 'rail-click-arms-space',
+    synthetic,
+    afterClick: syntheticClick,
+    armsSpace: !syntheticClick.skipped && syntheticClick.userSelectedMove !== null,
+  });
+
+
   // ── L0: the clock, which the harness never runs ─────────────────────────
   //
   // `/dev/step` plays a turn on demand, so `turnExpiryTime` is never a future

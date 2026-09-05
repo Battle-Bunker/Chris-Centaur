@@ -2321,8 +2321,23 @@
         // the board now select the same way and `Space` stages what the rail
         // is showing — which is the display contract, at the one keypress it
         // is actually about.
-        const key = Object.keys((moveState && moveState.moves) || {}).find(
-          (k) => String(moveState.moves[k].move) === String(to)
+        //
+        // AND IT HAS TO MATCH ON THE CELL. `to` is a full-board destination
+        // index; `moveState.moves[k].move` is the WIRE move, which for a
+        // chess piece is that same index and for a SNAKE is a Direction
+        // string. Comparing them compared `'up'` against `'112'`, so the
+        // lookup never hit for a snake, the fallback ran, and `Space` was
+        // inert on every candidate of every snake unit — the exact failure
+        // the comment above says was fixed, still shipping for the majority
+        // of units. Both spellings of "this candidate" are read now: the
+        // wire move, and the board cell the index resolves to.
+        const moves = (moveState && moveState.moves) || {};
+        const dest = BoardRenderer.moveDestinationCell(to, currentGameState && currentGameState.board);
+        const destKey = dest === null ? null : `${dest.x},${dest.y}`;
+        const key = Object.keys(moves).find(
+          (k) =>
+            String(moves[k].move) === String(to) ||
+            (destKey !== null && moves[k].positionKey === destKey)
         );
         if (key !== undefined) selectMove(key);
         else lensSelectCandidate(lensCursor.unit, to);
