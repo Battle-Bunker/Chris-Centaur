@@ -140,6 +140,23 @@ B1 branch spread on a plan that captures against one that walks away. The fix
 would be for `viewFor` to model our commandable units alongside the enemy, which
 moves play and belongs in its own change.
 
+**REVIEW-2 verdict: CONFIRMED, not fixed — `bounds/bank.ts` is another
+worker's.** Reproduced on knights at A(0,0) red, B(10,10) blue, C(2,1) blue,
+`asTeam: 'red'` — A and C take each other, B reaches neither:
+
+    parent  claims [B, C]   peril [B]
+    B1 view claims [A, C]   peril [A, C]
+
+C is in peril on the B1 view for one reason only: OUR A is standing on the
+probe board. Our own A is priced there as a held unit too. The assertion, when
+`viewFor` is fixed to model our commandable units alongside the enemy:
+
+    const view = sub.withModelled([b]) as unknown as EngineSubstrate;
+    expect([...view.perilOf()].sort()).toEqual(['B']);   // today: ['A', 'C']
+
+Direction is as the finding says — both endpoints widen — so the pins do not
+move and this stays a finding.
+
 ### F3 — the entanglement gate reads the plan, not the plan plus references
 
 `src/lobster/bounds/bank.ts:561` (`price` calls `this.gate(plan, …)`, not
