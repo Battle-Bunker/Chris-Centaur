@@ -44,3 +44,206 @@ body {
 .no-games { text-align: center; padding: 60px 20px; color: #666; }
 .no-games h2 { font-size: 24px; margin-bottom: 10px; }
 .no-games p { font-size: 14px; line-height: 1.6; }
+
+/* ── UX-SECONDARY ─────────────────────────────────────────────────────────
+ * Owned by the secondary-screens pass (docs/design/ux/04-SECONDARY-SCREENS.md).
+ * Everything below is additive and lives at the end of the file on purpose:
+ * `play-game.html`'s chrome is owned elsewhere, and a block that only ever
+ * appends merges trivially. Rules here deliberately restate selectors from
+ * the base above where they need to WIN at equal specificity (the card hover,
+ * the header layout).
+ *
+ * Three things it establishes:
+ *   1. one header on every page — brand, page name, nav with a `you are here`
+ *      mark, and status chips on the right where the eye already passes
+ *      (01-RESEARCH #7), instead of health in the bottom-left corner only;
+ *   2. status as SHAPE + WORD + brightness, never hue alone (01 #17, P1);
+ *   3. a visible focus ring and a reduced-motion path everywhere (01 ch.10).
+ * ------------------------------------------------------------------------ */
+
+:root {
+  --ink: #e0e0e0;
+  --ink-dim: #9a9a9a;
+  --ink-faint: #6e6e6e;
+  --panel: #2a2a2a;
+  --panel-2: #222;
+  --line: #444;
+  --line-soft: #383838;
+  --go: #4CAF50;          /* live / active */
+  --warn: #E69F00;        /* Okabe–Ito orange: degraded, idle, paused */
+  --stop: #D55E00;        /* Okabe–Ito vermillion: down. Never for recoverable */
+  --cool: #56B4E9;        /* Okabe–Ito sky: boot / neutral events */
+  --focus: #8ab4f8;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  justify-content: initial;
+  padding: 0 16px;
+}
+.header .brand {
+  display: flex; align-items: baseline; gap: 9px;
+  text-decoration: none; color: inherit; white-space: nowrap;
+}
+.header .brand-mark {
+  font-size: 15px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.header .brand-page { font-size: 19px; font-weight: 600; color: #fff; }
+.header h1 { font-size: 19px; font-weight: 600; }
+
+/* The nav is a normal grid cell now, not an absolutely positioned island. */
+.nav-links {
+  position: static; right: auto;
+  display: flex; gap: 6px; align-items: center; justify-self: center;
+  flex-wrap: wrap;
+}
+.nav-links a {
+  color: #cfe8d0; background: #333; border: 1px solid transparent;
+  font-size: 13px; padding: 6px 12px; border-radius: 4px; text-decoration: none;
+  position: relative;
+}
+.nav-links a:hover { background: #3d3d3d; border-color: #555; }
+/* You are here: a persistent left rule + full-strength ink. Not colour alone
+ * and not a hover-only cue — the mark has to survive a glance from a metre. */
+.nav-links a[aria-current="page"] {
+  background: #1f2a1f; color: #fff; border-color: #3c6e3e;
+  box-shadow: inset 3px 0 0 0 var(--go);
+  padding-left: 15px;
+}
+
+/* ── Status chips (right of the header) ─────────────────────────────────── */
+
+.chrome-status { display: flex; gap: 8px; align-items: center; justify-self: end; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 5px 10px; border-radius: 999px;
+  background: #262626; border: 1px solid var(--line-soft); color: var(--ink-dim);
+  white-space: nowrap; text-decoration: none;
+}
+/* The glyph carries the state; the colour only reinforces it. */
+.chip .glyph { font-size: 11px; line-height: 1; }
+.chip-ok    { color: #d6efd7; border-color: #3c6e3e; }
+.chip-ok    .glyph { color: var(--go); }
+.chip-warn  { color: #f4e3c4; border-color: #8a6d1a; }
+.chip-warn  .glyph { color: var(--warn); }
+.chip-bad   { color: #f7d6c8; border-color: #8a3a1a; }
+.chip-bad   .glyph { color: var(--stop); }
+.chip-unknown { color: var(--ink-faint); border-color: var(--line-soft); }
+.chip-hint { font-weight: 400; color: var(--ink-faint); }
+
+/* ── Focus, everywhere ──────────────────────────────────────────────────── */
+
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
+.game-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Cards: no motion under the cursor ──────────────────────────────────── */
+/* 01-RESEARCH P3. The base rule lifts the card 2px on hover, which moves the
+ * thing the pointer just landed on. Ink changes; position does not. */
+.game-card {
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+  margin-bottom: 10px;
+}
+.game-card:hover { border-color: #5f8f61; background: #303030; transform: none; }
+.game-card:focus-visible { border-color: var(--focus); background: #303030; }
+.game-card[aria-selected="true"] {
+  border-color: var(--go); background: #2e332e;
+  box-shadow: inset 3px 0 0 0 var(--go);
+}
+
+/* ── The list idiom shared by /play and /history ────────────────────────── */
+
+.list-bar {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--panel); border-radius: 8px; padding: 10px 14px;
+  margin-bottom: 12px; border: 1px solid var(--line-soft);
+}
+.list-bar .grow { flex: 1; }
+.list-filter {
+  background: #1e1e1e; border: 1px solid var(--line); border-radius: 4px;
+  color: var(--ink); font: inherit; font-size: 13px; padding: 6px 10px;
+  min-width: 220px;
+}
+.list-filter::placeholder { color: var(--ink-faint); }
+.count-read { font-size: 13px; color: var(--ink-dim); }
+.idx {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; flex: 0 0 auto;
+  background: #333; border: 1px solid #4a4a4a; color: var(--ink-dim);
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; color: var(--ink-faint); word-break: break-all;
+}
+.headline-num {
+  font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: #fff; line-height: 1;
+}
+.headline-unit { font-size: 11px; color: var(--ink-faint); letter-spacing: 0.08em;
+  text-transform: uppercase; }
+
+/* Outcome, as a word and a shape. Hue reinforces and never carries alone. */
+.outcome {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.outcome-won  { color: #cfe8d0; }
+.outcome-lost { color: #f0cfc2; }
+.outcome-draw { color: #d8d8d8; }
+.outcome-open { color: var(--ink-faint); }
+
+/* ── Shortcut sheet (Ctrl+/ — the same chord the live view uses) ─────────── */
+
+.keysheet-backdrop {
+  position: fixed; inset: 0; z-index: 11000; display: none;
+  background: rgba(0,0,0,0.6);
+  align-items: center; justify-content: center; padding: 24px;
+}
+.keysheet-backdrop.open { display: flex; }
+.keysheet {
+  background: #232323; border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 22px; max-width: 560px; width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6); color: var(--ink);
+}
+.keysheet h2 { font-size: 15px; margin-bottom: 12px; }
+.keysheet dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.keysheet dt { text-align: right; }
+.keysheet kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #333; border: 1px solid #555; border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #fff;
+}
+.keysheet dd { color: var(--ink-dim); }
+.keysheet .foot { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
+/* 01-RESEARCH change 10. The badge's 2s pulse and every transition here are
+ * decoration; the state is already carried by glyph and word. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .server-state-badge .dot { animation: none !important; }
+}
+/* ── One status, one place ──────────────────────────────────────────────── */
+/* The corner bubbles are the live view's status surface and stay exactly as
+ * they are THERE — play-game.html does not link this stylesheet. On a page
+ * that has a header, the same two readings are already in it, and two copies
+ * of one fact in two corners is one more thing to check. */
+.server-state-badge { display: none !important; }
+
+/* ── END UX-SECONDARY ────────────────────────────────────────────────────── */

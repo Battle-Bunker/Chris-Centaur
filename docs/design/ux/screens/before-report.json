@@ -1,0 +1,78 @@
+{
+  "base": "http://127.0.0.1:5056",
+  "prefix": "before",
+  "shots": [
+    {
+      "name": "play",
+      "url": "/play",
+      "note": "Game list / entry",
+      "bytes": 46882,
+      "horizontalOverflow": false,
+      "title": "Centaur Play - Active Games"
+    },
+    {
+      "name": "history",
+      "url": "/history",
+      "note": "Replay browsing",
+      "bytes": 83864,
+      "horizontalOverflow": false,
+      "title": "Game History"
+    },
+    {
+      "name": "config",
+      "url": "/config",
+      "note": "Bot identity, binding and heuristics",
+      "bytes": 344650,
+      "horizontalOverflow": false,
+      "title": "Team Snek Bot Configuration"
+    },
+    {
+      "name": "activity",
+      "url": "/activity",
+      "note": "What the bot did unattended",
+      "bytes": 48107,
+      "horizontalOverflow": false,
+      "title": "Server Activity"
+    }
+  ],
+  "console": [
+    {
+      "at": "play",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "play",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "history",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "requests": [
+    {
+      "at": "play",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    }
+  ],
+  "exceptions": []
+}
