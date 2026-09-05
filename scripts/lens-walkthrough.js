@@ -126,7 +126,31 @@ const step = () => fetch(`${BASE}/dev/step`, { method: 'POST' }).then((r) => r.j
 /** Focus a unit through the shipped gesture — the roster row. A row that is
  *  already the active perspective fires no selection, so the walk goes via
  *  another unit when it has to. */
+/**
+ * THE TAKEOVER DIALOG, ANSWERED.
+ *
+ * Selecting a unit another operator has claimed raises `#confirmDialog`, and
+ * it is a modal that swallows every pointer event on the page until it is
+ * answered — including the roster click that raised it. The walk only ever
+ * worked on a VIRGIN server, where the name `Ada` is free and therefore owns
+ * the units; run it a second time against the same server and the gate takes
+ * `Ada-2`, owns nothing, and dies on a screenshot of a rail that never
+ * opened. A gate that passes only on the first run is not a gate.
+ *
+ * Answering it is what an operator taking a seat does, and the count rides in
+ * `report.json` because how many modals a second operator has to answer to
+ * pick up one team is a fact about the surface.
+ */
+async function takeOver(page) {
+  if (!(await page.$('#confirmDialog.active'))) return false;
+  await page.click('#confirmTakeoverBtn');
+  await sleep(700);
+  report.notes.takeovers = (report.notes.takeovers || 0) + 1;
+  return true;
+}
+
 async function focusUnit(page, index) {
+  await takeOver(page);
   const active = await page.evaluate(() => {
     const el = document.querySelector('.snake-info-item.active-perspective');
     return el ? [...document.querySelectorAll('.snake-info-item.selectable')].indexOf(el) : -1;
@@ -135,14 +159,16 @@ async function focusUnit(page, index) {
     const rows = await page.$$('.snake-info-item.selectable');
     const other = index === 0 ? 1 : 0;
     if (rows[other]) {
-      await rows[other].click();
+      await rows[other].click({ force: true });
       await sleep(WAIT);
+      await takeOver(page);
     }
   }
   const again = await page.$$('.snake-info-item.selectable');
   if (again[index]) {
-    await again[index].click();
+    await again[index].click({ force: true });
     await sleep(WAIT);
+    await takeOver(page);
   }
 }
 
@@ -243,7 +269,8 @@ async function selectAnsweredCandidate(page, unit) {
       continue;
     }
     try {
-      await cell.click({ timeout: 4000 });
+      await takeOver(page);
+      await cell.click({ timeout: 4000, force: true });
       await sleep(WAIT);
       return { lock, clicked: true };
     } catch (_e) {

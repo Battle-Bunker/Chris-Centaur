@@ -1,21 +1,337 @@
 {
   "suites": {
+    "heuristic": [
+      {
+        "id": "stage-order",
+        "before": [
+          "A",
+          "B",
+          "C"
+        ],
+        "afterPinSameTurn": [
+          "A",
+          "B",
+          "C"
+        ],
+        "afterPinNextTurn": [
+          "A",
+          "B",
+          "C"
+        ],
+        "stableWithinTurn": true,
+        "stableAcrossTurn": true
+      },
+      {
+        "id": "movesets-measured",
+        "rowCount": 5,
+        "rows": [
+          {
+            "cls": "lens-row-cursor lens-row-lead",
+            "rank": "▸1 WOULD BE STAGED",
+            "assignment": "red-A→95 · red-B→131 · red-C→106 staged",
+            "assignmentClippedPx": 0,
+            "unless": "leads on the proved floor",
+            "unlessClippedPx": 0,
+            "band": false,
+            "bandWidthPct": null,
+            "delta": "—",
+            "heightPx": 78,
+            "fontPx": 13
+          },
+          {
+            "cls": "lens-row-foil",
+            "rank": "◇2 FOIL",
+            "assignment": "red-A→95 · red-B→144 · red-C→106",
+            "assignmentClippedPx": 0,
+            "unless": "unsealed — the barrier has not run",
+            "unlessClippedPx": 0,
+            "band": false,
+            "bandWidthPct": null,
+            "delta": "—",
+            "heightPx": 78,
+            "fontPx": 13
+          },
+          {
+            "cls": "",
+            "rank": "3",
+            "assignment": "red-B→157 ≡ 2",
+            "assignmentClippedPx": 0,
+            "unless": "unsealed — the barrier has not run",
+            "unlessClippedPx": 119,
+            "band": false,
+            "bandWidthPct": null,
+            "delta": "—",
+            "heightPx": 18,
+            "fontPx": 12
+          },
+          {
+            "cls": "",
+            "rank": "4",
+            "assignment": "red-C→118 ≡ 2",
+            "assignmentClippedPx": 0,
+            "unless": "unsealed — the barrier has not run",
+            "unlessClippedPx": 119,
+            "band": false,
+            "bandWidthPct": null,
+            "delta": "—",
+            "heightPx": 18,
+            "fontPx": 12
+          },
+          {
+            "cls": "",
+            "rank": "5",
+            "assignment": "red-C→122 ≡ 2",
+            "assignmentClippedPx": 0,
+            "unless": "unsealed — the barrier has not run",
+            "unlessClippedPx": 119,
+            "band": false,
+            "bandWidthPct": null,
+            "delta": "—",
+            "heightPx": 18,
+            "fontPx": 12
+          }
+        ],
+        "lockLine": "[Space] lock — pins 3 of 3",
+        "lockChip": "⦿ lock Space pins 3 of 3",
+        "legendTop": 333.046875,
+        "leadTop": 106.046875
+      },
+      {
+        "id": "lock-chip-states",
+        "withRows": {
+          "text": "⦿ lock Space pins 3 of 3",
+          "cls": "lens-aff lens-aff-primary",
+          "opacity": "1",
+          "borderColor": "rgb(179, 157, 255)"
+        },
+        "noRows": {
+          "text": "⦿ lock Space pins 3 of 3",
+          "cls": "lens-aff lens-aff-primary",
+          "opacity": "1",
+          "borderColor": "rgb(179, 157, 255)"
+        }
+      },
+      {
+        "id": "space-precondition",
+        "afterAutoAdvance": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 95,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "pressedOnAutoAdvance": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 95,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "railClickTarget": "109",
+        "afterRailClick": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 109,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "pressedAfterRailClick": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 109,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "silentOnAutoAdvance": true,
+        "silentAfterRailClick": true
+      },
+      {
+        "id": "rail-click-arms-space",
+        "synthetic": {
+          "built": true,
+          "cells": [
+            95,
+            109,
+            121
+          ],
+          "keys": [
+            "up",
+            "down",
+            "left"
+          ]
+        },
+        "afterClick": {
+          "skipped": false,
+          "target": 121,
+          "userSelectedMove": "left",
+          "selectedMove": "left"
+        },
+        "armsSpace": true
+      },
+      {
+        "id": "clock-urgency-channel",
+        "normal": {
+          "cls": "turn-clock",
+          "fill": "linear-gradient(90deg, rgb(92, 92, 92), rgb(216, 216, 216))",
+          "width": "46.7%",
+          "height": "10px",
+          "border": "rgb(136, 136, 136)"
+        },
+        "urgent": {
+          "cls": "turn-clock urgent",
+          "fill": "repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0px, rgba(0, 0, 0, 0.55) 3px, rgba(0, 0, 0, 0) 3px, rgba(0, 0, 0, 0) 7px), linear-gradient(90deg, rgb(138, 59, 42), rgb(255, 138, 101))",
+          "width": "25.3%",
+          "height": "12px",
+          "border": "rgb(255, 138, 101)"
+        },
+        "differsOnlyInHue": false
+      },
+      {
+        "id": "fatal-dialog",
+        "text": "⚠ Certain Death Moving UP is certain death for this snake. Without confirmation, the bot's move commits instead at the deadline. Press Enter to confirm the fatal move, or click outside to cancel. Confirm (Enter) Cancel",
+        "role": "alertdialog",
+        "ariaModal": "true",
+        "focusAfterOpen": "BUTTON#confirmFatalMoveBtn",
+        "coversBoard": true
+      },
+      {
+        "id": "shortcuts-modal",
+        "present": true,
+        "coversBoardPct": 100,
+        "role": "dialog"
+      },
+      {
+        "id": "rail-extent",
+        "viewportH": 950,
+        "panelH": 926,
+        "panelScrollH": 1241,
+        "railScrollH": 706,
+        "scrolls": true,
+        "controlsBelowFold": false
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "S1",
+        "task": "a unit has no plan for this turn — seen, then pinned to a chosen move",
+        "firstRelevantPaintMs": 59.5,
+        "note": "from board-update to the L1 strip carrying the count",
+        "alarmDrawn": false,
+        "strip": [
+          "3 units",
+          "● 1 staged",
+          "~ 2 planned",
+          "🔒 1 fixed"
+        ],
+        "stage": "Bot stages A → 97 pinned · B → 131~ · C → 94~",
+        "interventionMs": 15485,
+        "pinAckPaintMs": null,
+        "keystrokes": 1,
+        "clicks": 2,
+        "rowsInList": 5,
+        "gateBeforePress": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "moveSubmitted": false,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 84
+        },
+        "gateAfterPress": {
+          "userSelectedMove": null,
+          "undoDepth": 0,
+          "notice": null
+        },
+        "controlsAfter": "⦿ lock Space pins 2 of 2 ↺ undo u nothing yet ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del"
+      },
+      {
+        "id": "S1b",
+        "task": "the server refuses a certain-death move — the consent dialog",
+        "firstRelevantPaintMs": 2,
+        "keystrokes": 1,
+        "clicks": 0,
+        "note": "Enter confirms, Escape cancels — a dialog kept on purpose for the irreversible"
+      },
+      {
+        "id": "S2",
+        "task": "the top two candidates differ only in one unit — how fast can the operator tell why",
+        "firstRelevantPaintMs": 0,
+        "note": "the foil is drawn at full size without being asked for — the card costs no keypress (was `F` before the IA work)",
+        "boardLatchMs": 706,
+        "rowsInList": 5,
+        "keystrokes": 0,
+        "keystrokesToBoard": 1,
+        "clicks": 0,
+        "lead": [
+          "red-A→84",
+          "red-C→69"
+        ],
+        "foil": [
+          "red-A→84",
+          "red-C→67"
+        ],
+        "leadDelta": "—",
+        "foilDelta": "—",
+        "leadUnless": "leads on the proved floor",
+        "foilUnless": "unsealed — the barrier has not run",
+        "differing": [
+          false,
+          true
+        ],
+        "differingCount": 1,
+        "differingMarked": true,
+        "foilLine": "◇ foil #2 · #2 unsealed — the barrier has not run · at h1"
+      },
+      {
+        "id": "S3",
+        "task": "undo a lock, after a peer has widened the cluster underneath it",
+        "lockMs": 1813,
+        "lockArmPaintMs": 9,
+        "sameTurnUndoMs": 763,
+        "sameTurnUndoPaintMs": 13.9,
+        "sameTurnUndo": {
+          "controls": "⦿ lock Space pins 1 of 2 ↺ undo u nothing yet ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+          "notice": null
+        },
+        "stackBeforeWiden": "⦿ lock Space pins 1 of 2 ↺ undo u 1 ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del ↺ u undoes: lock — 2 pins (red-A, red-C)",
+        "stackAfterOneTurn": "⦿ lock Space pins 0 of 0 ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+        "stackAfterWiden": "⦿ lock Space pins 0 of 0 ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+        "widenBanner": "⚑ Timer released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 22",
+        "undoMs": 975,
+        "undoAckPaintMs": 16.3,
+        "keystrokes": 4,
+        "clicks": 2,
+        "after": {
+          "controls": "⦿ lock Space pins 2 of 2 ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+          "notice": null,
+          "stage": "Bot stages A → 83~ · B → 145~ · C → 69⋯"
+        }
+      },
+      {
+        "id": "S4",
+        "task": "switch key scheme mid-turn",
+        "firstRelevantPaintMs": 42,
+        "totalMs": 538,
+        "keystrokes": 0,
+        "clicks": 1,
+        "drives": true,
+        "driveMs": 712,
+        "reachable": {
+          "tabbable": true,
+          "hasKeyBinding": false
+        },
+        "stripBefore": "[ ] rank f foil b breakdown , . timeline n now u undo Space lock Ctrl+/ all keys bracket (default) vim left hand · densi",
+        "stripAfter": "k j rank x foil i breakdown , . timeline n now u undo Space lock Ctrl+/ all keys bracket (default) vim left hand · densi"
+      }
+    ],
     "a11y": {
       "contrast": {
-        "pairs": 76,
-        "failing": 25,
+        "pairs": 85,
+        "failing": 7,
         "worst": [
-          {
-            "text": "pins 1 of 1",
-            "selector": "span.lens-aff-note",
-            "color": "rgb(143, 143, 143)",
-            "px": 11,
-            "weight": 400,
-            "ratio": 2,
-            "need": 4.5,
-            "pass": false,
-            "count": 9
-          },
           {
             "text": "→",
             "selector": "button#navNextBtn.turn-nav-btn",
@@ -39,128 +355,29 @@
             "count": 4
           },
           {
-            "text": "Ping: 2ms · clock −0.0s",
-            "selector": "div#pingDisplay.ping-display",
-            "color": "rgb(102, 102, 102)",
+            "text": "game +2ms",
+            "selector": "span.lat-num",
+            "color": "rgb(109, 109, 109)",
             "px": 11,
             "weight": 400,
-            "ratio": 2.5,
+            "ratio": 2.77,
             "need": 4.5,
             "pass": false,
-            "count": 4
+            "count": 7
           },
           {
-            "text": "Click on one of your snakes to select and control it",
-            "selector": "div#noSelectionMsg.no-selection-msg",
-            "color": "rgb(102, 102, 102)",
-            "px": 14,
-            "weight": 400,
-            "ratio": 2.5,
-            "need": 4.5,
-            "pass": false,
-            "count": 1
-          },
-          {
-            "text": "anchor",
-            "selector": "span.lens-lane-name",
-            "color": "rgb(102, 102, 102)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 2.5,
-            "need": 4.5,
-            "pass": false,
-            "count": 15
-          },
-          {
-            "text": "hold",
-            "selector": "span.lens-aff.lens-aff-off",
-            "color": "rgb(187, 187, 187)",
+            "text": "A11y",
+            "selector": "span",
+            "color": "rgb(10, 126, 58)",
             "px": 11,
             "weight": 400,
-            "ratio": 2.7,
-            "need": 4.5,
-            "pass": false,
-            "count": 9
-          },
-          {
-            "text": "⛨",
-            "selector": "span.lens-aff-glyph",
-            "color": "rgb(187, 187, 187)",
-            "px": 13,
-            "weight": 400,
-            "ratio": 2.7,
-            "need": 4.5,
-            "pass": false,
-            "count": 12
-          },
-          {
-            "text": "undo",
-            "selector": "span.lens-aff.lens-aff-undo.lens-aff-off",
-            "color": "rgb(207, 233, 209)",
-            "px": 11,
-            "weight": 400,
-            "ratio": 3.48,
-            "need": 4.5,
-            "pass": false,
-            "count": 2
-          },
-          {
-            "text": "↺",
-            "selector": "span.lens-aff-glyph",
-            "color": "rgb(207, 233, 209)",
-            "px": 13,
-            "weight": 400,
-            "ratio": 3.48,
+            "ratio": 2.77,
             "need": 4.5,
             "pass": false,
             "count": 3
           },
           {
-            "text": "⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies ",
-            "selector": "div.lens-legend",
-            "color": "rgb(125, 125, 125)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 3.49,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "--",
-            "selector": "div#timerDisplay.timer-display.idle",
-            "color": "rgb(136, 136, 136)",
-            "px": 14,
-            "weight": 600,
-            "ratio": 3.56,
-            "need": 4.5,
-            "pass": false,
-            "count": 4
-          },
-          {
-            "text": "Space",
-            "selector": "kbd",
-            "color": "rgb(255, 255, 255)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 3.79,
-            "need": 4.5,
-            "pass": true,
-            "count": 70
-          },
-          {
-            "text": "Following the live game · drag the slider to review earlier ",
-            "selector": "div#turnControlsInfo.turn-controls-info",
-            "color": "rgb(136, 136, 136)",
-            "px": 12,
-            "weight": 400,
-            "ratio": 4.05,
-            "need": 4.5,
-            "pass": false,
-            "count": 4
-          },
-          {
-            "text": "18",
+            "text": "5",
             "selector": "span",
             "color": "rgb(136, 136, 136)",
             "px": 11,
@@ -168,109 +385,21 @@
             "ratio": 4.05,
             "need": 4.5,
             "pass": false,
-            "count": 40
+            "count": 64
           },
           {
-            "text": "ID",
-            "selector": "button.unit-id-copy",
-            "color": "rgb(136, 136, 136)",
-            "px": 10,
-            "weight": 700,
-            "ratio": 4.05,
-            "need": 4.5,
-            "pass": false,
-            "count": 20
-          },
-          {
-            "text": "free · 1 of 1 free",
-            "selector": "div.lens-sub",
-            "color": "rgb(136, 136, 136)",
+            "text": "frame +2370ms",
+            "selector": "span.lat-num",
+            "color": "rgb(224, 104, 90)",
             "px": 11,
             "weight": 400,
-            "ratio": 4.05,
+            "ratio": 4.3,
             "need": 4.5,
             "pass": false,
-            "count": 3
+            "count": 8
           },
           {
-            "text": "lobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 0q",
-            "selector": "div.lens-provenance",
-            "color": "rgb(136, 136, 136)",
-            "px": 11,
-            "weight": 400,
-            "ratio": 4.05,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "seq 28 · 29 / 29 · LIVE · seq 28 · observed · walkthrough/mi",
-            "selector": "div.lens-lane-foot",
-            "color": "rgb(136, 136, 136)",
-            "px": 11,
-            "weight": 400,
-            "ratio": 4.05,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "(our team)",
-            "selector": "span.team-group-ours",
-            "color": "rgb(76, 175, 80)",
-            "px": 10,
-            "weight": 600,
-            "ratio": 4.07,
-            "need": 4.5,
-            "pass": false,
-            "count": 4
-          },
-          {
-            "text": "staged",
-            "selector": "span.lens-staged-flag",
-            "color": "rgb(158, 158, 158)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 4.13,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "rank",
-            "selector": "span.lens-cheat-item",
-            "color": "rgb(139, 139, 139)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 4.21,
-            "need": 4.5,
-            "pass": false,
-            "count": 24
-          },
-          {
-            "text": "keys · density",
-            "selector": "div.lens-scheme",
-            "color": "rgb(139, 139, 139)",
-            "px": 10,
-            "weight": 400,
-            "ratio": 4.21,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "♥",
-            "selector": "span",
-            "color": "rgb(67, 160, 71)",
-            "px": 11,
-            "weight": 400,
-            "ratio": 4.35,
-            "need": 4.5,
-            "pass": false,
-            "count": 20
-          },
-          {
-            "text": "Timer-5",
+            "text": "Timer",
             "selector": "span",
             "color": "rgb(255, 77, 109)",
             "px": 11,
@@ -278,29 +407,18 @@
             "ratio": 4.47,
             "need": 4.5,
             "pass": false,
-            "count": 4
+            "count": 5
           },
           {
-            "text": "Heuristic",
-            "selector": "span#intentModeBadge.intent-mode-badge.mode-heuristic",
-            "color": "rgb(255, 255, 255)",
-            "px": 11,
-            "weight": 700,
-            "ratio": 4.48,
-            "need": 4.5,
-            "pass": false,
-            "count": 3
-          },
-          {
-            "text": "◇ no runner-up — the conditional list has one row",
-            "selector": "div.lens-foil.lens-foil-absent",
-            "color": "rgb(125, 153, 149)",
+            "text": "✗ select red-A 8ms — another operator holds it",
+            "selector": "span.lat-cmd",
+            "color": "rgb(224, 104, 90)",
             "px": 11,
             "weight": 400,
-            "ratio": 4.69,
+            "ratio": 4.65,
             "need": 4.5,
             "pass": true,
-            "count": 3
+            "count": 10
           },
           {
             "text": "Connected",
@@ -314,6 +432,17 @@
             "count": 4
           },
           {
+            "text": "staged",
+            "selector": "span.lens-staged-flag",
+            "color": "rgb(171, 171, 171)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 4.81,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
             "text": "would be staged",
             "selector": "span.lens-row-tag",
             "color": "rgb(179, 157, 255)",
@@ -325,39 +454,983 @@
             "count": 3
           },
           {
-            "text": "A11y-3",
-            "selector": "span",
-            "color": "rgb(155, 132, 255)",
+            "text": "local walkthrough",
+            "selector": "span.fb-detail",
+            "color": "rgb(255, 255, 255)",
+            "px": 14,
+            "weight": 400,
+            "ratio": 5.08,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "Ping: 66ms · clock +0.0s",
+            "selector": "div#pingDisplay.ping-display",
+            "color": "rgb(154, 154, 154)",
             "px": 11,
             "weight": 400,
-            "ratio": 4.88,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "Following the live game · drag the slider to review earlier ",
+            "selector": "div#turnControlsInfo.turn-controls-info",
+            "color": "rgb(154, 154, 154)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "ID",
+            "selector": "button.unit-id-copy",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 700,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 32
+          },
+          {
+            "text": "Click on one of your snakes to select and control it",
+            "selector": "div#noSelectionMsg.no-selection-msg",
+            "color": "rgb(154, 154, 154)",
+            "px": 14,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 1
+          },
+          {
+            "text": "free · 1 of 1 free",
+            "selector": "div.lens-sub",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies ",
+            "selector": "div.lens-legend",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "lobster-local · walkthrough/mixed · eval:7f5b86c4 · e32 · 2q",
+            "selector": "div.lens-provenance",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "undo",
+            "selector": "span.lens-aff.lens-aff-undo.lens-aff-off",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 2
+          },
+          {
+            "text": "↺",
+            "selector": "span.lens-aff-glyph",
+            "color": "rgb(154, 154, 154)",
+            "px": 13,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 11
+          },
+          {
+            "text": "nothing yet",
+            "selector": "span.lens-aff-note",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 5
+          },
+          {
+            "text": "hold",
+            "selector": "span.lens-aff.lens-aff-off",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 9
+          },
+          {
+            "text": "anchor",
+            "selector": "span.lens-lane-name",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 15
+          },
+          {
+            "text": "seq 38 · 39 / 39 · LIVE · seq 38 · observed · walkthrough/mi",
+            "selector": "div.lens-lane-foot",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "Submit All",
+            "selector": "button#submitAllBtn",
+            "color": "rgb(255, 255, 255)",
+            "px": 12,
+            "weight": 700,
+            "ratio": 5.13,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "|◀",
+            "selector": "button#navStartBtn.turn-nav-btn",
+            "color": "rgb(255, 255, 255)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 5.13,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "←",
+            "selector": "button#navPrevBtn.turn-nav-btn",
+            "color": "rgb(255, 255, 255)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 5.13,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "--",
+            "selector": "div#timerDisplay.timer-display.idle",
+            "color": "rgb(168, 168, 168)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 5.31,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "Heuristic",
+            "selector": "span#intentModeBadge.intent-mode-badge.mode-heuristic",
+            "color": "rgb(255, 255, 255)",
+            "px": 11,
+            "weight": 700,
+            "ratio": 5.33,
             "need": 4.5,
             "pass": true,
             "count": 3
           }
         ]
       },
+      "focusableInDom": 63,
       "tabOrder": {
-        "stops": 0,
+        "stops": 62,
         "withoutVisibleRing": [],
-        "list": []
+        "list": [
+          {
+            "at": 35,
+            "tag": "button",
+            "id": "shortcutsHintBtn",
+            "cls": "shortcuts-hint",
+            "text": "Help: Ctrl + /",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 37,
+            "tag": "button",
+            "id": "submitAllBtn",
+            "cls": "",
+            "text": "Submit All",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 38,
+            "tag": "button",
+            "id": "suicideBtn",
+            "cls": "",
+            "text": "Suicide All",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 63,
+            "tag": "input",
+            "id": "playTurnSlider",
+            "cls": "turn-slider",
+            "text": "9",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 65,
+            "tag": "button",
+            "id": "navStartBtn",
+            "cls": "turn-nav-btn",
+            "text": "|◀",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 66,
+            "tag": "button",
+            "id": "navPrevBtn",
+            "cls": "turn-nav-btn",
+            "text": "←",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 108,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 125,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 142,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 167,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 187,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 203,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 228,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 245,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 342,
+            "tag": "span",
+            "id": null,
+            "cls": "lens-aff lens-aff-primary",
+            "text": "⦿ lock Space pins 1 of 1",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 346,
+            "tag": "span",
+            "id": null,
+            "cls": "lens-aff lens-aff-undo",
+            "text": "↺ undo u 1",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 360,
+            "tag": "span",
+            "id": null,
+            "cls": "lens-aff",
+            "text": "✕ clear Del",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 386,
+            "tag": "button",
+            "id": null,
+            "cls": "on",
+            "text": "bracket (default)",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 387,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "vim",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 388,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "left hand",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 389,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "compact",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 390,
+            "tag": "button",
+            "id": null,
+            "cls": "on",
+            "text": "default",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 391,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "roomy",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 396,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 397,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 401,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 402,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 403,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 404,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 405,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 406,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 407,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 408,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 409,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 410,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 411,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 412,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 413,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 414,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 415,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 416,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 417,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 418,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 419,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 420,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 421,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 422,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 423,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 424,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 425,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 426,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 427,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 428,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 429,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 430,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 431,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 432,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 436,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 437,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 438,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 439,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 449,
+            "tag": "button",
+            "id": null,
+            "cls": "tour-link",
+            "text": "? tour",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          }
+        ]
       },
       "railReachable": {
         "chips": [
           {
             "text": "⦿ lock Space pins 1 of 1",
-            "focusable": false,
-            "role": null
+            "focusable": true,
+            "role": "button"
           },
           {
             "text": "↺ undo u 1",
-            "focusable": false,
-            "role": null
+            "focusable": true,
+            "role": "button"
           },
           {
             "text": "✕ clear Del",
-            "focusable": false,
-            "role": null
+            "focusable": true,
+            "role": "button"
           }
         ],
         "schemeButtons": [
@@ -412,17 +1485,21 @@
         ],
         "movesetRows": [
           {
-            "key": "0>80:80",
+            "key": "0>70:70",
             "tabIndex": -1
           }
         ],
         "candidateRows": [
           {
-            "cell": "80",
+            "cell": "70",
             "tabIndex": -1
           },
           {
-            "cell": "92",
+            "cell": "82",
+            "tabIndex": -1
+          },
+          {
+            "cell": "96",
             "tabIndex": -1
           }
         ],
@@ -446,8 +1523,8 @@
         "target": "vim",
         "focusable": true,
         "schemeBefore": null,
-        "schemeAfter": null,
-        "activated": false
+        "schemeAfter": "vim",
+        "activated": true
       },
       "reducedMotion": [
         {
@@ -489,74 +1566,402 @@
         "queryMatches": true,
         "rendererConsults": false
       }
-    }
+    },
+    "density": [
+      {
+        "viewport": "1280x720",
+        "density": "compact",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1061,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 18,
+        "tenPxOrLess": 107,
+        "textNodes": 151,
+        "lensSize": "11px",
+        "lensPad": "6px",
+        "sizeHistogram": {
+          "9": 18,
+          "10": 89,
+          "11": 21,
+          "12": 17,
+          "14": 5,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1280x720",
+        "density": "default",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1116,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 1,
+        "tenPxOrLess": 47,
+        "textNodes": 151,
+        "lensSize": "12px",
+        "lensPad": "10px",
+        "sizeHistogram": {
+          "9": 1,
+          "10": 46,
+          "11": 61,
+          "12": 22,
+          "13": 15,
+          "14": 1,
+          "15": 4,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1280x720",
+        "density": "roomy",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1223,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 10,
+        "underTenPx": 0,
+        "tenPxOrLess": 30,
+        "textNodes": 151,
+        "lensSize": "13px",
+        "lensPad": "13px",
+        "sizeHistogram": {
+          "10": 30,
+          "11": 18,
+          "12": 62,
+          "13": 20,
+          "14": 16,
+          "16": 5
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "compact",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1061,
+        "railVisibleH": 1052,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 18,
+        "tenPxOrLess": 101,
+        "textNodes": 145,
+        "lensSize": "11px",
+        "lensPad": "6px",
+        "sizeHistogram": {
+          "9": 18,
+          "10": 83,
+          "11": 21,
+          "12": 17,
+          "14": 5,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "default",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1116,
+        "railVisibleH": 1052,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 1,
+        "tenPxOrLess": 47,
+        "textNodes": 145,
+        "lensSize": "12px",
+        "lensPad": "10px",
+        "sizeHistogram": {
+          "9": 1,
+          "10": 46,
+          "11": 55,
+          "12": 22,
+          "13": 15,
+          "14": 1,
+          "15": 4,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "roomy",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1208,
+        "railVisibleH": 1052,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 10,
+        "underTenPx": 0,
+        "tenPxOrLess": 30,
+        "textNodes": 145,
+        "lensSize": "13px",
+        "lensPad": "13px",
+        "sizeHistogram": {
+          "10": 30,
+          "11": 18,
+          "12": 56,
+          "13": 20,
+          "14": 16,
+          "16": 5
+        }
+      }
+    ]
   },
   "shots": [
     {
+      "name": "h01-idle",
+      "note": "live head, no unit focused — L1 alone",
+      "bytes": 115139
+    },
+    {
+      "name": "h01b-stage",
+      "note": "the stage line and the strip, with nothing focused",
+      "bytes": 8686
+    },
+    {
+      "name": "h02-stage-after-pin",
+      "note": "the stage line after one pin — the same units, in what order?",
+      "bytes": 8689
+    },
+    {
+      "name": "h03-rail",
+      "note": "the whole rail at CANDIDATE with a conditional answered",
+      "bytes": 69237
+    },
+    {
+      "name": "h03b-cards",
+      "note": "L2 — rank 1 and the foil as cards",
+      "bytes": 38730
+    },
+    {
+      "name": "h03c-controls",
+      "note": "the control bar",
+      "bytes": 9457
+    },
+    {
+      "name": "h03d-lock-zero",
+      "note": "the lock chip where it would pin nothing",
+      "bytes": 9457
+    },
+    {
+      "name": "h03e-after-space",
+      "note": "the bar after a `Space` that did nothing",
+      "bytes": 9437
+    },
+    {
+      "name": "h04-clock-full",
+      "note": "L0 at arrival — the bar full",
+      "bytes": 218
+    },
+    {
+      "name": "h05-clock-half",
+      "note": "L0 halfway through the turn",
+      "bytes": 217
+    },
+    {
+      "name": "h06-clock-urgent",
+      "note": "L0 under 500 ms — the urgent ramp",
+      "bytes": 217
+    },
+    {
+      "name": "h07-clock-safe-mark",
+      "note": "L0 with a last-safe-press notch set",
+      "bytes": 218
+    },
+    {
+      "name": "h08-fatal-dialog",
+      "note": "the certain-death consent — a dialog kept on purpose (§3.4)",
+      "bytes": 215178
+    },
+    {
+      "name": "h09-shortcuts-modal",
+      "note": "Ctrl+/ — the full reference, and the board it costs",
+      "bytes": 255828
+    },
+    {
+      "name": "h10-lane",
+      "note": "the intra-turn lane at the head",
+      "bytes": 7306
+    },
+    {
+      "name": "h11-keys",
+      "note": "the cheat strip, the scheme picker and the density picker",
+      "bytes": 9961
+    },
+    {
+      "name": "s1-pinned",
+      "note": "S1 — the unit pinned, and what the bar says about undoing it",
+      "bytes": 88096
+    },
+    {
+      "name": "s2-foil-latched",
+      "note": "S2 — the foil on the board, where the difference is spatial",
+      "bytes": 76580
+    },
+    {
+      "name": "s2-cards",
+      "note": "S2 — the two cards the operator has to diff by eye",
+      "bytes": 36456
+    },
+    {
+      "name": "s3-locked",
+      "note": "S3 — the lock committed",
+      "bytes": 12123
+    },
+    {
+      "name": "s3-undo-same-turn",
+      "note": "S3a — the lock undone inside its own turn",
+      "bytes": 9340
+    },
+    {
+      "name": "s3-widen",
+      "note": "S3 — a peer widened the cluster while the lock stood",
+      "bytes": 28025
+    },
+    {
+      "name": "s3-undone",
+      "note": "S3 — the lock undone after the widen",
+      "bytes": 84400
+    },
+    {
+      "name": "s4-vim",
+      "note": "S4 — the strip after the scheme switch",
+      "bytes": 9879
+    },
+    {
       "name": "a01-normal-board",
       "note": "the board, normal vision",
-      "bytes": 88171
+      "bytes": 80266
     },
     {
       "name": "a02-normal-cards",
       "note": "the cards, normal vision",
-      "bytes": 23035
+      "bytes": 23912
     },
     {
       "name": "a03-protanopia-board",
       "note": "the board under protanopia",
-      "bytes": 86734
+      "bytes": 80106
     },
     {
       "name": "a04-protanopia-cards",
       "note": "rank 1 and the foil under protanopia",
-      "bytes": 19257
+      "bytes": 20354
     },
     {
       "name": "a05-protanopia-controls",
       "note": "the control bar under protanopia",
-      "bytes": 10000
+      "bytes": 9962
     },
     {
       "name": "a06-protanopia-clock-urgent",
       "note": "the clock's urgent ramp under protanopia",
-      "bytes": 218
+      "bytes": 217
     },
     {
       "name": "a03-deuteranopia-board",
       "note": "the board under deuteranopia",
-      "bytes": 87484
+      "bytes": 79108
     },
     {
       "name": "a04-deuteranopia-cards",
       "note": "rank 1 and the foil under deuteranopia",
-      "bytes": 19545
+      "bytes": 20555
     },
     {
       "name": "a05-deuteranopia-controls",
       "note": "the control bar under deuteranopia",
-      "bytes": 10024
+      "bytes": 10082
     },
     {
       "name": "a06-deuteranopia-clock-urgent",
       "note": "the clock's urgent ramp under deuteranopia",
-      "bytes": 218
+      "bytes": 217
     },
     {
       "name": "a07-focus-chip",
       "note": "the focus ring on a control chip, if it takes focus",
-      "bytes": 11844
+      "bytes": 11923
     },
     {
       "name": "a08-focus-scheme",
       "note": "the focus ring on the scheme picker",
-      "bytes": 9742
+      "bytes": 10335
     },
     {
       "name": "a09-reduced-motion",
       "note": "the rail under prefers-reduced-motion",
-      "bytes": 216092
+      "bytes": 246817
+    },
+    {
+      "name": "d-1280x720-rail-compact",
+      "note": "1280×720, the rail at compact density",
+      "bytes": 57718
+    },
+    {
+      "name": "d-1280x720-default",
+      "note": "1280×720, density default",
+      "bytes": 164730
+    },
+    {
+      "name": "d-1280x720-rail-default",
+      "note": "1280×720, the rail at default density",
+      "bytes": 60525
+    },
+    {
+      "name": "d-1280x720-rail-roomy",
+      "note": "1280×720, the rail at roomy density",
+      "bytes": 62511
+    },
+    {
+      "name": "d-1920x1080-rail-compact",
+      "note": "1920×1080, the rail at compact density",
+      "bytes": 91788
+    },
+    {
+      "name": "d-1920x1080-default",
+      "note": "1920×1080, density default",
+      "bytes": 257451
+    },
+    {
+      "name": "d-1920x1080-rail-default",
+      "note": "1920×1080, the rail at default density",
+      "bytes": 97853
+    },
+    {
+      "name": "d-1920x1080-rail-roomy",
+      "note": "1920×1080, the rail at roomy density",
+      "bytes": 119149
     }
   ],
-  "takeovers": 2
+  "takeovers": 6
 }
