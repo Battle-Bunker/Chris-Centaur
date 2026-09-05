@@ -1068,7 +1068,86 @@
         card('the foil — what it is betting against', foilHtml(chosen, foil, second, board)) +
         card('the threats', threatHtml(chosen, board)) +
         card('the conditional rankings', conditionalHtml(conditionals, board)) +
+        card('where the turn\u2019s time went', spendHtml(events)) +
       '</div>';
+  }
+
+  /**
+   * WHERE THE TURN'S TIME WENT — the same decomposition `latency.js` draws
+   * live (`13-LATENCY-2` §1), read back out of the stored log.
+   *
+   * The four stamps are already there and were already being written: the
+   * turn's `board.arrived`, the `decision.begin` that opened the kernel, the
+   * first `emission`, and the `decision.end` that closed it, all carrying
+   * `atWall` from the one writer that orders them. Nothing new is stored for
+   * this panel.
+   *
+   * WHAT REVIEW CANNOT SAY, said out loud rather than left blank. The two
+   * TRANSPORT segments — centaur → browser and browser → centaur — are
+   * properties of one operator's connection at one moment, and the stored log
+   * holds no `serverSentAt` and no ping history, so a review has no honest
+   * number for either. The panel names them as unrecorded instead of drawing
+   * a zero, which is the same rule the live bar keeps for the submit hop.
+   */
+  function spendHtml(events) {
+    var at = {};
+    var order = ['board.arrived', 'decision.begin', 'emission', 'decision.end', 'turn.resolved'];
+    events.forEach(function (e) {
+      if (order.indexOf(e.kind) < 0) return;
+      if (typeof e.atWall !== 'number') return;
+      if (at[e.kind] === undefined) at[e.kind] = e.atWall;
+    });
+    var t0 = at['board.arrived'];
+    if (t0 === undefined || at['decision.begin'] === undefined) {
+      return '<div class="rv-empty">This turn stored no <code>board.arrived</code> / ' +
+        '<code>decision.begin</code> pair, so its wall clock cannot be decomposed.</div>';
+    }
+    var end = at['decision.end'] !== undefined ? at['decision.end']
+      : at['turn.resolved'] !== undefined ? at['turn.resolved'] : at['decision.begin'];
+    var first = at['emission'];
+    var segs = [
+      { key: 'queue', label: 'the centaur, before the kernel', ms: at['decision.begin'] - t0, how: 'measured' },
+      {
+        key: 'think1',
+        label: 'the kernel, to its first answer',
+        ms: first === undefined ? null : first - at['decision.begin'],
+        how: first === undefined ? 'unknown' : 'measured',
+      },
+      {
+        key: 'think2',
+        label: 'the kernel, refining',
+        ms: first === undefined ? null : Math.max(0, end - first),
+        how: first === undefined ? 'unknown' : 'measured',
+      },
+    ];
+    var resolved = at['turn.resolved'] !== undefined ? at['turn.resolved'] - end : null;
+    if (resolved !== null && resolved > 0) {
+      segs.push({ key: 'tail', label: 'after the kernel, to the turn resolving', ms: resolved, how: 'measured' });
+    }
+    var total = segs.reduce(function (n, sg) { return n + (sg.ms || 0); }, 0) || 1;
+    var bar = '<div class="rv-spend">' + segs.map(function (sg) {
+      var w = sg.ms === null ? 2 : Math.max(0, (100 * sg.ms) / total);
+      return '<i data-seg="' + esc(sg.key) + '" data-how="' + esc(sg.how) + '" style="width:' +
+        w.toFixed(1) + '%" title="' + esc(sg.label) + '"></i>';
+    }).join('') + '</div>';
+    var rows = segs.map(function (sg) {
+      return '<tr><th><span class="rv-swatch" style="background:var(--lat-seg-' +
+        (sg.key === 'queue' ? 'centaur' : sg.key === 'tail' ? 'unknown' : sg.key === 'think1' ? 'kernel' : 'kernel-2') +
+        ')"></span>' + esc(sg.label) + '</th><td>' +
+        (sg.ms === null ? '<i>not recorded</i>' : esc(String(Math.round(sg.ms))) + ' ms') + '</td></tr>';
+    }).join('');
+    return bar +
+      '<table class="rv-table"><tbody>' + rows +
+      '<tr><th>the turn, end to end</th><td>' + esc(String(Math.round(total))) + ' ms</td></tr>' +
+      '</tbody></table>' +
+      '<p class="rv-note">Measured from the turn\u2019s own stamps \u2014 <code>board.arrived</code>, ' +
+      '<code>decision.begin</code>, the first <code>emission</code> and <code>decision.end</code> \u2014 ' +
+      'all written by the one writer that orders the log, so every number here is a subtraction of ' +
+      'two recorded moments and none is a model. <b>Four segments of the live decomposition are ' +
+      'missing from a review and cannot be reconstructed:</b> the game server \u2192 centaur hop, the ' +
+      'two transport hops, and the operator\u2019s own think time. Those are properties of one ' +
+      'connection at one moment; the store keeps no <code>serverSentAt</code> and no ping history, so ' +
+      'they are absent rather than estimated.</p>';
   }
 
   function card(title, body) {

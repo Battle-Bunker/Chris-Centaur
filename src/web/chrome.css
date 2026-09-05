@@ -425,6 +425,25 @@ select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
   border: none; border-bottom: 1px dashed var(--rv-unit-underline); padding: 0; cursor: pointer;
 }
 .rv-unit:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset); }
+/* WHERE THE TURN'S TIME WENT, in review — 13-LATENCY-2 §3a. The same
+   decomposition the live strip draws, off the same stamps, read back out of
+   the stored log. A reviewer has room the strip has not, so the segments are
+   labelled here rather than only carried in a tooltip; the hatch means the
+   same thing in both places, and the segments the STORE cannot answer are
+   named in the note rather than left as an absence. */
+.rv-spend { display: flex; height: 12px; border-radius: var(--radius-2); overflow: hidden; margin: 0 0 var(--space-8); }
+.rv-spend i { height: 100%; min-width: 0; }
+.rv-spend i[data-seg="queue"]  { background: var(--lat-seg-centaur); }
+.rv-spend i[data-seg="think1"] { background: var(--lat-seg-kernel); }
+.rv-spend i[data-seg="think2"] { background: var(--lat-seg-kernel-2); }
+.rv-spend i[data-seg="tail"]   { background: var(--lat-seg-unknown); }
+.rv-spend i[data-how="unknown"] {
+  background-image: repeating-linear-gradient(135deg, var(--lat-seg-hatch) 0 2px, transparent 2px 4px);
+}
+.rv-swatch {
+  display: inline-block; width: 9px; height: 9px; border-radius: var(--radius-1);
+  margin-right: var(--space-5); vertical-align: baseline;
+}
 .rv-note { font-size: var(--size-11); color: var(--ink-faint); margin: var(--space-5) 0 0; line-height: 1.5; }
 .rv-clause { font-size: var(--size-12); color: var(--warn); margin: var(--space-4) 0 var(--space-6); }
 .rv-feats { list-style: none; margin: var(--space-4) 0 0; padding: 0; font-size: var(--size-11); color: var(--ink-dim); }

@@ -131,14 +131,133 @@ export interface TransportShaping {
    * and worth being able to see; it is not a thing to leave switched on.
    */
   readonly lossAny?: boolean;
+  /**
+   * PER-HOP OVERRIDES. The four flat fields above are one wire in both
+   * directions and stay exactly what they were; these say the two hops are
+   * different links, which is what a real one is — an operator's uplink is
+   * not their downlink, and the two failures they produce (an old board, a
+   * late press) are the two an operator has to tell apart.
+   */
+  readonly down?: HopShaping;
+  readonly up?: HopShaping;
+  /**
+   * The seed the loss and jitter draws come from. Every draw this shaping
+   * makes is a function of (seed, direction, frame index), so two runs of the
+   * same profile drop the SAME frames and jitter each by the SAME amount.
+   * Without it a harness that measures what the operator was shown against
+   * what was true is measuring a different wire on every run. `Math.random`
+   * is never called here.
+   */
+  readonly seed?: number;
+}
+
+/**
+ * One hop of the wire. `baseMs` and `jitterMs` are the wire's own delay;
+ * everything below them is a queue, and a queue is where the interesting
+ * failures live.
+ */
+export interface HopShaping {
+  /** One-way propagation delay, ms. */
+  readonly baseMs?: number;
+  /** Uniform ± around `baseMs`. Order is still preserved (see the note above). */
+  readonly jitterMs?: number;
+  /** 0..1 — droppable frames that never leave. */
+  readonly lossRate?: number;
+  /**
+   * AN OCCASIONAL STALL, which is what a mobile link actually does: not a
+   * higher mean, a handover or a scheduling gap that holds EVERYTHING for
+   * most of a second. It is added to the release clock, so it blocks the
+   * frames behind it too — head-of-line blocking, which is the property that
+   * makes a stall feel different from a slow link.
+   */
+  readonly stallMs?: number;
+  /** 0..1 — the chance a frame draws a stall. */
+  readonly stallRate?: number;
+  /**
+   * THE BOTTLENECK, in bytes per millisecond. Nonzero gives the hop a service
+   * rate: a frame occupies `bytes / rateBytesPerMs` of the link and the frame
+   * behind it waits. Offer more than the rate and the queue grows and the
+   * delay grows with it — bufferbloat, in the sense Gettys named: the delay
+   * is not the wire, it is the buffer in front of it, and it climbs with load
+   * rather than sitting at a mean.
+   */
+  readonly rateBytesPerMs?: number;
+  /**
+   * Tail drop: a frame that would wait longer than this for the link is
+   * dropped instead of queued — the bound a bloated buffer does NOT have,
+   * which is why bloat is a latency problem rather than a loss one. Applies
+   * to droppable frames only, on the same rule `lossRate` uses.
+   */
+  readonly queueMaxMs?: number;
+}
+
+interface Hop {
+  readonly baseMs: number;
+  readonly jitterMs: number;
+  readonly lossRate: number;
+  readonly stallMs: number;
+  readonly stallRate: number;
+  readonly rateBytesPerMs: number;
+  readonly queueMaxMs: number;
 }
 
 interface Shaping {
-  readonly downMs: number;
-  readonly upMs: number;
-  readonly jitterMs: number;
-  readonly lossRate: number;
+  readonly down: Hop;
+  readonly up: Hop;
   readonly lossAny: boolean;
+  readonly seed: number;
+}
+
+/** One shaped frame, as the shaping actually treated it. Recorded only while
+ *  the wire is shaped — production sets no shaping and writes no rows. */
+export interface TransportLedgerRow {
+  readonly seq: number;
+  readonly dir: 'down' | 'up';
+  readonly type: string;
+  readonly bytes: number;
+  /** `Date.now()` when the shaping decided about this frame. */
+  readonly at: number;
+  /** ms held before release; -1 for a frame that was dropped. */
+  readonly holdMs: number;
+  /** How long it waited for the bottleneck, before its own propagation. */
+  readonly queueMs: number;
+  readonly dropped: boolean;
+  /** Why it was dropped: 'loss' (the draw) or 'queue' (tail drop). */
+  readonly why: 'loss' | 'queue' | null;
+}
+
+const LEDGER_MAX_ROWS = 20000;
+
+/** mulberry32 — small, fast, and the same sequence on every machine. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hopOf(over: HopShaping | undefined, baseMs: number, jitterMs: number, lossRate: number): Hop {
+  return {
+    baseMs: Math.max(0, over?.baseMs ?? baseMs),
+    jitterMs: Math.max(0, over?.jitterMs ?? jitterMs),
+    lossRate: Math.min(1, Math.max(0, over?.lossRate ?? lossRate)),
+    stallMs: Math.max(0, over?.stallMs ?? 0),
+    stallRate: Math.min(1, Math.max(0, over?.stallRate ?? 0)),
+    rateBytesPerMs: Math.max(0, over?.rateBytesPerMs ?? 0),
+    queueMaxMs: Math.max(0, over?.queueMaxMs ?? 0),
+  };
+}
+
+/** True when a hop asks for nothing at all — the shipped wire. */
+function hopIsFree(h: Hop): boolean {
+  return (
+    h.baseMs === 0 && h.jitterMs === 0 && h.lossRate === 0 &&
+    h.stallRate === 0 && h.rateBytesPerMs === 0
+  );
 }
 
 export class GameWebSocketServer {
@@ -183,6 +302,22 @@ export class GameWebSocketServer {
   private shaping: Shaping | null = null;
   private releaseDown: WeakMap<WebSocket, number> = new WeakMap();
   private releaseUp: WeakMap<WebSocket, number> = new WeakMap();
+  // The bottleneck's own clock — when the link finishes serving what is
+  // already in front of this frame. Separate from the release clock because
+  // they answer different questions: the service clock is the QUEUE and the
+  // release clock is ORDER, and a hop with no bottleneck has the second
+  // without the first.
+  private serviceDown: WeakMap<WebSocket, number> = new WeakMap();
+  private serviceUp: WeakMap<WebSocket, number> = new WeakMap();
+  // The seeded draws, one stream per direction: a frame's jitter and its loss
+  // are a function of the seed and how many frames went that way before it.
+  private randDown: (() => number) | null = null;
+  private randUp: (() => number) | null = null;
+  // What the shaping actually did to every frame, for a harness that measures
+  // what the operator was SHOWN against what was TRUE. Empty and never written
+  // while `shaping` is null, which is the only state production is in.
+  private ledger: TransportLedgerRow[] = [];
+  private ledgerSeq = 0;
   // When the centaur received the turn it is currently broadcasting, per game.
   // The client is told the difference (`gameLagMs` on `board-update`) so the
   // second hop — centaur ↔ game server — has a number of its own rather than
@@ -198,16 +333,52 @@ export class GameWebSocketServer {
    * Shape the wire. See `TransportShaping` — a harness knob, null to restore.
    */
   shapeTransport(shape: TransportShaping | null): void {
-    this.shaping =
-      shape === null
-        ? null
-        : {
-            downMs: Math.max(0, shape.downMs ?? 0),
-            upMs: Math.max(0, shape.upMs ?? 0),
-            jitterMs: Math.max(0, shape.jitterMs ?? 0),
-            lossRate: Math.min(1, Math.max(0, shape.lossRate ?? 0)),
-            lossAny: shape.lossAny === true,
-          };
+    if (shape === null) {
+      this.shaping = null;
+      this.randDown = null;
+      this.randUp = null;
+      this.ledger = [];
+      this.ledgerSeq = 0;
+      return;
+    }
+    const jitter = Math.max(0, shape.jitterMs ?? 0);
+    const loss = Math.min(1, Math.max(0, shape.lossRate ?? 0));
+    const seed = shape.seed ?? 1;
+    this.shaping = {
+      down: hopOf(shape.down, Math.max(0, shape.downMs ?? 0), jitter, loss),
+      up: hopOf(shape.up, Math.max(0, shape.upMs ?? 0), jitter, loss),
+      lossAny: shape.lossAny === true,
+      seed,
+    };
+    // Two streams, not one: the up hop's draws must not depend on how many
+    // frames happened to go down before them, or a profile stops being
+    // reproducible the moment a turn emits one more batch than it did last
+    // time. The odd offset keeps the two streams from marching in step.
+    this.randDown = seededRandom(seed);
+    this.randUp = seededRandom(seed ^ 0x9e3779b9);
+    this.ledger = [];
+    this.ledgerSeq = 0;
+  }
+
+  /** The shape currently installed, resolved — what a harness printed a table
+   *  from should be what the wire is actually doing. Null is the shipped wire. */
+  transportShape(): Shaping | null {
+    return this.shaping;
+  }
+
+  /**
+   * WHAT THE WIRE ACTUALLY DID, frame by frame. The instrument in
+   * `docs/design/ux/13-LATENCY-2.md` §2 compares the ladder an operator was
+   * shown against the truth, and this is the truth: every hold, every drop and
+   * the queue each frame waited in. Rows after `sinceSeq`, oldest first.
+   */
+  transportLedger(sinceSeq = 0): ReadonlyArray<TransportLedgerRow> {
+    return sinceSeq <= 0 ? this.ledger.slice() : this.ledger.filter((r) => r.seq > sinceSeq);
+  }
+
+  private recordShaped(row: TransportLedgerRow): void {
+    this.ledger.push(row);
+    if (this.ledger.length > LEDGER_MAX_ROWS) this.ledger.splice(0, this.ledger.length - LEDGER_MAX_ROWS);
   }
 
   /**
@@ -227,31 +398,69 @@ export class GameWebSocketServer {
     this.turnArrivedAt.set(gameId, atMs);
   }
 
-  /** One direction's delay for one frame, order preserved. Returns the number
-   *  of ms to hold the frame, or -1 to drop it. */
+  /**
+   * ONE FRAME, THROUGH ONE HOP. Returns the ms to hold it, or -1 to drop it.
+   *
+   * The model is a link with a queue in front of it, in that order, because
+   * that is the order the delay an operator feels is actually built in:
+   *
+   *   1. the frame waits for the link to finish what is in front of it
+   *      (`serviceFree`) — this is the QUEUE, and the only term that grows
+   *      with load rather than sitting at a mean;
+   *   2. it is served, at `rateBytesPerMs` (0 = the link is not the
+   *      bottleneck and service is instant);
+   *   3. it propagates, `baseMs ± jitterMs`, plus a stall if it drew one;
+   *   4. and it is released no earlier than the frame in front of it, because
+   *      a websocket is an ordered stream and jitter on one must show up as
+   *      bunching rather than as reordering.
+   */
   private holdFor(
     ws: WebSocket,
-    clocks: WeakMap<WebSocket, number>,
-    baseMs: number,
-    droppable: boolean
+    releaseClocks: WeakMap<WebSocket, number>,
+    serviceClocks: WeakMap<WebSocket, number>,
+    hop: Hop,
+    rand: () => number,
+    droppable: boolean,
+    bytes: number,
+    dir: 'down' | 'up',
+    type: string
   ): number {
-    const shape = this.shaping;
-    if (shape === null) return 0;
-    if (droppable && shape.lossRate > 0 && Math.random() < shape.lossRate) return -1;
-    const jitter = shape.jitterMs === 0 ? 0 : (Math.random() * 2 - 1) * shape.jitterMs;
     const now = Date.now();
-    const earliest = Math.max(now, clocks.get(ws) ?? 0);
-    const at = Math.max(earliest, now + baseMs + jitter);
-    clocks.set(ws, at);
-    return at - now;
+    const record = (holdMs: number, queueMs: number, why: 'loss' | 'queue' | null): number => {
+      this.recordShaped({
+        seq: ++this.ledgerSeq, dir, type, bytes, at: now,
+        holdMs, queueMs, dropped: holdMs < 0, why,
+      });
+      return holdMs;
+    };
+    if (droppable && hop.lossRate > 0 && rand() < hop.lossRate) return record(-1, 0, 'loss');
+    const serviceStart = Math.max(now, serviceClocks.get(ws) ?? 0);
+    const queueMs = serviceStart - now;
+    // TAIL DROP — the bound a bloated buffer does not have. Decided before the
+    // link is reserved, because a frame that is dropped never occupies it.
+    if (droppable && hop.queueMaxMs > 0 && queueMs > hop.queueMaxMs) return record(-1, queueMs, 'queue');
+    const serviceMs = hop.rateBytesPerMs > 0 ? bytes / hop.rateBytesPerMs : 0;
+    serviceClocks.set(ws, serviceStart + serviceMs);
+    const jitter = hop.jitterMs === 0 ? 0 : (rand() * 2 - 1) * hop.jitterMs;
+    const stall = hop.stallRate > 0 && rand() < hop.stallRate ? hop.stallMs : 0;
+    const at = Math.max(
+      serviceStart + serviceMs + hop.baseMs + jitter + stall,
+      releaseClocks.get(ws) ?? 0
+    );
+    releaseClocks.set(ws, at);
+    return record(Math.max(0, at - now), queueMs, null);
   }
 
   /** Outbound hold, in ms; -1 drops the frame. 0 when the wire is not shaped. */
-  private holdOutbound(ws: WebSocket, msgType: string): number {
+  private holdOutbound(ws: WebSocket, msgType: string, bytes: number): number {
     const shape = this.shaping;
-    if (shape === null) return 0;
+    if (shape === null || this.randDown === null) return 0;
+    if (hopIsFree(shape.down)) return 0;
     const droppable = shape.lossAny || SUPERSEDED_MSG_TYPES.has(msgType);
-    return this.holdFor(ws, this.releaseDown, shape.downMs, droppable);
+    return this.holdFor(
+      ws, this.releaseDown, this.serviceDown, shape.down, this.randDown,
+      droppable, bytes, 'down', msgType
+    );
   }
 
   /**
@@ -405,7 +614,13 @@ export class GameWebSocketServer {
           // always been.
           const shape = this.shaping;
           const hold =
-            shape === null ? 0 : this.holdFor(ws, this.releaseUp, shape.upMs, shape.lossAny);
+            shape === null || this.randUp === null || hopIsFree(shape.up)
+              ? 0
+              : this.holdFor(
+                  ws, this.releaseUp, this.serviceUp, shape.up, this.randUp,
+                  shape.lossAny, data.length,
+                  'up', typeof msg?.type === 'string' ? msg.type : ''
+                );
           if (hold < 0) return;
           if (hold === 0) this.handleMessage(client, msg);
           else transientTimeout(() => this.handleMessage(client, msg), hold);
@@ -1354,7 +1569,7 @@ export class GameWebSocketServer {
       return;
     }
     const data = lensStringify(stampSent(msg));
-    const hold = this.holdOutbound(ws, msg?.type ?? '');
+    const hold = this.holdOutbound(ws, msg?.type ?? '', data.length);
     if (hold < 0) return;
     if (hold === 0) ws.send(data);
     else transientTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.send(data); }, hold);
@@ -1407,7 +1622,7 @@ export class GameWebSocketServer {
       return;
     }
 
-    const hold = this.holdOutbound(ws, msgType);
+    const hold = this.holdOutbound(ws, msgType, data.length);
     if (hold < 0) return;
     if (hold === 0) ws.send(data);
     else transientTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.send(data); }, hold);

@@ -1,0 +1,337 @@
+{
+  "scenes": [
+    {
+      "note": "contest",
+      "adaHeld": "red-A",
+      "boHolds": "red-C"
+    },
+    {
+      "name": "slow",
+      "flags": [
+        "--latency=500",
+        "--jitter=60"
+      ],
+      "turnTimeoutMs": 3000,
+      "why": "a second of round trip: DEGRADED, the widened press slack, and a write in flight",
+      "failure": null
+    }
+  ],
+  "shots": [
+    {
+      "scene": "slow",
+      "name": "06-degraded-rtt",
+      "note": "DEGRADED on round trip — 500 ms ± 60 injected on each hop. The banner says the number AND what it costs (\"a press needs N ms to land\"), and the notch has walked left off the shoulder of the bar to where it now belongs",
+      "driftedTo": "STALE",
+      "bytes": 23651,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1317 ms round trip — a press needs 679 ms to land",
+        "turn": 2,
+        "budgetMs": 2938,
+        "rttMs": 1317,
+        "oneWayDownMs": 539,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 11,
+        "deadlineAt": 1788644269379,
+        "lastSafePressAt": 1788644268700,
+        "pressSlackMs": 679,
+        "remainingMs": 231,
+        "frameAgeMs": 1718,
+        "boardAgeMs": 2707,
+        "gameLagMs": 12,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1469,
+          "degradedMs": 2938,
+          "rttDegradedMs": 881,
+          "rttWarnMs": 294,
+          "pendingMs": 3951
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 75
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1317ms frame +1681ms board +2670ms game +12ms 1317 ms round trip — a press needs 679 ms to land · a lock issued now may not land this turn ⟳ select red-A 38ms",
+      "banner": "1317 ms round trip — a press needs 679 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 38ms"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "07-optimistic-pending",
+      "note": "OPTIMISTIC — the gesture is on screen in the frame it was made in, ⟳ and its own age, with nothing yet having answered it",
+      "driftedTo": "DEGRADED",
+      "bytes": 21252,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 2456 ms, past this turn's deadline",
+        "turn": 2,
+        "budgetMs": 2938,
+        "rttMs": 1317,
+        "oneWayDownMs": 539,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 11,
+        "deadlineAt": 1788644269379,
+        "lastSafePressAt": 1788644268700,
+        "pressSlackMs": 679,
+        "remainingMs": -507,
+        "frameAgeMs": 2456,
+        "boardAgeMs": 3445,
+        "gameLagMs": 12,
+        "droppedTurns": 0,
+        "pending": 2,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1469,
+          "degradedMs": 2938,
+          "rttDegradedMs": 881,
+          "rttWarnMs": 294,
+          "pendingMs": 3951
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 813
+        },
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 16
+        }
+      ],
+      "domState": "STALE",
+      "text": "STALE rtt 1317ms frame +2439ms board +3428ms game +12ms no decision frame for 2439 ms, past this turn's deadline ⟳ select red-A 796ms ⟳ select red-A 0ms",
+      "banner": "no decision frame for 2439 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 796ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 0ms"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "08-reconciled",
+      "note": "RECONCILED — the same chip after the server answered: the age it took is exactly the measurement the last-safe-press mark is drawn from, which is why the two are on the same surface",
+      "driftedTo": null,
+      "bytes": 23725,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1569 ms round trip — a press needs 1149 ms to land",
+        "turn": 4,
+        "budgetMs": 2945,
+        "rttMs": 1569,
+        "oneWayDownMs": 841,
+        "serverWorkMs": 364,
+        "clockOffsetMs": 11,
+        "deadlineAt": 1788644272968,
+        "lastSafePressAt": 1788644271819,
+        "pressSlackMs": 1149,
+        "remainingMs": 1578,
+        "frameAgeMs": 609,
+        "boardAgeMs": 1367,
+        "gameLagMs": 5,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1473,
+          "degradedMs": 2945,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 4708
+        }
+      },
+      "pending": [
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 269
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1569ms frame +1376ms board +2184ms game +29ms 1569 ms round trip — a press needs 1149 ms to land · a lock issued now may not land this turn ✓ select red-A 1995ms ✓ select red-A 1202ms ⟳ ask red-A 187ms",
+      "banner": "1569 ms round trip — a press needs 1149 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1995ms"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1202ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 187ms"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "09-last-safe-press",
+      "note": "PAST THE LAST SAFE PRESS — inside the deadline, outside the flight time. The fill goes to its urgent tone and the banner gains the sentence a countdown alone cannot say: a lock issued now may not land this turn",
+      "driftedTo": null,
+      "bytes": 27041,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1633 ms round trip — a press needs 1181 ms to land",
+        "turn": 4,
+        "budgetMs": 2945,
+        "rttMs": 1633,
+        "oneWayDownMs": 570,
+        "serverWorkMs": 364,
+        "clockOffsetMs": 10,
+        "deadlineAt": 1788644272968,
+        "lastSafePressAt": 1788644271787,
+        "pressSlackMs": 1181,
+        "remainingMs": 1118,
+        "frameAgeMs": 869,
+        "boardAgeMs": 1827,
+        "gameLagMs": 5,
+        "droppedTurns": 0,
+        "pending": 2,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1473,
+          "degradedMs": 2945,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 4899
+        }
+      },
+      "pending": [
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 730
+        },
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 159
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1633ms frame +829ms board +1787ms game +5ms 1633 ms round trip — a press needs 1181 ms to land · a lock issued now may not land this turn ✓ select red-A 1995ms ✓ select red-A 1202ms ⟳ ask red-A 690ms ⟳ ask red-A 119ms",
+      "banner": "1633 ms round trip — a press needs 1181 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1995ms"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1202ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 690ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 119ms"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "10-rollback",
+      "note": "ROLLED BACK, AND SAID SO — a second operator held the unit, so the optimistic chip does not quietly vanish: it becomes ✗ with the reason, and stays long enough to read",
+      "driftedTo": null,
+      "bytes": 24849,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 8822 ms, past this turn's deadline",
+        "turn": 5,
+        "budgetMs": 2947,
+        "rttMs": 1005,
+        "oneWayDownMs": 518,
+        "serverWorkMs": 16,
+        "clockOffsetMs": 4,
+        "deadlineAt": 1788644274724,
+        "lastSafePressAt": 1788644274205,
+        "pressSlackMs": 519,
+        "remainingMs": -6421,
+        "frameAgeMs": 8822,
+        "boardAgeMs": 9368,
+        "gameLagMs": 3,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1474,
+          "degradedMs": 2947,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 3014
+        }
+      },
+      "pending": [],
+      "domState": "STALE",
+      "text": "STALE rtt 1005ms frame +8793ms board +9339ms game +3ms no decision frame for 8793 ms, past this turn's deadline ✗ ask red-A 1223ms — no decision is inspectable on this game right… ✗ ask red-A 1222ms — no decision is inspectable on this game right… ✗ select red-C 1009ms — another operator holds it",
+      "banner": "no decision frame for 8793 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1223ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1222ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "refused",
+          "text": "✗ select red-C 1009ms — another operator holds it"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    }
+  ],
+  "console": [
+    {
+      "scene": "slow",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T21:37:40.910Z)"
+    },
+    {
+      "scene": "slow",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "exceptions": [
+    {
+      "what": "06-degraded-rtt",
+      "why": "drifted DEGRADED→STALE"
+    },
+    {
+      "what": "07-optimistic-pending",
+      "why": "drifted STALE→DEGRADED"
+    }
+  ]
+}
