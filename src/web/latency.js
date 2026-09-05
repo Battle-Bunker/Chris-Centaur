@@ -82,13 +82,13 @@
   // ── Round 2's constants (`docs/design/ux/13-LATENCY-2.md`) ─────────────
   //
   // THE NOTCH IS A BAND BECAUSE THE PRESS COST IS A DISTRIBUTION. §2's
-  // instrument pressed eight times a turn at the notch under five wires and
-  // measured what the press actually cost: `rtt/2 + work` was 14 ms
-  // conservative at the median on a LAN and 1,839 ms OPTIMISTIC at the 95th
-  // on a continental one, because a press does not only fly — it waits for a
-  // centaur that is in the middle of a decision. A line drawn from an average
-  // is a promise the tail cannot keep, so the surface draws the spread it has
-  // actually seen and puts the hard mark at the confident end of it.
+  // instrument pressed once a turn at the notch under five wires and measured
+  // what the press actually cost. `rtt/2 + work` was 27 ms conservative at the
+  // median on a LAN and 695 ms OPTIMISTIC at the 95th on `mobile` — because a
+  // press does not only fly, it waits for a centaur that is in the middle of a
+  // decision. A line drawn from an average is a promise the tail cannot keep,
+  // so the surface draws the spread it has actually seen and puts the hard
+  // mark at the confident end of it.
   // 0.75 AND NOT 0.9, AND THE INSTRUMENT PICKED IT. At 0.9 the band on
   // `mobile` swallowed the whole turn: the surface refused all eight presses
   // and SEVEN of them would have landed (§4). A notch that says "no press

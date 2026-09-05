@@ -546,6 +546,15 @@ which is the entire reason the two hops are two numbers.
   next opens that file; putting a second countdown on the page from this module
   would be two clocks disagreeing.
 * **`installPanelWriteGuard`'s permanent home** is `lensRender` (§2.2).
+* **ROUND 2 IS `13-LATENCY-2.md`**, and three of the readings above have moved
+  since. `pressSlackMs` is no longer `rtt/2 + work` but a quantile of the press
+  costs the page has observed (13 §3b); the STALE rung no longer fires between
+  turns when the turn was answered and the wire is still carrying (13 §3c, and
+  it was firing on every turn of every wire including the LAN); and the RTT the
+  rungs steer by is now `max(the EMA, an outstanding ping's age)`, because an
+  average of the pongs that came back cannot follow a queue that is filling
+  (13 §4.1). The thresholds in §3.2 are unchanged; what changed is what is
+  compared against them.
 * **`prefers-contrast` and a colour-blind check.** The ladder is encoded in
   brightness and motion first and colour second, on purpose, but it has not been
   measured against a simulated deficiency.
