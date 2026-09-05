@@ -62,9 +62,20 @@ const planKeys = new WeakMap<object, string>();
  * once, lazily, and never invalidated because nothing can change the plan it
  * describes.
  */
-class KeyedPlan extends Map<UnitId, Candidate> {
+export class KeyedPlan extends Map<UnitId, Candidate> {
   /** `planKey`'s answer for THIS object; `undefined` until first asked. */
   cachedKey: string | undefined = undefined;
+  /**
+   * ONE SLOT for a cache that keys on (plan, view, frame) rather than on the
+   * plan alone — the resolution memo's composite store key, and nothing else.
+   * `slotTag` is that caller's own encoding of (view, frame); `-1` is empty.
+   * One slot rather than a table because a plan is priced under one view at a
+   * time on every hot path, and a caller whose plan alternates views simply
+   * rebuilds — which is a string concatenation over a key that is already
+   * cached, not a lookup that can go wrong. See `memo.ts`.
+   */
+  slotTag = -1;
+  slotKey: string | undefined = undefined;
 }
 
 /** The sortedness watch `pushPart` keeps for the call it is inside. */

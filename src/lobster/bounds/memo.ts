@@ -39,7 +39,7 @@
  */
 
 import type { BoundedResolution, JointPlan, Substrate } from "../contracts";
-import { planKey } from "./plan";
+import { KeyedPlan, planKey } from "./plan";
 
 export interface MemoStats {
   /** Real engine resolutions — the number the budget is denominated in. */
@@ -105,8 +105,26 @@ function wrap(
    * more than one frame in the harness.
    */
   const composed = new WeakMap<object, { team: number; key: string }>();
+  /** This view's half of a `KeyedPlan.slotTag`. `asTeam` is a team index, so
+   *  a thousand of them per view is room the roster will never use. */
+  const slotBase = viewId * 1024;
 
   const keyFor = (plan: JointPlan, asTeam: number): string => {
+    // A plan built by `withMove`/`withMoves` carries the slot itself, so the
+    // composite key costs a property load rather than an ephemeron lookup —
+    // and the SAME STRING OBJECT comes back every time, which is what makes
+    // the `store.entries` lookup below hash it once instead of once per call.
+    // Measured at 4.6% (`keyFor`) plus 3.2% (`resolveBoundedFor`) of the
+    // kernel's decision time before this. Anything else — a literal `new Map`,
+    // a test fixture — keeps the WeakMap.
+    if (plan instanceof KeyedPlan) {
+      const tag = slotBase + asTeam;
+      if (plan.slotTag === tag) return plan.slotKey as string;
+      const built = `${prefix}${asTeam}#${planKey(plan)}`;
+      plan.slotTag = tag;
+      plan.slotKey = built;
+      return built;
+    }
     const hit = composed.get(plan as object);
     if (hit !== undefined && hit.team === asTeam) return hit.key;
     const made = `${prefix}${asTeam}#${planKey(plan)}`;
