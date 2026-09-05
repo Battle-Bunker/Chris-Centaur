@@ -297,14 +297,15 @@ select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
 .rv-id { font-size: 11px; color: var(--ink-faint); }
 
 /* ── The strip: one cell per stored turn ─────────────────────────────────── */
+.rv-stripwrap { padding: 2px 0 4px; }
 .rv-strip {
   list-style: none; margin: 0 0 6px; padding: 0;
   display: flex; flex-wrap: wrap; gap: 2px;
 }
 .rv-cell {
-  width: 18px; height: 24px; padding: 0; cursor: pointer;
+  width: 20px; height: 26px; padding: 0; cursor: pointer;
   background: #232323; border: 1px solid #2e2e2e; border-radius: 3px;
-  color: var(--ink-faint); font-size: 12px; line-height: 1;
+  color: var(--ink-faint); font-size: 13px; line-height: 1;
   display: flex; align-items: center; justify-content: center;
 }
 .rv-cell:hover { border-color: #666; }

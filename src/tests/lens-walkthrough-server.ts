@@ -316,6 +316,11 @@ async function main(): Promise<void> {
   });
 
   app.get('/api/logs/commands', (_req, res) => res.json([]));
+  // The viewer beacons its connection log on unload (`ws-client.js`), and
+  // production mounts this (`routes/connection-debug.ts`). A walk that leaves
+  // the game page — which it does the moment it goes to `/history` — otherwise
+  // records a 404 that belongs to the harness and reads as a page fault.
+  app.post('/api/connection-log/client', (_req, res) => res.json({ ok: true }));
   // THE REAL PLAY ROUTES. `/api/play/game/:id` 404ing is what tips the page
   // into `enterFinishedMode` — a live game read as a finished one — so the
   // walkthrough must mount the router rather than stub around it.

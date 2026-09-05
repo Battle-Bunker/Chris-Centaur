@@ -182,8 +182,8 @@
   // ── The index of moments ────────────────────────────────────────────────
 
   var RULES = {
-    'death-ours': { glyph: '▼', weight: 3, tone: 'stop', label: 'we lost a unit' },
-    'death-theirs': { glyph: '△', weight: 2, tone: 'ink', label: 'a rival died' },
+    'death-ours': { glyph: '▼', weight: 4, tone: 'stop', label: 'we lost a unit' },
+    'death-theirs': { glyph: '△', weight: 3, tone: 'ink', label: 'a rival died' },
     handover: { glyph: '◆', weight: 4, tone: 'warn', label: 'the lead changed hands' },
     swing: { glyph: '◇', weight: 2, tone: 'warn', label: 'the lead swung' },
     operator: { glyph: '■', weight: 2, tone: 'cool', label: 'an operator acted' },
@@ -549,8 +549,10 @@
         '<span class="rv-read" id="rvRead"></span>' +
         '<span class="mono rv-id" id="rvId"></span>' +
       '</div>' +
-      '<ol class="rv-strip" id="rvStrip" aria-label="Every turn of the game; the marked ones are the moments"></ol>' +
-      '<div class="rv-legend" id="rvLegend"></div>' +
+      '<div class="rv-stripwrap">' +
+        '<ol class="rv-strip" id="rvStrip" aria-label="Every turn of the game; the marked ones are the moments"></ol>' +
+        '<div class="rv-legend" id="rvLegend"></div>' +
+      '</div>' +
       '<div class="rv-body">' +
         '<div class="rv-side">' +
           '<h3 class="rv-h">Moments <span class="rv-hint">j / k</span></h3>' +
@@ -615,7 +617,10 @@
     });
     el.list.addEventListener('click', function (e) {
       var b = e.target.closest && e.target.closest('.rv-moment');
-      if (b) { state.cursor = Number(b.dataset.index); goTurn(state.moments[state.cursor].turn, state.moments[state.cursor].unit); }
+      if (b) {
+        state.cursor = Number(b.dataset.index);
+        goTurn(state.moments[state.cursor].turn, state.moments[state.cursor].unit, true);
+      }
     });
     el.marks.addEventListener('click', function (e) {
       var b = e.target.closest && e.target.closest('.rv-markrow');
@@ -865,7 +870,14 @@
   function renderStrip() {
     var cells = state.turns.map(function (row) {
       var t = row.turn;
-      var here = (state.byTurn[t] || []).slice().sort(function (a, b) { return b.score - a.score; });
+      // THE CELL'S GLYPH IS THE CONCRETE READING FIRST. A turn where a unit
+      // died reads as a death even when a leader also changed on it: a death
+      // is a fact about the game and the other rules are facts about the
+      // search, and a reviewer scanning the strip is looking for the first.
+      var here = (state.byTurn[t] || []).slice().sort(function (a, b) {
+        return (ALWAYS[b.rule] ? 1 : 0) - (ALWAYS[a.rule] ? 1 : 0) ||
+          b.weight - a.weight || b.score - a.score;
+      });
       var top = here[0] || null;
       var cls = ['rv-cell'];
       if (t === state.turn) cls.push('rv-at');
@@ -1315,14 +1327,16 @@
 
   // ── Moving ──────────────────────────────────────────────────────────────
 
-  function goTurn(turn, focus) {
+  function goTurn(turn, focus, keepCursor) {
     if (state === null || !Number.isFinite(turn)) return;
     var first = state.turns.length ? state.turns[0].turn : turn;
     var last = state.turns.length ? state.turns[state.turns.length - 1].turn : turn;
     if (state.turn !== turn) state.cluster = null;
     state.turn = Math.max(first, Math.min(last, turn));
     if (focus !== undefined) state.focus = focus;
-    syncCursor();
+    // A turn carries several moments; walking them must not be undone by
+    // re-seating the cursor on the first one of the turn it landed on.
+    if (!keepCursor) syncCursor();
     renderTurn();
   }
 
@@ -1347,7 +1361,7 @@
     }
     var next = Math.max(0, Math.min(state.moments.length - 1, at + delta));
     state.cursor = next;
-    goTurn(state.moments[next].turn, state.moments[next].unit);
+    goTurn(state.moments[next].turn, state.moments[next].unit, true);
   }
 
   function bookmark() {

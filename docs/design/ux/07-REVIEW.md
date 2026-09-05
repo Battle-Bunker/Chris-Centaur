@@ -58,10 +58,15 @@ derived — never asserted, never stored — from rows that already exist, by si
 rules. Every rule names its source table, because a moment whose provenance is
 not nameable is a number the review invented.
 
-**M1 — a death.** `turn_events.kind = 'turn.resolved'`, payload `deaths:
-UnitKey[]`. Non-empty ⇒ a moment on that turn. Ours (a unit in this game
-group's roster) weighs more than a rival's: losing a unit is the event the
-reviewer is looking for, killing one is a result.
+**M1 — a death.** From `turn_boards.settlement`: a unit alive in turn `t`'s
+board and gone from `t+1`'s died on `t`. **Not** from `turn.resolved`'s
+`deaths` field — the only writer there has ever been emits it as `[]`
+(`active-game-manager.ts::applyResolvedMoves`), so an index that trusted it
+would report a game in which nothing ever died. The boards are also the class
+retained forever, so this rule outlives the seven-day event window and works on
+a game whose log has been folded away. Ours (a unit in this game group's
+roster) weighs more than a rival's: losing a unit is the event the reviewer is
+looking for, killing one is a result.
 
 **M2 — a lead swing.** From `turn_boards.settlement` alone. For each stored
 turn, `weight(team) = Σ length` over that team's units that are alive in the
@@ -110,15 +115,27 @@ then settled is a search working and is not a moment.
 and on every `conditional` frame the turn holds: narrow when the leader's
 `dominance` is `advisory-only` (*floors equal — the leader won on the channel
 that never adjudicates*) or `indifferent`, or when `rank1.lo − rank2.lo ≤
-max(0.5, 0.05 · |rank1.lo|)`. This is the turn where the bot nearly did
+max(0.05, 0.01 · |rank1.lo|)`. This is the turn where the bot nearly did
 something else, which is the turn a reviewer most wants and the one no summary
 statistic can surface.
 
-**Weight and ranking.** Each rule contributes a weight (M3 4, M1-ours and M5 3,
-M1-theirs, M4 and M6 2, M4-refused 3); a turn's weight is the largest it earns
-and the strip's brightness is that weight in four steps. The moment *list* is
-every rule's hit, ranked by weight and then by turn, so a turn that is a death
-*and* a hand-over says both.
+**Weight, magnitude, and the cut.** Each rule contributes a **weight** — its
+class: M1-ours and M3 4, M1-theirs, M4-refused and M5 3, M2, M4 and M6 2 — and
+each hit carries a **magnitude** in its own rule's units: units lost, the size
+of the swing, what the late swap bought on the proved floor, how thin the
+margin was. Magnitudes are normalised **within the game**, which is the only
+scale that means anything (an evaluator's units are not comparable across
+boards), and `score = weight + normalised magnitude`.
+
+The index then **keeps the turns that stand out** — `clamp(4, turns/6, 24)` of
+them, by best score — and the categorical rules (a death, a hand-over, a
+refusal) are never cut, because those are facts about the game rather than
+matters of degree. Everything below the cut stays on the strip at the lowest
+brightness and stays reachable with `h`/`l`: *quieter than the rest of this
+game* and *nothing here* are different readings.
+
+This is a **ranking, not a threshold**, and §2.1 records why: against a real
+log, absolute thresholds fired on every turn.
 
 **What is deliberately not a moment.** Food, health, hazards, and per-turn
 kernel counters: all readable, none of them decisive on their own. A moment
@@ -144,9 +161,12 @@ something the shape already said.
 
 Okabe–Ito, as `chrome.css` already declares them. Brightness carries weight
 because brightness is what the periphery reads (`01` P1's peripheral rule) and
-because it survives every colour vision. A cell's `title` and its
-`aria-label` name every rule that fired on it, so the strip is readable by
-a screen reader as a list and not as a picture.
+because it survives every colour vision. Where a turn holds several hits the cell draws the **concrete** one first — a
+turn on which a unit died reads as a death even when a leader also changed on
+it, because a death is a fact about the game and the other rules are facts
+about the search, and a reviewer scanning the strip is looking for the first.
+A cell's `title` and its `aria-label` name every rule that fired on it, so the
+strip is readable by a screen reader as a list and not as a picture.
 
 The strip does not re-order, ever, and the cursor moves through it without the
 cells moving (`01` P3). It is a `<ol>` of buttons, not a canvas: `/activity`'s
@@ -160,7 +180,10 @@ seconds is still a budget, and it buys six readings, in this order, all off
 stored rows:
 
 1. **What it did.** The chosen moveset: the rank-1 row of the turn's last
-   `movesets` frame — the one the decision ended on — with its cluster, its
+   `movesets` frame — the one the decision ended on — for the cluster with the
+   most to say (the one whose leader was drilled during the game, else the
+   widest, else the staged one), with the turn's other clusters one click
+   away rather than invisible; with its cluster, its
    members, and **per member the move it assigns** (`unit → cell`, and the
    path length). Beside it, what actually resolved: `turn.resolved.moves` and
    `unit_outcomes` (`staged_move`, `confirmed_move`, `resolved_move`,
@@ -262,3 +285,159 @@ while a review is open and `/history`'s list keeps `j`/`k` when it is not.
 
 `Ctrl+/` lists them, from the same table, because `page-chrome.js` builds the
 sheet from what was registered and cannot disagree with it.
+
+---
+
+## 2. What landed
+
+Against §1, with what changed and why. The pictures are `review/r1`…`r7`,
+taken by the review drill in `scripts/lens-walkthrough.js` against
+`src/tests/lens-walkthrough-server.ts` — the shipped page, the shipped routes,
+a real recorded game; `review/report.json` is what the drill asserted and what
+it saw.
+
+### 2.1 The index — and the one thing the plan got wrong
+
+`src/web/review.js` (new). Rules M1–M6 are implemented as §1.2 describes, with
+two corrections the log forced within an hour:
+
+**The deaths rule read a field that is always empty.** §1.2 named
+`turn.resolved`'s `deaths`. The only writer that has ever emitted that event
+writes `deaths: []` unconditionally (`active-game-manager.ts:4090`), so the
+first run of the index on a fifteen-turn game with two deaths in it found
+none. Deaths are diffed off successive settlements instead — which is also the
+better source, because `turn_boards` is retained forever and the event log is
+a seven-day window, so the rule now outlives the log it was going to depend
+on. §1.2 records the corrected rule; this records that it was found by
+running it.
+
+**The thresholds fired on everything.** The first index over a real fifteen-turn
+log produced a hit on all fifteen turns: the leader changes on the last
+emission of almost every turn — the search is still improving when the deadline
+lands, which is a true thing about this bot and a useless thing to mark — and
+the top two rows sit within a hundredth of each other nearly as often. The
+strip was fifteen identical marks, which is `04` F4's legend failure in a new
+place and is exactly what §1.2's own last paragraph warned against.
+
+So the index became a **ranking**: a magnitude per hit in its own rule's units,
+normalised within the game, `score = weight + magnitude`, and a cut at
+`clamp(4, turns/6, 24)` turns with the categorical rules exempt. On the same
+log the strip now marks five turns out of fifteen and names thirty-six quieter
+readings it kept off the list (`r1-strip.png`). The absolute thresholds that
+survive — the swing floor, the narrowness test — are now only a first filter
+in front of the ranking, and the ranking is what the reviewer sees.
+
+**Two passes, not one.** §1.6 said four `GET`s and meant it, but not all at
+once: a whole game's `movesets` frames are tens of megabytes (`07-MEASURED` §1:
+33–88 KB per emission, seven to ten a turn), so fetching the log to build an
+index would cost 60 MB on a 120-turn game. The index pass is one boards fetch
+plus five `kind=`-filtered event fetches, all of them rows the size of a
+sentence; the deep pass is **one turn's** whole log, fetched when the reviewer
+lands there, cached, and run bounded (40 turns) in the background over the
+turns the index already flagged. The strip draws what it has not read as
+**unread** — dashed and dim — and the header says `N of M turns read in full`,
+because a strip that drew an unread turn as an empty one would be asserting a
+fact it never checked.
+
+The harness's `/api/logs` learned to honour `kind=` for the same reason:
+production filters it in SQL on an indexed column, and a stub that ignored it
+would have handed the review the megabytes the split exists to avoid.
+
+### 2.2 The strip and the keys
+
+One `<ol>` of buttons, one per stored turn, glyph first and brightness for
+weight, `title` and `aria-label` naming every rule that fired (`r1-strip.png`).
+A turn that carries both a death and a leader change draws the death: the
+concrete reading wins the cell, and the drill asserts exactly that by diffing
+the boards itself and requiring the strip's death marks to be the turns a unit
+disappeared on — the page's own index is not allowed to be its own witness.
+
+`j`/`k` walk moments, `h`/`l` walk turns, `b` bookmarks, `y` copies, `Enter`
+opens the lens, `Esc` returns to the list. They are registered through
+`PageChrome.key`, which runs page keys before the shared list keys, so
+`/history`'s own `j`/`k` row selection is untouched when no review is open and
+the cheat sheet (`Ctrl+/`) lists both from the one table.
+
+One defect the drill caught here: stepping a moment moved the turn, and moving
+the turn re-seated the cursor on that turn's *first* moment — so `j` on a turn
+carrying five moments went nowhere. The step now carries its cursor through.
+
+### 2.3 The why panel
+
+Seven cards off the turn's own log (`r3-why.png`): what it played (per member,
+with what was staged and what resolved beside it), the number with its premise
+(bracket, channel, exactness, ledger, depth, the fiber), the stored breakdown
+by member and unit with its mandatory joint residual, the runner-up, the foil,
+the threats, and the turn's conditional rankings.
+
+Three things it does that the plan only implied:
+
+* **The foil is not the runner-up.** It is the highest-ranked row whose
+  dominance names a threat, and the card says when that is also rank 2 and
+  when it is not.
+* **A breakdown that is about a different row says so.** An operator drills
+  the leader *at the moment they press `B`*, and the leader moves; where the
+  chosen row carries no breakdown but another row of the same list does, that
+  breakdown is drawn with a line saying whose it is. Drawing it silently as
+  the chosen row's own would be the exact class of error this lens exists to
+  prevent.
+* **The threats card draws its own absence.** Every reading on this build is
+  `h1`, so the line has no `theirs` ply to take enemy cells from, and
+  `Witness.replies` is a `Map`, which `lensStringify` writes as `{}` — the
+  certificate does not survive storage. The card says so in a sentence and
+  then names what it does have: the cited units (`the evaluator residue` where
+  the ledger's residue entry is cited, the same wording the rail uses), the
+  contingent's `onUnits` and what is at stake, and the assumption count.
+
+`dominanceClause` and `reviveEvents` come from the shipped `lens-view.js`
+bundle, loaded on demand so the listing does not pay 58 KB for a panel nobody
+opened. The review does not restate either: one wording of "why this row is not
+rank 1" exists in this product.
+
+### 2.4 Marking and sharing
+
+`b` writes a bookmark to `localStorage` under `centaur.reviewMarks`, bounded and
+in a `try`; `y` copies `#game=<id>&turn=<n>&focus=<unit>`, which is also always
+in a read-only field beside the button, because a link that exists only on the
+clipboard cannot be checked before it is sent (`r7-share.png`). The lens link
+beside it is `/game/<id>#turn=<n>&focus=<unit>` and the viewer can be embedded
+at that turn in place, off by default.
+
+`replay-deeplink.js` gained one field: it reads `focus=` on arrival and
+re-emits it in every `replaceState` it makes as the playhead moves, so the unit
+a reviewer named survives the recipient's first scrub. It does not act on the
+value — moving the viewer's focus belongs to the viewer — and
+`ReplayDeepLink.focusUnit()` is where that viewer will read it. Nothing else in
+the viewer was touched: `play-game.html`, `lens-panel.js`, `board-renderer.js`,
+`keynav-machine.js` and `src/lens/view/**` are byte-identical.
+
+### 2.5 What was not built
+
+* **No re-run and no re-price.** A row the game did not price draws `—`; a row
+  nobody drilled says nobody drilled it and offers the lens.
+* **No new route and no write.** Three of the four documented read routes, and
+  the one `localStorage` key.
+* **No cross-game index.** "Which of my last twenty games did this" is a real
+  question and it is a different document: it needs an aggregate the store has
+  no route for, and inventing one here would have made this pass a schema
+  change wearing a UI.
+
+## 3. Gates
+
+* `npx tsc --noEmit -p .` clean · `npx eslint "src/**/*.ts"` clean ·
+  `node --check src/web/review.js` clean.
+* `npm run build:lens` writes `src/web/lens-view.js` unchanged — this pass
+  reads that bundle and does not touch what builds it.
+* `npx jest --maxWorkers=2 "src/tests/lens-" src/tests/local-game-determinism.test.ts`
+  — the lens suites and the determinism gate, unaffected.
+* The walkthrough re-run end to end against a fresh harness: the operator,
+  tour, key-scheme and **review** drills all green (16 review assertions), no
+  page exception and no horizontal overflow on any screen. The only entries in
+  the request log are the deliberate `/api/play/game/<id>-replay` 404 — which
+  is what tips the viewer into finished mode — and the viewer's unload beacon,
+  which the browser aborts on navigation. The harness now mounts
+  `/api/connection-log/client`, which production has and it did not, so a walk
+  that leaves the game page no longer records a 404 belonging to the harness.
+* Seven review screenshots under `docs/design/ux/review/`, every one inside the
+  300 KB budget (largest 249 KB, the whole panel), beside the drill's own
+  `report.json`.

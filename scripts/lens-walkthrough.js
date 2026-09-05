@@ -999,7 +999,7 @@ async function main() {
     /DECIDED AT TURN\s+\d+/i.test(strip.verdict), { verdict: strip.verdict });
   rvCheck('the strip says how much of the game it read in full',
     /\d+ of \d+ turns read in full/.test(strip.read), { read: strip.read });
-  await shot(page, 'r1-strip', 'the moments strip and its legend — shape first, brightness for weight', '.rv-strip', REVIEW_OUT);
+  await shot(page, 'r1-strip', 'the moments strip and its legend — shape first, brightness for weight', '.rv-stripwrap', REVIEW_OUT);
   await shot(page, 'r2-index', 'the index of moments, ranked and cut', '.rv-side', REVIEW_OUT);
 
   at = 'review/keys';
@@ -1016,7 +1016,7 @@ async function main() {
   await sleep(900);
   const afterK = await whereAmI();
   rvCheck('j walks to the next moment and k walks back',
-    afterJ.at !== rvBefore.at && afterK.at === before.at,
+    afterJ.at !== rvBefore.at && afterK.at === rvBefore.at,
     { before: rvBefore.at, afterJ: afterJ.at, afterK: afterK.at });
   await page.keyboard.press('l');
   await sleep(900);
@@ -1056,7 +1056,9 @@ async function main() {
   await sleep(600);
   const marked = await page.$$eval('.rv-markrow', (e) => e.map((x) => x.innerText));
   rvCheck('b bookmarks the turn under the cursor', marked.length > 0, { marks: marked });
-  await shot(page, 'r5-mark', 'the bookmark, and the turn as a copyable link', '.rv-share', REVIEW_OUT);
+  await shot(page, 'r5-mark', 'the index and the bookmark it just took', '.rv-side', REVIEW_OUT);
+  await shot(page, 'r6-link', 'the turn as a copyable link, beside the two ways into the lens', '.rv-turnbar', REVIEW_OUT);
+  await shot(page, 'r7-share', 'the export: this turn, as a link anyone can paste', '.rv-share', REVIEW_OUT);
 
   // AND IT SURVIVES A RELOAD, which is the only thing persisting it is for —
   // and the link goes back to the same turn, which is the only thing the deep
