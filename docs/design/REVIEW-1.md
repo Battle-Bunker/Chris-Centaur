@@ -302,6 +302,35 @@ falls through to `port.rankConditional`. Whether that is a typed refusal depends
 on the port. Confirm with a port whose `partition()` no longer lists the asked
 cluster.
 
+**REVIEW-2 verdict: NOT A DEFECT, and the fall-through is REQUIRED.** Two
+things the finding did not have.
+
+First, it is always a typed refusal. This repo has exactly one production
+`KernelLensPort` (`kernel.ts:2775`, reached through
+`team-decision-engine.ts::lensPortFor`), and every route through it refuses an
+absent cluster: `inspect` at `kernel.ts:2863`, `rankConditionalNow` (the
+first-paint path) at `:3036`, and the pure `rankConditional` at
+`lens/kernel/conditional.ts:219` — all `unknown-cluster`. `partition()` returns
+`run.clusters`, which is the very list those three search, so "absent from
+`partition()`" and "refused by the port" are the same set by construction. No
+stale list is ever served.
+
+Second, and this is why the guard MUST NOT be completed here: a `ClusterId` is
+a substrate unit number, and `conditional.ts:215` deliberately answers an ask
+that names a MEMBER rather than the anchor — *"a caller naming a member rather
+than the anchor is naming the same cluster and is answered"* — by mapping the
+id through `unitKeyOf(ctx.sub, req.cluster)` and matching `members`.
+`askConditional` holds only `ClusterView`s and no substrate, so it cannot
+resolve that alias. Refusing on `live === undefined` would refuse every
+legitimate member-named ask, which is a wrong output where today there is none.
+
+The division is therefore correct as built: `askConditional` is a pre-check
+that can only decide the case it can see — the cluster is present and its
+generation has moved — and the port, which alone can resolve the anchor,
+decides the rest. What is genuinely one word short is the DOCSTRING's
+"Superseded means the cluster the operator was LOOKING AT is gone": the guard
+means *present and moved on*. No change made.
+
 ### F8 — the shutdown deadline does not stop the worker
 
 `src/logic/write-queue.ts:152` (`shutdown`).
