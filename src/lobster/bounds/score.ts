@@ -194,6 +194,12 @@ function unionChildAssumptions(children: ReadonlyArray<ScoreBounds>): ReadonlyAr
 const entryKeys = new WeakMap<object, string>();
 
 export function ledgerKey(e: LedgerEntry): string {
+  // The translation mints its entries with the key already on them (see
+  // `LedgerEntry.canonicalKey`): the backup's ledger merge asks for a key once
+  // per entry per union, and this was measured at 2.8% of the kernel's own
+  // decision time as pure ephemeron traffic. Same string either way.
+  const own = e.canonicalKey;
+  if (own !== undefined) return own;
   const hit = entryKeys.get(e as object);
   if (hit !== undefined) return hit;
   const made = `${e.unitId}:${e.cell}:${e.subStep}:${e.polarity}`;
