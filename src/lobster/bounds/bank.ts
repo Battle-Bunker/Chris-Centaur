@@ -85,7 +85,7 @@ import {
   shippedEvaluator,
   type ExactBoardDump,
 } from "./exact-reply";
-import { footprintOf, planKey, withMove, withMoves } from "./plan";
+import { footprintOf, planKey, withMoves } from "./plan";
 import { loudReadingOf, type LoudReading } from "./loud";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
@@ -477,6 +477,64 @@ export class BoundBank {
     };
   }
 
+  /**
+   * THE LEAF PRODUCTION, once, for all four rungs.
+   *
+   * A rung is not a different kind of enumeration; it is a different LIST
+   * SHAPE over the same one. Every member fixes a tuple of enemy replies onto
+   * `base`, prices it in `view`, and names the replies it fixed:
+   *
+   *   B0  no lists                       one leaf, no reply fixed at all
+   *   B1  one gated unit's options       one leaf per reply
+   *   B2  a singleton per replying unit  one leaf, the whole tuple fixed
+   *   B3  every gated unit's options     the cross-product
+   *
+   * WHETHER THE CLOCK MAY CUT A SWEEP SHORT is a property of the RUNG and is
+   * settled here, once, because it is a soundness statement rather than a
+   * performance one — see `cuttable` below.
+   *
+   * EVERY SOUNDNESS DIFFERENCE BETWEEN THE RUNGS STAYS AT THE CALL SITE: which
+   * `complete` a group closes on, what a cut sweep does to the rest of the
+   * ladder, B3's `loud` preamble and its product cap. This produces branches
+   * and decides nothing about what a group may claim from them.
+   */
+  private sweepLists(
+    view: View,
+    base: JointPlan,
+    rung: Rung,
+    lists: ReadonlyArray<{ readonly id: UnitId; readonly options: ReadonlyArray<Candidate> }>,
+    evalNs: string,
+  ): { leaves: Branch[]; swept: boolean } {
+    // B1 and B3 MIN over an enemy's replies, so a sweep the clock cut short is
+    // a min over a PREFIX — an over-estimate — and it comes back `swept:
+    // false` so its caller cannot let it raise a floor. B0 and B2 produce one
+    // leaf each and may not be cut at all: B0 is the floor of last resort and
+    // the only source of a ceiling, and half a witness certifies nothing.
+    const cuttable = rung === "B1" || rung === "B3";
+    const leaves: Branch[] = [];
+    let swept = true;
+    const walk = (i: number, acc: Candidate[]): void => {
+      const list = lists[i];
+      if (list === undefined) {
+        // NO REPLY FIXED is not the same as an empty set of replies: B0 speaks
+        // about the held cloud as it stands, and `null` is what says so.
+        const replies = acc.length === 0 ? null : new Map(acc.map((c) => [c.unitId, c]));
+        leaves.push(this.priceBranch(view, withMoves(base, acc), rung, replies, evalNs));
+        return;
+      }
+      for (const option of list.options) {
+        if (cuttable && this.budget.shouldStop()) {
+          swept = false;
+          return;
+        }
+        walk(i + 1, [...acc, option]);
+        if (!swept) return;
+      }
+    };
+    walk(0, []);
+    return { leaves, swept };
+  }
+
   private optionsFor(
     view: View,
     unitId: UnitId,
@@ -559,9 +617,9 @@ export class BoundBank {
     const members: MemberReport[] = [];
     let finished = true;
 
-    // ---- B0 -------------------------------------------------------------
+    // ---- B0: no lists — one leaf, and the clock may not cut it short ----
     const b0View = this.viewFor([]);
-    const b0 = this.priceBranch(b0View, base, "B0", null, evalNs);
+    const b0 = this.sweepLists(b0View, base, "B0", [], evalNs).leaves[0] as Branch;
     const b0Report: MemberReport = {
       rung: "B0",
       unitId: null,
@@ -596,26 +654,12 @@ export class BoundBank {
           product <= this.cfg.productCap;
         loud = loudReadingOf(plan, lists, product, eligible, coversEverything);
         if (eligible) {
-          const leaves: Branch[] = [];
-          let swept = true;
-          const walk = (i: number, acc: Candidate[]): void => {
-            if (!swept) return;
-            if (this.budget.shouldStop()) {
-              swept = false;
-              return;
-            }
-            const list = lists[i];
-            if (list === undefined) {
-              const replies = new Map(acc.map((c) => [c.unitId, c]));
-              leaves.push(this.priceBranch(view, withMoves(base, acc), "B3", replies, evalNs));
-              return;
-            }
-            for (const option of list.options) {
-              walk(i + 1, [...acc, option]);
-              if (!swept) return;
-            }
-          };
-          walk(0, []);
+          // The clock once before the group commits — the read B1's loop takes
+          // before each enemy, and B2's before each witness. Inside the sweep,
+          // one per option.
+          const { leaves, swept } = this.budget.shouldStop()
+            ? { leaves: [] as Branch[], swept: false }
+            : this.sweepLists(view, base, "B3", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
           if (leaves.length > 0) {
             members.push(this.closeGroup("B3", null, leaves, swept, true, floorMembers));
@@ -634,17 +678,8 @@ export class BoundBank {
           }
           const view = this.viewFor([enemy]);
           const { options, complete } = this.optionsFor(view, enemy);
-          if (options.length === 0) continue;
-          const leaves: Branch[] = [];
-          let swept = true;
-          for (const option of options) {
-            if (this.budget.shouldStop()) {
-              swept = false;
-              break;
-            }
-            const replies = new Map([[enemy, option]]);
-            leaves.push(this.priceBranch(view, withMove(base, option), "B1", replies, evalNs));
-          }
+          const lists = [{ id: enemy, options }];
+          const { leaves, swept } = this.sweepLists(view, base, "B1", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
           if (leaves.length === 0) continue;
           members.push(this.closeGroup("B1", enemy, leaves, swept, complete, floorMembers));
@@ -665,13 +700,10 @@ export class BoundBank {
           const ids = [...witness.replies.keys()];
           if (ids.length === 0) continue;
           const view = this.viewFor(ids);
-          const branch = this.priceBranch(
-            view,
-            withMoves(base, [...witness.replies.values()]),
-            "B2",
-            witness.replies,
-            evalNs,
-          );
+          // A FIXED TUPLE: one list per replying unit, one option each, so the
+          // walk has exactly one leaf to price and no choice to cut short.
+          const lists = ids.map((id) => ({ id, options: [witness.replies.get(id) as Candidate] }));
+          const branch = this.sweepLists(view, base, "B2", lists, evalNs).leaves[0] as Branch;
           ceilingBranches.push(branch);
           members.push({
             rung: "B2",
