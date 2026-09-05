@@ -22,6 +22,40 @@
 const LensPanel = (() => {
   const ARGS = (call) => (call && call.args) || [];
 
+  // ── THE OPERATOR DIRECTORY ─────────────────────────────────────────────
+  //
+  // WHO DID THAT, as a shape (11-MOTION-AND-MARKS.md §5). This file holds no
+  // lens logic and it holds no palette either: the page resolves an operator
+  // to their mark — `LensView.markForColor`, off the arrival index the palette
+  // is ordered by — and hands the result down as a flat dictionary. So the
+  // twelve glyphs live in exactly one place (`src/shared/operator-marks.ts`),
+  // the rail cannot disagree with the board about which mark is whose, and
+  // this module stays a pure transcript-to-DOM mapping with a lookup table.
+  //
+  // THREE KEYS PER OPERATOR, because the three surfaces name them three ways:
+  // the lane's ticks carry `actor.id`, the fixed strip's attribution carries a
+  // NAME (`authorOf` returns `row.operator ?? row.owner`), and the board's ink
+  // carries a colour. All three are aliases of one entry.
+  let operatorMarks = Object.create(null);
+
+  /** @param map {Record<string, string>} key (id | name | colour) → mark. */
+  function setOperatorMarks(map) {
+    operatorMarks = Object.create(null);
+    if (!map) return;
+    for (const key of Object.keys(map)) {
+      const k = String(key).trim();
+      if (k !== '' && map[key]) operatorMarks[k.toLowerCase()] = String(map[key]);
+    }
+  }
+
+  /** The mark for an operator, or '' — never a guess. An operator the page has
+   *  no directory entry for (a peer who left, a bot, the server) gets nothing
+   *  rather than a mark that would claim an identity nobody sent. */
+  function operatorMark(key) {
+    if (key === null || key === undefined) return '';
+    return operatorMarks[String(key).trim().toLowerCase()] || '';
+  }
+
   function firstOf(transcript, op) {
     return (transcript || []).find((c) => c.op === op) || null;
   }
@@ -405,7 +439,15 @@ const LensPanel = (() => {
     const fixed = allOf(transcript, 'panel.movesets.fixed')
       .map((call) => {
         const [unit, to, why, by] = ARGS(call);
-        return `<span class="lens-fixed">🔒 ${escapeHTML(unit)} → ${escapeHTML(to)} ${escapeHTML(why)}${by ? ` (${escapeHTML(by)})` : ''}</span>`;
+        // THE MARK, immediately before the name (11 §5.3). The strip is where
+        // the rail answers "who fixed this", and it answered it in a name
+        // alone — so an operator checking the board against the rail had to
+        // read a word to match a hue. The mark makes it one glance, and it is
+        // the same glyph the board draws on that unit's own head plate.
+        const mark = operatorMark(by);
+        return `<span class="lens-fixed">🔒 ${escapeHTML(unit)} → ${escapeHTML(to)} ${escapeHTML(why)}${
+          by ? ` (${mark ? `<span class="lens-mark">${escapeHTML(mark)}</span> ` : ''}${escapeHTML(by)})` : ''
+        }</span>`;
       })
       .join(' ');
 
@@ -714,11 +756,21 @@ const LensPanel = (() => {
           const what = `${e.kind}${e.unit ? `(${e.unit})` : ''}`;
           const who = e.operator ? `${e.operator} ` : '';
           const at = e.atWorkMs == null ? '' : ` · +${e.atWorkMs}ms`;
+          // THE OPERATOR LANE'S TICK IS THE OPERATOR'S MARK (11 §5.3). `●` was
+          // one glyph for every operator, so a lane full of determinations by
+          // two people read as one person's lane unless you hovered each tick
+          // in turn. It is drawn only on SOLID ticks: hollow is the attention
+          // channel — a hover, a tentative pin — and attention is not a
+          // determination, so it is not attributed. An operator with no
+          // directory entry keeps the `●` it always had.
+          const mark = lane === 'operator' && e.shape !== 'hollow'
+            ? operatorMark(e.operatorId) || operatorMark(e.operator) || operatorMark(e.color)
+            : '';
           return (
             `<button type="button" class="lens-tick lens-tick-${escapeHTML(e.shape)}" ` +
             `data-seq="${escapeHTML(e.seq)}" style="${style}" ` +
             `title="${escapeHTML(`${who}${what} · seq ${e.seq}${at}`)}">` +
-            `${e.shape === 'hollow' ? '○' : lane === 'operator' ? '●' : '▲'}</button>`
+            `${e.shape === 'hollow' ? '○' : mark || (lane === 'operator' ? '●' : '▲')}</button>`
           );
         })
         .join('');
@@ -953,6 +1005,8 @@ const LensPanel = (() => {
     breakdownHTML,
     provenanceHTML,
     laneHTML,
+    setOperatorMarks,
+    operatorMark,
     keyBinding,
     KEYMAP,
     escapeHTML,

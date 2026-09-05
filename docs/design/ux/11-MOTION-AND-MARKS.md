@@ -378,6 +378,22 @@ wherever that question is currently answered by a hue, or not answered at all.
 | **the timeline lane** — the operator lane's solid ticks | `●`, coloured by `actor.color`; the name only on hover | the operator's mark, still coloured. Hue and shape agree, and "whose lane row is this" is answerable at rest |
 | **the roster** — the connected-operator badges (`#connectedUsers`) | a 12 px hue dot, and nothing else. **A-1's three contrast failures are exactly these** | the dot keeps its hue; the mark sits beside it in the roster's own ink, so identity survives at 1.55 : 1 and survives a colour-vision filter |
 
+**How the mark is resolved, and why it needs nothing new on the wire.** Every
+one of those four surfaces already has the operator's **colour** —
+`TurnEvent.actor.color` on the lane, `connectedUsers[].color` in the roster,
+`owners[].color` and `selections[].color` on the board — and the colour *is* the
+arrival index the palette was ordered by. So `markForColor` closes the loop with
+no field added anywhere. The page builds one directory in
+`renderConnectedUsers` (the single function both `connectedUsers` assignment
+paths end in) with **three aliases per operator** — id, name and hue — because
+the three surfaces name them three ways: the lane's ticks by `actor.id`, the
+rail's fixed strip by NAME (`authorOf` returns `row.operator ?? row.owner`), and
+the board's ink by colour. `LensPanel` holds the dictionary and no palette;
+`board-renderer.js` is handed the resolved glyph on the ink and holds neither.
+An operator with no directory entry — a peer who has left, a bot, the server —
+gets **no** mark, and the surfaces keep the glyph they always drew (`•` on the
+board, `●` on the lane). A mark is never guessed.
+
 **Where it is deliberately not drawn.** Not on the staged **arrow** — see §6,
 the wire cannot say whose it is. Not on the unit **name tag**: the tag's
 ownership outline is already an operator channel, the tag is a dense
@@ -504,8 +520,10 @@ invents an operator.
 | `src/web/alerts.js` | the ring's two transitions name `--motion-enter` / `--motion-exit` |
 | `src/web/latency.js` | `.lat-pulse` names `--motion-state` / `--ease-state` |
 | `src/web/lens-panel.js` | `operatorMark()` and the directory behind it; the fixed strip's attribution and the operator lane's tick draw the mark |
-| `src/web/board-renderer.js` | the fixed chip draws `bound.mark` where it drew `•` (one expression; the renderer gains no state and no loop) |
-| `scripts/lens-walkthrough.js` | the motion-and-marks drill (§8) |
+| `src/web/board-renderer.js` | the fixed chip draws `bound.mark` where it drew `•` (one expression; the renderer gains no state, no palette, no directory and no loop) |
+| `src/shared/operator-marks.ts` | **new** — the twelve marks, `markForArrivalIndex`, `arrivalIndexForColor`, `markForColor`. Beside `player-palette.ts`, because the two are one arrival index read twice and splitting them across two homes is how they would come to disagree |
+| `src/lens/view/index.ts` | one re-export line, so the browser has the marks. This module is the only thing under `src/` that is bundled for the page, and a second copy of twelve glyphs on the client is exactly the drift the bundle exists to prevent. Nothing in the view model reads them; the transcript is unchanged |
+| `scripts/lens-walkthrough.js` | the motion-and-marks drill (§8) — 36 checks |
 
 ### 7.1 Why the keyframes are in `tokens.css` and not `chrome.css`
 
@@ -559,10 +577,26 @@ the run like the other four.
    four instant verbs read `0s` on their own elements; the pulse reads
    `animation-name: motion-arrival-reduced`, `animation-duration: 0.62s`,
    `animation-iteration-count: 1`, and its computed `transform` is `none`.
-5. **The marks.** Two operators in the directory resolve to two different marks;
-   each mark is the one its palette index names; the mark drawn in the rail's
-   fixed strip is the mark drawn in that operator's lane tick; and the roster
-   badge carries a mark beside every dot.
+5. **The marks.** Twelve of them, one per palette entry; `markForColor` of the
+   palette's first four hexes equals `markForArrivalIndex` of 0–3, so the two
+   channels really are one number read twice; they wrap where the palette wraps;
+   a colour the palette does not name resolves to **no** mark rather than a
+   guess; none of the twelve is a glyph `02 §2.5` already spent. Then the
+   property P-4 is actually about: two operators, injected into the page's own
+   directory (§6.3), draw **two different marks** on the lane — `■` and `★` —
+   the **same** two in the rail's fixed strip, and a hollow (attention) tick
+   stays `○`, because attention is not a determination and is not attributed.
+   The roster badge carries a mark beside its hue dot, resolved off the live
+   directory. The board's chip draws `bound.mark`, resolved by the page on the
+   same directory the strip read.
+
+   **What this cost in pixels.** Five of the walkthrough's stable shots changed
+   — `10-lane-expanded`, `d1b-refused`, `d2-lock-armed`, `d3-locked`,
+   `d4-widen` — and they are exactly the five with the timeline lane's operator
+   ticks in frame, which is the one place the mark replaces a glyph that was
+   already being drawn. Every other stable shot, and all seven review shots,
+   are byte-identical. The rail's own text is unchanged in all five: the mark is
+   a glyph swap inside the lane, not a re-layout of the column.
 6. **The flash budget** is still `scripts/alerts-drill.js`'s to prove, unchanged
    — 12 raisings in 2,895 ms → 4 onsets, 46/46 checks — and §4a's second floor
    is a property of the reactive policy's timer rather than of a counter, so
@@ -570,8 +604,8 @@ the run like the other four.
    up before it makes a new one, so two onsets cannot overlap on the board
    whatever the timer does.
 
-The motion drill is **26 checks**, all green, and the gate names the step that
-failed the way the other four drills do.
+The motion-and-marks drill is **36 checks**, all green, and the gate names the
+step that failed the way the other four drills do.
 
 The gates over the whole series: `npx tsc --noEmit -p .`,
 `npx eslint "src/**/*.ts"`, `node --check` on every changed `.js`,

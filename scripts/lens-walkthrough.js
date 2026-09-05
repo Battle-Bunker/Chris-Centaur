@@ -882,9 +882,9 @@ async function main() {
   // EMPHASIS. The pulse is fired on the units the board actually has, which is
   // what `lensAcceptWiden` hands it, and the layer is measured while it is up.
   const pulse = await page.evaluate(() => {
-    const board = window.activeBoard ? window.activeBoard() : null;
+    const board = typeof activeBoard !== "undefined" ? activeBoard() : null;
     const units = board && board.snakes ? board.snakes.slice(0, 2).map((s) => s.id) : [];
-    const layer = window.lensPulseArrival(units);
+    const layer = lensPulseArrival(units);
     if (!layer) return { made: false, units };
     const rings = [...layer.querySelectorAll('.lens-arrival-pulse')];
     const cs = rings[0] ? getComputedStyle(rings[0]) : null;
@@ -918,7 +918,7 @@ async function main() {
   );
   mCheck(
     'emphasis: the accept path is what fires it',
-    (await page.evaluate(() => String(window.lensAcceptWiden).includes('lensPulseArrival'))),
+    (await page.evaluate(() => String(lensAcceptWiden).includes('lensPulseArrival'))),
     null
   );
   await sleep(1400);
@@ -1016,9 +1016,9 @@ async function main() {
   );
   mCheck('reduced motion: the fade duration is untouched', ms(vR.emphasisFade) === ms(v0.emphasisFade), vR.emphasisFade);
   const rPulse = await page.evaluate(() => {
-    const board = window.activeBoard ? window.activeBoard() : null;
+    const board = typeof activeBoard !== "undefined" ? activeBoard() : null;
     const units = board && board.snakes ? board.snakes.slice(0, 1).map((s) => s.id) : [];
-    const layer = window.lensPulseArrival(units);
+    const layer = lensPulseArrival(units);
     if (!layer) return null;
     const el = layer.querySelector('.lens-arrival-pulse');
     const cs = getComputedStyle(el);
@@ -1053,6 +1053,120 @@ async function main() {
     const l = document.getElementById('lensPulseLayer');
     if (l) l.remove();
   });
+
+  // ── THE MARKS ───────────────────────────────────────────────────────────
+  //
+  // `11-MOTION-AND-MARKS.md` §5, and §6.3 is why the second operator is
+  // injected rather than entered: the walkthrough server enrols ONE operator,
+  // because names are unique per game and a second entry arrives as a stranger
+  // and gets a takeover dialog instead of the units. So the drill puts a
+  // second operator in the PAGE'S OWN directory — id, name and the palette's
+  // index-1 hue — and asserts the property P-4 is about: that two operators'
+  // determinations are told apart WITHOUT a hue. Nothing on the server is
+  // mocked and no envelope is faked; the shipped page has no code path that
+  // invents an operator.
+  at = 'motion/marks';
+
+  const alphabet = await page.evaluate(() => ({
+    marks: window.LensView.OPERATOR_MARKS,
+    byIndex: [0, 1, 2, 3].map((i) => window.LensView.markForArrivalIndex(i)),
+    firstFour: ['#156cdd', '#ff4d6d', '#0a7e3a', '#8629c0'].map((c) => window.LensView.markForColor(c)),
+    unknown: window.LensView.markForColor('#888888'),
+    wraps: window.LensView.markForArrivalIndex(12) === window.LensView.markForArrivalIndex(0),
+  }));
+  mCheck('marks: twelve of them, one per palette entry', alphabet.marks.length === 12, alphabet.marks);
+  mCheck(
+    'marks: the mark and the hue are two readings of ONE arrival index',
+    alphabet.firstFour.every((m, i) => m === alphabet.byIndex[i]),
+    alphabet
+  );
+  mCheck('marks: they wrap where the palette wraps, and not before', alphabet.wraps === true, alphabet.wraps);
+  mCheck(
+    'marks: a colour the palette does not name gets NO mark, never a guess',
+    alphabet.unknown === null,
+    alphabet.unknown
+  );
+  mCheck(
+    'marks: none of them is a glyph 02 §2.5 already spent',
+    alphabet.marks.every((m) => !'▸◇⚠◦🔒⦿↺⛨◎◉✕⚑●▲○•'.includes(m)),
+    alphabet.marks
+  );
+
+  const two = await page.evaluate(() => {
+    // A SECOND OPERATOR, in the page's own directory only (11 §6.3).
+    const dots = [...document.querySelectorAll('#connectedUsers .user-badge')];
+    const mine = dots.map((d) => (d.querySelector('.user-mark') || {}).textContent || null);
+    const map = {
+      'op-ada': window.LensView.markForColor('#156cdd'),
+      Ada: window.LensView.markForColor('#156cdd'),
+      'op-ben': window.LensView.markForColor('#ff4d6d'),
+      Ben: window.LensView.markForColor('#ff4d6d'),
+    };
+    LensPanel.setOperatorMarks(map);
+    const lane = LensPanel.laneHTML(
+      [
+        { lane: 'operator', seq: 1, atWorkMs: 1, kind: 'pin', color: '#156cdd', operator: 'Ada', operatorId: 'op-ada', unit: 'red-A', shape: 'solid' },
+        { lane: 'operator', seq: 2, atWorkMs: 2, kind: 'pin', color: '#ff4d6d', operator: 'Ben', operatorId: 'op-ben', unit: 'red-B', shape: 'solid' },
+        { lane: 'operator', seq: 3, atWorkMs: 3, kind: 'selection', color: '#156cdd', operator: 'Ada', operatorId: 'op-ada', unit: 'red-A', shape: 'hollow' },
+      ],
+      { seq: 3, expanded: true }
+    );
+    const strip = LensPanel.movesetsHTML([
+      { op: 'panel.movesets', args: ['a', 1, 2, 7, false, 'retained', 0, false] },
+      { op: 'panel.movesets.fixed', args: ['red-A', 108, 'pinned', 'Ada'] },
+      { op: 'panel.movesets.fixed', args: ['red-B', 119, 'pinned', 'Ben'] },
+    ]);
+    const el = document.createElement('div');
+    el.innerHTML = lane;
+    const laneMarks = [...el.querySelectorAll('.lens-tick')].map((t) => t.textContent);
+    const el2 = document.createElement('div');
+    el2.innerHTML = strip;
+    const stripMarks = [...el2.querySelectorAll('.lens-mark')].map((t) => t.textContent);
+    return { rosterMarks: mine, laneMarks, stripMarks, map };
+  });
+  mCheck(
+    'marks: two operators, two different marks on the timeline lane',
+    two.laneMarks[0] === two.map['op-ada'] &&
+      two.laneMarks[1] === two.map['op-ben'] &&
+      two.laneMarks[0] !== two.laneMarks[1],
+    two
+  );
+  mCheck(
+    'marks: attention stays unattributed — a hollow tick is still ○',
+    two.laneMarks[2] === '○',
+    two.laneMarks
+  );
+  mCheck(
+    'marks: the rail’s fixed strip carries the SAME two marks',
+    two.stripMarks.length === 2 &&
+      two.stripMarks[0] === two.laneMarks[0] &&
+      two.stripMarks[1] === two.laneMarks[1],
+    two
+  );
+  mCheck(
+    'marks: the roster badge carries a mark beside its hue dot',
+    Array.isArray(two.rosterMarks) && two.rosterMarks.length > 0 && two.rosterMarks.every((m) => !!m),
+    two.rosterMarks
+  );
+
+  // THE BOARD. The renderer draws `bound.mark` where it drew `•`; the page
+  // resolves it off the same directory the strip read, so the glyph on a
+  // unit's head plate is the glyph beside that operator's name in the rail.
+  const boardMark = await page.evaluate(() => ({
+    resolvedByThePage: String(lensInk).includes('bound.mark'),
+    drawnByTheRenderer: String(BoardRenderer.renderLensHandle).includes('bound.mark'),
+    fallback: String(BoardRenderer.renderLensHandle).includes('"•"'),
+    directory: LensPanel.operatorMark('op-ada'),
+  }));
+  mCheck(
+    'marks: the board’s fixed chip draws the mark, resolved on the rail’s own directory',
+    boardMark.resolvedByThePage && boardMark.drawnByTheRenderer && boardMark.fallback,
+    boardMark
+  );
+
+  // And the page is put back the way the walk found it, so nothing after this
+  // drill sees an operator the server never sent.
+  await page.evaluate(() => typeof renderConnectedUsers !== "undefined" && renderConnectedUsers());
   report.notes.motion = motion;
 
   // ── THE KEY SCHEME DRILL ────────────────────────────────────────────────

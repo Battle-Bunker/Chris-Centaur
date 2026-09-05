@@ -330,6 +330,10 @@
     /* A ranking the reserve stopped is a REFUSAL and reads like one; a list
        that simply filled up is not, and stays in the head's own voice. */
     .lens-refused { color: var(--lens-warn); }
+    /* The per-operator mark where the rail attributes a determination. The
+       ink is the strip's own, never the operator's hue: the mark is the
+       channel that is supposed to work when the hue does not. */
+    .lens-mark { color: var(--grey-dddddd); }
     .lens-trail { color: var(--lens-ink); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
     .lens-displaced { color: var(--lens-warn); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
     .lens-staged-flag { color: var(--grey-ababab); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
@@ -628,9 +632,18 @@
     .connected-users {
       display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap;
     }
+    .user-badge { display: inline-flex; align-items: center; gap: var(--space-3); }
     .user-dot {
       width: 12px; height: 12px; border-radius: var(--radius-round);
       border: 1px solid var(--grey-666666);
+    }
+    /* THE OPERATOR'S MARK, beside their dot and not inside it: the palette
+       runs OKLCH L 0.42-0.76, so no single ink is legible on all twelve, and a
+       mark that needed the hue to be readable would be the hue-only channel
+       again in a new costume. In the roster's own ink it is legible whatever
+       the dot is, which is the whole point (11 §5.3). */
+    .user-mark {
+      font-size: var(--size-11); line-height: 1; color: var(--grey-bbbbbb);
     }
     .user-dot.you {
       width: 24px; height: 24px;
@@ -1900,6 +1913,10 @@
         // made of, and the two the operator lane could not carry until the
         // pin gesture became a row.
         operator: e.actor ? e.actor.name : null,
+        // AND WHO, AS AN ID. `renderTimeline` has always passed `actor.id`
+        // into the tick op and this row dropped it, so the lane could only
+        // ever be keyed on a display name. The mark (11 §5.3) prefers the id.
+        operatorId: e.actor ? e.actor.id : null,
         unit: e.unit || null,
         // Hollow is the ATTENTION channel: `hover` on a selection, and
         // `tentative` on a pin — a look the search may speculate on, never a
@@ -1916,6 +1933,18 @@
     function lensInk() {
       if (!lensTranscript.length) return null;
       const ink = LensPanel.inkFromTranscript(lensTranscript);
+      // THE PER-OPERATOR MARK ON THE BOARD (11 §5.3). Resolved HERE, once, on
+      // the same directory the rail's fixed strip reads — so the glyph on a
+      // unit's head plate is the glyph beside that operator's name in the
+      // strip, by construction rather than by two lookups agreeing. The
+      // renderer gains no palette and no directory: it draws `bound.mark`.
+      if (ink) {
+        for (const cluster of ink.clusters || []) {
+          for (const bound of cluster.boundedBy || []) {
+            bound.mark = LensPanel.operatorMark(bound.by);
+          }
+        }
+      }
       // Off the head the hypotheses are drawn faintly — the same fact the
       // lane's badge and the lock affordance are both saying.
       if (ink) ink.dim = !lensAtHead;
@@ -3579,28 +3608,81 @@
       document.getElementById('selectedSnakePanel').classList.remove('active');
     }
 
+    /**
+     * THE OPERATOR DIRECTORY (11-MOTION-AND-MARKS.md §5).
+     *
+     * Every surface that draws an operator already has their COLOUR — the
+     * lane's `actor.color`, the roster's `connectedUsers[].color`,
+     * `selections[].color`, `owners[].color` — and the colour is the arrival
+     * index the palette was ordered by. So the mark needs NO new field on the
+     * wire: it is `markForColor` of a hue everybody already has.
+     *
+     * THREE ALIASES PER OPERATOR, because the three places that ask for one
+     * name them three ways: the lane's ticks by `actor.id`, the rail's fixed
+     * strip by NAME (`authorOf` returns `row.operator ?? row.owner`), and the
+     * board's ink by colour. One entry, three keys, so the board and the rail
+     * cannot disagree about whose pin is whose.
+     */
+    function operatorMarkDirectory() {
+      const map = {};
+      const markOf = window.LensView && window.LensView.markForColor;
+      if (!markOf) return map;
+      for (const u of connectedUsers || []) {
+        const mark = markOf(u.color);
+        if (!mark) continue;
+        if (u.userId) map[u.userId] = mark;
+        if (u.name) map[u.name] = mark;
+        if (u.color) map[u.color] = mark;
+      }
+      return map;
+    }
+
     function renderConnectedUsers() {
       const container = document.getElementById('connectedUsers');
       const others = connectedUsers.filter(u => u.userId !== userId);
       const me = connectedUsers.find(u => u.userId === userId);
 
+      // The rail and the board read their marks from here, and this is the one
+      // function both assignment paths for `connectedUsers` end in.
+      const marks = operatorMarkDirectory();
+      // `LensPanel` is a `const` in its own script, so it is a global LEXICAL
+      // binding and not a property of `window` — the guard has to name it
+      // directly or it is testing something that was never going to be there.
+      if (typeof LensPanel !== 'undefined' && LensPanel.setOperatorMarks) LensPanel.setOperatorMarks(marks);
+
       // Build via DOM APIs (never innerHTML) — player names are untrusted
       // input and must not be interpolated into markup.
       container.textContent = '';
-      for (const u of others) {
+      // THE BADGE IS WHERE A-1's CONTRAST FAILURES ARE (1.55 : 1 at worst), and
+      // they are failures precisely because the badge was a hue and nothing
+      // else. The dot keeps its hue; the mark sits beside it in the roster's
+      // own ink, so which operator this is survives both the ratio and a
+      // colour-vision filter. Nothing is taken away — a channel is added.
+      const badge = (u, cls, title) => {
+        const wrap = document.createElement('span');
+        wrap.className = 'user-badge';
         const dot = document.createElement('div');
-        dot.className = 'user-dot';
+        dot.className = cls;
         dot.style.background = u.color;
-        dot.title = u.name || u.userId.substring(0, 6);
-        container.appendChild(dot);
+        dot.title = title;
+        wrap.appendChild(dot);
+        const mark = marks[u.userId] || marks[u.color] || '';
+        if (mark) {
+          const glyph = document.createElement('span');
+          glyph.className = 'user-mark';
+          glyph.textContent = mark;
+          glyph.title = title;
+          wrap.appendChild(glyph);
+        }
+        return { wrap, dot };
+      };
+      for (const u of others) {
+        container.appendChild(badge(u, 'user-dot', u.name || u.userId.substring(0, 6)).wrap);
       }
       if (me) {
-        const dot = document.createElement('div');
-        dot.className = 'user-dot you';
-        dot.id = 'myUserDot';
-        dot.style.background = me.color;
-        dot.title = `${me.name || me.userId.substring(0, 6)} (you)`;
-        container.appendChild(dot);
+        const built = badge(me, 'user-dot you', `${me.name || me.userId.substring(0, 6)} (you)`);
+        built.dot.id = 'myUserDot';
+        container.appendChild(built.wrap);
       }
     }
 
