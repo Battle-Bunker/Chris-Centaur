@@ -636,8 +636,18 @@ const LensPanel = (() => {
     const cls = ['lens-aff', chip.tone ? `lens-aff-${chip.tone}` : '', chip.off ? 'lens-aff-off' : '']
       .filter(Boolean)
       .join(' ');
+    // A CHIP THAT CLICKS IS A BUTTON, and has to say so. §3.3 makes the chips
+    // the mouse-first operator's path to every action; drawn as bare `<span>`s
+    // with a pointer handler they had no role, no name and no way to take
+    // focus, so the keyboard could not reach them and a screen reader could
+    // not announce them (WCAG 2.1.1, 4.1.2). The ones that do something are
+    // buttons now; the ones that only report state stay inert text, which is
+    // what they are.
+    const act = chip.action && !chip.off;
     return (
-      `<span class="${cls}"${chip.action ? ` data-lens-action="${escapeHTML(chip.action)}"` : ''}>` +
+      `<span class="${cls}"${chip.action ? ` data-lens-action="${escapeHTML(chip.action)}"` : ''}` +
+      `${act ? ` role="button" tabindex="0"` : ''}` +
+      `${chip.action && chip.off ? ' aria-disabled="true"' : ''}>` +
       `<span class="lens-aff-glyph">${escapeHTML(chip.glyph)}</span>${escapeHTML(chip.label)}` +
       `${chip.key ? `<kbd>${escapeHTML(chip.key)}</kbd>` : ''}` +
       `${chip.note ? `<span class="lens-aff-note">${escapeHTML(chip.note)}</span>` : ''}</span>`

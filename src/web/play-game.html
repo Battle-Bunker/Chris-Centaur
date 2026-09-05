@@ -1012,9 +1012,17 @@
   </div>
 
 
-  <div class="confirm-dialog-overlay" id="confirmDialog">
+  <!-- THE TWO CONSENT DIALOGS `§3.4` KEEPS ON PURPOSE. They are the surface's
+       only modals and they were the only modals with no role, no `aria-modal`
+       and no focus move: opening one left `document.activeElement` on `BODY`
+       (`eval-report.json → heuristic → fatal-dialog`), so a screen reader
+       announced nothing and a keyboard operator had nothing focused inside
+       the thing now covering the board. `#shortcutsOverlay` already had the
+       pattern; these two did not. -->
+  <div class="confirm-dialog-overlay" id="confirmDialog" role="alertdialog" aria-modal="true"
+       aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogText">
     <div class="confirm-dialog">
-      <h3>Snake Owned by Another Player</h3>
+      <h3 id="confirmDialogTitle">Snake Owned by Another Player</h3>
       <p id="confirmDialogText">Another player owns this snake. Take over ownership and control?</p>
       <div class="confirm-dialog-buttons">
         <button class="confirm-btn" id="confirmTakeoverBtn">Take Over</button>
@@ -1033,9 +1041,10 @@
     </div>
   </div>
 
-  <div class="confirm-dialog-overlay" id="fatalMoveDialog">
+  <div class="confirm-dialog-overlay" id="fatalMoveDialog" role="alertdialog" aria-modal="true"
+       aria-labelledby="fatalMoveDialogTitle" aria-describedby="fatalMoveDialogText">
     <div class="confirm-dialog">
-      <h3>⚠ Certain Death</h3>
+      <h3 id="fatalMoveDialogTitle">⚠ Certain Death</h3>
       <p id="fatalMoveDialogText">This move is certain death. Confirm it anyway?</p>
       <div class="confirm-dialog-buttons">
         <button class="confirm-btn" id="confirmFatalMoveBtn">Confirm (Enter)</button>
@@ -1623,19 +1632,53 @@
       }
     }
 
+    function fireLensControl(el) {
+      switch (el.getAttribute('data-lens-action')) {
+        case 'lock': stageSelectedMove(); break;
+        case 'undo': lensUndo(); break;
+        case 'hold': if (selectedSnakeId) toggleHold([selectedSnakeId]); break;
+        case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
+      }
+    }
+
     document.addEventListener('pointerdown', (e) => {
       const scheme = e.target.closest && e.target.closest('[data-lens-scheme]');
       if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
       const density = e.target.closest && e.target.closest('[data-lens-density]');
       if (density) { setLensDensity(density.getAttribute('data-lens-density')); return; }
       const action = e.target.closest && e.target.closest('[data-lens-action]');
-      if (!action) return;
-      switch (action.getAttribute('data-lens-action')) {
-        case 'lock': stageSelectedMove(); break;
-        case 'undo': lensUndo(); break;
-        case 'hold': if (selectedSnakeId) toggleHold([selectedSnakeId]); break;
-        case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
-      }
+      if (!action || action.getAttribute('aria-disabled') === 'true') return;
+      fireLensControl(action);
+    });
+
+    // THE PICKERS ARE `<button>`S THAT THE KEYBOARD COULD NOT PRESS. They take
+    // focus and they ring, and they were bound on `pointerdown` alone — and a
+    // keyboard activation of a button dispatches `click`, never
+    // `pointerdown`. So the scheme and density pickers looked operable, rang
+    // when focused, and did nothing when pressed: measured at
+    // `eval-report.json → a11y → keyboardActivation`, `activated: false`.
+    // Both setters are idempotent, so taking `click` as well costs a mouse
+    // press one redundant no-op and gives the keyboard the control back.
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest) return;
+      const scheme = e.target.closest('[data-lens-scheme]');
+      if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
+      const density = e.target.closest('[data-lens-density]');
+      if (density) { setLensDensity(density.getAttribute('data-lens-density')); }
+    });
+
+    // The control chips are `role="button"` spans, so Enter and Space are
+    // theirs while one has focus. This listens on the panel rather than the
+    // document and stops the event there, because `Space` is the lock key
+    // globally — and an operator who has tabbed onto the `undo` chip and
+    // pressed Space meant the chip, not the lock.
+    document.getElementById('selectedSnakePanel').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const el = e.target.closest && e.target.closest('[data-lens-action][role="button"]');
+      if (!el || el.getAttribute('aria-disabled') === 'true') return;
+      e.preventDefault();
+      e.stopPropagation();
+      fireLensControl(el);
     });
 
     // The honest empty state, from THE VIEW-MODEL — the one that tells the
@@ -2879,7 +2922,7 @@
 
         case 'selection-contested':
           contestedSnakeId = msg.snakeId;
-          document.getElementById('confirmDialog').classList.add('active');
+          openModal('confirmDialog', 'confirmTakeoverBtn');
           break;
 
         case 'selection-revoked':
@@ -3589,6 +3632,25 @@
     // stays staged and commits at the deadline.
     let fatalMovePrompt = null; // { snakeId, move, turn } | null
 
+    /** Focus into a modal, and remember where it came from. A dialog that
+     *  covers the board and leaves `activeElement` on `BODY` is a dialog a
+     *  keyboard operator cannot answer and a screen reader does not announce.
+     *  Both of these keep their Enter/Escape handling in the global keydown —
+     *  this is the focus half, which was simply missing. */
+    let modalFocusReturn = null;
+    function openModal(id, focusId) {
+      modalFocusReturn = document.activeElement;
+      document.getElementById(id).classList.add('active');
+      const el = document.getElementById(focusId);
+      if (el && el.focus) el.focus();
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+      const back = modalFocusReturn;
+      modalFocusReturn = null;
+      if (back && back.focus && document.contains(back)) back.focus();
+    }
+
     function showFatalMoveDialog(snakeId, move, turn) {
       fatalMovePrompt = { snakeId, move, turn };
       const text = document.getElementById('fatalMoveDialogText');
@@ -3596,12 +3658,14 @@
         `Moving ${String(move).toUpperCase()} is certain death for this snake. ` +
         `Without confirmation, the bot's move commits instead at the deadline. ` +
         `Press Enter to confirm the fatal move, or click outside to cancel.`;
-      document.getElementById('fatalMoveDialog').classList.add('active');
+      openModal('fatalMoveDialog', 'confirmFatalMoveBtn');
     }
 
     function hideFatalMoveDialog() {
+      const wasOpen = document.getElementById('fatalMoveDialog').classList.contains('active');
       fatalMovePrompt = null;
-      document.getElementById('fatalMoveDialog').classList.remove('active');
+      if (wasOpen) closeModal('fatalMoveDialog');
+      else document.getElementById('fatalMoveDialog').classList.remove('active');
     }
 
     function confirmFatalMove() {
@@ -4178,12 +4242,12 @@
       if (contestedSnakeId && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-snake', snakeId: contestedSnakeId, force: true }));
       }
-      document.getElementById('confirmDialog').classList.remove('active');
+      closeModal('confirmDialog');
       contestedSnakeId = null;
     });
 
     document.getElementById('cancelTakeoverBtn').addEventListener('click', () => {
-      document.getElementById('confirmDialog').classList.remove('active');
+      closeModal('confirmDialog');
       contestedSnakeId = null;
     });
 
@@ -4667,6 +4731,32 @@
       }
 
       if (e.key === 'Tab') {
+        // TAB CYCLES UNITS — the shipped binding, and `§3.1` promises every
+        // scheme leaves it exactly as it is. But it was `preventDefault`ed
+        // UNCONDITIONALLY, which meant the page had no keyboard focus order
+        // at all: a Tab walk from the top of the document found **zero** tab
+        // stops (`eval-report.json → a11y → tabOrder`). Nothing was
+        // reachable — not `Submit All`, not the scheme picker, not the lane
+        // ticks, not a dialog's own buttons — and there was no way out of the
+        // page with the keyboard either. WCAG 2.1.1 and 2.1.2, on a surface
+        // whose whole argument is that it is operable from the keys.
+        //
+        // Two ways out, and neither costs the cycle a keystroke. `Shift+Tab`
+        // is the door in: it was cycling units too (the branch never read
+        // `shiftKey`), which is a binding nobody asked for. And once focus is
+        // inside the rail or a dialog, Tab is focus movement again, because
+        // an operator who is in the focus order is navigating it.
+        // The rule: Tab cycles units while NOTHING is focused — which is the
+        // hot path the binding exists for, an operator with both hands on the
+        // board and the keyboard, and the state the page is in until someone
+        // deliberately enters the focus order. `Shift+Tab` is that door (it
+        // was cycling units too, because the branch never read `shiftKey` —
+        // a binding nobody asked for), and once focus is on anything at all,
+        // Tab is focus movement again, because an operator who is in the
+        // focus order is navigating it.
+        const ae = document.activeElement;
+        const focused = ae && ae !== document.body && ae !== document.documentElement;
+        if (e.shiftKey || focused) return;
         e.preventDefault();
         cycleOwnedSnakes();
         return;

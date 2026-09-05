@@ -75,8 +75,13 @@ async function enter(page, gameId, name) {
   await page.goto(`${BASE}/game/${gameId}`, { waitUntil: 'domcontentloaded' });
   await sleep(WAIT);
   if (!(await page.$('#loginGate.active'))) return name;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const candidate = attempt === 0 ? name : `${name}-${attempt + 1}`;
+  // NAMES ARE UNIQUE PER GAME and this harness is re-entered many times over
+  // one server, so the numbered fallbacks run out. A run-scoped suffix keeps
+  // every suite's operator distinct without depending on how many runs came
+  // before it; nothing downstream cares which name it got.
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const candidate =
+      attempt === 0 ? name : `${name}-${attempt}${Math.floor(Math.random() * 90 + 10)}`;
     await page.fill('#loginNameInput', candidate);
     await sleep(400);
     if (!(await page.$eval('#loginGateSubmit', (el) => el.disabled))) {
@@ -1227,6 +1232,30 @@ async function a11y(browser) {
     document.body.focus();
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   });
+  // THE DOOR IN IS `Shift+Tab`. `Tab` itself is the unit cycle — the shipped
+  // binding, which every scheme promises to leave alone — so the focus order
+  // is entered from the body and walked forwards from there. A walk that only
+  // ever presses Tab from the body measures the cycle, not the order.
+  //
+  // The walk starts at the FIRST focusable element rather than wherever
+  // `Shift+Tab` happens to land (which is the last one, and one Tab from the
+  // end of the document), so what is recorded is the order an operator
+  // actually traverses.
+  found.focusableInDom = await page.evaluate(() => {
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])';
+    return [...document.querySelectorAll(sel)].filter((e) => {
+      const b = e.getBoundingClientRect();
+      return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden';
+    }).length;
+  });
+  await page.evaluate(() => {
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])';
+    const first = [...document.querySelectorAll(sel)].find((e) => {
+      const b = e.getBoundingClientRect();
+      return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden';
+    });
+    if (first) first.focus();
+  });
   const stops = [];
   for (let i = 0; i < 70; i++) {
     await page.keyboard.press('Tab');
@@ -1236,6 +1265,10 @@ async function a11y(browser) {
       const cs = getComputedStyle(el);
       const box = el.getBoundingClientRect();
       return {
+        // An index over the whole document, so two identically-labelled
+        // controls (the roster's four `ID` buttons) are two stops and not one
+        // repeat that ends the walk early.
+        at: [...document.querySelectorAll('*')].indexOf(el),
         tag: el.tagName.toLowerCase(),
         id: el.id || null,
         cls: typeof el.className === 'string' ? el.className.slice(0, 60) : null,
@@ -1249,6 +1282,9 @@ async function a11y(browser) {
     });
     if (!stop) break;
     if (stops.length && JSON.stringify(stops[stops.length - 1]) === JSON.stringify(stop)) break;
+    // A wrap back to the element the walk started on means the order is
+    // closed and every stop in it has been seen.
+    if (stops.length > 1 && JSON.stringify(stops[0]) === JSON.stringify(stop)) break;
     stops.push(stop);
   }
   found.tabOrder = {
