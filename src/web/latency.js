@@ -89,7 +89,14 @@
   // centaur that is in the middle of a decision. A line drawn from an average
   // is a promise the tail cannot keep, so the surface draws the spread it has
   // actually seen and puts the hard mark at the confident end of it.
-  const NOTCH_CONFIDENCE_DEFAULT = 0.9;
+  // 0.75 AND NOT 0.9, AND THE INSTRUMENT PICKED IT. At 0.9 the band on
+  // `mobile` swallowed the whole turn: the surface refused all eight presses
+  // and SEVEN of them would have landed (§4). A notch that says "no press
+  // lands" on a wire where most presses land costs the operator more turns
+  // than the one late press it prevents. 0.75 is the setting that priced both
+  // failures against each other on the measurements rather than on taste, and
+  // `latency.notchConfidence` is there for an operator who disagrees.
+  const NOTCH_CONFIDENCE_DEFAULT = 0.75;
   const NOTCH_SAMPLES_MAX = 16;
   // A gap in the frames with the pings still answering is the BOT thinking; a
   // gap with the pings unanswered too is the WIRE holding. They call for
@@ -170,6 +177,15 @@
     // When a pong last came back. The one fact that tells a quiet BOT apart
     // from a holding WIRE, and the page already had it and threw it away.
     lastPongAt: null,
+    // AN UNANSWERED PING IS A MEASUREMENT, NOT A MISSING ONE. This is the send
+    // time of the oldest ping still outstanding, and while it is outstanding
+    // the true round trip is AT LEAST `now − pingSentAt`. Under a queue that
+    // grows — the `saturated` wire, a mobile stall — a smoothed average of the
+    // pongs that have come back is reporting the wire as it was several
+    // seconds ago, which is exactly the `LIVE while DEGRADED` miss §2 found.
+    // The floor tracks the truth with no lag at all and costs one number.
+    // Send times of the pings still outstanding, oldest first.
+    pingsOut: [],
     // The press cost, as a SAMPLE SET and not only as an average: the notch
     // band is a quantile of these, and an average cannot have a quantile.
     workSamples: [],
@@ -194,6 +210,30 @@
   let lastState = null;
 
   function nowMs() { return Date.now() + DEV_CLOCK_BIAS_MS; }
+  /**
+   * THE ROUND TRIP THE OPERATOR IS ACTUALLY ON.
+   *
+   * `wire.rttMs` is an EMA over the pongs that came back, which is the right
+   * number to READ ("the connection you have") and the wrong number to STEER
+   * BY while a queue is filling: it can only fall behind, because it is an
+   * average of samples that have already completed. A ping that has been out
+   * for 4,000 ms is proof that the round trip is at least 4,000 ms, available
+   * now rather than when it returns.
+   *
+   * So the ladder and the notch use `max(EMA, the outstanding ping's age)` and
+   * the strip's `rtt N ms` cell keeps showing the EMA. The floor can only
+   * raise the reading, never lower it, so it cannot hide a bad wire.
+   */
+  function rttNow() {
+    // Pings older than this are not evidence of a slow wire, they are evidence
+    // of a lost pong; by then the freshness rungs have long since fired on the
+    // frames themselves and the floor has nothing left to add.
+    const cutoff = nowMs() - 30000;
+    while (wire.pingsOut.length > 0 && wire.pingsOut[0] < cutoff) wire.pingsOut.shift();
+    const floor = wire.pingsOut.length === 0 ? null : nowMs() - wire.pingsOut[0];
+    if (wire.rttMs === null) return floor;
+    return floor === null ? wire.rttMs : Math.max(wire.rttMs, floor);
+  }
   function serverNow() { return nowMs() + (wire.offsetMs === null ? 0 : wire.offsetMs); }
   function ema(prev, next, alpha) { return prev === null ? next : prev + (next - prev) * alpha; }
 
@@ -206,6 +246,11 @@
     // clock step, a 60-second queue). The rung that reads this wants "did
     // anything come back", not "was the number good".
     wire.lastPongAt = nowMs();
+    // MATCHED, NOT COUNTED. The pong echoes the `clientTime` it was sent
+    // with, so a pong clears exactly the ping it answers and every older one
+    // — which matters because a DROPPED pong would otherwise leave a counter
+    // permanently short and pin the floor at "a ping has been out for ever".
+    wire.pingsOut = wire.pingsOut.filter((t) => t > msg.clientTime);
     const rtt = nowMs() - msg.clientTime;
     if (rtt < 0 || rtt > 60000) return;  // the clock stepped mid-flight
     const offset = msg.serverTime - msg.clientTime - rtt / 2;
@@ -498,7 +543,7 @@
    * there is only one sample — which is the state the old line was always in.
    */
   function pressCost() {
-    const rtt = wire.rttMs;
+    const rtt = rttNow();
     const work = wire.serverWorkMs === null ? SERVER_WORK_DEFAULT_MS : wire.serverWorkMs;
     const modelled = rtt === null ? null : rtt / 2 + work;
     const seen = wire.workSamples;
@@ -604,6 +649,10 @@
     const B = wire.budgetMs;
     const now = serverNow();
     const rtt = wire.rttMs === null ? null : Math.round(wire.rttMs);
+    // What the RUNGS steer by. See `rttNow`: the reading is the average, the
+    // steer is the average or the outstanding ping, whichever is worse.
+    const rttLive = rttNow();
+    const rttSteer = rttLive === null ? null : Math.round(rttLive);
     const work = wire.serverWorkMs === null ? SERVER_WORK_DEFAULT_MS : Math.round(wire.serverWorkMs);
     // The press has to fly UP and then be worked. Half the round trip is the
     // best estimate of the up hop this page can make on its own; the work is
@@ -694,9 +743,12 @@
     } else if (age !== null && age > DEGRADED_FRAC * B * 2) {
       state = 'STALE';
       why = `no decision frame for ${age} ms`;
-    } else if (rtt !== null && rtt > rttDegraded) {
+    } else if (rttSteer !== null && rttSteer > rttDegraded) {
       state = 'DEGRADED';
-      why = `${rtt} ms round trip — a press needs ${slack} ms to land`;
+      why =
+        rtt !== null && rttSteer > rtt * 1.5
+          ? `a ping has been out ${rttSteer} ms — the round trip is climbing`
+          : `${rttSteer} ms round trip — a press needs ${slack} ms to land`;
     } else if (wire.gameLagMs !== null && wire.gameLagMs > DEGRADED_FRAC * B) {
       state = 'DEGRADED';
       why = `the game server is ${wire.gameLagMs} ms behind`;
@@ -743,6 +795,12 @@
         remaining !== null && slack !== null && remaining <= slack
           ? 'the wire is holding — a lock issued now will not land this turn'
           : 'the wire is holding — what is on screen is the last thing that got through';
+    } else if (slack !== null && slack >= B) {
+      // NO SAFE PRESS ANYWHERE IN THIS TURN, said outright. §4 found the band
+      // can swallow a whole turn on a bad wire, and a bar that is simply red
+      // from end to end does not tell an operator that the turn is not theirs
+      // — it reads as "hurry", which is the opposite of the true instruction.
+      advice = `no press lands inside this turn: a lock needs ${slack} ms and the turn is ${Math.round(B)} ms — read, do not press`;
     } else if (state === 'DEGRADED' && remaining !== null && slack !== null && remaining > slack) {
       advice = `a lock still lands: ${remaining - slack} ms of press left`;
     }
@@ -765,6 +823,12 @@
       deadlineAt: wire.deadlineAt,
       lastSafePressAt: wire.deadlineAt === null || slack === null ? null : wire.deadlineAt - slack,
       pressSlackMs: slack,
+      /** The round trip the RUNGS steer by — the average, or an outstanding
+       *  ping's age, whichever is worse. `rttMs` stays the average. */
+      rttSteerMs: rttSteer,
+      /** True when the confident press cost is longer than the whole turn:
+       *  there is no instant in this turn at which a lock is known to land. */
+      noSafePress: slack !== null && slack >= B,
       /** The band the notch is the confident end of: `mid` is the usual cost,
        *  `high` the `confidence` quantile, `n` how many real presses it was
        *  measured on (0 ⇒ the band is the model alone and collapses to a
@@ -1344,7 +1408,11 @@
     // page that comes back silently is a page that lies by omission about the
     // turns it missed.
     const backAgain = r.reconnectedMsAgo !== null && r.reconnectedMsAgo < RECONNECT_NOTICE_MS;
-    const on = (banner !== null && r.state !== 'LIVE' && r.state !== 'THINKING') || backAgain;
+    // ...and so is "no press lands in this turn", which can be true while the
+    // rung is perfectly healthy: a wire can be steady, fast to report and
+    // still slower than the whole turn budget.
+    const on =
+      (banner !== null && r.state !== 'LIVE' && r.state !== 'THINKING') || backAgain || r.noSafePress;
     if (written.bannerOn !== on) {
       written.bannerOn = on;
       el.banner.classList.toggle('on', on);
@@ -1416,7 +1484,10 @@
   function sendPing() {
     const ws = global.WSClient && global.WSClient.socket ? global.WSClient.socket() : null;
     if (ws && ws.readyState === 1) {
-      try { ws.send(JSON.stringify({ type: 'ping', clientTime: nowMs() })); } catch (e) { /* the socket went */ }
+      try {
+        ws.send(JSON.stringify({ type: 'ping', clientTime: nowMs() }));
+        wire.pingsOut.push(nowMs());
+      } catch (e) { /* the socket went */ }
     }
   }
 

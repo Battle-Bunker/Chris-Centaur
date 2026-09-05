@@ -85,11 +85,33 @@ const RTT_DEGRADED_FRAC = 0.3;
 const RTT_DEGRADED_FLOOR_MS = 150;
 const RANK = { LIVE: 0, THINKING: 1, DEGRADED: 2, STALE: 3, DISCONNECTED: 4 };
 
-function trueLadder({ rttMs, frameAgeMs, remainingMs, gameLagMs, budgetMs, fedSinceDeadline }) {
+function trueLadder({ rttMs, frameAgeMs, remainingMs, gameLagMs, budgetMs, fedSinceDeadline, answeredInTime }) {
   const B = budgetMs;
+  const rttBad = rttMs !== null && rttMs > Math.max(RTT_DEGRADED_FLOOR_MS, RTT_DEGRADED_FRAC * B);
+  // BETWEEN TURNS IS NOT STALE — §3c's rule, and it is applied HERE TOO.
+  //
+  // When a design change is a change to the LADDER RULES rather than to an
+  // estimate, the oracle has to move with it, or the instrument stops
+  // measuring the surface and starts measuring which of two rulebooks it was
+  // handed. So the oracle carries the same four clauses, resolved against the
+  // truth instead of against estimates: the deadline has passed with nothing
+  // since, the wire is not the suspect (measured RTT, not a ping heuristic),
+  // THIS turn was answered before its deadline (the harness's own
+  // `firstEmissionAt`), and the silence is still shorter than a budget.
+  //
+  // What keeps this from being a tautology: the page decides those clauses on
+  // ESTIMATES — a ping that may not have come back yet, an emission stamp that
+  // may not have arrived — and the oracle decides them on facts. A page that
+  // demotes when the truth says it must not is still scored as a miss, which
+  // is the whole risk of the change and is exactly what §4 has to report.
+  const betweenTurns =
+    remainingMs !== null && remainingMs < 0 && !fedSinceDeadline &&
+    answeredInTime === true && !rttBad &&
+    frameAgeMs !== null && frameAgeMs <= DEGRADED_FRAC * B;
+  if (betweenTurns) return 'LIVE';
   if (remainingMs !== null && remainingMs < 0 && !fedSinceDeadline) return 'STALE';
   if (frameAgeMs !== null && frameAgeMs > DEGRADED_FRAC * B * 2) return 'STALE';
-  if (rttMs !== null && rttMs > Math.max(RTT_DEGRADED_FLOOR_MS, RTT_DEGRADED_FRAC * B)) return 'DEGRADED';
+  if (rttBad) return 'DEGRADED';
   if (gameLagMs !== null && gameLagMs > DEGRADED_FRAC * B) return 'DEGRADED';
   if (frameAgeMs !== null && frameAgeMs > DEGRADED_FRAC * B) return 'DEGRADED';
   if (frameAgeMs !== null && frameAgeMs > THINKING_FRAC * B) return 'THINKING';
@@ -186,15 +208,28 @@ const INSTRUMENT = () => {
         // without it a driver that arms after a deadline has already passed
         // fires at once, and a press made 700 ms into a dead clock tests
         // nothing about the notch it was supposed to be standing on.
-        // INSIDE THE NOTCH, NEVER PAST IT. The window is
-        // `(slack, slack + margin]` — every press this driver makes is one the
-        // surface itself calls safe, so a press that lands late is
-        // unambiguously the SURFACE being wrong and not an operator ignoring
-        // it. The first run pressed on `remaining <= slack + margin` alone,
-        // which let it fire just past the notch, and then counted a press the
-        // page had already warned about as a failure of the page.
-        if (r && r.remainingMs !== null && r.pressSlackMs !== null
-            && r.remainingMs > r.pressSlackMs && r.remainingMs <= r.pressSlackMs + margin) {
+        // TWO PHASES, BECAUSE THE SURFACE CAN REFUSE THE WHOLE TURN.
+        //
+        // Phase 1 — the notch. The window is `(slack, slack + margin]`, so
+        // every press made in it is one the surface itself calls safe, and a
+        // press that lands late is unambiguously the SURFACE being wrong
+        // rather than an operator ignoring it.
+        //
+        // Phase 2 — the REFUSAL. Once the band moved to a 0.9 quantile, a
+        // wire like `mobile` can have no safe window at all: `slack` exceeds
+        // the whole remaining clock from the first frame of the turn, and the
+        // page is saying "no press lands this turn". A driver that only knew
+        // phase 1 recorded that as "no press" and measured nothing — which
+        // hides the most important question a conservative notch raises,
+        // namely whether it is refusing presses that WOULD have landed. So
+        // the driver presses anyway, at the most favourable instant it has
+        // (the first one it sees), marks it as refused, and lets the ledger
+        // say whether the refusal was right.
+        const refuse = r && r.remainingMs !== null && r.pressSlackMs !== null
+          && r.remainingMs > 0 && r.remainingMs <= r.pressSlackMs;
+        const atNotch = r && r.remainingMs !== null && r.pressSlackMs !== null
+          && r.remainingMs > r.pressSlackMs && r.remainingMs <= r.pressSlackMs + margin;
+        if (atNotch || refuse) {
           clearInterval(timer);
           const rows = [].slice.call(document.querySelectorAll('.snake-info-item.selectable'));
           const active = document.querySelector('.snake-info-item.active-perspective');
@@ -211,8 +246,8 @@ const INSTRUMENT = () => {
               rows[idx].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
             } catch (e) { idx = -1; }
           }
-          sim.presses.push({ at, shown: r, clicked: idx >= 0 });
-          res({ ok: idx >= 0, at });
+          sim.presses.push({ at, shown: r, clicked: idx >= 0, refused: !atNotch });
+          res({ ok: idx >= 0, at, refused: !atNotch });
           return;
         }
         if (Date.now() - t0 > 12000) { clearInterval(timer); res({ ok: false, at: null }); }
@@ -325,6 +360,9 @@ function trueStateAt(t, { turns, deliveries, downHolds, upHolds }) {
       gameLagMs: row === null ? null : row.gameLagMs,
       budgetMs,
       fedSinceDeadline,
+      answeredInTime:
+        row !== null && row.deadlineAt !== null && row.firstEmissionAt !== null &&
+        row.firstEmissionAt <= row.deadlineAt,
     }),
     rttMs,
     frameAgeMs,
@@ -386,6 +424,9 @@ function measure(profile, samples, presses, truth, ledger) {
       shownRemainingMs: p.shown.remainingMs,
       shownSlackMs: p.shown.pressSlackMs,
       shownState: p.shown.state,
+      /** True when the surface offered no safe window at all this turn and
+       *  the driver pressed anyway, to see whether the refusal was right. */
+      refused: p.refused === true,
       // What the surface CLAIMED about this press: it was made at or inside
       // the notch, so the surface said it lands.
       // What the surface CLAIMED: the press was made before the notch, so the
@@ -401,6 +442,11 @@ function measure(profile, samples, presses, truth, ledger) {
   // THE HEADLINE FAILURE: the surface said it lands, and it did not.
   const late = answered.filter((p) => p.lateBy > 0 && p.shownSafe);
   const lateWarned = answered.filter((p) => p.lateBy > 0 && !p.shownSafe);
+  // THE PRICE OF A CONSERVATIVE NOTCH: presses the surface refused that would
+  // in fact have landed. A band tuned too wide costs the operator turns, and
+  // this is the column that says how many.
+  const refused = pressRows.filter((p) => p.refused);
+  const refusedWouldHaveLanded = refused.filter((p) => p.lateBy !== null && p.lateBy <= 0);
   const lostPresses = pressRows.filter((p) => p.dropped).length;
 
   // 2. THE LADDER, SHOWN AGAINST TRUE.
@@ -482,6 +528,8 @@ function measure(profile, samples, presses, truth, ledger) {
     pressesAnswered: answered.length,
     pressesLate: late.length,
     pressesLateButWarned: lateWarned.length,
+    pressesRefused: refused.length,
+    refusedWouldHaveLanded: refusedWouldHaveLanded.length,
     pressCostP50: pct(pressRows.filter((p) => p.landedAt !== null).map((p) => Math.round(p.landedAt - p.at)), 50),
     pressCostP95: pct(pressRows.filter((p) => p.landedAt !== null).map((p) => Math.round(p.landedAt - p.at)), 95),
     pressesLost: lostPresses,
@@ -536,7 +584,8 @@ async function run(profile, browser) {
       const stepping = step();
       const pressed = await page.evaluate((m) => window.__latSim.press(m), PRESS_MARGIN_MS);
       await stepping;
-      if (!pressed.ok) console.log(`  · turn ${i + 1}: no press (the notch never came round)`);
+      if (!pressed.ok) console.log(`  · turn ${i + 1}: no press at all (no clickable row)`);
+      else if (pressed.refused) console.log(`  · turn ${i + 1}: the surface refused the whole turn — pressed anyway`);
       await sleep(250);
     }
     await sleep(800);
@@ -573,7 +622,8 @@ function table(rows) {
     ['drops ↓/↑', (r) => `${r.droppedDown}/${r.droppedUp}`],
     ['max queue', (r) => `${r.queueDownMax} ms`],
     ['presses', (r) => `${r.presses}`],
-    ['late', (r) => `${r.pressesLate}` + (r.lateByMax === null ? '' : ` (≤${r.lateByMax} ms)`)],
+    ['late', (r) => `${r.pressesLate}` + (r.pressesLate === 0 ? '' : ` (≤${r.lateByMax} ms)`)],
+    ['refused / of those, would have landed', (r) => `${r.pressesRefused} / ${r.refusedWouldHaveLanded}`],
     ['press cost p50/p95', (r) => (r.pressCostP50 === null ? '—' : `${r.pressCostP50}/${r.pressCostP95} ms`)],
     ['notch error p50/p95', (r) => (r.slackErrP50 === null ? '—' : `${r.slackErrP50}/${r.slackErrP95} ms`)],
     ['ladder lag p50/max', (r) => (r.lagP50 === null ? '—' : `${r.lagP50}/${r.lagMax} ms`)],
