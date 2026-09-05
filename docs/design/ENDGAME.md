@@ -280,9 +280,25 @@ the game the harness recorded as a loss was a **forfeit**. Production boards car
 a real `maxTurns`; the harness's blindness (§1) is the only reason this was never
 seen.
 
-With part (B) applied, the `floor=B0 ceiling=B2` class and the `floor=B3
-ceiling=B2` class are **gone** and the 120-turn game runs to completion
-(`"crashed": null`).
+With part (B) applied, the abstention class is **gone** and every 120-turn game
+runs to completion. The long arm, `mixed` seeds 1–4, side 0, cap 120:
+
+| seed | pre-fix | part (B) |
+|---|---|---|
+| 1 | **crash turn 104**, 16,510 inv, LOSS lead −21 @103 | no crash, 72,370 inv, LOSS −22 @120 |
+| 2 | no crash, LOSS −47 @120 | no crash, **0 inv**, LOSS −47 @120 (identical game) |
+| 3 | **crash turn 120**, LOSS −61 | no crash, 1,468 inv, LOSS −61 @120 |
+| 4 | no crash, LOSS −55 @103 | no crash, **0 inv**, LOSS −55 @103 (identical game) |
+
+Seeds 2 and 4 never reach the abstention and are the same game byte for byte.
+Seed 1's larger absolute count is **sixteen more turns of play, not a worse
+rate**: 16,510 over turns 100–104 is 3,302 per turn, 72,370 over turns 100–120 is
+3,446 per turn — the same regime, now allowed to finish. None of the residual is
+`floor=B0 ceiling=B2`; all of it is `floor=B1 ceiling=B0` (64,864), `floor=B1
+ceiling=B2` (5,111) and `floor=B3 ceiling=B2` (3,863), all finite-against-finite
+and all the `finish` defect of §4.3, which fires on any board past the cap
+whatever this member does. **Part (B) removes the crash and the unsound floor; it
+does not and cannot fix `finish`.**
 
 ### 4.3 Part (A) is REFUTED — it fails the inversion gate
 
@@ -329,14 +345,27 @@ with the `finish` repair, a fresh `stable/*` cut, and both colours — not befor
 
 ### 4.4 What was kept
 
-**Part (B) only.** It is a terminal-member change; it is **byte-identical on the
-whole corpus** by construction, because with the cap invisible (§1) `capVerdicts`
-returns at the first line and the new predicate is never reached — so every gate
-that can discriminate is satisfied (inversion gate zero, `ab-compare` all-zero,
-deaths unchanged on every class, mirror deaths unchanged) and the win-rate clause
-of the keep rule is *vacuous on this corpus*, which is the audit's own finding
-restated. What it buys is production, and the 120-turn arm where the cap is
-reachable: no crash, and the two decisive inversion classes gone.
+**Part (B) only.** It is a terminal-member change, and it is **byte-identical on
+the whole corpus** by construction: with the cap invisible (§1) `capVerdicts`
+returns at its first line and the new predicate is never reached. Measured, not
+argued:
+
+| gate | result |
+|---|---|
+| sixteen-arm inversion gate (12 × 30t + 4 × potions 60t) | **0 INVERSION lines** |
+| `ab-compare --all-metrics`, same 16 arms, pre-fix vs kept | **every row 0**, outcome section included: winRate flat 4/4, lead flat 4/4 |
+| `ab-compare`, 6 games vs `material-only` on the baseline corpus, both colours | every row 0; deaths flat 4/4, meals flat 4/4, winRate flat 4/4 |
+| `tsc --noEmit -p .` / `eslint "src/**/*.ts"` | clean |
+| determinism + evaluate + soundness | 92 tests, green |
+| `exact-reply.gate` | 16/16 exact |
+| law-sweep ratchet | `totalLo=0 totalHi=9`, unchanged, green |
+
+So every clause of the keep rule that can discriminate is satisfied — deaths not
+up on any class, mirror deaths not up, inversion gate zero, exact-reply exact,
+ratchet not up — and the win-rate clause is **vacuous on this corpus**, which is
+§1 restated: the corpus cannot reach the cap, so nothing measured on it can move.
+What the change buys is production, where boards carry a real `maxTurns`, and the
+120-turn arm: no crash, the unsound floor gone, and two of four games identical.
 
 ---
 
@@ -379,6 +408,15 @@ has a boundary to be a function of.
 ## 6. Reproductions
 
 ```sh
+# the sixteen-arm inversion gate and the identity A/B (both builds)
+for s in mixed snakes sparse potions; do for d in 1 2 3; do
+  CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js $s 30 $d --nodes --json=one.jsonl
+  cat one.jsonl >> arms.jsonl; done; done
+for d in 4 5 6 8; do
+  CENTAUR_DEBUG_INVERSION=1 node dist/tests/local-game.js potions 60 $d --nodes --json=one.jsonl
+  cat one.jsonl >> arms.jsonl; done
+node scripts/ab-compare.js pre.jsonl keep.jsonl --all-metrics
+
 # the baseline, one class, both colours
 for s in 1 2 3 4 5 6 7 8; do
   node dist/tests/local-game.js snakes 60 $s --nodes --opponent=material-only --side=0 --json=b-$s.jsonl
