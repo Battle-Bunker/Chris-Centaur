@@ -24,6 +24,8 @@ import {
   DEFAULT_PROFILE,
   DEFAULT_WEIGHTS,
   FEATURES,
+  HUNGER_FLOOR,
+  HUNGER_SPAN,
   REACH_HORIZON_TURNS,
   SPECIALIST_FACTS,
   TERRITORY_PROFILE,
@@ -1841,16 +1843,53 @@ describe('food and energy under the rule that only a full tank grows', () => {
     expect(full).toBeGreaterThan(0);
   });
 
-  test('and it does NOT read foodEnergy, because it is a distance and not a meal', () => {
-    // The same three readings with a lean `foodEnergy: 5`. Identical, and that
-    // is correct rather than an oversight: `food` answers "am I closing on a
-    // meal", which is a fact about the unit's position. What the meal is WORTH
-    // is `material`'s, below.
-    for (const energy of [100, 50, 10]) {
-      expect([
-        energy,
-        partOf(leanBoard(energy, { x: 3, y: 3 }, 5), { x: 2, y: 3 }, 'food'),
-      ]).toEqual([energy, partOf(leanBoard(energy, { x: 3, y: 3 }), { x: 2, y: 3 }, 'food')]);
+  /**
+   * BEHAVIOUR-AUDIT-2 P3, and the reversal of a pin this file used to carry.
+   *
+   * The old pin said `food` "does NOT read foodEnergy, because it is a distance
+   * and not a meal". It was right about `near` and wrong about `hunger`. `near`
+   * is a distance and still reads no meal size. `hunger` is an URGENCY, and an
+   * urgency is how many MEALS a unit is behind, not how much tank it is down:
+   * on `sparse-lean` (`foodEnergy: 20`) a unit at 71 of 100 is five meals short
+   * and the tank reading called that the same 0.29 appetite that a one-meal
+   * shortfall earns. It ate 13% less often than on the identical `sparse` board.
+   */
+  test('hunger is denominated in MEALS: a lean board reads a unit one meal short as starving', () => {
+    // foodEnergy 20 against a hundred-point tank. At 80 the unit is exactly
+    // HUNGER_SPAN = 1 meal short of full, which is the top of the scale — so
+    // `pull` is the bare `near`, with no hunger discount left to apply.
+    expect(HUNGER_SPAN).toBe(1);
+    const near = partOf(leanBoard(80, { x: 3, y: 3 }, 20), { x: 2, y: 3 }, 'food').est;
+    const empty = partOf(leanBoard(40, { x: 3, y: 3 }, 20), { x: 2, y: 3 }, 'food').est;
+    expect(near).toBeCloseTo(empty, 12);
+    // And it is strictly hungrier than the tank reading would have called it, by
+    // exactly the factor the scale states. Tank: hunger (100-80)/100 = 0.2, so
+    // `pull` is `near * (HUNGER_FLOOR + (1 - HUNGER_FLOOR) * 0.2)` = `near * 0.32`.
+    // Meals: hunger 1, so `pull` is `near`. The ratio is 1/0.32 = 3.125, and it
+    // is the same `near` on both sides — which is the point. Only the gain moved.
+    const tank = partOf(leanBoard(80, { x: 3, y: 3 }), { x: 2, y: 3 }, 'food').est;
+    expect(near).toBeGreaterThan(tank);
+    expect(near / tank).toBeCloseTo(1 / (HUNGER_FLOOR + (1 - HUNGER_FLOOR) * 0.2), 10);
+    // Still an ORDERING and not a saturated constant — the D3 failure mode. The
+    // scale saturates; `near` does not, so two cells at different distances from
+    // the same meal still rank, which is the whole gradient.
+    const far = partOf(leanBoard(80, { x: 6, y: 3 }, 20), { x: 2, y: 3 }, 'food').est;
+    const close = partOf(leanBoard(80, { x: 4, y: 3 }, 20), { x: 2, y: 3 }, 'food').est;
+    expect(close).toBeGreaterThan(far);
+  });
+
+  test('and where one meal fills the tank the reading is the old one TO THE BIT', () => {
+    // `foodEnergy = DEFAULT_FOOD_ENERGY = 100 = the default max energy` is every
+    // scenario in the repo but `sparse-lean`, and there `HUNGER_SPAN * foodEnergy`
+    // IS the cap. Not "close": `Object.is`, because the pre-registered A/B gate
+    // for P3 was that every non-lean board stays byte-identical, and a last-ulp
+    // difference in the hunger scale is enough to move an argmax. This is why
+    // `pullOf` rescales the tank reading by a `cap/span` of exactly 1.0 rather
+    // than re-dividing as `(cap - energy) / span`, which is NOT bit-equal.
+    for (const energy of [100, 93, 82, 68, 50, 33, 10]) {
+      const stated = partOf(leanBoard(energy, { x: 3, y: 3 }, 100), { x: 2, y: 3 }, 'food');
+      const absent = partOf(leanBoard(energy, { x: 3, y: 3 }), { x: 2, y: 3 }, 'food');
+      expect([energy, Object.is(stated.est, absent.est), stated]).toEqual([energy, true, absent]);
     }
   });
 

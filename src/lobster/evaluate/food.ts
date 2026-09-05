@@ -44,8 +44,11 @@
  *
  * HUNGER-SCALED, because a full unit chasing food across the board is the
  * opposite failure. The scale runs from `HUNGER_FLOOR` at full health to 1 at
- * empty, so a healthy unit still prefers the meal among equals and a starving
- * one prefers it over almost anything this feature can outweigh.
+ * `HUNGER_SPAN` meals short of full, so a healthy unit still prefers the meal
+ * among equals and a starving one prefers it over almost anything this feature
+ * can outweigh. IN MEALS, not in tank: on a board where one meal fills the tank
+ * those are the same scale, and on a lean board they are not — see `pullOf` and
+ * BEHAVIOUR-AUDIT-2 P3, which is what the `sparse-lean` scenario exists to find.
  *
  * ── WHY THE FLOOD IGNORES BODIES ───────────────────────────────────────────
  *
@@ -64,9 +67,11 @@
  * (`w x range < 10 x lightest unit weight`) whatever the roster size.
  */
 
+import { DEFAULT_FOOD_ENERGY } from '../../engine-vendor/engine/resolveTurn';
 import { bbTest } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, envelope, point } from './bound';
+import { HUNGER_SPAN } from './calibration';
 import type { EvalContext, Standing } from './features';
 import { perBoard } from './memo';
 
@@ -151,13 +156,38 @@ function computeFoodDistance(sub: EngineSubstrate): Int32Array {
  * and the meal stops being worth anything. Reading turn-start energy makes the scale a
  * per-unit CONSTANT within one decision, so this feature is purely positional
  * and the value of the meal itself is left where it belongs, in `material`.
+ *
+ * HUNGER IS DENOMINATED IN MEALS, NOT IN TANK — BEHAVIOUR-AUDIT-2 P3. The
+ * shortfall `cap - energy` is divided by what `HUNGER_SPAN` meals are worth, so
+ * "how hungry am I" answers "how many meals behind full am I" rather than "how
+ * much tank is empty". The two are the same question on every board where a
+ * meal fills the tank, and only there: with `foodEnergy: 20` against a
+ * hundred-point tank a unit at 71 is FIVE meals short, and the old reading
+ * called that the same 0.29 appetite a one-meal shortfall earns.
+ *
+ * `near` is untouched by this and must stay so. `near` is a DISTANCE, and a
+ * distance does not change because a meal got smaller; the ordering between one
+ * unit's candidate cells lives entirely in it. `hunger` is the per-unit gain on
+ * that gradient, which is why saturating it cannot flatten an order.
+ *
+ * WRITTEN AS A RESCALE OF THE TANK READING, `(1 - energy/cap) * (cap/span)`,
+ * and not as the algebraically equal `(cap - energy) / span`. The rule's whole
+ * safety claim is that a board where a meal fills the tank reads exactly what it
+ * read before, and `1 - e/c` is NOT bit-equal to `(c - e)/c` in IEEE 754 — they
+ * disagree in the last ulp for 188 of the 476 integer energies under the five
+ * kind ceilings this repo configures (`1 - 7/100` is 0.9299999999999999, `93/100`
+ * is 0.93). Multiplying by a `cap/span` that is exactly 1.0 is exact, so this
+ * shape makes "byte-identical off a lean board" a fact rather than a hope, and
+ * the pre-registered A/B gate tests a rule instead of a rounding artifact.
  */
 function pullOf(ctx: EvalContext, s: Standing, dist: Int32Array): number {
   const d = dist[s.cell];
   if (d === undefined || d === UNREACHABLE) return 0;
   const cap = Math.max(1, ctx.sub.maxEnergyOf(s.kind));
   const energy = ctx.sub.unitOf(s.unitId)?.energy ?? s.energy;
-  const hunger = Math.min(1, Math.max(0, 1 - energy / cap));
+  const meal = ctx.sub.marshalled.config.foodEnergy ?? DEFAULT_FOOD_ENERGY;
+  const span = Math.max(1, HUNGER_SPAN * meal);
+  const hunger = Math.min(1, Math.max(0, (1 - energy / cap) * (cap / span)));
   const diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
   const near = Math.max(0, 1 - d / diameter);
   return near * (HUNGER_FLOOR + (1 - HUNGER_FLOOR) * hunger);
