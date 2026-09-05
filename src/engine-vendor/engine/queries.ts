@@ -75,8 +75,23 @@ export interface GrammarUnit {
  * may take that way are the ones holding food or a body when the turn opens.
  * Every body, its own included — the grammar makes no exception and neither
  * does this.
+ *
+ * THE ONE THING IN THIS FILE THAT COSTS A BOARD SWEEP, so every query below
+ * takes it as an optional last argument: a caller asking many questions of
+ * ONE board builds it once and hands it down, and a caller asking one
+ * question lets the query build it. `claims.ts`'s reach BFS is the caller
+ * this exists for — it asks the grammar once per reachable state per unknown
+ * turn, against a shape whose `food` is every cell on the board, and
+ * rebuilding this set per call made it the largest single line in the profile
+ * of anything that reads a claim.
+ *
+ * The set is a pure function of the board's `food` and `occupancy`, and those
+ * are the only two fields it reads: a hoisted set is valid for exactly the
+ * board it was built from, and a caller that hands one down beside a
+ * DIFFERENT board has told the grammar a lie about where the bodies are.
+ * Every hoist in this module passes the two together for that reason.
  */
-const pawnTargetsOf = (board: BoardShape): Set<number> => {
+export const pawnTargetsOf = (board: BoardShape): ReadonlySet<number> => {
   const targets = new Set<number>(board.food)
   board.occupancy.forEach((unit) => unit.cells.forEach((cell) => targets.add(cell)))
   return targets
@@ -93,6 +108,7 @@ export const stagedAction = (
   unit: GrammarUnit,
   staged: number | undefined,
   board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
 ): UnitAction => {
   const origin = unit.occupancy[0]
   const planned =
@@ -105,7 +121,7 @@ export const stagedAction = (
           board.boardWidth,
           board.boardHeight,
           unit.orientation,
-          pawnTargetsOf(board),
+          pawnTargets ?? pawnTargetsOf(board),
         )
   return (
     planned ??
@@ -123,6 +139,7 @@ export const actionOf = (
   unit: GrammarUnit,
   target: number,
   board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
 ): UnitAction | null =>
   planUnitAction(
     unit.type,
@@ -131,7 +148,7 @@ export const actionOf = (
     board.boardWidth,
     board.boardHeight,
     unit.orientation,
-    pawnTargetsOf(board),
+    pawnTargets ?? pawnTargetsOf(board),
   )
 
 /**
@@ -149,9 +166,13 @@ export const actionOf = (
  * pawn's two side squares are in it as rotations, which is why a target here
  * does not always mean the unit goes anywhere.
  */
-export const legalTargets = (unit: GrammarUnit, board: BoardShape): number[] => {
+export const legalTargets = (
+  unit: GrammarUnit,
+  board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
+): number[] => {
   const targets: number[] = []
-  legalActions(unit, board).forEach((entry) => targets.push(entry.target))
+  legalActions(unit, board, pawnTargets).forEach((entry) => targets.push(entry.target))
   return targets
 }
 
@@ -166,12 +187,16 @@ export const legalTargets = (unit: GrammarUnit, board: BoardShape): number[] => 
  * cell, and on a crowded board it was the largest line in the profile of
  * anything that reads a claim. One sweep, one set, and the shapes above keep
  * their signatures.
+ *
+ * The set is still ONE PER CALL, which is one per unit per board — and a
+ * caller sweeping the same board for many units, or for the same unit from
+ * many hypothetical squares, hands its own down (`pawnTargetsOf`).
  */
 export const legalActions = (
   unit: GrammarUnit,
   board: BoardShape,
+  pawnTargets: ReadonlySet<number> = pawnTargetsOf(board),
 ): { target: number; action: UnitAction }[] => {
-  const pawnTargets = pawnTargetsOf(board)
   const origin = unit.occupancy[0]
   const cells = board.boardWidth * board.boardHeight
   const out: { target: number; action: UnitAction }[] = []
@@ -204,8 +229,9 @@ export const pathOf = (
   unit: GrammarUnit,
   target: number,
   board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
 ): number[] | null => {
-  const action = actionOf(unit, target, board)
+  const action = actionOf(unit, target, board, pawnTargets)
   if (!action) return null
   return action.kind === "move" ? [...action.path] : []
 }
@@ -225,13 +251,17 @@ export const pathOf = (
  * square matters; a pawn covers the two diagonals it may take THIS turn and
  * the square in front, and never the sides it can only turn towards.
  */
-export const coverOf = (unit: GrammarUnit, board: BoardShape): number[] => {
+export const coverOf = (
+  unit: GrammarUnit,
+  board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
+): number[] => {
   const walls = new Set(board.walls)
   const bodies = new Set<number>()
   board.occupancy.forEach((u) => u.cells.forEach((cell) => bodies.add(cell)))
 
   const covered = new Set<number>()
-  legalActions(unit, board).forEach(({ action }) => {
+  legalActions(unit, board, pawnTargets).forEach(({ action }) => {
     if (action.kind !== "move") return
     for (const cell of action.path) {
       if (walls.has(cell)) break
@@ -252,9 +282,10 @@ export const coverOf = (unit: GrammarUnit, board: BoardShape): number[] => {
 export const rotationTargets = (
   unit: GrammarUnit,
   board: BoardShape,
+  pawnTargets?: ReadonlySet<number>,
 ): { target: number; orientation: Orientation }[] => {
   const rotations: { target: number; orientation: Orientation }[] = []
-  legalActions(unit, board).forEach(({ target, action }) => {
+  legalActions(unit, board, pawnTargets).forEach(({ target, action }) => {
     if (action.kind === "rotate") rotations.push({ target, orientation: action.orientation })
   })
   return rotations
