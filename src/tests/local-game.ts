@@ -1002,6 +1002,28 @@ interface PickupReading {
   readonly catchTurn: number;
   /** `catchTurn === 1`: caught on the window's first turn. */
   readonly exposed: boolean;
+  /**
+   * THE ARRIVAL-CELL READING — the hypothesis the third attempt tests, measured
+   * before any rule ships (`docs/design/potions.md`, "P3").
+   *
+   * `exposed` above is a fact about the collector's whole GROUND: some enemy
+   * that beats it can stand somewhere it can stand. `arrivalBeaten` is a fact
+   * about the ONE CELL the plan actually left it on — the potion cell it is
+   * standing on as this turn closes — and it is the only half of the reading
+   * that can differ between two plans by the same collector, because the ground
+   * is read from the turn-start cell and is therefore common to all of them.
+   *
+   * Same frame as `exposed` (horizon 1 off the settled board), same
+   * conservatism (our lightest against their heaviest, at the tier the pickup
+   * left each of them on), so the two are directly comparable and the gap
+   * between them is exactly what a per-plan rule has left to work with.
+   */
+  readonly arrivalBeaten: boolean;
+  /** How many of the collector's horizon-1 ground cells a beating enemy holds,
+   *  and how many there are — the share `perilOf` charges today, printed so the
+   *  boolean above can be read against it. */
+  readonly groundBeaten1: number;
+  readonly groundCells1: number;
 }
 
 /**
@@ -1020,15 +1042,34 @@ function readPickup(
   const m = marshalBoard(board, turn);
   if (m.units.length === 0) return null;
   const span = Math.max(1, window);
+  const record = m.units.find((u) => u.id === collectorId);
+  // The cell the plan left the collector on: the potion cell it rests on as
+  // this turn closes. Collection is destination-only, so this IS the arrival
+  // cell the decision chose.
+  const arrivalCell = record?.occupancy[0] ?? -1;
   let enemyTier = 0;
   let catchTurn = 0;
+  let arrivalBeaten = false;
+  let groundBeaten1 = 0;
+  let groundCells1 = 0;
   for (let k = 1; k <= span; k++) {
     const claims = claimsAfter(m, k);
     const mine = claims.find((c) => c.id === collectorId);
     if (mine === undefined) return null;
     const ground = new Set(mine.everPossible);
+    // Horizon 1 only: the per-cell reading. `beaters` is every cell some enemy
+    // that BEATS the debuffed collector could stand on next turn, so the
+    // arrival cell's verdict and the ground's share come off the one pass.
+    const beaters = k === 1 ? new Set<number>() : null;
     for (const claim of claims) {
       if (claim.teamID === mine.teamID) continue;
+      const beatsUs = !winsContest(
+        mine.tierAtArrival,
+        mine.weightMin,
+        claim.tierAtArrival,
+        claim.weightMax
+      );
+      if (beaters !== null && beatsUs) for (const cell of claim.everPossible) beaters.add(cell);
       let meets = false;
       for (const cell of claim.everPossible) {
         if (ground.has(cell)) {
@@ -1041,20 +1082,24 @@ function readPickup(
       // CONSERVATIVE, both ends: our lightest against their heaviest, at the
       // tier the pickup left each of them on. `winsContest` is
       // `strictMaximum`'s own tier-then-weight order, not a paraphrase.
-      if (
-        catchTurn === 0 &&
-        !winsContest(mine.tierAtArrival, mine.weightMin, claim.tierAtArrival, claim.weightMax)
-      ) {
+      if (catchTurn === 0 && beatsUs) {
         catchTurn = k;
       }
     }
+    if (beaters !== null) {
+      arrivalBeaten = arrivalCell >= 0 && beaters.has(arrivalCell);
+      groundCells1 = ground.size;
+      for (const cell of ground) if (beaters.has(cell)) groundBeaten1++;
+    }
   }
-  const record = m.units.find((u) => u.id === collectorId);
   return {
     energy: record?.energy ?? 0,
     enemyTier,
     catchTurn,
     exposed: catchTurn === 1,
+    arrivalBeaten,
+    groundBeaten1,
+    groundCells1,
   };
 }
 
@@ -1375,6 +1420,20 @@ export interface GameMetrics {
    */
   recklessPickups: number;
   profitableSafePickups: number;
+  /**
+   * THE PER-PLAN HALF OF THE SAME QUESTION (`readPickup.arrivalBeaten`).
+   * `arrivalBeatenPickups` counts the pickups whose OWN CELL a beating enemy
+   * can hold on the next turn; `recklessArrivalBeaten` is the cross-tab against
+   * `recklessPickups`. The two counters together say how much of the ground
+   * reading a per-plan rule could ever recover, and they are what the third
+   * attempt's hypothesis is scored on before any rule ships.
+   */
+  arrivalBeatenPickups: number;
+  recklessArrivalBeaten: number;
+  /** Summed horizon-1 beaten cells and ground cells, one term per pickup: the
+   *  share `perilOf` charges, as a corpus mean rather than a per-seed anecdote. */
+  pickupGroundBeaten1Sum: number;
+  pickupGroundCells1Sum: number;
   /** Summed best enemy tier over the window, one term per pickup — the counter
    *  the deleted member's post-mortem asked for. */
   pickupEnemyTierSum: number;
@@ -1528,6 +1587,10 @@ export async function runGame(
     profitablePickups: 0,
     recklessPickups: 0,
     profitableSafePickups: 0,
+    arrivalBeatenPickups: 0,
+    recklessArrivalBeaten: 0,
+    pickupGroundBeaten1Sum: 0,
+    pickupGroundCells1Sum: 0,
     pickupEnemyTierSum: 0,
     pickupEnergySum: 0,
     potionTierUps: 0,
@@ -1734,10 +1797,18 @@ export async function runGame(
         metrics.pickupEnemyTierSum += reading.enemyTier;
         metrics.pickupEnergySum += reading.energy;
         if (reading.exposed) metrics.recklessPickups++;
+        if (reading.arrivalBeaten) {
+          metrics.arrivalBeatenPickups++;
+          if (reading.exposed) metrics.recklessArrivalBeaten++;
+        }
+        metrics.pickupGroundBeaten1Sum += reading.groundBeaten1;
+        metrics.pickupGroundCells1Sum += reading.groundCells1;
         readings.push(
           `${id} hp${reading.energy} enemyTier${reading.enemyTier >= 0 ? '+' : ''}` +
             `${reading.enemyTier} caught@${reading.catchTurn === 0 ? 'never' : reading.catchTurn}` +
-            ` ${reading.exposed ? 'EXPOSED' : 'clear'}`
+            ` ${reading.exposed ? 'EXPOSED' : 'clear'}` +
+            ` arrival=${reading.arrivalBeaten ? 'BEATEN' : 'safe'}` +
+            ` ground1=${reading.groundBeaten1}/${reading.groundCells1}`
         );
       }
       windows.push({ collector: id, team, endsTurn: turn + potionWindow, paid: false, exposed });
@@ -2056,6 +2127,10 @@ export interface RunSummary {
     readonly profitablePickups: number;
     readonly recklessPickups: number;
     readonly profitableSafePickups: number;
+    readonly arrivalBeatenPickups: number;
+    readonly recklessArrivalBeaten: number;
+    readonly pickupGroundBeaten1Sum: number;
+    readonly pickupGroundCells1Sum: number;
     readonly pickupEnemyTierSum: number;
     readonly pickupEnergySum: number;
     readonly potionTierUps: number;
@@ -2150,6 +2225,10 @@ export function summaryOf(
       profitablePickups: metrics.profitablePickups,
       recklessPickups: metrics.recklessPickups,
       profitableSafePickups: metrics.profitableSafePickups,
+      arrivalBeatenPickups: metrics.arrivalBeatenPickups,
+      recklessArrivalBeaten: metrics.recklessArrivalBeaten,
+      pickupGroundBeaten1Sum: metrics.pickupGroundBeaten1Sum,
+      pickupGroundCells1Sum: metrics.pickupGroundCells1Sum,
       pickupEnemyTierSum: metrics.pickupEnemyTierSum,
       pickupEnergySum: metrics.pickupEnergySum,
       potionTierUps: metrics.potionTierUps,
@@ -2241,6 +2320,10 @@ async function summarise(
     profitablePickups: 0,
     recklessPickups: 0,
     profitableSafePickups: 0,
+    arrivalBeatenPickups: 0,
+    recklessArrivalBeaten: 0,
+    pickupGroundBeaten1Sum: 0,
+    pickupGroundCells1Sum: 0,
     potionTierUps: 0,
     deathsWhileDebuffed: 0,
     deathsWhileBuffed: 0,
@@ -2310,6 +2393,9 @@ async function summarise(
       ((totals.potionPickups as number) > 0
         ? `potions=${totals.potionPickups} profitable=${totals.profitablePickups} ` +
           `profitableSafe=${totals.profitableSafePickups} reckless=${totals.recklessPickups} ` +
+          `arrivalBeaten=${totals.arrivalBeatenPickups} ` +
+          `recklessArrivalBeaten=${totals.recklessArrivalBeaten} ` +
+          `ground1=${totals.pickupGroundBeaten1Sum}/${totals.pickupGroundCells1Sum} ` +
           `tierUps=${totals.potionTierUps} ` +
           `deadDebuffed=${totals.deathsWhileDebuffed} deadBuffed=${totals.deathsWhileBuffed} `
         : '') +
