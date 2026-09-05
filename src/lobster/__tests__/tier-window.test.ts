@@ -19,7 +19,8 @@
  */
 
 import { Board } from '../../types/battlesnake';
-import { marshalBoard } from '../../logic/turn-oracle';
+import { claimsAfter, marshalBoard } from '../../logic/turn-oracle';
+import { type ArrivalField, arrivalField, beatenAt } from '../evaluate/contest';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
@@ -391,5 +392,234 @@ describe('a board with no live tier pays nothing', () => {
       }
     }
     sub.release();
+  });
+});
+
+// -------------------------------------------------- THE PER-PLAN PERIL BOUND
+
+/**
+ * `potions` SEED 4, TURN 36 — the board three attempts at the potion member's
+ * peril half have now been sized against, and the fixture that says why the
+ * third one fails too.
+ *
+ *     T 36 red-C knight hp98 (2,6)->(0,7)
+ *          top3: (4,5)=-342.30 (0,7)=-342.34 (1,4)=-342.99
+ *     POTION x1  tier up: red-A, red-B  tier down: red-C
+ *          [red-C hp97 enemyTier+0 caught@1 EXPOSED arrival=safe ground1=1/5]
+ *
+ * `(0,7)` and `(4,5)` are BOTH potion cells, so the top two candidates are two
+ * collecting plans that leave the collector in different places; `(1,4)` is the
+ * one line that collects nothing, and it is 0.65 away.
+ *
+ * `docs/design/BEHAVIOUR-AUDIT-2.md` §P2 measured why no scaling of the peril
+ * can order those two: `perilOf` reads the collector's ground from the cell it
+ * STANDS on, so the charge is a constant across every plan in which red-C
+ * collects, and a constant cancels. The repair that section names as the only
+ * one left — read the ground from the cell the PLAN leaves it on, and from the
+ * ground reachable from there — is what this fixture prices, and the four
+ * numbers below are the whole of why it is not the repair either.
+ *
+ * Nothing here imports the member. The reading is the engine's own claims and
+ * `contest.ts`'s own arrival field, so these numbers are facts about the board
+ * and survive whatever the fold does or does not ship.
+ */
+describe('potions seed 4 turn 36: the collector\'s ground, read two ways', () => {
+  const SEED4_T36_TURN = 36;
+
+  const seed4Turn36 = (): Board =>
+    boardOf(
+      [
+        makeSnake(
+          'red-A',
+          [
+            { x: 3, y: 1 },
+            { x: 2, y: 1 },
+            { x: 2, y: 2 },
+            { x: 3, y: 2 },
+          ],
+          { teamID: 'red', unitType: 'snake', health: 85, orientation: { dx: 1, dy: 0 } }
+        ),
+        piece('red-B', { x: 10, y: 10 }, 'pawn', 3, {
+          teamID: 'red',
+          health: 95,
+          orientation: { dx: 0, dy: -1 },
+        }),
+        piece('red-C', { x: 2, y: 6 }, 'knight', 5, {
+          teamID: 'red',
+          health: 98,
+          orientation: { dx: -1, dy: 2 },
+        }),
+        makeSnake(
+          'blue-A',
+          [
+            { x: 4, y: 8 },
+            { x: 4, y: 7 },
+            { x: 4, y: 7 },
+          ],
+          { teamID: 'blue', unitType: 'snake', health: 100, orientation: { dx: 0, dy: -1 } }
+        ),
+        piece('blue-B', { x: 3, y: 9 }, 'queen', 24, {
+          teamID: 'blue',
+          health: 97,
+          orientation: { dx: 1, dy: 0 },
+        }),
+        piece('blue-C', { x: 5, y: 8 }, 'pawn', 3, {
+          teamID: 'blue',
+          health: 94,
+          orientation: { dx: 0, dy: -1 },
+        }),
+        makeSnake(
+          'green-A',
+          [
+            { x: 9, y: 1 },
+            { x: 10, y: 1 },
+            { x: 10, y: 2 },
+            { x: 10, y: 3 },
+            { x: 9, y: 3 },
+            { x: 9, y: 2 },
+            { x: 8, y: 2 },
+          ],
+          { teamID: 'green', unitType: 'snake', health: 92, orientation: { dx: -1, dy: 0 } }
+        ),
+        piece('green-B', { x: 8, y: 4 }, 'knight', 9, {
+          teamID: 'green',
+          health: 100,
+          orientation: { dx: 2, dy: 1 },
+        }),
+      ],
+      {
+        width: 11,
+        height: 11,
+        food: [
+          { x: 9, y: 5 },
+          { x: 6, y: 6 },
+          { x: 4, y: 3 },
+          { x: 3, y: 0 },
+          { x: 8, y: 0 },
+        ],
+        hazards: [],
+        hazardDamage: 100,
+        pawnPromotionWeight: 10,
+        invulnerabilityPotions: [
+          { x: 2, y: 5 },
+          { x: 4, y: 5 },
+          { x: 9, y: 10 },
+          { x: 0, y: 7 },
+        ],
+        invulnerabilityPotionsEnabled: true,
+        invulnerabilityPotionWindowTurns: 3,
+        activeEffects: [],
+      }
+    );
+
+  /** The window's enemy arrival fields, exactly as `window.ts::windowRead`
+   *  builds them: one per horizon, the best enemy claim at every cell. */
+  const enemyHorizons = (m: ReturnType<typeof marshalBoard>, window: number): ArrivalField[] => {
+    const fields: ArrivalField[] = [];
+    for (let k = 1; k <= window; k++) {
+      const arrivals = [];
+      for (const claim of claimsAfter(m, k)) {
+        const unit = m.units.find((u) => u.id === claim.id);
+        if (unit === undefined || unit.teamID === 'red') continue;
+        arrivals.push({ cells: claim.everPossible, tier: claim.tierAtArrival, weight: claim.weightMax });
+      }
+      fields.push(arrivalField(m.fullWidth * m.fullHeight, arrivals));
+    }
+    return fields;
+  };
+
+  /** `peril` as the member computes it: the beaten SHARE per horizon, weighted
+   *  `W − k + 1`. The only free variable is which ground is handed in. */
+  const perilOver = (
+    rows: ReadonlyArray<ReadonlyArray<number>>,
+    fields: ReadonlyArray<ArrivalField>,
+    window: number
+  ): number => {
+    let num = 0;
+    let den = 0;
+    for (let k = 1; k <= window; k++) {
+      const cells = rows[k - 1];
+      const field = fields[k - 1];
+      if (cells === undefined || field === undefined || cells.length === 0) continue;
+      let beaten = 0;
+      // red-C's DEBUFFED tier is −1 and its weight is 5: what settlement leaves
+      // it on once the pickup lands.
+      for (const cell of cells) if (beatenAt(field, -1, 5, cell)) beaten++;
+      const w = window - k + 1;
+      num += (w * beaten) / cells.length;
+      den += w;
+    }
+    return den > 0 ? num / den : 0;
+  };
+
+  /** Where red-C could be `k` turns after the plan leaves it on `cell`. */
+  const groundFrom = (
+    m: ReturnType<typeof marshalBoard>,
+    cell: number,
+    window: number
+  ): number[][] => {
+    const moved = {
+      ...m,
+      units: m.units.map((u) => (u.id === 'red-C' ? { ...u, occupancy: [cell] } : u)),
+    };
+    const rows: number[][] = [[cell]];
+    for (let j = 1; j <= window - 1; j++) {
+      rows.push([...(claimsAfter(moved, j).find((c) => c.id === 'red-C')?.everPossible ?? [])]);
+    }
+    return rows;
+  };
+
+  it('reads the turn-start ground at 3/9, 34/34, 73/73 — the saturation D4 named', () => {
+    const board = seed4Turn36();
+    const m = marshalBoard(board, SEED4_T36_TURN);
+    const fields = enemyHorizons(m, 3);
+    const rows: number[][] = [];
+    for (let k = 1; k <= 3; k++) {
+      rows.push([...(claimsAfter(m, k).find((c) => c.id === 'red-C')?.everPossible ?? [])]);
+    }
+    expect(rows.map((r) => r.length)).toEqual([9, 34, 73]);
+    const beaten = rows.map((r, i) => r.filter((c) => beatenAt(fields[i] as ArrivalField, -1, 5, c)).length);
+    expect(beaten).toEqual([3, 34, 73]);
+    // (3·(3/9) + 2·1 + 1·1) / 6 — half of it the constant tail.
+    expect(perilOver(rows, fields, 3)).toBeCloseTo(2 / 3, 6);
+  });
+
+  it('prices BOTH collecting plans and the non-collecting one at the same 0.5 when the ground is read from the plan', () => {
+    const board = seed4Turn36();
+    const m = marshalBoard(board, SEED4_T36_TURN);
+    const fields = enemyHorizons(m, 3);
+    const at = (x: number, y: number): number => m.toIndex({ x, y });
+    // (0,7) and (4,5) are both potion cells: two COLLECTING plans that leave
+    // the collector in different places. (1,4) collects nothing.
+    expect(m.potions).toContain(at(0, 7));
+    expect(m.potions).toContain(at(4, 5));
+    expect(m.potions).not.toContain(at(1, 4));
+
+    const played = groundFrom(m, at(0, 7), 3);
+    const other = groundFrom(m, at(4, 5), 3);
+    const clean = groundFrom(m, at(1, 4), 3);
+
+    // HORIZON 1 IS ONE CELL — the cell the plan chose — and none of the three
+    // is beaten there. HORIZONS 2 AND 3 ARE STILL SATURATED, on grounds of
+    // three different sizes.
+    expect(played.map((r) => r.length)).toEqual([1, 5, 21]);
+    expect(other.map((r) => r.length)).toEqual([1, 9, 41]);
+    expect(clean.map((r) => r.length)).toEqual([1, 7, 29]);
+    for (const rows of [played, other, clean]) {
+      const beaten = rows.map((r, i) => r.filter((c) => beatenAt(fields[i] as ArrivalField, -1, 5, c)).length);
+      expect(beaten).toEqual([0, rows[1]?.length, rows[2]?.length]);
+    }
+
+    // THE REFUTATION, as one number three times. Conditioning the ground on the
+    // plan collapses the one discriminating horizon to a BOOLEAN on a single
+    // cell; where that boolean is false — 30 of the corpus's 35 pickups — every
+    // arrival cell reads `(3·0 + 2 + 1)/6`, so the per-plan peril is the same
+    // constant it replaced, only 0.167 LOWER. It cannot order red-C's two
+    // collecting plans against each other, and being cheaper it moves the
+    // collecting lines TOWARD the pickup rather than away from it.
+    expect(perilOver(played, fields, 3)).toBeCloseTo(0.5, 6);
+    expect(perilOver(other, fields, 3)).toBeCloseTo(0.5, 6);
+    expect(perilOver(clean, fields, 3)).toBeCloseTo(0.5, 6);
+    expect(perilOver(played, fields, 3)).toBeLessThan(perilOver([[at(2, 6)]], fields, 1) + 2 / 3);
   });
 });
