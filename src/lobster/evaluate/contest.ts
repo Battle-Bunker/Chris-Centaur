@@ -139,9 +139,6 @@ export type ContestField = ArrivalField;
  */
 const FIELDS = new WeakMap<object, Map<number, ContestField>>();
 
-/** The same, for the STANDING field (`field⁺`). Separate map, same key rule. */
-const STANDING_FIELDS = new WeakMap<object, Map<number, ContestField>>();
-
 /**
  * The tier a unit still carries at the turn its arrival is adjudicated on.
  * `expiresAtTurn` is EXCLUSIVE — the first turn at which the tier no longer
@@ -236,35 +233,6 @@ function* enemyArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arrival>
 }
 
 /**
- * The same arrivals UNION each enemy's own turn-start head cell — `field⁺` of
- * `docs/design/contest-gap.md` §3.
- *
- * The origin clause is D1's, and it is the rules rather than a heuristic: an
- * enemy either holds that cell (a c4 contest) or vacates it along our edge (a
- * c1 exchange), so a meeting there is certain either way. A trail unit has no
- * `stay` in its grammar, so without this clause its own square is in no field
- * at all — which is exactly the hole D1 named and `enemyArrivals` still has.
- *
- * It is a SECOND field rather than a widening of the first: `costOf` is the
- * shipped arrival charge and this diagnosis is not an argument to change it,
- * and D1's own measurement is that widening the field there buys one unit-turn
- * of discrimination and costs meals.
- */
-function* standingArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arrival> {
-  for (const unit of sub.roster()) {
-    if (unit.team === asTeam) continue;
-    const cells = sub.actionsOf(unit.unitId).map((a) => a.to);
-    const origin = unit.cells[0];
-    if (origin !== undefined && !cells.includes(origin)) cells.push(origin);
-    yield {
-      cells,
-      tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
-      weight: unit.weight,
-    };
-  }
-}
-
-/**
  * Every cell an enemy of `asTeam` could end this turn on, with the best arrival
  * it could bring there. One enumeration pass per enemy, cached per board per
  * subject team.
@@ -272,18 +240,6 @@ function* standingArrivals(sub: EngineSubstrate, asTeam: number): Iterable<Arriv
 export function contestField(sub: EngineSubstrate, asTeam: number): ContestField {
   return perBoardPerTeam(FIELDS, sub.marshalled, asTeam, () =>
     arrivalField(sub.grid.cells, enemyArrivals(sub, asTeam))
-  );
-}
-
-/**
- * `field⁺` — every cell an enemy of `asTeam` could END this turn on, PLUS the
- * cell it starts the turn on. Cached exactly as `contestField` is, and a pure
- * function of the turn-start board, so it is the same field in every completion
- * world the claims admit. See `standingArrivals`.
- */
-export function standingField(sub: EngineSubstrate, asTeam: number): ContestField {
-  return perBoardPerTeam(STANDING_FIELDS, sub.marshalled, asTeam, () =>
-    arrivalField(sub.grid.cells, standingArrivals(sub, asTeam))
   );
 }
 
