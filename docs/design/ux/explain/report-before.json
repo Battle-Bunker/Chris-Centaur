@@ -1,0 +1,89 @@
+{
+  "label": "before",
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "why is rank 1 above rank 2?",
+      "answered": true,
+      "by": ".lens-foil",
+      "says": "◇ foil #2 · #2 unsealed — the barrier has not run · at h1",
+      "atY": 705,
+      "keys": 0,
+      "clicks": 0,
+      "paintMs": 0,
+      "totalMs": 7
+    },
+    {
+      "id": "Q2",
+      "question": "what is rank 1 afraid of?",
+      "answered": false,
+      "by": null,
+      "says": null,
+      "atY": null,
+      "keys": 0,
+      "clicks": 0,
+      "paintMs": 0,
+      "totalMs": 3
+    },
+    {
+      "id": "Q3",
+      "question": "which enemy reply hurts most?",
+      "answered": false,
+      "by": null,
+      "says": null,
+      "atY": null,
+      "keys": 0,
+      "clicks": 0,
+      "paintMs": 0,
+      "totalMs": 7
+    },
+    {
+      "id": "Q4",
+      "question": "how sure is the bot?",
+      "answered": false,
+      "by": null,
+      "says": null,
+      "atY": null,
+      "keys": 0,
+      "clicks": 0,
+      "paintMs": 0,
+      "totalMs": 1
+    },
+    {
+      "id": "Q5",
+      "question": "what changes if I pin this unit?",
+      "answered": true,
+      "by": ".lens-list-source",
+      "says": "conditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5",
+      "atY": 447,
+      "keys": 0,
+      "clicks": 0,
+      "paintMs": 0,
+      "totalMs": 3
+    }
+  ],
+  "shots": [
+    {
+      "name": "before-rail",
+      "note": "the rail with a ranked list under the cursor",
+      "bytes": 67929
+    },
+    {
+      "name": "before-movesets",
+      "note": "the movesets panel",
+      "bytes": 35996
+    }
+  ],
+  "notes": {
+    "rows": 5,
+    "foilKey": {
+      "paintMs": null,
+      "totalMs": 2038
+    },
+    "listSource": "conditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5",
+    "railExtent": {
+      "panelH": 926,
+      "railScrollH": 697
+    }
+  }
+}
