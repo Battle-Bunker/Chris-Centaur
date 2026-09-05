@@ -192,6 +192,36 @@ export const CLIFF_MATERIAL_WEIGHT = 10;
 export const REACH_HORIZON_TURNS = 4;
 
 /**
+ * THE TURN CAP'S READ-AHEAD WINDOW — `model/terminal@1`'s one knob, and the
+ * only one its shape admits.
+ *
+ * The boundary member has no weight. It is not a feature, it never appears in
+ * `parts`, and `finish` REPLACES the fold's ends with lattice elements rather
+ * than adding anything to them (`bound.ts`, `clampTo`) — so there is no gain to
+ * turn up or down, and making `DEAD` a large finite number instead is
+ * calibration fact 3's already-refused change. What CAN be dialled is how many
+ * turns before the cap the member is allowed to look at the board at all:
+ *
+ *     arrivalTurn < maxTurns - TERMINAL_READ_AHEAD_TURNS   ->  abstain
+ *
+ * ZERO IS TODAY'S BEHAVIOUR — a step exactly at the cap — and the number is
+ * zero because a wider window was measured and does nothing, not because it was
+ * never tried. `docs/design/TERMINAL-GAIN.md` §3 has the sweep.
+ *
+ * THIS IS A COST KNOB, NOT A SOUNDNESS ONE, and the distinction is the reason
+ * the knob is legal at all. `capVerdicts`' corners are derived from `ended` —
+ * "no world this settlement admits leaves the game running" — and never from
+ * the turn count (TERMINAL-SOUND §2.1), so widening the window cannot unsound
+ * the member. It can only spend a bracket read on boards where `ended` is false
+ * and the member abstains anyway, which past the first turn or two of window is
+ * every board: before the cap the game does not end ON THE COUNT, so
+ * `adjudicate` returns `continues` and there is nothing for the boundary to
+ * say. The evaluator runs tens of thousands of times per decision, and paying
+ * for that look on every board is the whole cost of a wider setting.
+ */
+export const TERMINAL_READ_AHEAD_TURNS = 0;
+
+/**
  * THE THREE SPECIALIST FACTS, imported as data rows rather than as code paths.
  * The rest of the kind catalog lost its own agreement study and is excluded.
  */

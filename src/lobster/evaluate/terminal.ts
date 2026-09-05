@@ -16,7 +16,36 @@
 
 import type { EndKind } from '../../engine-vendor/engine/adjudicate';
 
+import { TERMINAL_READ_AHEAD_TURNS } from './calibration';
 import type { EvalContext } from './features';
+
+/**
+ * THE READ-AHEAD WINDOW, RESOLVED ONCE PER PROCESS.
+ *
+ * `TERMINAL_READ_AHEAD_TURNS` (`./calibration.ts`) is the shipped value and the
+ * only one production ever runs; `CENTAUR_TERMINAL_READ_AHEAD` overrides it so
+ * the sweep in `docs/design/TERMINAL-GAIN.md` §3 is a run of the same build
+ * rather than three builds. Read at MODULE LOAD and not per evaluation: a
+ * `process.env` lookup is a trip through the real environment and this gate is
+ * on the hot path of every leaf of every decision (`features.ts`'s
+ * `royalReachers` note measured the same lookup at 1.4% of total self time).
+ * One runner game is one process, which is the cadence a sweep needs.
+ *
+ * A negative or non-integer setting is refused rather than clamped: it would
+ * silently narrow the window past the cap, which is the one direction that CAN
+ * leave an ended board scored by the interior fold.
+ */
+const READ_AHEAD_TURNS: number = ((): number => {
+  const raw = process.env.CENTAUR_TERMINAL_READ_AHEAD;
+  if (raw === undefined || raw === '') return TERMINAL_READ_AHEAD_TURNS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `CENTAUR_TERMINAL_READ_AHEAD must be a non-negative integer number of turns, got "${raw}"`
+    );
+  }
+  return n;
+})();
 
 /**
  * THE BOUNDARY IS NOT A PREFERENCE (06 F-7, 16-TERMINAL §2–3).
@@ -109,14 +138,24 @@ const ended = (kinds: ReadonlyArray<EndKind>): boolean =>
  * ONE COMPARISON in the overwhelmingly common case: a game that is not at its
  * last turn cannot end on the count, so nothing is read off the bracket at
  * all. The evaluator runs tens of thousands of times per decision and this
- * member must cost nothing on every board but the last one.
+ * member must cost nothing on every board but the last one. How far before the
+ * last board that comparison starts letting boards through is
+ * `TERMINAL_READ_AHEAD_TURNS`, which is zero — see `READ_AHEAD_TURNS` above and
+ * `docs/design/TERMINAL-GAIN.md` §2.2 for why a wider window is a cost setting
+ * and not a behaviour one.
  */
 export function capVerdicts(ctx: EvalContext): {
   worst: TerminalCap;
   best: TerminalCap;
 } {
   const limit = ctx.sub.marshalled.maxTurns;
-  if (limit === null || ctx.sub.arrivalTurn < limit) return NO_CAP;
+  // THE WINDOW, AND IT IS THE COST GATE AND NOT THE SOUNDNESS ONE. Everything
+  // below derives from `ended` and never from the turn count, so a wider window
+  // cannot unsound this member — it can only spend a bracket read on a board
+  // that has not ended. `READ_AHEAD_TURNS` is 0 by default, which is this line
+  // as it was written: the member speaks on the last board and nowhere else.
+  // See `TERMINAL_READ_AHEAD_TURNS` in `./calibration.ts`.
+  if (limit === null || ctx.sub.arrivalTurn < limit - READ_AHEAD_TURNS) return NO_CAP;
   const us = ctx.sub.teamLabel(ctx.asTeam);
   if (us === undefined) return NO_CAP;
 
