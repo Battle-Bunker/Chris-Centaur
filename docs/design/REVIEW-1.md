@@ -416,6 +416,32 @@ board at or past the cap the settlement may end the game and carry no entry, so
 the kind is memoised as non-promotable — for the rest of the decision, and the
 answer is memoised per KIND. Confirm on a pawn one turn from `maxTurns`.
 
+**REVIEW-2 verdict: NOT A DEFECT. Ending the game does not empty `unitTypes`,
+and the probe ends the game EVERY time anyway.** Nothing in `bounds/` or
+`evaluate/` needed touching.
+
+Structural, at `engine-vendor/engine/settleTurn.ts`: `unitTypes` is built at
+step 5 (promotion, `:292`–`:306`) and `adjudicate` does not run until step 7
+(`:341`), where its verdict lands in a SEPARATE field, `outcome`. The only gate
+on `unitTypes[u.id] = u.type` is `alive.has(u.id)` — the unit dying this turn —
+and the probe stands the unit still at `energy: Number.MAX_SAFE_INTEGER` with
+no other unit on the board, so it cannot die. The turn cap has no path to that
+map.
+
+Measured, which makes the point more sharply than the finding's own recipe: the
+probe puts ONE unit on the board, so `adjudicate` decides "last team standing"
+at every turn, cap or no cap. Ran it at turn 20, 99, 100 and 120 against the
+default `maxTurns` of 100, and at 9, 10, 11 against `maxTurns: 10`, and with
+`maxTurns: null`:
+
+    outcome = {"kind":"last-team","winners":["red"],...}   — every row
+    unitTypes = {"P":"queen"}                              — every row
+
+`canPromote` returned `true` on all of them. So the settlement ends the game on
+every canPromote probe there has ever been; if that emptied `unitTypes`, no
+pawn would be promotable on any board at any turn, which turn 1 disproves. No
+change made.
+
 ---
 
 ## Read and found clean
