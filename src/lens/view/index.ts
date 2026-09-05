@@ -909,7 +909,23 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
       );
     }
   }
-  return out;
+  // THE UNIT KEEPS ITS PLACE IN THE SENTENCE. Collection order is partition
+  // order — members first, then the constants — so the moment a unit is
+  // pinned it leaves `members`, joins `boundedBy`, and JUMPS TO THE END of
+  // the line. `A → 108 · B → 119 · C → 133` became `B → 119 · C → 133 ·
+  // A → 108 pinned` on the next turn, measured: `05-EVALUATION.md` H-1.
+  //
+  // This line is L1 — read in one fixation, without a saccade, by an eye that
+  // lands where it landed last turn — and §1.4's first placement rule is that
+  // nothing above L2 may MOVE, only its text may change. A determination is
+  // exactly when the operator most needs the sentence to hold still, because
+  // it is the turn they are checking their own work on. Sorting by the
+  // unit's LETTER is the order the roster, the board tags and the operator's
+  // own habit already use, and it is a fact about the unit rather than about
+  // its current fixity, so nothing the operator does can reorder it.
+  return out
+    .slice()
+    .sort((a, b) => (a.letter === b.letter ? (a.unit < b.unit ? -1 : 1) : a.letter < b.letter ? -1 : 1));
 }
 
 export function renderFrame(
