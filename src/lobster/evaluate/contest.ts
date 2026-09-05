@@ -50,6 +50,16 @@
  * (`SharedClaimViewError`). Reading the roster instead makes the field a pure
  * function of the board, which is also what lets it be cached.
  *
+ * ── WHERE THE UNIT ENDS UP IS ITSELF A CLAIM ───────────────────────────────
+ *
+ * The charge is a fact about the cell our unit ENDS on, and on a board with
+ * held units that cell is not always known: the optimistic timeline walks a
+ * mover as far as an empty board allows, and a world that puts a held unit in
+ * its way halts it earlier along the same path — or leaves it where it started.
+ * So the per-unit charge is CONTINGENT, and reading it as a point is a floor
+ * above worlds the resolver itself produces. `settlesOn` names the set and
+ * `costOf` brackets over it.
+ *
  * ── WHY AN EVALUATOR TERM ──────────────────────────────────────────────────
  *
  * The floor already knows a contested cell is dangerous, and that is precisely
@@ -233,16 +243,84 @@ export function contestField(sub: EngineSubstrate, asTeam: number): ContestField
   );
 }
 
-/** `CONTEST_LOSS` where this unit's destination is a contest it does not win. */
-function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
+/** `CONTEST_LOSS` where a unit of `(tier, weight)` ending on `cell` loses there. */
+function chargeAt(field: ArrivalField, tier: number, weight: number, cell: number): number {
+  return beatenAt(field, tier, weight, cell) ? CONTEST_LOSS : 0;
+}
+
+/**
+ * WHERE THIS UNIT'S ARRIVAL COULD SETTLE — the contingent set, and the reason
+ * this term has two readings at all.
+ *
+ * `settlePartial` settles the turn with every held unit ABSENT, so a mover
+ * walks as far along its own staged path as an empty board lets it. A concrete
+ * world can only ADD obstacles: a body where the timeline read empty ground, a
+ * pile, a contact that capture-stops it, or a staged action the world makes
+ * illegal outright. So the cell a world settles this unit on is one of the
+ * cells it ENTERED in this timeline (`traversed`, in order) or the cell it set
+ * out from — a world cannot walk it further than the optimistic timeline did,
+ * and cannot walk it anywhere else.
+ *
+ * The gate is the engine's own verdict, not a guess: `fates` says
+ * `contingent` exactly when the ledger names this unit at all, and
+ * `settlePartial`'s contract is that a unit it does not name has the same
+ * disposition — "where it went, whether it lived, its energy, its weight" — in
+ * every world the claims admit. So a non-contingent mover settles on its
+ * settled cell, full stop, and this function returns nothing for it: the term
+ * stays a POINT wherever nothing is held, which is the discharge property its
+ * contract declares.
+ *
+ * Measured on the law sweep's own 240 boards: over 8 637 completion worlds and
+ * 1 956 relocations of one of our movers, the world's settle cell was inside
+ * this set every time, and it was OUTSIDE `traversed` alone 1 854 times — the
+ * commonest world is the one where the move does not happen and the unit is
+ * still standing where it started. Dropping the origin from the set is
+ * therefore not a tightening but the defect itself.
+ */
+function settlesOn(ctx: EvalContext, s: Standing, wireId: string): ReadonlyArray<number> | null {
+  if (ctx.resolution.fates[wireId] !== 'contingent') return null;
+  const walked = ctx.resolution.traversed[wireId];
+  const origin = ctx.sub.unitOf(s.unitId)?.cells[0];
+  const cells: number[] = [s.cell];
+  if (origin !== undefined && origin !== s.cell) cells.push(origin);
+  if (walked !== undefined) for (const cell of walked) if (!cells.includes(cell)) cells.push(cell);
+  return cells.length > 1 ? cells : null;
+}
+
+/**
+ * The charge for one of our units, as an interval over the cells its arrival
+ * could settle on.
+ *
+ * A FLOOR MAY NOT READ A CONTINGENT CELL AS A POINT. The charge is a fact
+ * about the cell this unit ENDS on, and where a held unit could halt it that
+ * cell is not one cell but a set — so the worst reading pays the DEAREST cell
+ * of the set and the best reading the cheapest, and `held.lo ≤ real.lo` holds
+ * in every completion world rather than in the ones the optimistic timeline
+ * happens to agree with. Where the arrival is settled the set is a singleton
+ * and the two ends coincide, which is every unit on a board with nothing held.
+ */
+function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): readonly [lo: number, hi: number] {
   const unit = ctx.sub.unitOf(s.unitId);
-  if (unit === undefined) return 0;
+  if (unit === undefined) return ZERO_CHARGE;
   // FROZEN, both sides: the rules adjudicate this turn's collisions on the
   // tier and weight held at the START of it, so a unit that grew on a meal in
   // the position being scored still contests at the weight it set out with.
   const ourTier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
-  return beatenAt(field, ourTier, unit.weight, s.cell) ? CONTEST_LOSS : 0;
+  const settled = chargeAt(field, ourTier, unit.weight, s.cell);
+  const contingent = settlesOn(ctx, s, unit.wireId);
+  if (contingent === null) return settled === 0 ? ZERO_CHARGE : [settled, settled];
+  let worst = settled;
+  let best = settled;
+  for (const cell of contingent) {
+    const c = chargeAt(field, ourTier, unit.weight, cell);
+    if (c > worst) worst = c;
+    if (c < best) best = c;
+  }
+  return [worst, best];
 }
+
+/** One frozen pair, so the common "nothing to pay" answer is not an allocation. */
+const ZERO_CHARGE: readonly [number, number] = Object.freeze([0, 0] as [number, number]);
 
 /**
  * F9 — contest avoidance.
@@ -252,11 +330,14 @@ function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): number {
  * other enemy also wants is not our business, and pricing it would make the
  * term move whenever a claim interval moved.
  *
- * The two readings differ only in which of our contingent units are counted. A
- * dead unit costs nothing, which is the one direction that could invert the
- * bound, so the WORST reading counts the SUPERSET (best-world alive) and the
- * best reading the subset — the opposite way round from a positive term,
- * because this one is never positive.
+ * The two readings differ in which of our contingent units are counted AND in
+ * where a contingent one is standing. A dead unit costs nothing, which is the
+ * one direction that could invert the bound, so the WORST reading counts the
+ * SUPERSET (best-world alive) and the best reading the subset — the opposite
+ * way round from a positive term, because this one is never positive. And a
+ * unit the ledger names could have been halted short of the cell this timeline
+ * settled it on, so the worst reading charges it at the dearest cell of the set
+ * its arrival could settle on and the best at the cheapest; see `settlesOn`.
  */
 export const contestFeature: Feature<EvalContext> = {
   key: 'contest',
@@ -270,8 +351,8 @@ export const contestFeature: Feature<EvalContext> = {
     let field: ContestField | undefined;
     return ourUnitTerm(ctx, (s) => {
       if (field === undefined) field = contestField(ctx.sub, ctx.asTeam);
-      const c = costOf(ctx, s, field);
-      return [-c, -c];
+      const [worst, best] = costOf(ctx, s, field);
+      return [-worst, -best];
     });
   },
 };
