@@ -208,11 +208,16 @@ const WRAP = () => {
   // The two `innerHTML` writes that install the rail and the lane. Wrapped on
   // the ELEMENTS, not on the prototype, so the number is the cost of these two
   // panels and not of every string the page assigns anywhere.
-  const setter = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+  const protoSetter = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
   for (const [id, label] of [['lensRail', 'rail.innerHTML'], ['lensLane', 'lane.innerHTML']]) {
     const el = document.getElementById(id);
     if (!el || el.__latWrapped) continue;
     el.__latWrapped = true;
+    // Delegate to whatever is ALREADY installed on this element, not to the
+    // prototype: `latency.js` puts its identical-write guard here as an own
+    // property, and a wrapper that reached past it would measure a page that
+    // does not exist.
+    const setter = Object.getOwnPropertyDescriptor(el, 'innerHTML') || protoSetter;
     Object.defineProperty(el, 'innerHTML', {
       configurable: true,
       get() { return setter.get.call(this); },
@@ -332,14 +337,23 @@ async function main() {
       canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true }));
       out.hover.push((await frame()) - t0);
     }
-    const cells = [...document.querySelectorAll('.lens-candidates [data-lens-candidate]')];
-    for (let i = 0; i < Math.min(8, cells.length * 4); i++) {
-      const cell = cells[i % cells.length];
+    // RE-QUERIED EVERY TIME, and it matters: a rail rebuild DETACHES the cells,
+    // and a pointerdown on a detached node never reaches `#lensRail`'s
+    // delegated handler. A list captured once therefore measures one real
+    // click and then seven no-ops on a build that rebuilds the panel, and
+    // eight real clicks on one that does not — which is a difference in the
+    // measurement, not in the page.
+    const first = document.querySelectorAll('.lens-candidates [data-lens-candidate]');
+    out.candidateCells = first.length;
+    for (let i = 0; i < 8 && first.length > 0; i++) {
+      const live = document.querySelectorAll('.lens-candidates [data-lens-candidate]');
+      if (live.length === 0) break;
+      const cell = live[i % live.length];
       const t0 = performance.now();
       cell.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
       out.pin.push((await frame()) - t0);
+      await new Promise((r) => setTimeout(r, 120));
     }
-    out.candidateCells = cells.length;
     return out;
   });
 

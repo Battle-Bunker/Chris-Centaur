@@ -161,3 +161,135 @@ largest single self-time entry in our own code, ahead of the 50 ms
 `startTurnTimer` interval (26.5 ms) and `ingestLensFrames` itself (17.2 ms).
 The long task is a *rendering* task, not a scripting one; the way to shorten it
 is to stop handing the compositor whole rebuilt panels, which is §2.
+
+---
+
+## 2. What was made cheaper, and what was left alone
+
+Three changes, each gated. The measurement is **alternating A/B**: a run of the
+base and a run of this branch, on freshly started servers, one after the other,
+three pairs — because this CPU is shared with seven other workers and drifts
+over minutes, so a block of "before" followed by a block of "after" measures
+the machine as much as it measures the change. Both sides play the same eight
+turns and make the same 136 `lensRender` calls, 374 folds and 110 socket
+batches, so the counts below are identical by construction and only the times
+move.
+
+| span (8 turns) | before | after | |
+|---|---|---|---|
+| `lensRender` | 132.4 ms | **81.1 ms** | −39 % |
+| ↳ `rail.innerHTML` | 39.4 ms | **18.7 ms** | −53 % |
+| ↳ `lane.innerHTML` | 31.2 ms | **20.7 ms** | −34 % |
+| ↳ `LensView.renderFrame` | 23.8 ms (max 16.2) | **8.1 ms** (max 0.6) | −66 % |
+| `LensView.frameAtSeq` (the fold) | 30.4 ms | **16.0 ms** | −47 % |
+| `ingestLensFrames` (the socket task) | 136.2 ms | **106.2 ms** | −22 % |
+| arrival → rail installed, p95 / max | 1.8 / 21.7 ms | **1.4 / 4.6 ms** | the tail |
+| pin → the frame that answers it, p95 | 21.7 ms | **17.1 ms** | |
+| `BoardRenderer.renderBoard` | 119.8 ms | 154.4 ms | *noise, see below* |
+
+Per turn: the lens's own share of the main thread falls from **17.0 ms to
+13.3 ms**, and the panel rebuild inside it from 8.8 ms to 4.9 ms.
+
+**The board path did not change and is not claimed to have.** Its three runs
+read 93 / 188 / 120 ms before and 154 / 90 / 157 ms after — overlapping ranges
+that track the sampler's `(program)` total (2.9 / 4.2 / 3.4 GHz-seconds before,
+4.5 / 2.7 / 4.2 after) almost exactly. That span is machine load and nothing
+else, and the honest reading of it is that a canvas draw on a shared CPU has a
+±50 % spread and no conclusion may be drawn from three samples of it. The four
+lens spans are stated as wins because their three runs do not overlap at all:
+`rail.innerHTML` reads 36.4 / 43.1 / 39.4 against 20.9 / 18.7 / 17.5, and the
+fold 28.2 / 30.4 / 31.7 against 18.0 / 12.5 / 16.0.
+
+### 2.1 The fold is kept, not re-run — `src/lens/view/index.ts`
+
+`frameAtSeq` re-folded the turn's whole event array from its anchor on every
+call: `storeOf` is a `reduce` over every event and `frameAt` is a second pass
+over the same array, and the page asks 43 times a turn for the twelve batches
+that arrive (§1.4). The fold is **pure**, so the only thing that can change its
+answer is the array growing — and the page grows `lensEvents` by pushing and
+re-sorting, which means the common case is "the same events plus a few more".
+
+`foldOf` therefore keeps one fold per events-array in a `WeakMap`, validated on
+the two facts that make a prefix a prefix — the length it was folded at, and
+the object that was last in it — and **extends** it by folding only the new
+events onto the store it already had. A different anchor, a different
+settlement, or an array whose prefix moved all fall through to the untouched
+full fold. The frames built from a kept fold are memoised on the cursor they
+answer for (`live/<seq>/<head|scrub>`, `replay/<seq>`).
+
+This is a cache and not a second fold: every entry in it was produced by
+`applyEvent`, in order, from `emptyStore(anchor)`. `lens-determinism` and
+`lens-replay-parity` are the gate and they compare what comes out of it against
+the reducer with no memo in front of it.
+
+### 2.2 An identical panel rebuild is a no-op — `src/web/latency.js`
+
+**61 % of rail rebuilds installed markup that was already there** (§1.4).
+`lensRender` assigns `innerHTML` unconditionally at all fifteen of its call
+sites, and an `innerHTML` assignment destroys and rebuilds every node under it,
+so a rebuild that changes no pixel still costs the teardown *and* drops focus,
+text selection and scroll position inside a panel the operator is reading —
+which is exactly what `01-RESEARCH.md` P3 asks the surface never to do.
+
+`installPanelWriteGuard` makes an identical write a no-op, on `#lensRail` and
+`#lensLane` only, by remembering the string last installed *through that
+setter*. Every write to those elements goes through it, so the memory cannot go
+stale, and any write with different content passes through untouched.
+
+That it is a behavioural change as well as a cheaper one showed up in the
+profiler itself, and the profiler was wrong first. Its interaction loop
+captured the candidate cells once and then clicked them: on the base build the
+first click rebuilds the rail, **detaching the remaining cells**, so clicks two
+to eight land on orphaned nodes and never reach `#lensRail`'s delegated
+handler; on this build the elided rebuild leaves them attached and all eight
+clicks land. The loop re-queries now, so both sides do the same eight clicks —
+but the difference it exposed is the point: preserving node identity is what
+keeps a gesture working across a redraw.
+
+**Its permanent home is `lensRender`, in `play-game.html`**, which belongs to
+another surface owner (`ux-ia`). It is installed from `latency.js` so that the
+measurement and the fix ship together rather than the measurement shipping
+alone, and it should move when that file next opens.
+
+### 2.3 What was measured and deliberately NOT built
+
+* **A worker thread for parsing.** All 102 `lens-frames` of a session parse in
+  9.5 ms — 0.09 ms for a median frame (§1.2). A worker would have to beat that
+  including a structured clone in both directions, and at these sizes the clone
+  alone is the larger number.
+* **Removing layout reads from render.** There are 166 forced geometry reads in
+  a session and every one is in the board path — two per `renderBoard`, the
+  canvas's own size, taken before any write in the same frame. The rail reads
+  no geometry at all. There is no layout thrash on this surface to remove, and
+  the latency surface added in §3 keeps it that way: it is expressed entirely
+  in percentages and text and never measures anything.
+* **Coalescing `lensRender` onto an animation frame** (`01-RESEARCH.md` change
+  #9). Worth doing and not done here: the fifteen call sites are in
+  `play-game.html`, the redundant-rebuild half of the cost is already gone via
+  §2.2, and a coalescer installed by wrapping another owner's global would be
+  the kind of action-at-a-distance this repository is right to dislike.
+
+### 2.4 The gates
+
+`npx tsc --noEmit`, `npx eslint "src/**/*.ts"`, `npm run build:lens`, and the
+jest lens suites (`src/tests/lens-*`, `src/lobster/__tests__/lens-*`,
+`local-game-determinism`) are green. The walkthrough was re-run at **zero
+injected latency** and diffed against a pre-change run, five runs deep, and
+what that comparison actually establishes needs stating precisely because the
+walk is not deterministic to the pixel:
+
+* **Byte-identical across every run, before and after:** every board shot
+  (`03c`, `05b`, `08b`, `13b`, `19c`) and every rail and panel shot — `03b`,
+  `03d`, `04`, `05`, `06`, `06b`, `07`, `08`, `12`, `13`, `14`, `16`, `16b`.
+  These are the pictures `10-WALKTHROUGH.md` argues from and they did not move.
+* **Varies run-to-run on the BASE build too**, so it carries no signal:
+  `01`, `02`, `03`, `11`, `15`, `17` — the full-page shots, which contain the
+  turn timer and the ping readout — and the lane, which differs by **three
+  pixels of anti-aliasing on its top border** (grey 41 against grey 42) between
+  two runs of the *unchanged* build.
+* **Explained:** the full-page live shots now also contain the latency readout
+  in the board header, which is the one thing this branch adds to that page.
+  The replayed page has no live wire, draws no readout, and its header is the
+  height it always was — `19b-replay-rail` and `21b-replay-frame` are
+  byte-identical. The `21a`/`21b` live-vs-replay `seq` drift is the harness
+  property `10-WALKTHROUGH.md` §2 already records.
