@@ -2655,6 +2655,67 @@
     let timelineHasNative = false;    // sticky: this game has native turn rows
     let timelineInflight = null;
     let timelineLastFetchAt = 0;
+    // THE CACHE HAS A CEILING (08 §1.4). This map was the page's last
+    // unbounded collection: one full board snapshot per turn, kept forever,
+    // measured at 1.48 KB/turn over 200 turns — 5.3 MB an hour at one turn a
+    // second, on a surface an operator leaves open all afternoon. Every row
+    // of it is re-fetchable from `/api/games/:id/turns`, so a window plus a
+    // refetch outside it is all it ever needed.
+    //
+    // ONLY THE ROWS THIS PAGE MINTED ARE GIVEN BACK. A live board doubles as a
+    // timeline row (`seedTimelineFromLive`), and that is the collection with
+    // no end: it grows with the SESSION. A row fetched from the database was
+    // asked for — by a scrub, by the post-game reconcile — and is bounded by
+    // the length of the game rather than by how long the tab has been open, so
+    // it stays. That also keeps a backward drag from thrashing: the rows a
+    // scrub pulls in are the rows a scrub keeps.
+    //
+    // SIXTY-FOUR TURNS is a minute of instant scrubbing at one turn a second
+    // and caps the live cache at about 95 KB. Past it the frame repaints from
+    // the network when the fetch lands — which is exactly what a cold page
+    // already does on its first scrub, on the path that was already there for
+    // it (`renderHistoricAtTurn`'s "nothing covers this turn yet").
+    const TIMELINE_CACHE_TURNS = 64;
+    // The highest turn given back, or null while none has been. A MISS at or
+    // below this is a scrub into the part of the game the cache released, and
+    // is answered by fetching it again rather than by the floor row — which
+    // would silently draw a DIFFERENT turn's board, and a board that is quietly
+    // the wrong one is the failure `01 §4` calls the only unacceptable kind.
+    let timelineEvictedThrough = null;
+
+    /** Give back the oldest live-seeded rows once the window is full. The
+     *  high-water marks (`timelineMaxTurn`, `timelineDbMaxTurn`) are facts
+     *  about what the GAME has reached, not about what is cached, and the
+     *  slider's range is computed from them — so nothing here touches them. */
+    function trimTimeline() {
+      let over = timelineTurns.length - TIMELINE_CACHE_TURNS;
+      if (over <= 0) return;
+      const kept = [];
+      for (const at of timelineTurns) {
+        const row = turnTimeline.get(at);
+        if (over > 0 && row && row.liveSeeded) {
+          turnTimeline.delete(at);
+          timelineEvictedThrough =
+            timelineEvictedThrough === null ? at : Math.max(timelineEvictedThrough, at);
+          over--;
+          continue;
+        }
+        kept.push(at);
+      }
+      timelineTurns = kept;
+    }
+
+    /** Is this turn inside the part of the game the cache has given back? */
+    function timelineBelowWindow(turn) {
+      return timelineEvictedThrough !== null && turn <= timelineEvictedThrough;
+    }
+
+    /** A turn the cache released and has not been given back. An exact hit
+     *  always wins — eviction is selective, so a row below the line may still
+     *  be held. */
+    function timelineReleased(turn) {
+      return !turnTimeline.has(turn) && timelineBelowWindow(turn);
+    }
     // Every snake ever observed in this game (live updates or logged turns):
     // id → { snake, turn } at its latest known appearance. Drives the
     // full-roster team list so dead snakes stay visible (greyed out) with
@@ -5108,7 +5169,13 @@
         recordSnakesSeen(row.game_state);
       }
       if (added > 0) timelineTurns.sort((a, b) => a - b);
-      if (timelineTurns.length > 0) timelineMaxTurn = timelineTurns[timelineTurns.length - 1];
+      if (timelineTurns.length > 0) {
+        timelineMaxTurn = Math.max(timelineMaxTurn, timelineTurns[timelineTurns.length - 1]);
+      }
+      // A refetch of an evicted range re-seeds it, so the window may now hold
+      // more than its ceiling — trim from the front, which is where the rows
+      // nobody is looking at are.
+      trimTimeline();
       return added;
     }
 
@@ -5131,6 +5198,10 @@
       timelineTurns.push(gameState.turn);
       timelineTurns.sort((a, b) => a - b);
       if (gameState.turn > timelineMaxTurn) timelineMaxTurn = gameState.turn;
+      // THE ONE PLACE A LONG SESSION GROWS. Every live board is a timeline
+      // row, so an afternoon of turns is an afternoon of board snapshots; the
+      // window is what stops that being the whole afternoon (08 §1.4).
+      trimTimeline();
     }
 
     // The DATABASE timeline provably covers the end of the game: native
@@ -5149,23 +5220,34 @@
     // rate-limited unless forced. Resolves to the number of NEW rows.
     function ensureTimeline(opts) {
       const force = !!(opts && opts.force);
+      // An explicit floor, for a scrub into a range the window gave back. The
+      // incremental `since` below is the DB high-water mark, which by
+      // construction never reaches backwards; an evicted turn needs the fetch
+      // aimed at it, and it forces past both the completeness check and the
+      // rate limit because there is no other way to get that board.
+      const from = opts && typeof opts.sinceTurn === 'number' ? opts.sinceTurn : null;
       // Deliberately NOT gated on historyFetchesFrozen: for modern games this
       // cache is the ONLY board source, so a timeline that failed to load
       // during the reconcile window must stay recoverable afterwards — the
       // completeness check (plus the rate limit) is what stops the fetching,
       // not the global freeze.
-      if (timelineIsComplete() && !force) return Promise.resolve(0);
+      if (timelineIsComplete() && !force && from === null) return Promise.resolve(0);
       const now = Date.now();
-      if (!force && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
+      if (!force && from === null && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
         return Promise.resolve(0);
       }
-      if (timelineInflight) return timelineInflight;
+      if (timelineInflight && from === null) return timelineInflight;
       timelineLastFetchAt = now;
       // Incremental from the DATABASE high-water mark (live-seeded rows don't
       // count — their turns still need their DB rows for the shared grids),
       // with a 3-turn trailing overlap so tail rows whose territory upsert
       // landed after the board row was first served get refreshed.
-      const since = timelineDbMaxTurn >= 0 ? Math.max(0, timelineDbMaxTurn - 2) : null;
+      const since =
+        from !== null
+          ? Math.max(0, from - 1)
+          : timelineDbMaxTurn >= 0
+            ? Math.max(0, timelineDbMaxTurn - 2)
+            : null;
       let url = `/api/games/${encodeURIComponent(gameId)}/turns`;
       if (since != null) url += `?sinceTurn=${since}`;
       timelineInflight = fetch(url)
@@ -5187,6 +5269,15 @@
     // timelines degrade to the nearest earlier board, like the old per-snake
     // resolution did). Null when nothing at/before the turn is cached.
     function timelineFloorRow(turn) {
+      // NOT ACROSS THE EVICTION LINE. Floor semantics are a graceful
+      // degradation over a SPARSE timeline — the nearest earlier board is the
+      // best answer anyone ever had for that turn. Below the window it would
+      // be something else: a board the cache is holding for a different turn,
+      // drawn as if it were this one, with nothing on screen to say so. The
+      // honest answer there is "nothing covers this turn", which is what every
+      // caller already knows how to handle — it kicks the fetch that gets the
+      // row back (08 §1.4).
+      if (timelineReleased(turn)) return null;
       let lo = 0, hi = timelineTurns.length - 1, best = -1;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
@@ -5794,8 +5885,10 @@
       const tlRow = timelineFloorRow(turnNumber);
       if (!tlRow || !tlRow.game_state || !tlRow.game_state.board) {
         // Nothing covers this turn yet — kick the load, repaint when it
-        // lands, and keep the current frame instead of blanking.
-        ensureTimeline()
+        // lands, and keep the current frame instead of blanking. A turn the
+        // window gave back needs the fetch AIMED at it: the incremental one
+        // starts at the database high-water mark and never reaches backwards.
+        ensureTimeline(timelineReleased(turnNumber) ? { sinceTurn: turnNumber } : undefined)
           .then((added) => {
             if (added > 0 && viewMode === 'historic' && !isScrubbing) {
               scheduleHistoricCommitRender();
