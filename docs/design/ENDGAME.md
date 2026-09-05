@@ -441,6 +441,24 @@ has a boundary to be a function of.
 > turn 60 is the last one; what it does not buy is the pocket, which is D5 and
 > is still open. (iii) is reachable now.
 
+> **(iii) IS NOW THE ONLY ROUTE, and that is measured rather than assumed** —
+> `docs/design/TERMINAL-GAIN.md`. The tuning pass §4.2's four deaths licensed
+> was run and came back with two results. First, the four deaths are not ours:
+> attributed by team over the same 40 games, OUR deaths go 26 → 25 and THEIRS
+> 69 → 74, every one of the eight that moves is on turn 59 or 60, and the single
+> unit of ours that moves is a fifteen-cell snake that STOPS dying. `deathsByCause`
+> is a board-wide counter and pools our losses with our kills. Second, the two
+> knobs §5's rows would otherwise have competed with do not exist: the boundary
+> member has no weight to ramp (it is a lattice replacement, and a finite `DEAD`
+> is calibration fact 3's refused change), and its window was built, swept at
+> widths 0/4/12 over the 40-game corpus and at 12 over the twenty `long` arms,
+> and is byte-identical at every width — because before the cap the settlement's
+> bracket still carries `continues`, so there is nothing sound for the boundary
+> to say at turn 55 of a 60-turn game. **The boundary fires on exactly one board
+> and has no schedule to be a function of.** A weight that rises with the lead
+> and with the turns remaining is therefore not one of two ways to price the
+> endgame; it is the only one, and §3.3's pocket is still its test.
+
 ---
 
 ## 6. Reproductions

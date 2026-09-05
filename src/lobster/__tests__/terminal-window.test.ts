@@ -1,42 +1,47 @@
 /**
- * THE TURN CAP'S ONE KNOB — the read-ahead WINDOW, and the two things that must
- * be true of it at every setting.
+ * WHY THE TURN CAP IS A STEP AND NOT A RAMP — the fact the shape rests on,
+ * pinned where it lives rather than argued in a comment.
  *
  * `model/terminal@1` has no weight. It is not a feature, it never appears in
  * `parts`, and `finish` REPLACES the fold's ends with lattice elements rather
  * than adding a scaled term to them — so "price the end less keenly" has no
  * expression in this member, and giving it one means making `DEAD` a large
- * finite number, which is `calibration.ts` fact 3's already-refused change. The
- * only dial its shape admits is how many turns before the cap it may LOOK at
- * the board: `TERMINAL_READ_AHEAD_TURNS`, zero by default, overridable per
- * process by `CENTAUR_TERMINAL_READ_AHEAD` for the sweep in
- * `docs/design/TERMINAL-GAIN.md` §3.
+ * finite number, which is `calibration.ts` fact 3's already-refused change.
+ * That leaves the shape: a step at the cap, against a ramp that would let the
+ * boundary start pricing the end over the last N turns.
  *
- * ── THE TWO CLAIMS ─────────────────────────────────────────────────────────
+ * ── THE RAMP IS NOT A TUNING CHOICE, IT IS UNAVAILABLE ─────────────────────
  *
- * 1. THE WINDOW IS A COST GATE, NEVER A SOUNDNESS ONE. Everything in
- *    `capVerdicts` below the turn test derives from `ended(kinds)` — *no world
- *    this settlement admits leaves the game running* — and never from the turn
- *    count (TERMINAL-SOUND §2.1). So widening it cannot make the member speak
- *    where it has no proof, and NARROWING it past zero would be the one
- *    direction that leaves an ended board scored by the interior fold: a
- *    negative setting is refused rather than clamped.
+ * `capVerdicts` gates on the turn count first, and that gate is a COST gate —
+ * "this member must cost nothing on every board but the last one". Every corner
+ * BELOW it derives from `ended(kinds)`, *no world this settlement admits leaves
+ * the game running*, and never from the turn count (TERMINAL-SOUND §2.1). So
+ * one could let the member look earlier without unsounding it, and it would
+ * still say nothing: **before the cap the game does not end on the count, so
+ * the settlement's own bracket still carries `continues` and `ended` is false.**
  *
- * 2. AND THAT IS EXACTLY WHY IT CANNOT BUY A RAMP. A "ramp over the last N
- *    turns" wants the boundary to start pricing the end before the end. It
- *    cannot: before the cap the game does not end on the count, `adjudicate`
- *    returns `continues`, `ended` is false and the member abstains — at every
- *    width. The test below is that abstention, on the SAME board the member
- *    speaks on one turn later, so the only difference between the two runs is
- *    the turn the cap falls on.
+ * That is the load-bearing fact, and the third test below asserts it directly
+ * on the `OutcomeBracket` — a statement about what `settlePartial` reports,
+ * true whatever `terminal.ts` chooses to read. A window knob
+ * (`TERMINAL_READ_AHEAD_TURNS`, one subtraction in the turn gate) was built and
+ * swept over the 40-game corpus at widths 0, 4 and 12 and over the twenty
+ * `long` arms at width 12: byte-identical traces and summaries at every width,
+ * identical deterministic work counters to the node, `terminal.lo`/`terminal.hi`
+ * still 0 in the law sweep. It is reverted, because an inert knob is a scaffold
+ * for a refuted rule; the table is `docs/design/TERMINAL-GAIN.md` §3 and the
+ * build is `git show e8d7193`.
+ *
+ * The complement of all this — the member DOES speak at the count, and both
+ * corners are bounds there — is `terminal-sound.test.ts`, which also covers the
+ * board that states no limit at all. The boards here state a limit and have not
+ * reached it, which is the case a ramp would have had to live in.
  */
 
 import type { Board, Coord, Snake } from '../../types/battlesnake';
 import { makeSubstrate, clearGeometryCache, NO_ORDER_MOVE } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
-import { makeContext } from '../evaluate';
-import { TERMINAL_READ_AHEAD_TURNS } from '../evaluate/calibration';
-import type { TerminalCap } from '../evaluate/terminal';
+import { defaultEvaluator, makeContext } from '../evaluate';
+import { capVerdicts, type TerminalCap } from '../evaluate/terminal';
 import type { LawCase } from '../evaluate/laws';
 import { makeSnake, piece, cellAt } from '../../tests/board-fixtures';
 
@@ -81,101 +86,81 @@ function planFor(sub: ReturnType<typeof makeSubstrate>, c: LawCase): JointPlan {
   return plan;
 }
 
-/**
- * The member's corners on `board`, read through a module graph loaded with
- * `CENTAUR_TERMINAL_READ_AHEAD` set to `window`.
- *
- * A FRESH GRAPH PER SETTING, because the knob is resolved ONCE AT MODULE LOAD
- * — a `process.env` lookup per evaluation is a trip through the real
- * environment on the hot path of every leaf (`features.ts`'s `royalReachers`
- * note measured that same lookup at 1.4% of self time). One runner game is one
- * process, which is the cadence the sweep needs and the cadence this reproduces.
- */
-function cornersAt(window: number | null, board: Board): { worst: TerminalCap; best: TerminalCap } {
-  const previous = process.env.CENTAUR_TERMINAL_READ_AHEAD;
-  if (window === null) delete process.env.CENTAUR_TERMINAL_READ_AHEAD;
-  else process.env.CENTAUR_TERMINAL_READ_AHEAD = String(window);
+/** Run `read` inside a resolution of the one-unit plan on `board`. */
+function withResolved<T>(
+  board: Board,
+  read: (args: { corners: { worst: TerminalCap; best: TerminalCap }; kinds: ReadonlyArray<string> }) => T
+): T {
+  const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
   try {
-    let corners: { worst: TerminalCap; best: TerminalCap } | null = null;
-    jest.isolateModules(() => {
-      const { capVerdicts } = require('../evaluate/terminal') as typeof import('../evaluate/terminal');
-      const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
-      try {
-        const asTeam = sub.teamNumber('red');
-        sub.withResolution(planFor(sub, caseOf(board)), asTeam, ({ resolution, bounds }) => {
-          corners = capVerdicts(makeContext(sub, resolution, bounds, asTeam, 0));
-        });
-      } finally {
-        sub.release();
-      }
+    const asTeam = sub.teamNumber('red');
+    let out: T | null = null;
+    let seen = false;
+    sub.withResolution(planFor(sub, caseOf(board)), asTeam, ({ resolution, bounds }) => {
+      const bracket = resolution.outcome;
+      out = read({
+        corners: capVerdicts(makeContext(sub, resolution, bounds, asTeam, 0)),
+        kinds: bracket.certain === null ? bracket.possibleKinds : [bracket.certain.kind],
+      });
+      seen = true;
     });
-    if (corners === null) throw new Error('no resolution');
-    return corners;
+    if (!seen) throw new Error('no resolution');
+    return out as T;
   } finally {
-    if (previous === undefined) delete process.env.CENTAUR_TERMINAL_READ_AHEAD;
-    else process.env.CENTAUR_TERMINAL_READ_AHEAD = previous;
-  }
-}
-
-/** Loading `terminal.ts` with the environment as given, for the refusals. */
-function loadWith(raw: string): void {
-  const previous = process.env.CENTAUR_TERMINAL_READ_AHEAD;
-  process.env.CENTAUR_TERMINAL_READ_AHEAD = raw;
-  try {
-    jest.isolateModules(() => {
-      require('../evaluate/terminal');
-    });
-  } finally {
-    if (previous === undefined) delete process.env.CENTAUR_TERMINAL_READ_AHEAD;
-    else process.env.CENTAUR_TERMINAL_READ_AHEAD = previous;
+    sub.release();
   }
 }
 
 afterEach(() => clearGeometryCache());
 
-describe("model/terminal@1's read-ahead window", () => {
-  it('ships at zero — a step exactly at the cap, and nothing before it', () => {
-    expect(TERMINAL_READ_AHEAD_TURNS).toBe(0);
+describe('the turn cap is a step because there is nothing to ramp over', () => {
+  it('speaks at the count, and says both corners are WIN', () => {
+    // ANTI-VACUITY for the two tests below: the same board, one turn later,
+    // is a board the member has a verdict on. A file that only ever watched it
+    // abstain would pass with the member deleted.
+    expect(withResolved(capBoard(CAP), (r) => r.corners)).toEqual({ worst: 'win', best: 'win' });
   });
 
-  it('speaks at the count at every width, and says the same thing', () => {
-    // ANTI-VACUITY for everything below: on the board that HAS ended, the
-    // member's verdict is `[win, win]` and widening the window never moves it.
-    // A width that changed a corner would be a width that changed a bound.
-    const atCount = capBoard(CAP);
-    for (const w of [null, 0, 1, 3, 12]) {
-      expect(cornersAt(w, atCount)).toEqual({ worst: 'win', best: 'win' });
+  it('abstains on a board whose limit is STATED and not yet reached', () => {
+    // The case a ramp would live in, and the one `terminal-sound.test.ts` does
+    // not cover: it checks a board with no `maxTurns` at all, where the member
+    // returns at `limit === null`. Here the limit is stated and the arrival
+    // turn is one, three and ten turns short of it.
+    for (const short of [1, 3, 10]) {
+      const seen = withResolved(capBoard(CAP + short), (r) => r.corners);
+      expect({ short, ...seen }).toEqual({ short, worst: 'none', best: 'none' });
+    }
+    // And the fold is left whole where the member is silent: finite at both
+    // ends, no clamp on either side.
+    const board = capBoard(CAP + 3);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const asTeam = sub.teamNumber('red');
+      const v = defaultEvaluator.evaluatePlan(sub, planFor(sub, caseOf(board)), asTeam);
+      expect(v.terminal).toEqual({ loClamped: false, hiClamped: false });
+      expect(Number.isFinite(v.bound.lo)).toBe(true);
+      expect(Number.isFinite(v.bound.hi)).toBe(true);
+    } finally {
+      sub.release();
     }
   });
 
-  it('abstains before the count at every width — there is no ramp to buy', () => {
-    // THE CLAIM. The same board, one and three turns short of its cap. At width
-    // 0 the turn test turns it away; at width 3 and width 12 the turn test lets
-    // it THROUGH and `ended` turns it away instead, because a game that has not
-    // reached its limit has `continues` among its reachable endings. Both
-    // refusals are `none`, which is what makes a wider window inert rather than
-    // gentler: there is no sound reading of the boundary at turn 55 of a
-    // 60-turn game, because at turn 55 the game does not end.
-    for (const short of [1, 3]) {
-      const before = capBoard(CAP + short);
-      for (const w of [null, 0, 1, 3, 12]) {
-        expect({ short, w, ...cornersAt(w, before) }).toEqual({
-          short,
-          w,
-          worst: 'none',
-          best: 'none',
-        });
-      }
+  it('and no width could have changed that: the bracket still says `continues`', () => {
+    // THE LOAD-BEARING FACT, asserted on `settlePartial`'s own report rather
+    // than on `terminal.ts`. `ended(kinds)` is `kinds.length > 0 &&
+    // !kinds.includes('continues')`, and every reachable ending of a board
+    // short of its limit includes the one that leaves the game running — so a
+    // member allowed to look earlier would abstain for THIS reason instead of
+    // for the turn count, at any width. The step is the only shape the
+    // boundary admits; a ramp would have to be a different member, priced on
+    // something other than the ending (`ENDGAME.md` §5's standing schedule,
+    // which belongs to the drives branch).
+    for (const short of [1, 3, 10]) {
+      const kinds = withResolved(capBoard(CAP + short), (r) => r.kinds);
+      expect({ short, continues: kinds.includes('continues') }).toEqual({ short, continues: true });
     }
-  });
-
-  it('refuses a setting that would NARROW the window past the cap', () => {
-    // The one direction that is not a cost question: a negative width leaves a
-    // board that HAS ended scored by the interior fold, which is the hole
-    // `ENDGAME.md` §1 found. Refused at load rather than clamped, so a typo in
-    // a sweep cannot quietly measure an unsound member.
-    expect(() => loadWith('-1')).toThrow(/non-negative integer/);
-    expect(() => loadWith('2.5')).toThrow(/non-negative integer/);
-    expect(() => loadWith('lots')).toThrow(/non-negative integer/);
+    // At the count it is gone, which is what makes the assertion above a
+    // property of the boundary and not of this board.
+    expect(withResolved(capBoard(CAP), (r) => r.kinds).includes('continues')).toBe(false);
   });
 });
