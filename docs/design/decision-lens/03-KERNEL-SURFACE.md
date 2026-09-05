@@ -503,7 +503,18 @@ did not look."
 
 ### 3.2 Recommendation: (b), with (a) as the first paint
 
-Two phases, one API call.
+Two phases, one API call — and a third, added on `lens-4`, without which the
+first two answer only the first word of §3's sentence: **(b) produces ONE
+row.** `conform(ctx ⊕ pin, wirePlan)` is what a lock would stage, and a table
+of it plus (a)'s filter is a table of one, because the retained rows that
+already play the lock are usually that same row. *"The cluster's best
+movesetS"* is a ranking over the REST of the cluster, and phase 3 is where it
+is computed: one more `conform` per free member per candidate, best-first,
+capped at `LENS_TOPK`. It is affordable for the reason the cost table above
+does not show — the first conform under a pin prices the repair and every one
+after it is memo-served (07 §5) — and it is bounded by the reserve, with
+`LENS_RANK_MS` as the floor it is guaranteed on top of a reserve the head has
+already spent.
 
 **Phase 1, same frame as the click.** Filter the retained reservoir by the lock.
 Rows out immediately, marked `provisional: true`. If empty, `source: 'empty'` —
@@ -539,6 +550,11 @@ interface ConditionalRanking {
   /** True when the rows' basis is not the staged record's basis. Same word,
    *  same meaning as TeamPinAdvice.degraded. */
   readonly degraded: boolean
+  /** [lens-4] WHERE THE RANKING STOPPED, or null when it reached the end.
+   *  `row-cap` — the list is as long as a list is allowed to be, which is not
+   *  a refusal; `reserve-spent` — the typed refusal a request past the reserve
+   *  would have got, on the same channel the rows arrive on. */
+  readonly truncated: { why: 'row-cap' | 'reserve-spent'; notRanked: number; detail: string } | null
 }
 
 /** Pure function of (substrate, basis, locks, cursor). Never searches on the
