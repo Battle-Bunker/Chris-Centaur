@@ -740,25 +740,15 @@ async function main() {
     JSON.stringify(visited) === JSON.stringify(opened.shown) && cards === (opened.shown || []).length,
     { visited, expected: opened.shown }
   );
-  // CLIPPED OUT OF THE PAGE AND NOT SHOT AS AN ELEMENT. The card is
-  // `position: fixed`; Playwright scrolls an element into view before it
-  // photographs it, and scrolling a fixed element moves it out from under the
-  // clip it just computed — which is how the first run of this drill produced
-  // a picture of an empty box.
-  const cardBox = await page.evaluate(() => {
-    const el = document.querySelector('.tour-card');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.max(0, Math.round(r.x - 4)), y: Math.max(0, Math.round(r.y - 4)),
-             width: Math.round(r.width + 8), height: Math.round(r.height + 8) };
-  });
+  // THE WHOLE PAGE, and not a crop of the card. The card is `position: fixed`
+  // and it moves with the region it explains, so both ways of cropping it have
+  // now photographed something else: an element shot scrolls it out from under
+  // its own clip, and a page clip is in page coordinates where the card's rect
+  // is in viewport ones. The full page is the honest picture anyway — the
+  // point of the shot is the LAST region lit with the page still live under
+  // it — and the card's text is in the report beside it.
   report.notes.tourLastCard = (await tourState()).card;
-  if (cardBox && cardBox.width > 8 && cardBox.height > 8) {
-    await page.screenshot({ path: path.join(OUT, 'd9-tour-last.png'), clip: cardBox });
-    report.shots.push({ name: 'd9-tour-last', note: 'the drill: the last region of the tour',
-      bytes: fs.statSync(path.join(OUT, 'd9-tour-last.png')).size });
-    console.log('  · d9-tour-last');
-  }
+  await shot(page, 'd9-tour-last', 'the drill: the last region of the tour, with the page live under it');
 
   // THE INVARIANT. Taken OFF THE HEAD, because at the head the kernel is still
   // emitting and a rail that changed would prove nothing about the tour.
