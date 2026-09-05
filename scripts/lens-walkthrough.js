@@ -1067,14 +1067,19 @@ async function main() {
   );
 
   at = 'scheme/persists';
+  // THE CHOICE IS A PREFERENCE, and since `12-PREFERENCES.md` it is written
+  // where every other preference is: one versioned document, under the
+  // namespaced id `lens.scheme`, and not a key of the lens's own.
   const stored = await page.evaluate(() => {
-    try {
-      return localStorage.getItem('lensKeyScheme');
-    } catch (_e) {
-      return null;
-    }
+    let doc = null;
+    try { doc = JSON.parse(localStorage.getItem('centaur.prefs.v1') || 'null'); } catch (_e) { doc = null; }
+    return {
+      pref: window.Prefs ? window.Prefs.get('lens.scheme') : null,
+      inDoc: doc && doc.values ? doc.values['lens.scheme'] : null,
+    };
   });
-  schemeCheck('the choice is written to localStorage under lensKeyScheme', stored === 'vim', { stored });
+  schemeCheck('the choice is written to the preference store under lens.scheme',
+    stored.pref === 'vim' && stored.inDoc === 'vim', stored);
 
   // AND IT SURVIVES A PAGE LOAD, which is the only thing persisting it is for.
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -1359,11 +1364,332 @@ async function main() {
     shots: report.shots.filter((s) => /^r\d/.test(s.name)),
   }, null, 2));
 
+  // ── THE PREFERENCES DRILL ───────────────────────────────────────────────
+  //
+  // `docs/design/ux/12-PREFERENCES.md` §6.1. Six modules used to keep eleven
+  // `localStorage` keys between them; they now read one store, and three
+  // properties of that store are the kind a unit test cannot finish because
+  // they are about a browser profile surviving a page load:
+  //
+  //  · ROUND TRIP — every preference set THROUGH THE PANEL (a panel that
+  //    writes the wrong id is exactly the bug one store makes possible),
+  //    reloaded, and then EACH MODULE ASKED WHAT IT READ. A preference that
+  //    persists and that nobody reads is not a preference.
+  //  · MIGRATION — the nine legacy keys planted with known values, loaded,
+  //    and every one of them asserted at its new id; the legacy keys gone,
+  //    named in `migrated`; and `centaur.lastTurn`, which §4 rules is session
+  //    state, untouched beside them.
+  //  · CORRUPTION — a document with a bad enum, an out-of-range number, a
+  //    string where a boolean belongs and, on the next load, a truncated
+  //    payload: the page must come up with NO exception, every corrupt id
+  //    must read its default, and the valid ids beside them must survive.
+  //
+  // It runs LAST because it is the one drill that deliberately changes what
+  // the page looks like, and nothing is photographed after it.
+  at = 'prefs';
+  const prefsDrill = [];
+  const pfCheck = (name, ok, saw) => {
+    prefsDrill.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} prefs/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+  const allPrefs = () => page.evaluate(() => window.Prefs.all());
+  let prefsEntry = 0;
+  const reenter = async () => {
+    prefsEntry += 1;
+    if (await page.$('#loginGate.active')) await enter(page, GAME, `prefs-${prefsEntry}`);
+  };
+  /** The panel's own control, driven the way the operator drives it: the
+   *  handler under test is the panel's, never `Prefs.set`. A range is set by
+   *  value plus the `input` event the browser itself would send, because a
+   *  slider cannot be typed into. */
+  const setControl = (id, value, flag) =>
+    page.evaluate(([pid, val, fl]) => {
+      const sel = fl
+        ? `#prefs-panel [data-pref="${pid}"][data-flag="${fl}"]`
+        : `#prefs-panel [data-pref="${pid}"]:not([data-flag])`;
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      if (el.type === 'checkbox') el.checked = !!val;
+      else el.value = String(val);
+      el.dispatchEvent(new Event(el.type === 'range' ? 'input' : 'change', { bubbles: true }));
+      return true;
+    }, [id, value, flag || null]);
+
+  // THE CHROME'S WAY IN, on a screen that has chrome. The review drill left
+  // the browser on /history, which is one of the five.
+  at = 'prefs/chrome';
+  const chromeWayIn = await page.evaluate(() => {
+    const chip = [...document.querySelectorAll('.chrome-status .chip')]
+      .find((c) => /Preferences/.test(c.title || ''));
+    const sheet = (document.querySelector('.keysheet') || {}).innerText || '';
+    return { chip: !!chip, sheet: /Ctrl \+ ,/.test(sheet) || /preferences/i.test(sheet) };
+  });
+  pfCheck('the chrome offers the panel, and its key sheet says the chord',
+    chromeWayIn.chip && chromeWayIn.sheet, chromeWayIn);
+
+  // ── 1. ROUND TRIP ───────────────────────────────────────────────────────
+  at = 'prefs/panel';
+  await enter(page, GAME, `prefs-${(prefsEntry += 1)}`);
+  await page.keyboard.press('Control+,');
+  await sleep(500);
+  const panelOpen = await page.evaluate(() => ({
+    open: window.Prefs.panel.isOpen(),
+    groups: [...document.querySelectorAll('#prefs-panel [data-prefs-group]')].map((g) => g.getAttribute('data-prefs-group')),
+    controls: document.querySelectorAll('#prefs-panel [data-pref]').length,
+  }));
+  pfCheck('Ctrl+, opens the panel on the live view, which has no chrome at all',
+    panelOpen.open === true, panelOpen);
+  pfCheck('it is generated from the schema — one section per group',
+    JSON.stringify(panelOpen.groups) === JSON.stringify(['lens', 'board', 'alerts', 'wire', 'tour', 'review', 'chrome']),
+    panelOpen.groups);
+  await shot(page, 'p1-prefs-panel', 'the settings panel — one section per module, generated from the schema table', '.prefs-pop');
+
+  at = 'prefs/set';
+  const WANT = {
+    'lens.scheme': 'vim',
+    'lens.density': 'compact',
+    'board.tagMode': 'never',
+    'board.sizePx': 620,
+    'alerts.muted': true,
+    'alerts.volume': 0.25,
+    'alerts.notify': true,
+    'wire.numbers': false,
+    'chrome.landing': 'history',
+  };
+  for (const [id, value] of Object.entries(WANT)) {
+    const ok = await setControl(id, value);
+    if (!ok) pfCheck(`the panel has a control for ${id}`, false, null);
+    await sleep(120);
+  }
+  await setControl('alerts.events', false, 'stage-drift');
+  await sleep(200);
+  const afterSet = await allPrefs();
+  pfCheck(
+    'every control wrote its own preference and no other',
+    Object.entries(WANT).every(([id, v]) =>
+      typeof v === 'number' ? Math.abs(afterSet[id] - v) < 0.001 : afterSet[id] === v) &&
+      afterSet['alerts.events']['stage-drift'] === false &&
+      afterSet['alerts.events']['fatal-unpinned'] === true,
+    afterSet
+  );
+  const storedDoc = await page.evaluate((key) => {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }, 'centaur.prefs.v1');
+  pfCheck('and it landed in ONE versioned document, not nine keys',
+    !!storedDoc && storedDoc.v === 1 && storedDoc.values['lens.scheme'] === 'vim' &&
+      storedDoc.values['board.sizePx'] === 620,
+    storedDoc && storedDoc.values);
+
+  // THE RELOAD, AND WHAT EACH MODULE READ.
+  at = 'prefs/reload';
+  await page.keyboard.press('Escape');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  await reenter();
+  await sleep(WAIT);
+  // THE WIRE STRIP MOUNTS ON THE FIRST FRAME AND NOT BEFORE (`latency.js`:
+  // no wire, no widget), so the read waits for a turn rather than racing the
+  // socket — a preference the module has not had a chance to apply yet is a
+  // fact about this script's timing and not about the store.
+  for (let i = 0; i < 10 && !(await page.$('.lat')); i++) {
+    await step();
+    await sleep(600);
+  }
+  const read = await page.evaluate(() => ({
+    scheme: typeof LensPanel === 'undefined' ? null : LensPanel.activeScheme(),
+    density: (document.getElementById('selectedSnakePanel') || { classList: { contains: () => null } })
+      .classList.contains('lens-compact'),
+    tagMode: typeof tagDisplayMode === 'undefined' ? null : tagDisplayMode,
+    sizePref: typeof boardSizePref === 'undefined' ? null : boardSizePref,
+    canvas: (document.getElementById('gameCanvas') || { style: {} }).style.width,
+    wantCanvas: typeof clampBoardSize === 'undefined' ? null : clampBoardSize(620) + 'px',
+    alerts: window.Alerts ? window.Alerts.prefs() : null,
+    nums: (document.querySelector('.lat') || { getAttribute: () => null }).getAttribute('data-nums'),
+    // The strip's own KEY CAPS, rather than its running text: `innerText`
+    // glues `k` and `j` together and a word-boundary match on it is a test of
+    // the whitespace.
+    keys: [...document.querySelectorAll('#lensKeys kbd')].map((k) => k.textContent),
+  }));
+  pfCheck('lens-panel read the scheme, and the cheat strip is spelled in it',
+    read.scheme === 'vim' && read.keys.includes('k') && read.keys.includes('j') &&
+      !read.keys.includes('[') && !read.keys.includes(']'),
+    read);
+  pfCheck('the rail read the density', read.density === true, read);
+  pfCheck('the board renderer read the tag mode', read.tagMode === 'never', read);
+  pfCheck('the board read its size, and the canvas is that size clamped to the layout',
+    read.sizePref === 620 && read.canvas === read.wantCanvas, read);
+  pfCheck('alerts read the mute, the volume and the per-event opt-out',
+    !!read.alerts && read.alerts.muted === true &&
+      Math.abs(read.alerts.volume - 0.25) < 0.001 && read.alerts.notify === true &&
+      read.alerts.events['stage-drift'] === false,
+    read.alerts);
+  pfCheck('the wire strip read its own preference', read.nums === 'off', read);
+  // Photographed only where there IS a wire: the strip stays empty until a
+  // frame has arrived over a socket (`latency.js` — no wire, no widget), and
+  // a walk that dies on a missing widget is photographing its own timing.
+  const wireVisible = await page.evaluate(() => {
+    const el = document.getElementById('latency-mount');
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= 2 && r.height >= 2;
+  });
+  if (wireVisible) {
+    await shot(page, 'p2-wire-numbers-off',
+      'the wire strip with its four numbers put away — the state word and the clock stay', '#latency-mount');
+  }
+
+  at = 'prefs/chrome-read';
+  await page.goto(`${BASE}/history`, { waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const brand = await page.evaluate(() => {
+    const a = document.querySelector('.header .brand');
+    return a ? a.getAttribute('href') : null;
+  });
+  pfCheck('page-chrome read the landing screen', brand === '/history', { brand });
+
+  // ── 2. MIGRATION ────────────────────────────────────────────────────────
+  at = 'prefs/migrate';
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('lensKeyScheme', 'lefthand');
+    localStorage.setItem('lensDensity', 'roomy');
+    localStorage.setItem('unitTagsHiddenByDefault', '1');
+    localStorage.setItem('boardSizePx', '99999');
+    localStorage.setItem('centaurAlerts', JSON.stringify({
+      muted: true, volume: 0.25, notify: true, events: { 'stage-drift': false },
+    }));
+    localStorage.setItem('lensTourDone', '1');
+    localStorage.setItem('centaur.reviewMarks', JSON.stringify({
+      'lens-walk': [{ turn: 3, focus: null, at: 1 }],
+    }));
+    // SESSION STATE, planted beside them (12 §4): the store must not touch it.
+    localStorage.setItem('centaur.lastTurn', '{"lens-walk":4}');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const migrated = await page.evaluate(() => ({
+    values: window.Prefs.all(),
+    from: window.Prefs.migrated(),
+    left: ['lensKeyScheme', 'lensDensity', 'unitTagsHiddenByDefault', 'unitTagsTranslucentDefault',
+      'boardSizePx', 'centaurAlerts', 'lensTourDone', 'centaur.reviewMarks']
+      .filter((k) => localStorage.getItem(k) !== null),
+    lastTurn: localStorage.getItem('centaur.lastTurn'),
+  }));
+  const mv = migrated.values;
+  pfCheck('every legacy key arrived at its new id, losslessly',
+    mv['lens.scheme'] === 'lefthand' && mv['lens.density'] === 'roomy' &&
+      mv['board.tagMode'] === 'never' && mv['alerts.muted'] === true &&
+      Math.abs(mv['alerts.volume'] - 0.25) < 0.001 && mv['alerts.notify'] === true &&
+      mv['alerts.events']['stage-drift'] === false && mv['tour.doneVersion'] === '1' &&
+      (mv['review.marks']['lens-walk'] || []).length === 1,
+    mv);
+  pfCheck('the out-of-range board size arrives in range rather than as it was stored',
+    mv['board.sizePx'] === 1400, { size: mv['board.sizePx'] });
+  pfCheck('the legacy keys are gone, and the document says which it was built from',
+    migrated.left.length === 0 && migrated.from.length >= 7, migrated);
+  pfCheck('session state beside them is untouched — 12 §4',
+    migrated.lastTurn === '{"lens-walk":4}', { lastTurn: migrated.lastTurn });
+
+  // ── 3. CORRUPTION ───────────────────────────────────────────────────────
+  at = 'prefs/corrupt';
+  const exceptionsBefore = report.exceptions.length;
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('centaur.prefs.v1', JSON.stringify({
+      v: 1,
+      values: {
+        'lens.scheme': 'dvorak',      // not a scheme
+        'board.sizePx': 'huge',       // not a number
+        'alerts.volume': 5,           // out of range
+        'alerts.muted': 'yes',        // not a boolean
+        'alerts.events': 'all',       // not an object
+        'review.marks': 3,            // not JSON the module could read
+        'lens.density': 'roomy',      // VALID, beside them
+        'tour.doneVersion': '1',      // VALID — and it keeps the tour shut
+      },
+    }));
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const corrupt = await allPrefs();
+  pfCheck('every corrupt value falls back to its default',
+    corrupt['lens.scheme'] === 'bracket' && corrupt['board.sizePx'] === 550 &&
+      Math.abs(corrupt['alerts.volume'] - 0.6) < 0.001 && corrupt['alerts.muted'] === false &&
+      corrupt['alerts.events']['stage-drift'] === true &&
+      JSON.stringify(corrupt['review.marks']) === '{}',
+    corrupt);
+  pfCheck('and the valid values beside them survive',
+    corrupt['lens.density'] === 'roomy' && corrupt['tour.doneVersion'] === '1', corrupt);
+
+  at = 'prefs/truncated';
+  await page.evaluate(() => {
+    localStorage.setItem('centaur.prefs.v1', '{"v":1,"values":{"lens.sch');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const truncated = await allPrefs();
+  pfCheck('a document that does not parse is discarded whole, and the page comes up',
+    truncated['lens.scheme'] === 'bracket' && truncated['lens.density'] === 'default' &&
+      report.exceptions.length === exceptionsBefore,
+    { scheme: truncated['lens.scheme'], exceptions: report.exceptions.length - exceptionsBefore });
+
+  // ── 4. EXPORT AND IMPORT, through the panel and the clipboard ───────────
+  at = 'prefs/export';
+  await page.keyboard.press('Control+,');
+  await sleep(400);
+  await page.click('#prefs-panel [data-prefs-copy]');
+  await sleep(300);
+  const exported = await page.evaluate(() => {
+    const box = document.querySelector('#prefs-panel [data-prefs-json]');
+    let parsed = null;
+    try { parsed = JSON.parse(box.value); } catch (e) { parsed = null; }
+    return { ids: parsed ? Object.keys(parsed.values || {}).length : 0, status: (document.querySelector('#prefs-panel [data-prefs-status]') || {}).textContent };
+  });
+  pfCheck('Copy puts the whole set in the box as JSON',
+    exported.ids === (await page.evaluate(() => window.Prefs.ids().length)), exported);
+
+  at = 'prefs/import';
+  const imported = await page.evaluate(() => {
+    const box = document.querySelector('#prefs-panel [data-prefs-json]');
+    box.value = JSON.stringify({
+      v: 1,
+      values: { 'lens.scheme': 'vim', 'alerts.volume': 0.4, 'no.such.pref': 1, 'board.sizePx': 'huge' },
+    });
+    document.querySelector('#prefs-panel [data-prefs-import]').click();
+    return {
+      status: (document.querySelector('#prefs-panel [data-prefs-status]') || {}).textContent,
+      scheme: window.Prefs.get('lens.scheme'),
+      volume: window.Prefs.get('alerts.volume'),
+      size: window.Prefs.get('board.sizePx'),
+    };
+  });
+  pfCheck('Import applies the ids that validate and names the ones that do not',
+    imported.scheme === 'vim' && Math.abs(imported.volume - 0.4) < 0.001 &&
+      imported.size === 550 && /no\.such\.pref/.test(imported.status || '') &&
+      /board\.sizePx/.test(imported.status || ''),
+    imported);
+
+  at = 'prefs/reset';
+  await page.click('#prefs-panel [data-prefs-reset="alerts"]');
+  await sleep(250);
+  const afterGroupReset = await allPrefs();
+  pfCheck('Reset takes one group back and leaves the others where they are',
+    Math.abs(afterGroupReset['alerts.volume'] - 0.6) < 0.001 && afterGroupReset['lens.scheme'] === 'vim',
+    { volume: afterGroupReset['alerts.volume'], scheme: afterGroupReset['lens.scheme'] });
+  await page.click('#prefs-panel [data-prefs-reset=""]');
+  await sleep(250);
+  const afterAll = await allPrefs();
+  const shipped = await page.evaluate(() => window.Prefs.defaults());
+  pfCheck('Reset everything is the shipped set, exactly',
+    JSON.stringify(afterAll) === JSON.stringify(shipped), afterAll);
+  await page.keyboard.press('Escape');
+  report.notes.prefs = prefsDrill;
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
 
-  // BOTH DRILLS ARE GATES. A walk that photographs a broken determination
+  // EVERY DRILL IS A GATE. A walk that photographs a broken determination
   // surface — or a key scheme that relabels a strip over a keymap nothing
   // consults — and exits 0 is a slideshow; this exits non-zero and names the
   // step that failed.
@@ -1372,6 +1698,7 @@ async function main() {
     ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
     ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
+    ...(report.notes.prefs || []).map((d) => ({ ...d, drill: 'prefs' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
     console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);

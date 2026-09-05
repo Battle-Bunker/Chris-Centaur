@@ -251,6 +251,8 @@ there *is* chrome — the five secondary screens — `page-chrome.js` adds a
 `Settings` chip beside the status chips and a row to its key sheet, so the
 chord is discoverable and not folklore.
 
+![The settings panel](prefs/panel.png)
+
 The panel is **generated from the table in §2.3**: one `<section>` per group in
 declaration order, one control per row chosen by type, a *Reset group* button
 beside each heading, and *Reset everything* at the foot. There is no
@@ -296,15 +298,38 @@ used to disagree about the density until one of them was reloaded.
 * `npx tsc --noEmit -p .`, `npx eslint "src/**/*.ts"`, `node --check` on every
   changed `.js`, `npm run build:lens`.
 * `npx jest --maxWorkers=2 "src/tests/lens-" src/tests/local-game-determinism.test.ts`.
-* `scripts/lens-walkthrough.js` — every drill green, now five of them.
-* `scripts/alerts-drill.js` — 46 checks, including the two that read
+* `scripts/lens-walkthrough.js` — **exit 0, 65 checks, five drills**, 0
+  exceptions, 0 overflow.
+* `scripts/alerts-drill.js` — **46/46**, including the check that reads
   `Alerts.prefs()` back after a reload, which now reads through the store.
-* `scripts/lens-soak.js` — 200 turns; the store adds one listener and one
-  object and must show up as neither growth nor a leak.
-* **Pixel identity at rest**: every preference defaults to what shipped, the
-  panel is `hidden` until it is asked for, and the chrome chip is the only new
-  ink anywhere — on five screens the walkthrough photographs by element crop,
-  never by full page.
+  (One check, `mute does NOT silence the pulse`, is timing-flaky under load:
+  it failed on one run here and on a run of the *unchanged* tree beside it,
+  and passes on a re-run of either. Its six screenshots are full-page shots of
+  a live board and differ run to run with identical code, so they carry no
+  pixel signal and the 46 checks are the gate.)
+* `scripts/lens-soak.js` — 200 turns. The store's structural cost is
+  **constant**: +5 listeners (the panel's three, the chord, the `storage`
+  event), no timer, and `listen 117 → 116  (0.00/turn)` — nothing accumulates.
+  Its heap-slope check (`≤ 1,024 B/turn` over the second half) **fails on this
+  machine on both trees** — 1,127 and 1,864 B/turn with the store, 1,817
+  without it, against neighbours' work on the same box — so it is reported
+  rather than claimed: the change measures no worse than the tree it is
+  measured against, and the slope is the box.
+* **Pixel identity at rest**, measured the way `09` §4 measures it. Two runs
+  of the walkthrough against two fresh servers differ on 11 of its 51 images
+  by themselves — the live-board and full-page shots, where `/dev/step`
+  timing and the ping readout move — so the gate is stated against that floor:
+  every image byte-identical across two runs of the *changed* code must be
+  byte-identical against the *unchanged* code, run the same way. It is:
+  **40 of 40 stable images identical, 0 regressions**, plus two new ones
+  (`p1-prefs-panel`, `p2-wire-numbers-off`).
+
+  **One change is intended and is not zero.** The chrome's new `Settings` chip
+  is real ink, and the header is `position: fixed`, so it is painted into the
+  top band of the three `/history` crops that sit under it (`r3-why`,
+  `r4-review`, `r7-share` — 2,704 pixels of one 8-pixel band, the chip row
+  one chip wider and therefore shifted left). Every other review crop, and
+  every crop on the live view — which has no chrome at all — is unchanged.
 
 ### 6.1 The prefs drill
 
@@ -325,6 +350,14 @@ one drill that deliberately changes what the page looks like. Three parts:
    string where a boolean belongs and a truncated payload is planted; the page
    must load with **no exception** and every corrupt id must read its default
    while the valid ids beside them survive.
+4. **Export, import and reset**, through the panel's own buttons: *Copy* puts
+   all twelve ids in the box; an imported document with one bad value and one
+   unknown id applies the rest and names both in the status line; *Reset*
+   takes one group back and leaves the others; *Reset everything* is the
+   shipped set, compared against `Prefs.defaults()` key for key.
+
+Twenty-three checks. Every one of them is a gate — the run exits non-zero and
+names the step.
 
 Then the store is reset, so the profile the next run inherits is the shipped
 one.
