@@ -567,15 +567,20 @@
               <button id="suicideBtn" onclick="suicideAll()" style="background: #8b0000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 6px;">Suicide All</button>
               <div class="timer-display idle" id="timerDisplay">--</div>
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the game engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
-              <!-- THE LATENCY SURFACE'S ONE MOUNT. Everything inside it is
-                   written by `latency.js` and by nothing else on this page:
-                   the deadline bar with its last-safe-press notch, the
-                   staleness ladder, the two hops' numbers, the degraded
-                   banner and the optimistic command chips. See
-                   `docs/design/ux/03-LATENCY.md` §3. -->
-              <div id="latency-mount"></div>
             </div>
           </div>
+          <!-- THE LATENCY SURFACE'S ONE MOUNT. Everything inside it is written
+               by `latency.js` and by nothing else on this page: the deadline
+               bar with its last-safe-press notch, the staleness ladder, the
+               two hops' numbers, the degraded banner and the optimistic
+               command chips. It is a FULL-WIDTH STRIP under the header and not
+               a chip inside it — the header row is already full, and the
+               deadline bar is the one thing here the periphery is meant to
+               read, which needs the width. It is empty, and therefore
+               `display: none`, until a socket has actually delivered
+               something: a replayed game has no wire and gets no strip. See
+               `docs/design/ux/03-LATENCY.md` §3. -->
+          <div id="latency-mount"></div>
           <div class="turn-controls" id="turnControls" style="display:none;">
             <div class="turn-controls-row">
               <span class="view-mode-badge live" id="viewModeBadge">● LIVE</span>

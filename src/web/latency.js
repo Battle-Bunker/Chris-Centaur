@@ -28,8 +28,10 @@
  * a lost turn), and nothing flashes: the pulse is one 900 ms transient per
  * state change and it is off entirely under `prefers-reduced-motion`.
  *
- * WHAT IT OWNS. `<div id="latency-mount">` in the board header, and nothing
- * else on the page. It reads the wire through `WSClient.observe` — the same
+ * WHAT IT OWNS. `<div id="latency-mount">` — the strip under the board header,
+ * and `play-game.html`'s only concession to this module besides its script tag
+ * — and nothing else on the page. It reads the wire through
+ * `WSClient.observe`: the same
  * socket the page is using, with no second connection and no second copy of
  * the message handler — and it hands its readings back out through
  * `LatencyView.read()` so the surfaces that are not its own (the turn clock
@@ -194,11 +196,20 @@
           // subtraction are server-stamped, so it carries no skew at all and
           // needs no correcting — which is what makes it safe to hang every
           // threshold off.
+          //
+          // TAKEN WHOLE AND NEVER SMOOTHED. This was an EMA and the pictures
+          // caught it: an average lags, so on the first frames of a turn
+          // `remaining` exceeded the averaged `budget`, the bar's fill clamped
+          // to 100 % and the last-safe-press notch clamped WITH it — pinned
+          // off the right edge, which is precisely where it says nothing. The
+          // sample is not noisy and does not want averaging: it is one number
+          // per turn, and because `serverSentAt` is stamped no later than the
+          // deadline it defines, taking it whole also makes
+          // `remaining ≤ budget` true by construction, which is what keeps the
+          // notch on the bar.
           if (typeof msg.serverSentAt === 'number') {
             const budget = msg.turnExpiryTime - msg.serverSentAt;
-            if (budget >= BUDGET_MIN_MS && budget <= BUDGET_MAX_MS) {
-              wire.budgetMs = Math.round(ema(wire.budgetMs, budget, 0.4));
-            }
+            if (budget >= BUDGET_MIN_MS && budget <= BUDGET_MAX_MS) wire.budgetMs = budget;
           }
         } else if (ev.type === 'board-update') {
           wire.deadlineAt = null;
@@ -313,6 +324,18 @@
     const rttDegraded = Math.max(RTT_DEGRADED_FLOOR_MS, RTT_DEGRADED_FRAC * B);
     const late = overdue();
 
+    // §4'S STALE, LITERALLY: "no emission past the deadline". Not "an old
+    // emission past the deadline" — the deadline is the moment by which the
+    // turn was to have been decided, so a clock that has run out with nothing
+    // arriving since it ran out is stale however recently the last thing
+    // landed. The pictures caught the weaker reading calling a page THINKING
+    // 189 ms after its deadline had passed, which is the silent degradation
+    // §4 names as the only unacceptable failure.
+    const pastDeadlineUnfed =
+      remaining !== null &&
+      remaining < 0 &&
+      (wire.lastFrameSentAt === null || wire.lastFrameSentAt < wire.deadlineAt);
+
     let state = 'LIVE';
     let why = null;
     if (!wire.open) {
@@ -320,9 +343,11 @@
       why = wire.closeCode === null
         ? 'the socket is not open'
         : `socket closed (${wire.closeCode}) — reconnecting`;
-    } else if (age !== null && age > DEGRADED_FRAC * B && remaining !== null && remaining < 0) {
+    } else if (pastDeadlineUnfed) {
       state = 'STALE';
-      why = `no decision frame for ${age} ms, past this turn's deadline`;
+      why = age === null
+        ? `no decision frame since this turn's deadline, ${-remaining} ms ago`
+        : `no decision frame for ${age} ms, past this turn's deadline`;
     } else if (age !== null && age > DEGRADED_FRAC * B * 2) {
       state = 'STALE';
       why = `no decision frame for ${age} ms`;
@@ -381,28 +406,35 @@
   // ── Drawing ─────────────────────────────────────────────────────────────
 
   const CSS = `
-/* THE MOUNT CONTRIBUTES A FIXED HEIGHT AND NEVER MOVES THE BOARD.
-   Everything exceptional — the degraded banner, the command chips — is drawn
-   in an overlay anchored under it, because a surface whose job is to report a
-   bad connection must not RELAYOUT THE PAGE when the connection goes bad: a
-   board that jumps a row the moment the wire degrades is a worse failure than
-   the degradation. The mount is also EMPTY until a wire exists at all, so a
-   replayed game — which has no socket — has no widget and no header of a
-   different height. */
-/* Until there is a wire to report on there is no widget, and an empty mount
-   must take NO space at all: the header is a flex row with a gap, so a
-   zero-width child still costs a gap and would move everything beside it. */
+/* THE MOUNT CONTRIBUTES A FIXED HEIGHT AND NEVER MOVES THE BOARD ONCE IT IS
+   THERE. Everything exceptional — the degraded banner, the command chips — is
+   drawn in an overlay anchored under it, because a surface whose job is to
+   report a bad connection must not RELAYOUT THE PAGE when the connection goes
+   bad: a board that jumps a row the moment the wire degrades is a worse
+   failure than the degradation. The mount is also EMPTY until a wire exists at
+   all, so a replayed game — which has no socket — has no strip.
+
+   A FULL-WIDTH STRIP AND NOT A CHIP IN THE HEADER. It was a 210 px box at the
+   end of the header's flex row and the first photographs killed that: four
+   numbers and a state word do not fit in 210 px, so the line ran out past the
+   card's edge and was clipped mid-word: the readout said "board +50" and
+   stopped there. The deadline bar is also the one thing on this surface the
+   PERIPHERY is meant to read, and a 210 px bar puts the whole last-safe-press
+   question inside a centimetre. Across the board's own width both problems
+   go away at once. */
 #latency-mount:empty { display: none; }
-#latency-mount { position: relative; width: 210px; height: 21px; font-size: 11px; color: #888; }
-.lat { position: absolute; right: 0; top: 0; width: 210px; }
-.lat-head { display: flex; flex-direction: column; gap: 2px; }
+#latency-mount { position: relative; width: 100%; height: 26px; margin: 0 0 4px; font-size: 11px; color: #888; }
+.lat { position: absolute; left: 0; right: 0; top: 0; }
+.lat-head { display: flex; flex-direction: column; gap: 3px; }
 .lat-clock {
-  position: relative; height: 4px; border-radius: 2px; overflow: hidden;
+  position: relative; height: 5px; border-radius: 2px; overflow: hidden;
   background: #1c1c1c; box-shadow: inset 0 0 0 1px #333;
 }
 /* Motion and brightness, which is what the periphery can read: the bar
    shortens as the turn runs out and its fill brightens as it does. */
-.lat-clock-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #2f5d3a; }
+.lat-clock-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #35734a;
+}
 .lat[data-clock="warn"] .lat-clock-fill { background: #8a7524; }
 .lat[data-clock="urgent"] .lat-clock-fill { background: #c9503f; }
 .lat[data-clock="past"] .lat-clock-fill { background: #3a3a3a; }
@@ -422,12 +454,17 @@
 .lat-state { font-weight: 700; letter-spacing: 0.04em; color: #bbb; font-size: 10px; }
 .lat[data-state="DEGRADED"] .lat-state, .lat[data-state="STALE"] .lat-state { color: #d8a13a; }
 .lat[data-state="DISCONNECTED"] .lat-state { color: #e0685a; }
-.lat-nums { display: flex; gap: 6px; font-variant-numeric: tabular-nums; color: #6d6d6d; }
+/* The words on the left where reading starts, the numbers hard right against
+   the bar's own end, so the eye that has just read the bar lands on them. */
+.lat-nums {
+  display: flex; gap: 10px; margin-left: auto;
+  font-variant-numeric: tabular-nums; color: #6d6d6d;
+}
 .lat-num[data-grade="warn"] { color: #d8a13a; }
 .lat-num[data-grade="bad"] { color: #e0685a; }
 /* The overlay: out of flow, so nothing below it moves when it appears. */
 .lat-over {
-  position: absolute; top: 24px; right: 0; width: 300px; z-index: 40;
+  position: absolute; top: 29px; right: 0; width: 340px; z-index: 40;
   display: flex; flex-direction: column; gap: 3px; pointer-events: none;
   text-align: left;
 }
@@ -441,7 +478,11 @@
   background: rgba(40, 16, 13, 0.96); color: #e88c80; border-left-color: #b03a2e;
 }
 .lat-cmds { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+/* An inline-BLOCK and not the default inline: a chip whose refusal runs to two
+   lines must carry its own background onto the second one, and an inline box
+   paints only the first. The first photographs caught the naked half-line. */
 .lat-cmd {
+  display: inline-block; max-width: 100%; white-space: normal;
   padding: 1px 5px; border-radius: 3px; font-variant-numeric: tabular-nums;
   background: #242424; color: #999; box-shadow: inset 0 0 0 1px #383838;
 }
@@ -559,11 +600,19 @@
     const shown = chips.slice(-4);
     return shown
       .map((c) => {
-        const age = c.state === 'pending' ? Math.round(now - c.at) : c.ms;
+        // Never negative: the chip is stamped from `WSClient`'s own clock and
+        // read back through the corrected one, so a fast answer can round
+        // below zero and "select −1ms" is not a thing that happened.
+        const age = Math.max(0, c.state === 'pending' ? Math.round(now - c.at) : c.ms);
         const mark = c.state === 'pending' ? '⟳' : c.state === 'refused' ? '✗' : '✓';
-        const note = c.note ? ` — ${escapeText(c.note)}` : '';
+        // The whole reason in the tooltip; enough of it on the chip to know
+        // which refusal this is without the chip becoming a paragraph.
+        const short = c.note && c.note.length > 46 ? `${c.note.slice(0, 45)}…` : c.note;
+        const note = short ? ` — ${escapeText(short)}` : '';
         return (
-          `<span class="lat-cmd" data-cmd="${c.state}" title="${escapeText(c.label)}${note}">` +
+          `<span class="lat-cmd" data-cmd="${c.state}" title="${escapeText(c.label)}${
+            c.note ? ` — ${escapeText(c.note)}` : ''
+          }">` +
           `${mark} ${escapeText(c.label)} ${age}ms${note}</span>`
         );
       })
