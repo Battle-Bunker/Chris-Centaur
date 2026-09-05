@@ -1450,10 +1450,12 @@ async function density(browser) {
       // any other way measures a density that never changed.
       await page.click(`#lensKeys [data-lens-density="${d}"]`);
       await sleep(500);
-      await shot(page, `d-${w}x${h}-${d}`, `${w}×${h}, density ${d}`);
-      if (d === 'default') {
-        await shot(page, `d-${w}x${h}-rail`, `${w}×${h}, the rail at default density`, '#selectedSnakePanel');
-      }
+      // The whole viewport once per size, at the shipped density — that is the
+      // layout question. The other two densities are answered by the rail
+      // itself, which is the only thing that changes, and a 1920 × 1080 page
+      // shot is 300 KB whether or not it is carrying the answer.
+      if (d === 'default') await shot(page, `d-${w}x${h}-${d}`, `${w}×${h}, density ${d}`);
+      await shot(page, `d-${w}x${h}-rail-${d}`, `${w}×${h}, the rail at ${d} density`, '#selectedSnakePanel');
       found.push({
         viewport: `${w}x${h}`,
         density: d,

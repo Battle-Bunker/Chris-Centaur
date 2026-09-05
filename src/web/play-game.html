@@ -238,16 +238,16 @@
       background: #2a2a2a; border-radius: 8px; padding: 10px 12px; overflow-x: auto;
     }
     .lens-panel-head {
-      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      font-size: calc(var(--lens-size) - 1px); font-weight: 700; letter-spacing: .04em;
       color: #B39DFF; margin-bottom: 6px;
     }
     /* The legend, under the head that needs one: four tokens on that table
        have no gloss anywhere else, and three of them mean something else in
        the rest of the codebase. Quiet, and always — a reader who has to be
        told what a column means is reading a number they cannot check. */
-    .lens-legend { font-size: calc(var(--lens-size) - 2px); color: #9a9a9a; margin: -2px 0 6px; }
-    .lens-list-source { font-size: calc(var(--lens-size) - 2px); color: #9fb8b3; margin: -2px 0 4px; }
-    .lens-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .lens-legend { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; margin: -2px 0 6px; }
+    .lens-list-source { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9fb8b3; margin: -2px 0 4px; }
+    .lens-table { width: 100%; border-collapse: collapse; font-size: var(--lens-size); }
     .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
     .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
     /* A stale complement is struck through and KEPT: the row was a real
@@ -260,7 +260,7 @@
     /* The `unless` cell — what each moveset is betting on. Quieter than the
        numbers it qualifies and never wrapped away: it is the one column that
        says what the bot does NOT know. */
-    .lens-unless { color: #9FC6C0; font-size: 11px; }
+    .lens-unless { color: #9FC6C0; font-size: calc(var(--lens-size) - 1px); }
     /* One assignment per unit, unbreakable. The cell is a list joined by
        " · ", so it wraps BETWEEN entries; without this the 380px rail broke
        inside an identifier and the column read "red-" / "A→94 · red-" /
@@ -277,24 +277,24 @@
       border-bottom: 1px solid currentColor; padding-bottom: 1px;
     }
     .lens-move-same { color: #9a9a9a; white-space: nowrap; }
-    .lens-focus-line { font-size: 13px; color: #eee; }
+    .lens-focus-line { font-size: calc(var(--lens-size) + 1px); color: #eee; }
     .lens-cluster { float: right; color: #B39DFF; }
-    .lens-sub, .lens-provenance { font-size: 11px; color: #9a9a9a; }
+    .lens-sub, .lens-provenance { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; }
     .lens-provenance { padding: 0 4px; }
-    .lens-fixed-strip { font-size: 11px; color: #a6a6a6; margin-top: 6px; }
+    .lens-fixed-strip { font-size: calc(var(--lens-size) - 1px); color: #a6a6a6; margin-top: 6px; }
     .lens-fixed { margin-right: 10px; white-space: nowrap; }
-    .lens-foil { font-size: 11px; color: #4DB6AC; margin-top: 6px; }
+    .lens-foil { font-size: calc(var(--lens-size) - 1px); color: #4DB6AC; margin-top: 6px; }
     .lens-foil-absent { color: #9db8b3; font-style: italic; }
     .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
-    .lens-empty { font-size: 12px; color: #9a9a9a; padding: 4px 0; }
+    .lens-empty { font-size: var(--lens-size); color: #9a9a9a; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
     /* A ranking the reserve stopped is a REFUSAL and reads like one; a list
        that simply filled up is not, and stays in the head's own voice. */
     .lens-refused { color: #FF8A65; }
-    .lens-trail { color: #B39DFF; font-size: 10px; margin-left: 6px; }
-    .lens-displaced { color: #FF8A65; font-size: 10px; margin-left: 6px; }
-    .lens-staged-flag { color: #ababab; font-size: 10px; margin-left: 6px; }
+    .lens-trail { color: #B39DFF; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
+    .lens-displaced { color: #FF8A65; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
+    .lens-staged-flag { color: #ababab; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
     /* While a widen is held the whole list is visibly superseded — struck, and
        still there, which is the entire point of the policy. */
     .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #a6a6a6; }
@@ -326,16 +326,16 @@
       border-bottom: 1px solid #333;
     }
     .lens-lane-name {
-      flex: 0 0 54px; font-size: calc(var(--lens-size) - 2px); color: #9a9a9a; line-height: 14px;
+      flex: 0 0 54px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; line-height: 14px;
     }
     .lens-lane-track { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
     .lens-tick {
       position: absolute; top: 0; transform: translateX(-50%);
       background: none; border: none; padding: 0; cursor: pointer;
-      font-size: 11px; color: inherit;
+      font-size: calc(var(--lens-size) - 1px); color: inherit;
     }
     .lens-tick-hollow { opacity: .55; }
-    .lens-lane-foot { font-size: 11px; color: #9a9a9a; margin-top: 4px; }
+    .lens-lane-foot { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; margin-top: 4px; }
 
     /* ── THE IA LAYERS (docs/design/ux/02-IA-AND-CONTROLS.md §1.4) ────────
        Five layers, placed by LATENCY BUDGET rather than by importance:
@@ -379,7 +379,24 @@
       background: linear-gradient(90deg, #5c5c5c, #d8d8d8);
       transition: width .12s linear;
     }
-    .turn-clock.urgent .turn-clock-fill { background: linear-gradient(90deg, #8a3b2a, #ff8a65); }
+    /* URGENCY IS NOT A HUE. Crossing 500 ms changed the fill's colour ramp
+       and NOTHING ELSE — same height, same border, same shape — so the one
+       state change the clock exists to announce was carried in the single
+       channel `§2.5`'s own audit forbids doing work alone, and the one the
+       periphery reads worst. The bar's LENGTH says how much time is left;
+       this says the deadline is now close enough that a press may not land,
+       and it says it in hatching and in weight, which survive a protanope,
+       a greyscale screenshot and the corner of an eye. */
+    .turn-clock.urgent { border-color: #ff8a65; height: 12px; }
+    .turn-clock.urgent .turn-clock-fill {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(0, 0, 0, 0.55) 0 3px,
+          rgba(0, 0, 0, 0) 3px 7px
+        ),
+        linear-gradient(90deg, #8a3b2a, #ff8a65);
+    }
     .turn-clock.idle .turn-clock-fill { background: #3a3a3a; }
     .turn-clock-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a1a1a; display: none; }
     .turn-clock-mark.on { display: block; }
@@ -443,7 +460,7 @@
     .lens-row-foil td:first-child { border-left: 3px dashed var(--lens-foil); }
     .lens-row-foil td { color: #cfe6e3; }
     .lens-row-tag {
-      display: block; font-size: 9px; letter-spacing: .04em; text-transform: uppercase;
+      display: block; font-size: max(9px, calc(var(--lens-size) - 3px)); letter-spacing: .04em; text-transform: uppercase;
       color: var(--lens-ink); font-weight: 700;
     }
     .lens-row-foil .lens-row-tag { color: var(--lens-foil); }
@@ -496,9 +513,9 @@
 
     /* The cheat sheet, at rest, in the rail — because Ctrl+/ is a modal and a
        modal costs the board. */
-    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: calc(var(--lens-size) - 2px); color: #9e9e9e; }
+    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; }
     .lens-cheat-item { display: inline-flex; align-items: center; gap: 3px; }
-    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: calc(var(--lens-size) - 2px); color: #9e9e9e; margin-top: 6px; }
+    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; margin-top: 6px; }
     .lens-scheme button {
       background: #2f2f2f; border: 1px solid #4a4a4a; color: #bbb; border-radius: 3px;
       font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: inherit;
