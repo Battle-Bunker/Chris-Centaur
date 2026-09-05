@@ -36,6 +36,8 @@ import {
 } from './cursor';
 import type {
   CandidateRow,
+  CellIndex,
+  ClusterId,
   DominanceCondition,
   Cursor,
   DecisionSource,
@@ -510,6 +512,13 @@ function movesetOps(
     ),
   ];
 
+  // THE FOIL IS A PROPERTY OF A ROW, not only of the line under the table.
+  // The rail draws rank 1 and the runner-up at full size — the contrastive
+  // pair is what an operator actually decides on — so the row op has to carry
+  // which row that is, computed once, here, and read by both the row and the
+  // line below it.
+  const foil = selected === null ? null : foilRow(frame, cursor, selected);
+
   for (const row of rows) {
     const cell = depthCell(row, row.key === leader?.key ? loud : null);
     // A ROW WITH NO PRICE DRAWS NO NUMBER. `conform` returns a plan; `0.0`
@@ -550,7 +559,14 @@ function movesetOps(
         row.complement,
         row.key === selected?.key,
         row.staged,
-        trail
+        trail,
+        // WHICH ROW IS THE RUNNER-UP, and the row's own estimate. Both are
+        // appended rather than woven in, so every existing reader keeps its
+        // indices: the rail marks the foil row at full size beside rank 1, and
+        // draws the bracket as a BAND with `est` as its marked point rather
+        // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
+        row.key === foil?.key,
+        priced ? row.est : null
       )
     );
   }
@@ -576,7 +592,6 @@ function movesetOps(
   // absence was silent. An absence is drawn WITH ITS REASON, exactly as the
   // depth cell draws `Q=0/33` rather than a bare `h1`.
   if (selected !== null) {
-    const foil = foilRow(frame, cursor, selected);
     ops.push(
       foil === null
         ? call('panel.foil', null, null, noFoilReason(list), null)
@@ -815,6 +830,88 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
  * live-versus-replay flag — which is what makes two sources produce one
  * picture.
  */
+/**
+ * The stage line's content: one entry per unit this decision is about, in the
+ * partition's own order, each carrying what is staged for it right now and
+ * whether the bot is still free to change it.
+ *
+ * `to === null` is the honest reading "nothing is staged for this unit yet"
+ * and is what the strip counts as unplanned; it is never rendered as a move.
+ */
+export function stageSummary(frame: LensFrame): ReadonlyArray<{
+  unit: UnitKey;
+  letter: string;
+  to: number | null;
+  source: 'staged' | 'plan' | 'none';
+  fixity: string;
+  by: string | null;
+}> {
+  const out: Array<{
+    unit: UnitKey;
+    letter: string;
+    to: number | null;
+    source: 'staged' | 'plan' | 'none';
+    fixity: string;
+    by: string | null;
+  }> = [];
+  const seen = new Set<UnitKey>();
+  const push = (
+    unit: UnitKey,
+    clusterId: ClusterId | null,
+    fixity: string,
+    by: string | null,
+    /** A CONSTANT'S OWN CELL, and the reason it is a separate argument. The
+     *  cluster's retained rows may still carry a move for a unit that has
+     *  since been pinned — they were priced before the determination, and the
+     *  reservoir is not rewritten by it. Reading the plan for a bounded unit
+     *  therefore printed `Q → 22 pinned` for a unit pinned to 30: a
+     *  contradiction in one clause, on the line the operator reads fastest and
+     *  doubts least. The bound IS the answer for a bounded unit; it is what
+     *  the whole cluster is conditioning on. */
+    boundTo: CellIndex | null = null
+  ): void => {
+    if (seen.has(unit)) return;
+    seen.add(unit);
+    const row = frame.units.find((u) => u.unit === unit);
+    // TWO SOURCES, AND THE LINE SAYS WHICH. A staged move (or a determination
+    // that fixed the unit) is a fact about the turn; where nothing is staged
+    // yet, what the bot is ABOUT to do is the rank-1 moveset's assignment for
+    // this unit — the incumbent, which is the definition the board's own
+    // violet arrow draws. What it is NOT allowed to be is "the unit's first
+    // legal candidate": that is a guess wearing a plan's clothes, and this
+    // line is read in under a second by someone who will not have time to
+    // doubt it.
+    const staged = stagedCellOf(frame, unit) ?? boundTo;
+    const planned =
+      staged !== null || clusterId === null
+        ? null
+        : (rankOne(frame.movesets[reservoirListKey(clusterId)] ?? [])?.moves.find(
+            (m) => m.unit === unit
+          )?.to ?? null);
+    out.push({
+      unit,
+      letter: row?.letter || unit,
+      to: staged !== null ? staged : planned,
+      source: staged !== null ? 'staged' : planned !== null ? 'plan' : 'none',
+      fixity,
+      by,
+    });
+  };
+  for (const cluster of frame.partition) {
+    for (const member of cluster.members) push(member, cluster.id, 'free', null);
+    for (const bound of cluster.boundedBy) {
+      push(
+        bound.unit,
+        cluster.id,
+        FIXITY_VERB[bound.why] ?? bound.why,
+        authorOf(frame, bound.unit, bound.by),
+        bound.to
+      );
+    }
+  }
+  return out;
+}
+
 export function renderFrame(
   frame: LensFrame,
   cursor: LensCursor = initialCursor(),
@@ -826,6 +923,14 @@ export function renderFrame(
   ops.push(...boardOps(frame, cursor, selected));
 
   ops.push(call('panel.advice', frame.advice.length));
+
+  // WHAT THE BOT IS ABOUT TO DO, in one op, for the units this decision is
+  // about — every cluster's members plus the constants it is conditioning on.
+  // It is the question an operator asks every single turn and the shipped rail
+  // answered it nowhere: it was derivable from the board's arrows, one unit at
+  // a time, by eye. It lives on the TRANSCRIPT rather than in the page so a
+  // replayed turn says the same sentence off the log as off the wire.
+  ops.push(call('panel.stage', stageSummary(frame)));
 
   if (cursor.unit !== null) {
     const row = frame.units.find((u) => u.unit === cursor.unit);

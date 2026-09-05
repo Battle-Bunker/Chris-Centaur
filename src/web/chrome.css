@@ -41,6 +41,24 @@ body {
 }
 .game-card:hover { border-color: #4CAF50; transform: translateY(-2px); }
 
+/* A visible focus ring on everything the keyboard can land on. `:hover` alone
+   said "this is a target" to the mouse and to nobody else: these cards are
+   the lobby's whole navigation and a keyboard operator could not see where
+   they were (WCAG 2.4.13). */
+.game-card:focus-visible,
+.nav-links a:focus-visible {
+  outline: 2px solid #fff; outline-offset: 2px;
+}
+
+/* MOTION IS A PREFERENCE, NOT A DECORATION. The card's lift is a 0.2 s
+   transform on every property, which is exactly the class of animation
+   `prefers-reduced-motion` exists to turn off; the colour change carries the
+   same meaning on its own. */
+@media (prefers-reduced-motion: reduce) {
+  .game-card { transition: border-color 0.2s; }
+  .game-card:hover { transform: none; }
+}
+
 .no-games { text-align: center; padding: 60px 20px; color: #666; }
 .no-games h2 { font-size: 24px; margin-bottom: 10px; }
 .no-games p { font-size: 14px; line-height: 1.6; }

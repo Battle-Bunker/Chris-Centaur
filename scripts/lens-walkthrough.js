@@ -56,6 +56,12 @@ function watch(page, label) {
 function railText(page) {
   return page.evaluate(() => ({
     rail: (document.getElementById('lensRail') || {}).innerText || null,
+    // THE GLANCE LAYER, IN WORDS. A screenshot cannot be grepped and the stage
+    // line is the one sentence the whole IA is built around, so it is captured
+    // beside the pixels like everything else the operator reads.
+    stage: (document.getElementById('lensStage') || {}).innerText || null,
+    controls: (document.getElementById('lensControls') || {}).innerText || null,
+    keys: (document.getElementById('lensKeys') || {}).innerText || null,
     lane: (document.querySelector('.lens-lane-foot') || {}).innerText || null,
     banner: (document.querySelector('.lens-banner') || {}).innerText || null,
     lock: (document.querySelector('.lens-lock') || {}).innerText || null,
@@ -95,11 +101,24 @@ async function shot(page, name, note, selector) {
 async function enter(page, gameId, name) {
   await page.goto(`${BASE}/game/${gameId}`, { waitUntil: 'domcontentloaded' });
   await sleep(WAIT);
-  if (await page.$('#loginGate.active')) {
-    await page.fill('#loginNameInput', name);
-    await page.click('#loginGateSubmit');
-    await sleep(WAIT);
+  if (!(await page.$('#loginGate.active'))) return name;
+  // NAMES ARE UNIQUE PER GAME, and the harness's own scripted operator may
+  // already hold the one we ask for — the gate is right to refuse it and the
+  // walk should not die on a name. Take the asked-for name when it is free and
+  // a numbered one when it is not; nothing downstream depends on which, since
+  // the banners and lane ticks name the operator who acted, not the reader.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const candidate = attempt === 0 ? name : `${name}-${attempt + 1}`;
+    await page.fill('#loginNameInput', candidate);
+    await sleep(400);
+    if (!(await page.$eval('#loginGateSubmit', (el) => el.disabled))) {
+      await page.click('#loginGateSubmit');
+      await sleep(WAIT);
+      report.notes.operator = candidate;
+      return candidate;
+    }
   }
+  throw new Error(`no free operator name for ${name}`);
 }
 
 const step = () => fetch(`${BASE}/dev/step`, { method: 'POST' }).then((r) => r.json());
@@ -213,11 +232,25 @@ async function selectAnsweredCandidate(page, unit) {
     return null;
   });
   if (!lock || (unit && lock.unit !== unit)) return { lock, clicked: false };
-  const cell = await page.$(`.lens-candidates [data-lens-candidate="${lock.to}"]`);
-  if (!cell) return { lock, clicked: false };
-  await cell.click();
-  await sleep(WAIT);
-  return { lock, clicked: true };
+  // The rail re-renders on every emission — seven to ten times a turn — so a
+  // handle taken before a click can be detached by the time the click lands.
+  // Re-query and retry rather than fail the walk on the panel doing its job.
+  const selector = `.lens-candidates [data-lens-candidate="${lock.to}"]`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const cell = await page.$(selector);
+    if (!cell) {
+      await sleep(300);
+      continue;
+    }
+    try {
+      await cell.click({ timeout: 4000 });
+      await sleep(WAIT);
+      return { lock, clicked: true };
+    } catch (_e) {
+      await sleep(300);
+    }
+  }
+  return { lock, clicked: false };
 }
 
 async function main() {
@@ -374,7 +407,19 @@ async function main() {
     const el = document.querySelector('.lens-lock');
     return el ? el.innerText : null;
   });
+  // TWO PRESSES, ON PURPOSE. A lock over more than the focused unit ARMS
+  // first — the affordance is the confirmation and it says how many units it
+  // would pin — and the same key again commits it. One press is still one
+  // press for the ordinary case (rank 1, one pin, the operator's own unit).
   await page.keyboard.press('Shift+ ');
+  await sleep(600);
+  report.notes.lockArmed = await page.evaluate(() => {
+    const el = document.querySelector('.lens-arm');
+    return el ? el.innerText : null;
+  });
+  if (report.notes.lockArmed) {
+    await page.keyboard.press('Shift+ ');
+  }
   await sleep(1200);
   report.notes.lockAfter = await page.evaluate(() => {
     const el = document.querySelector('.lens-lock');
@@ -382,6 +427,133 @@ async function main() {
   });
   await shot(page, '17-locked', 'after Shift+Space — the whole moveset pinned');
   await shot(page, '17b-locked-rail', 'the rail after the lock', '.lens-rail');
+
+  // ── THE OPERATOR DRILL ──────────────────────────────────────────────────
+  //
+  // pin → lock → widen → undo, driven from the keyboard exactly as an operator
+  // would, with EVERY STEP ASSERTED rather than only photographed. The four
+  // gestures are the whole of the determination surface, and the properties
+  // asserted here are the ones the IA promises about them:
+  //
+  //  · a pin is cheap and reversible, so it is taken at once and the undo
+  //    affordance says so IMMEDIATELY (there is no dialog to dismiss first);
+  //  · a lock that pins more than the focused unit ARMS instead of firing,
+  //    and says how many units it would pin before the second press;
+  //  · a widen never swaps the table out from under the reader — the banner
+  //    is up and the rail below it is flagged stale;
+  //  · undo takes the last determination back and says what it took back.
+  //
+  // A failed assertion fails the run: this is a gate, not a slideshow.
+  at = 'drill';
+  const drill = [];
+  const railOf = () => railText(page);
+  /** Two pictures per step: the rail's own column (the glance layer and the
+   *  decision) and the control bar (the affordance and its state). The rail
+   *  column is a scroll region taller than the viewport, so the bar at the
+   *  bottom of it is not in the column's own shot — and the bar is the half
+   *  the drill is asserting. */
+  const drillShot = async (name, note) => {
+    await shot(page, name, note, '#selectedSnakePanel');
+    await shot(page, `${name}-controls`, `${note} — the control bar`, '#lensControls');
+  };
+  const check = (name, ok, saw) => {
+    drill.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} drill/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  // A drill starts from a clean slate: any armed gesture left over from the
+  // walk above is cancelled, and the cursor is put on the candidate the
+  // reserve answered — the one candidate with a ranked list behind it.
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await focusUnit(page, 0);
+  await selectAnsweredCandidate(page, 'red-A');
+  const beforePin = await railOf();
+
+  // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
+  // the operator's own unit, no confirmation, and an undo the moment it lands.
+  at = 'drill/pin';
+  await page.keyboard.press(' ');
+  await sleep(1200);
+  const afterPin = await railOf();
+  check(
+    'pin — the undo affordance arrives with the determination',
+    /undo/i.test(afterPin.controls || '') && !/nothing yet/.test(afterPin.controls || ''),
+    { controls: afterPin.controls, before: beforePin.controls }
+  );
+  check('pin — the stage line names a plan for every unit', /Bot stages/.test(afterPin.stage || ''), {
+    stage: afterPin.stage,
+  });
+  await drillShot('d1-pin', 'the operator drill: a pin, and the undo it arrives with');
+
+  // 2 — LOCK. `Shift+Space` is the one gesture that spends authority on units
+  // the operator never looked at, so it ARMS first — the affordance itself is
+  // the confirmation, and the count was on screen before either press.
+  at = 'drill/lock';
+  await page.keyboard.press('Shift+ ');
+  await sleep(700);
+  const armed = await railOf();
+  const isArmed = /press again/i.test(armed.controls || '');
+  check('lock — arms before it fires, and says how many it would pin', isArmed || /pins 1 of/.test(armed.lock || ''), {
+    controls: armed.controls,
+    lock: armed.lock,
+  });
+  await drillShot('d2-lock-armed', 'the drill: a multi-unit lock, armed — the affordance is the confirmation');
+  if (isArmed) {
+    await page.keyboard.press('Shift+ ');
+    await sleep(1400);
+  }
+  const locked = await railOf();
+  check('lock — the second press commits it and the undo remembers the pins', /undo/.test(locked.controls || ''), {
+    controls: locked.controls,
+    lock: locked.lock,
+  });
+  await drillShot('d3-locked', 'the drill: the lock committed — pins written, undo standing');
+
+  // 3 — WIDEN. A peer releases a pin while the operator is reading. Nothing
+  // under the cursor may move: the banner is up, the rail below it is stale,
+  // and the new list lands on a gesture.
+  at = 'drill/widen';
+  // The harness's peer releases its pin at the FOURTH emission of a decision,
+  // and a decision emits three or four times (07 §1) — so the widen lands on
+  // some turns and not others, and the drill plays on until it sees one rather
+  // than asserting against a coin flip.
+  let drillBanner = null;
+  for (let turn = 0; turn < 3 && !drillBanner; turn++) {
+    await step();
+    for (let i = 0; i < 40; i++) {
+      drillBanner = await page.evaluate(() => {
+        const el = document.querySelector('.lens-banner');
+        return el ? el.innerText : null;
+      });
+      if (drillBanner) break;
+      await sleep(100);
+    }
+  }
+  check('widen — the banner holds the wider cluster behind one gesture', !!drillBanner && /stale/.test(drillBanner), {
+    banner: drillBanner,
+  });
+  await drillShot('d4-widen', 'the drill: a peer widened the cluster — held, flagged stale, nothing moved');
+
+  // 4 — UNDO. The peer of `Space`, and the whole reason the lock needs no
+  // dialog. It takes the last determination back and says what it took.
+  at = 'drill/undo';
+  const accept = await page.$('[data-lens-accept]');
+  if (accept) {
+    await accept.click();
+    await sleep(800);
+  }
+  await focusUnit(page, 0);
+  await page.keyboard.press('u');
+  await sleep(1000);
+  const undone = await railOf();
+  check(
+    'undo — takes the determination back and names what it took',
+    /undo/i.test(undone.controls || ''),
+    { controls: undone.controls }
+  );
+  await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
+  report.notes.drill = drill;
 
   // ── REPLAY ──────────────────────────────────────────────────────────────
   // The same recorded log, read back through `/api/logs` and the replay fold.
@@ -416,9 +588,18 @@ async function main() {
   // diffed pixel for pixel; what may legitimately differ is the mode badge and
   // the determination affordance, and nothing else.
   at = 'diff/live';
+  // Both rails are scrolled to the top before they are compared: the column is
+  // a scroll region, and a one-line offset between the two makes every pixel
+  // below it differ for a reason that has nothing to do with what is drawn.
+  const toTop = (target) =>
+    target.evaluate(() => {
+      const el = document.getElementById('selectedSnakePanel');
+      if (el) el.scrollTop = 0;
+    });
   await focusUnit(page, 0);
   await page.keyboard.press('End');
   await sleep(900);
+  await toTop(page);
   const liveAt = await page.evaluate(() => ({ turn: lensTurn, seq: lensSeq }));
   await shot(page, '21a-live-frame', `live rail, turn ${liveAt.turn} seq ${liveAt.seq}`, '.lens-rail');
 
@@ -434,6 +615,7 @@ async function main() {
   await focusUnit(replay, 0);
   await replay.keyboard.press('End');
   await sleep(900);
+  await toTop(replay);
   const replayAt = await replay.evaluate(() => ({ turn: lensTurn, seq: lensSeq }));
   await shot(replay, '21b-replay-frame', `replay rail, turn ${replayAt.turn} seq ${replayAt.seq}`, '.lens-rail');
 
@@ -443,9 +625,138 @@ async function main() {
     ...(await diffPngs(page, path.join(OUT, '21a-live-frame.png'), path.join(OUT, '21b-replay-frame.png'))),
   };
 
+  // ── THE KEY SCHEME DRILL ────────────────────────────────────────────────
+  // Three schemes over one action set (§3.1) is the one deliverable a unit
+  // test cannot finish: `lens-ia.test.ts` proves the TABLES are three
+  // spellings of one vocabulary, and only a browser can show that switching
+  // one rewrites the strip, that the new key really drives the rail, and that
+  // the choice is still there after a page load. That last is the whole point
+  // of persisting it, and it is exactly the kind of thing that breaks in a
+  // refactor with nothing to notice.
+  //
+  // It runs LAST, after every other picture is taken, because it reloads the
+  // page: a reload re-enters through the login gate, and an operator who has
+  // to take a numbered name does not own the units. Nothing follows it, so
+  // nothing can be hurt by that.
+  at = 'scheme';
+  const scheme = [];
+  const schemeCheck = (name, ok, saw) => {
+    scheme.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} scheme/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+  const keysOf = async () => (await railText(page)).keys || '';
+  const rowOf = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.lens-movesets .lens-row-cursor');
+      return el ? el.getAttribute('data-lens-moveset') : null;
+    });
+
+  await focusUnit(page, 0);
+  await selectAnsweredCandidate(page, 'red-A');
+  await sleep(400);
+  const bracketKeys = await keysOf();
+  schemeCheck('bracket is what the rail says at rest', /\[/.test(bracketKeys) && /\]/.test(bracketKeys), {
+    keys: bracketKeys,
+  });
+
+  at = 'scheme/switch';
+  await page.click('[data-lens-scheme="vim"]');
+  await sleep(600);
+  const vimKeys = await keysOf();
+  // The strip and the modal render from ONE keymap table, so switching the
+  // scheme rewrites the strip — a strip still offering `[` under vim would be
+  // a second list of keys living somewhere, which is the drift §3.2 forbids.
+  schemeCheck(
+    'switching to vim rewrites the cheat strip, and takes the bracket keys off it',
+    /\bk\b/.test(vimKeys) && /\bj\b/.test(vimKeys) && !/\[/.test(vimKeys),
+    { keys: vimKeys }
+  );
+  await shot(page, 'd6-scheme-vim', 'the drill: the vim scheme — one action set, a different spelling', '#lensKeys');
+
+  at = 'scheme/drives';
+  // The strip saying `j` is not the same fact as `j` WORKING. A relabelled
+  // strip over a keymap the handler never consults is the failure this catches,
+  // and it is invisible in a screenshot.
+  //
+  // The cursor is walked to the TOP of the list first, with the scheme's own
+  // `k`, so `j` has somewhere to go: a list of one row makes any "did it move"
+  // assertion vacuously true, and a vacuous gate is worse than none. The row
+  // count rides along in the report so a one-row list is visible rather than
+  // silently passing.
+  const rowCount = await page.evaluate(
+    () => document.querySelectorAll('.lens-movesets .lens-table tr[data-lens-moveset]').length
+  );
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('k');
+    await sleep(120);
+  }
+  await sleep(400);
+  const rowBefore = await rowOf();
+  await page.keyboard.press('j');
+  await sleep(700);
+  const rowAfterVim = await rowOf();
+  // And the key `j` REPLACED is inert: `]` is bracket's, and under vim it must
+  // do nothing at all rather than quietly staying bound alongside it.
+  await page.keyboard.press(']');
+  await sleep(700);
+  const rowAfterBracket = await rowOf();
+  schemeCheck(
+    'the vim key drives the rail and the bracket key it replaced no longer does',
+    rowCount > 1 && rowBefore !== null && rowAfterVim !== rowBefore && rowAfterBracket === rowAfterVim,
+    { rows: rowCount, before: rowBefore, afterJ: rowAfterVim, afterBracket: rowAfterBracket }
+  );
+
+  at = 'scheme/persists';
+  const stored = await page.evaluate(() => {
+    try {
+      return localStorage.getItem('lensKeyScheme');
+    } catch (_e) {
+      return null;
+    }
+  });
+  schemeCheck('the choice is written to localStorage under lensKeyScheme', stored === 'vim', { stored });
+
+  // AND IT SURVIVES A PAGE LOAD, which is the only thing persisting it is for.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  if (await page.$('#loginGate.active')) await enter(page, GAME, report.notes.operator || 'walker');
+  await focusUnit(page, 0);
+  await sleep(600);
+  const reloadedKeys = await keysOf();
+  schemeCheck(
+    'and it is still vim after a page load, with nothing pressed',
+    /\bk\b/.test(reloadedKeys) && !/\[/.test(reloadedKeys),
+    { keys: reloadedKeys }
+  );
+  await shot(page, 'd7-scheme-persisted', 'the drill: the scheme survived a page load — read back from localStorage', '#lensKeys');
+
+  at = 'scheme/restore';
+  // Put the default back, so the next reader of this browser profile — and the
+  // next run of this walk — starts where the shipped page starts.
+  await page.click('[data-lens-scheme="bracket"]');
+  await sleep(600);
+  const restored = await keysOf();
+  schemeCheck('bracket goes back, binding for binding', /\[/.test(restored) && /\]/.test(restored), {
+    keys: restored,
+  });
+  report.notes.scheme = scheme;
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
+
+  // BOTH DRILLS ARE GATES. A walk that photographs a broken determination
+  // surface — or a key scheme that relabels a strip over a keymap nothing
+  // consults — and exits 0 is a slideshow; this exits non-zero and names the
+  // step that failed.
+  const failed = [
+    ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
+    ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
+  ].filter((d) => !d.ok);
+  if (failed.length > 0) {
+    console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {
