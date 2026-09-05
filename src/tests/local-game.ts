@@ -3396,8 +3396,8 @@ async function main(): Promise<void> {
               },
             },
           }),
+      side: flags.side,
     }
-    { onTurn: say, opponent, side: flags.side }
   );
   if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
   emitJson?.(
