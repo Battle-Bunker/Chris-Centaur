@@ -370,6 +370,168 @@ export const DEFAULT_NODE_BUDGET = 550;
  */
 const DETERMINISTIC_SLICE_FRACTION = 1 / 6;
 
+/**
+ * THE BUDGET KNOB — `--budget-scale=<x>`.
+ *
+ * The deterministic mode already takes a budget by number (`--nodes=N`), and
+ * that is the knob a one-off experiment turns. What a SWEEP needs is the same
+ * arm expressed as a multiple of the shipped default, so that a file of runs
+ * says "half" and "four times" rather than 275 and 2200 and so that the arm at
+ * 1.0 is the shipped bot rather than a number that happens to equal it.
+ *
+ * IDENTITY AT 1.0 IS EXACT AND NOT APPROXIMATE: the scale is applied only when
+ * it differs from 1, so a run without the flag — and a run with `=1` — takes
+ * the caller's budget object through untouched, and the summary's `budget`
+ * field is the same integer it always was. `ms` mode is scaled too, for
+ * symmetry, but nothing in this study uses it: a wall-clock arm is not
+ * reproducible and cannot be paired.
+ */
+export function scaleBudget(budget: DecisionBudget, scale: number): DecisionBudget {
+  if (scale === 1) return budget;
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error(`bad budget scale ${scale}`);
+  return budget.kind === 'ms'
+    ? { kind: 'ms', ms: budget.ms * scale }
+    : { kind: 'nodes', nodes: Math.max(1, Math.round(budget.nodes * scale)) };
+}
+
+/**
+ * WHAT A DECISION LOOKED LIKE BEFORE IT WAS TAKEN — the observable complexity
+ * an allocation rule would be a function of, and the axis a per-decision diff
+ * is read on.
+ *
+ * Every field is a function of the BOARD ALONE: no evaluation, no search, no
+ * clock. That is deliberate. A rule that gave a decision more budget because
+ * of something only the search knows could not be computed before the search
+ * starts, and a diff bucketed on such a field would be bucketing on the
+ * outcome it is trying to explain.
+ */
+export interface DecisionShape {
+  /** Units this team may command — the free set the partitioner starts from. */
+  readonly units: number;
+  /** Connected components of the occupancy-reach graph, as `partitionOf` cuts
+   *  them: `u ~ v` iff `influenceOf(u)` meets `influenceOf(v)`. */
+  readonly clusters: number;
+  /** Members in the biggest one. `1` is the trivial turn. */
+  readonly maxCluster: number;
+  /** Candidates offered, summed over the free set, and the biggest single
+   *  offer. The generator's own count, before any pruning the bank does. */
+  readonly candSum: number;
+  readonly candMax: number;
+  /** The joint option space, `Π candidates`, capped so a wide board cannot
+   *  overflow the JSON. What one decision would have to enumerate exactly. */
+  readonly product: number;
+  /** Our units whose influence meets a LIVE ENEMY's influence — contact, in
+   *  the same geometry the partitioner uses for our own coupling. */
+  readonly contact: number;
+  /** Our units with no move at all: the decision has nothing to spend on them. */
+  readonly frozen: number;
+}
+
+/** One (turn, team) decision, re-taken at one budget scale on the SAME board. */
+export interface ProbeRow {
+  readonly scenario: string;
+  readonly seed: number;
+  readonly turn: number;
+  readonly team: string;
+  readonly scale: number;
+  readonly budget: number;
+  readonly shape: DecisionShape;
+  /** The staged set differs from the reference arm's, on this same board. */
+  readonly changed: boolean;
+  /** How many units staged a different cell than the reference arm did. */
+  readonly changedUnits: number;
+  readonly nodes: number;
+  readonly slices: number;
+}
+
+/**
+ * `DecisionShape`, off one throwaway substrate.
+ *
+ * It runs BESIDE the decision and never inside it: the substrate here is its
+ * own, the generator is its own, and nothing it touches is charged to any
+ * decision clock. Two substrates over one board are the same board.
+ */
+export function decisionShapeOf(board: Board, turn: number, teamId: string): DecisionShape {
+  const ourIds = (board.snakes ?? [])
+    .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
+    .map((s) => s.id);
+  const empty: DecisionShape = {
+    units: 0,
+    clusters: 0,
+    maxCluster: 0,
+    candSum: 0,
+    candMax: 0,
+    product: 0,
+    contact: 0,
+    frozen: 0,
+  };
+  if (ourIds.length === 0) return empty;
+  const sub = makeSubstrate({ gameId: 'shape', board, turn, asTeam: teamId, modeled: ourIds });
+  try {
+    const asTeam = sub.teamNumber(teamId);
+    const { gen } = rigFor(sub);
+    const free = [...sub.commandable(asTeam)];
+    if (free.length === 0) return empty;
+    const influence = free.map((u) => sub.influenceOf(u));
+    // Union-find over the occupancy-reach graph, by the inverted cell index —
+    // `partition.ts`'s `componentsOf`, in the runner's own hands because the
+    // runner has no epoch, posture or basis to hand the partitioner and does
+    // not need one to count components.
+    const parent = free.map((_, i) => i);
+    const find = (i: number): number => {
+      let r = i;
+      while (parent[r] !== r) r = parent[r] as number;
+      return r;
+    };
+    const owner = new Map<number, number>();
+    influence.forEach((cells, i) => {
+      for (const cell of cells) {
+        const first = owner.get(cell);
+        if (first === undefined) owner.set(cell, i);
+        else {
+          const a = find(i);
+          const b = find(first);
+          if (a !== b) parent[a] = b;
+        }
+      }
+    });
+    const sizes = new Map<number, number>();
+    free.forEach((_, i) => sizes.set(find(i), (sizes.get(find(i)) ?? 0) + 1));
+    // Contact: an enemy whose influence meets ours. Live units only — a dead
+    // one's cells are not on the board the decision is taken on.
+    const enemies = sub
+      .roster()
+      .filter((u) => u.team !== asTeam)
+      .map((u) => sub.influenceOf(u.unitId));
+    let contact = 0;
+    let candSum = 0;
+    let candMax = 0;
+    let frozen = 0;
+    let product = 1;
+    free.forEach((unitId, i) => {
+      const n = gen.candidatesFor(sub, unitId).candidates.length;
+      candSum += n;
+      candMax = Math.max(candMax, n);
+      if (n <= 1) frozen++;
+      product = Math.min(product * Math.max(1, n), 1e9);
+      const mine = influence[i] as ReadonlySet<number>;
+      if (enemies.some((cells) => [...cells].some((c) => mine.has(c)))) contact++;
+    });
+    return {
+      units: free.length,
+      clusters: sizes.size,
+      maxCluster: Math.max(...sizes.values()),
+      candSum,
+      candMax,
+      product,
+      contact,
+      frozen,
+    };
+  } finally {
+    sub.release();
+  }
+}
+
 function makeUnit(
   id: string,
   teamId: string,
@@ -1618,6 +1780,28 @@ export async function runGame(
      * team's copy of the shipped evaluator folds against.
      */
     opponent?: Opponent;
+    /**
+     * THE PAIRED PROBE — how the same decision comes out at another budget.
+     *
+     * A budget sweep played as separate games cannot say WHICH decisions moved:
+     * two arms diverge on the first disagreement and every position after it is
+     * a different game, so a transcript diff past turn one compares boards and
+     * not choices. The probe fixes the board instead. The game is played at the
+     * reference budget exactly as it would be without this option; at every
+     * (turn, team) the SAME position is additionally decided at each scale in
+     * `scales`, and the row records whether the staged set moved.
+     *
+     * Those extra decisions are a measurement and reach nothing: the game
+     * advances on the reference decision, each probe builds its own substrate
+     * and kernel, and `scores: false` keeps a probe from paying for traces
+     * nobody reads. The reference arm's counters are therefore what they would
+     * be with no probe at all — the probe costs wall time and nothing else.
+     */
+    probe?: {
+      readonly scenario: string;
+      readonly scales: ReadonlyArray<number>;
+      readonly row: (row: ProbeRow) => void;
+    };
   } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
@@ -1763,6 +1947,43 @@ export async function runGame(
         metrics.worstDecisionNodes = Math.max(metrics.worstDecisionNodes, decision.nodes);
         metrics.decisions++;
         addLoud(metrics.loud, decision.loud);
+        if (opts.probe !== undefined && decision.traces.length > 0) {
+          const probe = opts.probe;
+          const shape = decisionShapeOf(board, turn, teamId);
+          const reference = decision.staged;
+          const emitProbe = (
+            scale: number,
+            scaled: DecisionBudget,
+            alt: ReadonlyMap<string, number>,
+            nodes: number,
+            slices: number
+          ): void => {
+            let changedUnits = 0;
+            for (const [id, to] of reference) if (alt.get(id) !== to) changedUnits++;
+            probe.row({
+              scenario: probe.scenario,
+              seed: spec.seed ?? 1,
+              turn,
+              team: teamId,
+              scale,
+              budget: scaled.kind === 'ms' ? scaled.ms : scaled.nodes,
+              shape,
+              changed: changedUnits > 0,
+              changedUnits,
+              nodes,
+              slices,
+            });
+          };
+          // The reference arm's own row first, so a file of probe rows carries
+          // the population every other scale's row is a share OF.
+          emitProbe(1, budget, decision.staged, decision.nodes, decision.slices);
+          for (const scale of probe.scales) {
+            if (scale === 1) continue;
+            const scaled = scaleBudget(budget, scale);
+            const alt = await decideTeam(board, turn, teamId, scaled, evaluateForTeam, false);
+            emitProbe(scale, scaled, alt.staged, alt.nodes, alt.slices);
+          }
+        }
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
@@ -2404,6 +2625,8 @@ async function summarise(
     say: (line: string) => void;
     /** Absent: every team mirrors the default profile, as always. */
     opponent?: Opponent;
+    /** `--probe`: the paired per-decision diff, on every seed this summarises. */
+    probe?: { readonly scales: ReadonlyArray<number>; readonly row: (row: ProbeRow) => void };
   }
 ): Promise<void> {
   const totals: Record<string, number> = {
@@ -2457,7 +2680,11 @@ async function summarise(
         seed,
         ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
       },
-      { scores: false, opponent: out.opponent }
+      {
+        scores: false,
+        opponent: out.opponent,
+        ...(out.probe === undefined ? {} : { probe: { scenario, ...out.probe } }),
+      }
     );
     for (const k of Object.keys(totals)) {
       totals[k] = (totals[k] as number) + ((r.metrics as unknown as Record<string, number>)[k] ?? 0);
@@ -2583,6 +2810,23 @@ Flags
                  byte-identical counters and traces, every run. The positional
                  budgetMs is ignored. Without this flag the ms mode is exactly as
                  it was, and is NOT reproducible.
+  --budget-scale=X  THE BUDGET KNOB. Multiply each decision's budget by X, so
+                 an arm is named as a multiple of the shipped default rather
+                 than as a number. X=1 (the default, and the absent flag) is
+                 the identity: the budget object is passed through untouched
+                 and the run is byte-identical to one from before this flag
+                 existed. Use with --nodes, where the budget is reproducible.
+  --probe=FILE   THE PAIRED PER-DECISION DIFF. Play the game at the given
+                 budget and, at every (turn, team), decide the SAME position
+                 again at each --probe-scales scale; write one JSON row per
+                 (turn, team, scale) carrying the decision's observable shape
+                 (units, clusters, candidates, contact) and whether the staged
+                 set moved. The game itself still advances on the reference
+                 decision, so the run's own counters are unchanged; only wall
+                 time is spent. Separate games at two budgets cannot answer
+                 this: they diverge on the first disagreement and every
+                 position after it is a different game.
+  --probe-scales=A,B,C  What --probe re-decides at (default 0.5,2,4).
   --json[=FILE]  One JSON summary object per run: JSON Lines to stdout, or to
                  FILE. Two builds' files are what scripts/ab-compare.js diffs.
                  Human output moves to stderr when this writes to stdout.
@@ -2616,6 +2860,13 @@ Examples
 
 interface Flags {
   readonly nodes: number | null;
+  /** `--budget-scale=x`: the node budget as a multiple of the shipped one.
+   *  1 is the identity and is applied as one — see `scaleBudget`. */
+  readonly budgetScale: number;
+  /** `--probe=FILE`: write one JSON row per (turn, team, scale). */
+  readonly probe: string | null;
+  /** `--probe-scales=a,b,c`: the scales the probe re-decides at. */
+  readonly probeScales: ReadonlyArray<number>;
   readonly json: string | boolean;
   readonly label: string;
   readonly opponent: string | null;
@@ -2629,6 +2880,9 @@ interface Flags {
 function parseFlags(argv: readonly string[]): Flags {
   const positional: string[] = [];
   let nodes: number | null = null;
+  let budgetScale = 1;
+  let probe: string | null = null;
+  let probeScales: number[] = [0.5, 2, 4];
   let json: string | boolean = false;
   let label = 'local';
   let opponent: string | null = null;
@@ -2645,6 +2899,27 @@ function parseFlags(argv: readonly string[]): Flags {
       case 'nodes':
         nodes = value === null ? DEFAULT_NODE_BUDGET : Number(value);
         break;
+      case 'budget-scale': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error('--budget-scale requires a positive number, e.g. --budget-scale=2');
+        }
+        budgetScale = n;
+        break;
+      }
+      case 'probe':
+        if (value === null || value === '') throw new Error('--probe requires a file');
+        probe = value;
+        break;
+      case 'probe-scales': {
+        const parts = (value ?? '').split(',').filter((x) => x !== '');
+        const ns = parts.map(Number);
+        if (ns.length === 0 || ns.some((n) => !Number.isFinite(n) || n <= 0)) {
+          throw new Error('--probe-scales requires positive numbers, e.g. --probe-scales=0.5,2,4');
+        }
+        probeScales = ns;
+        break;
+      }
       case 'json':
         json = value === null ? true : value;
         break;
@@ -2673,7 +2948,7 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, opponent, foodEnergy, positional };
+  return { nodes, budgetScale, probe, probeScales, json, label, opponent, foodEnergy, positional };
 }
 
 /**
@@ -2722,29 +2997,46 @@ async function main(): Promise<void> {
   if (argv[0] === 'sum') {
     const turns = Number(argv[2] ?? 60);
     const seeds = Number(argv[3] ?? 5);
-    const budget: DecisionBudget =
+    const budget: DecisionBudget = scaleBudget(
       flags.nodes === null
         ? { kind: 'ms', ms: Number(argv[4] ?? 100) }
-        : { kind: 'nodes', nodes: flags.nodes };
+        : { kind: 'nodes', nodes: flags.nodes },
+      flags.budgetScale
+    );
+    const probeRows: string[] = [];
     for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
       await summarise(name, spec, turns, seeds, budget, {
         label: flags.label,
         json: emitJson,
         say,
         opponent,
+        ...(flags.probe === null
+          ? {}
+          : {
+              probe: {
+                scales: flags.probeScales,
+                row: (row: ProbeRow): void => {
+                probeRows.push(JSON.stringify(row));
+              },
+              },
+            }),
       });
     }
+    if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
     finish();
     return;
   }
 
+  const probeRows: string[] = [];
   const which = argv[0] ?? 'snakes';
   const turns = Number(argv[1] ?? 30);
   const seed = Number(argv[2] ?? 1);
-  const budget: DecisionBudget =
+  const budget: DecisionBudget = scaleBudget(
     flags.nodes === null
       ? { kind: 'ms', ms: Number(argv[3] ?? 150) }
-      : { kind: 'nodes', nodes: flags.nodes };
+      : { kind: 'nodes', nodes: flags.nodes },
+    flags.budgetScale
+  );
   const named = SCENARIOS[which];
   if (named === undefined) throw new Error(`unknown scenario ${which}`);
   const spec = withFoodEnergy(named, flags.foodEnergy);
@@ -2755,8 +3047,23 @@ async function main(): Promise<void> {
       seed,
       ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
     },
-    { onTurn: say, opponent }
+    {
+      onTurn: say,
+      opponent,
+      ...(flags.probe === null
+        ? {}
+        : {
+            probe: {
+              scenario: which,
+              scales: flags.probeScales,
+              row: (row: ProbeRow): void => {
+                probeRows.push(JSON.stringify(row));
+              },
+            },
+          }),
+    }
   );
+  if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
   emitJson?.(
     JSON.stringify(
       summaryOf(

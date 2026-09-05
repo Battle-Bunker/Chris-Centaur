@@ -920,20 +920,72 @@ var LensView = (() => {
   function reviveEvents(events) {
     return events.map((e) => reviveLens(e));
   }
-  function storeOf(events, settlement) {
+  var FOLDS = /* @__PURE__ */ new WeakMap();
+  var FRAME_CACHE_CAP = 512;
+  function foldOf(events, settlement) {
     const found = events.find((e) => e.kind === "board.arrived") ?? events[0];
     if (found === void 0) throw new Error("a turn with no events has no frame");
+    const want = settlement ?? null;
+    const held = FOLDS.get(events);
+    const memo = held?.find((m) => m.settlement === want && m.anchorEvent === found);
+    if (memo !== void 0 && events.length >= memo.length && events[memo.length - 1] === memo.tail) {
+      if (events.length === memo.length) return memo;
+      let store2 = memo.store;
+      for (let i = memo.length; i < events.length; i++) {
+        const event = events[i];
+        if (event.seq > memo.at.seq) store2 = applyEvent(store2, event);
+      }
+      return remember(events, held, {
+        ...memo,
+        length: events.length,
+        tail: events[events.length - 1],
+        store: store2,
+        frames: /* @__PURE__ */ new Map()
+      });
+    }
     const anchor = settlement ? anchorWithSettlement(found, settlement) : found;
     const store = events.filter((e) => e.seq > anchor.seq).reduce((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-    return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
+    return remember(events, held, {
+      settlement: want,
+      anchorEvent: found,
+      length: events.length,
+      tail: events[events.length - 1],
+      store,
+      at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq },
+      frames: /* @__PURE__ */ new Map()
+    });
+  }
+  function remember(events, held, memo) {
+    const kept = (held ?? []).filter(
+      (m) => !(m.settlement === memo.settlement && m.anchorEvent === memo.anchorEvent)
+    );
+    kept.unshift(memo);
+    FOLDS.set(events, kept.slice(0, 2));
+    return memo;
+  }
+  function frameOf(memo, key, build) {
+    const hit = memo.frames.get(key);
+    if (hit !== void 0) return hit;
+    const frame = build();
+    if (memo.frames.size >= FRAME_CACHE_CAP) memo.frames.clear();
+    memo.frames.set(key, frame);
+    return frame;
   }
   function frameAtSeq(events, seq, isHead) {
-    const { store, at } = storeOf(events);
-    return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
+    const memo = foldOf(events);
+    return frameOf(
+      memo,
+      `live/${seq}/${isHead ? "head" : "scrub"}`,
+      () => makeLiveDecisionSource({ store: memo.store, at: { ...memo.at, seq }, isHead }).frame()
+    );
   }
   function replayFrameAtSeq(events, seq, settlement = null) {
-    const { store, at } = storeOf(events, settlement);
-    return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
+    const memo = foldOf(events, settlement);
+    return frameOf(
+      memo,
+      `replay/${seq}`,
+      () => makeReplayDecisionSource({ store: memo.store, at: { ...memo.at, seq } }).frame()
+    );
   }
   var CLUSTER_GLYPHS = "αβγδεζηθικλμν";
   function clusterGlyph(index) {

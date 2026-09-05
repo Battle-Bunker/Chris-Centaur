@@ -761,6 +761,18 @@
               <div class="ping-display" id="pingDisplay" title="Your round-trip latency to the Centaur server (measured over this page's WebSocket ping/pong). This is NOT the ping to the game engine, and not the turn deadline itself. 'clock ±Ns' is your system clock's estimated skew vs the server, which the countdown corrects for."></div>
             </div>
           </div>
+          <!-- THE LATENCY SURFACE'S ONE MOUNT. Everything inside it is written
+               by `latency.js` and by nothing else on this page: the deadline
+               bar with its last-safe-press notch, the staleness ladder, the
+               two hops' numbers, the degraded banner and the optimistic
+               command chips. It is a FULL-WIDTH STRIP under the header and not
+               a chip inside it — the header row is already full, and the
+               deadline bar is the one thing here the periphery is meant to
+               read, which needs the width. It is empty, and therefore
+               `display: none`, until a socket has actually delivered
+               something: a replayed game has no wire and gets no strip. See
+               `docs/design/ux/03-LATENCY.md` §3. -->
+          <div id="latency-mount"></div>
           <div class="turn-controls" id="turnControls" style="display:none;">
             <div class="turn-controls-row">
               <span class="view-mode-badge live" id="viewModeBadge">● LIVE</span>
@@ -837,6 +849,10 @@
   </div>
 
   <div class="connection-status connecting" id="connectionStatus">Connecting...</div>
+
+  <!-- The one mount the tour owns. Everything it draws is inside this and
+       out of the page's flow, so nothing moves when it opens. -->
+  <div id="tour-mount"></div>
 
   <!-- THE keyboard reference. Every keydown handler on this page is described
        here; there is no other shortcuts UI. Opened/closed with Ctrl+/, closed
@@ -1067,6 +1083,13 @@
   <script src="/idle-watcher.js"></script>
   <script src="/connection-debug.js"></script>
   <script src="/ws-client.js"></script>
+  <!-- After ws-client.js: the latency surface reads the wire through
+       `WSClient.observe`, on the socket this page is already using. -->
+  <script src="/latency.js"></script>
+  <!-- The guided tour (docs/OPERATOR-MANUAL.md, in the page it is about).
+       It writes into `#tour-mount` and nothing else, opens no socket and
+       claims no key the lens owns. -->
+  <script src="/tour.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
     // Works for both /game/:id (unified) and legacy /play/:id URLs.

@@ -287,6 +287,15 @@ export function lawSweep(boards: number, cap = 96): Counts {
  * pinned at what it measures on THIS head — unrepaired — a class may only go
  * DOWN, and a class not in this table may not appear at all.
  *
+ * TWO OF THE TEN ARE NOW CLOSED AND PINNED AT ZERO — `contest.lo` (D1) and
+ * `room.lo` (`docs/design/RATCHET-2.md` §3). Two more are classified and
+ * REFUSED rather than open by neglect: `reach.hi` and `reach.lo` are plane 2
+ * paying out on plane 1's cover, and the only single-sweep bound on that is
+ * the saturating one (§2 of the same doc). And one is classified, repaired,
+ * MEASURED at 65 and reverted — `command.hi`, whose repair took the class 600
+ * -> 65 and cost deaths on `mixed` and `potions` (§1). A pin here is a fact
+ * about a bound; it is not a promise that the bound is worth tightening.
+ *
  * ── AND A NUMBER GOING DOWN IS NOT BY ITSELF A REASON TO SHIP ──────────────
  *
  * `b1-sound` closed two of these (`command.hi` 600 → 199, `reach.lo` 128 →
@@ -309,7 +318,6 @@ const RATCHET: Readonly<Record<string, number>> = {
   'food.hi': 63,
   'reach.hi': 220,
   'command.hi': 600,
-  'room.lo': 73,
   'reach.lo': 128,
   'material.hi': 8,
   'energy.hi': 10,
@@ -321,6 +329,16 @@ const RATCHET: Readonly<Record<string, number>> = {
   // `settlesOn`) and the class goes 30 -> 0. See D1 of
   // `docs/design/BEHAVIOUR-AUDIT.md`.
   'contest.lo': 0,
+  // CLOSED, and pinned at zero: `barsIn('lo')` admitted a barrier only from a
+  // unit alive in our WORST world, which is the right rule for a term that
+  // COUNTS ground and backwards for a FEAR — fewer crowders means a larger
+  // `kept`, a smaller shortfall and a HIGHER floor, so the floor has to take
+  // every unit that could be standing there. All 73 worlds were one shape: one
+  // of OURS left contingent by the settlement, walked through by the `lo` flood
+  // and not by the world. `s.worstAlive || s.bestAlive` takes the class 73 -> 0;
+  // `hi` is untouched and `room.hi` never had a violation. See §3 of
+  // `docs/design/RATCHET-2.md`.
+  'room.lo': 0,
 };
 /** R1 on the TOTAL, which is the property the bank's floor rests on. */
 const TOTAL_LO_RATCHET = 0;
