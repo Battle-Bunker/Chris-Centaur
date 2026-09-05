@@ -1,0 +1,1901 @@
+{
+  "rosterRows": 3,
+  "selectedAfterRosterClick": "red-A",
+  "targets": [
+    {
+      "what": "al-btn",
+      "w": 64.6,
+      "h": 23,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "shortcutsHintBtn",
+      "w": 112.7,
+      "h": 21,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "submitAllBtn",
+      "w": 78.9,
+      "h": 22,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "suicideBtn",
+      "w": 80.9,
+      "h": 22,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "navStartBtn",
+      "w": 40,
+      "h": 28.8,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "navPrevBtn",
+      "w": 40,
+      "h": 28.8,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "navNextBtn",
+      "w": 40,
+      "h": 28.8,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "navEndBtn",
+      "w": 40,
+      "h": 28.8,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "cell-button candidate selected",
+      "w": 49.6,
+      "h": 49.6,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "cell-button candidate",
+      "w": 49.6,
+      "h": 49.6,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "cell-button candidate",
+      "w": 49.6,
+      "h": 49.6,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "cell-button candidate",
+      "w": 49.6,
+      "h": 49.6,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "roster-row",
+      "w": 242.7,
+      "h": 47,
+      "tag": "DIV",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "roster-row",
+      "w": 242.7,
+      "h": 44,
+      "tag": "DIV",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "roster-row",
+      "w": 242.7,
+      "h": 44,
+      "tag": "DIV",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lock",
+      "w": 169.7,
+      "h": 22,
+      "tag": "SPAN",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "undo",
+      "w": 139.3,
+      "h": 22,
+      "tag": "SPAN",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "clear",
+      "w": 91.8,
+      "h": 22,
+      "tag": "SPAN",
+      "role": "button",
+      "tabindex": "0"
+    },
+    {
+      "what": "bracket",
+      "w": 50.7,
+      "h": 26,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "vim",
+      "w": 29.6,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lefthand",
+      "w": 36.3,
+      "h": 26,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "compact",
+      "w": 51.8,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "default",
+      "w": 44,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "roomy",
+      "w": 41.8,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lane-tick",
+      "w": 10.9,
+      "h": 12,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lens-lane-foot",
+      "w": 322,
+      "h": 12,
+      "tag": "DIV",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "tour-link",
+      "w": 48.1,
+      "h": 20,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "BUTTON",
+      "w": 42.6,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    }
+  ],
+  "undersized": [
+    {
+      "what": "al-btn",
+      "w": 64.6,
+      "h": 23,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "shortcutsHintBtn",
+      "w": 112.7,
+      "h": 21,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "submitAllBtn",
+      "w": 78.9,
+      "h": 22,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "suicideBtn",
+      "w": 80.9,
+      "h": 22,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "copy-id",
+      "w": 22.8,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lock",
+      "w": 169.7,
+      "h": 22,
+      "tag": "SPAN",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "undo",
+      "w": 139.3,
+      "h": 22,
+      "tag": "SPAN",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "clear",
+      "w": 91.8,
+      "h": 22,
+      "tag": "SPAN",
+      "role": "button",
+      "tabindex": "0"
+    },
+    {
+      "what": "vim",
+      "w": 29.6,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "compact",
+      "w": 51.8,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "default",
+      "w": 44,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "roomy",
+      "w": 41.8,
+      "h": 15,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lane-tick",
+      "w": 10.9,
+      "h": 12,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "lens-lane-foot",
+      "w": 322,
+      "h": 12,
+      "tag": "DIV",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "tour-link",
+      "w": 48.1,
+      "h": 20,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    },
+    {
+      "what": "BUTTON",
+      "w": 42.6,
+      "h": 18,
+      "tag": "BUTTON",
+      "role": null,
+      "tabindex": null
+    }
+  ],
+  "under44": 29,
+  "boardCandidates": {
+    "moves": 4,
+    "positions": [
+      {
+        "k": "up",
+        "pos": {
+          "x": 2,
+          "y": 3
+        }
+      },
+      {
+        "k": "down",
+        "pos": {
+          "x": 2,
+          "y": 1
+        }
+      },
+      {
+        "k": "left",
+        "pos": {
+          "x": 1,
+          "y": 2
+        }
+      },
+      {
+        "k": "right",
+        "pos": {
+          "x": 3,
+          "y": 2
+        }
+      }
+    ]
+  },
+  "cellPx": {
+    "x": 400,
+    "y": 633.796875,
+    "size": 50
+  },
+  "afterBoardClick": {
+    "selected": "up"
+  },
+  "pointerLock": {
+    "depthBefore": 0,
+    "depthAfter": 1,
+    "staged": {
+      "move": "up",
+      "requestedMove": "up",
+      "committed": false,
+      "color": "#156cdd",
+      "source": "manual",
+      "fatal": false,
+      "rotation": null
+    }
+  },
+  "pointerUndo": {
+    "depthAfter": 0
+  },
+  "foilPointerPath": {
+    "chips": [
+      "lock",
+      "undo",
+      "clear"
+    ],
+    "foilEl": false,
+    "railText": "\u29bf\nlock\nSpace\nno candidate\n\u21ba\nundo\nu\nnothing yet\n\u26e8\nhold\nH\npieces only\n\u25ce\ngoto\nright-click\n\u25c9\nnear\nctrl-click\n\u2715\nclear\nDel"
+  },
+  "l3PointerPath": {
+    "breakdownEls": 0,
+    "drillAttr": 0
+  },
+  "dragTest": {
+    "ran": true,
+    "head": {
+      "x": 2,
+      "y": 2
+    },
+    "cand": {
+      "x": 2,
+      "y": 3
+    },
+    "selectedAfterDrag": null
+  },
+  "hover": {
+    "count": 14,
+    "sample": [
+      {
+        "sel": ".back-btn:hover",
+        "css": "background: var(--grey-555555);"
+      },
+      {
+        "sel": ".board-resize-handle:hover, .board-resize-handle.dragging",
+        "css": "background: linear-gradient(135deg, transparent 52%, var(--go) 52%, var(--go) 62%, transparent 62%,\n                    "
+      },
+      {
+        "sel": ".cell-button:hover",
+        "css": "background: var(--wash-white-10);"
+      },
+      {
+        "sel": ".snake-info-item.selectable:hover",
+        "css": "background: var(--grey-333333);"
+      },
+      {
+        "sel": ".unit-id-copy:hover",
+        "css": "color: var(--grey-dddddd); border-color: var(--grey-888888);"
+      },
+      {
+        "sel": ".clash-panel-close:hover",
+        "css": "color: var(--grey-eeeeee);"
+      },
+      {
+        "sel": ".lens-aff[data-lens-action]:hover",
+        "css": "border-color: var(--grey-888888);"
+      },
+      {
+        "sel": ".board-toggle:hover",
+        "css": "border-color: var(--grey-777777);"
+      },
+      {
+        "sel": ".shortcuts-hint:hover",
+        "css": "background: var(--wash-green-28); color: var(--ink-bright);"
+      },
+      {
+        "sel": ".turn-nav-btn:hover:not(:disabled)",
+        "css": "background: var(--green-388e3c);"
+      },
+      {
+        "sel": ".wsdbg-actions button:hover, .wsdbg-actions a:hover",
+        "css": "background: rgb(68, 68, 68);"
+      },
+      {
+        "sel": ".idle-overlay-box button:hover",
+        "css": "background: rgb(69, 160, 73);"
+      },
+      {
+        "sel": ".tour-link:hover",
+        "css": "color: var(--tour-link-hover-ink); border-color: var(--tour-link-hover-line);"
+      },
+      {
+        "sel": ".firebase-status-banner button:hover",
+        "css": "background: rgba(255, 255, 255, 0.25);"
+      }
+    ]
+  },
+  "wheel": {
+    "before": {
+      "scrollY": 0,
+      "size": 546
+    },
+    "after": {
+      "scrollY": 130,
+      "size": 546
+    }
+  },
+  "focus": {
+    "count": 32,
+    "active": "BODY/",
+    "list": [
+      {
+        "tag": "A",
+        "id": "",
+        "ti": null,
+        "what": "back-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "al-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "shortcutsHintBtn",
+        "ti": null,
+        "what": "shortcuts-hint"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "submitAllBtn",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "BUTTON",
+        "id": "suicideBtn",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "INPUT",
+        "id": "playTurnSlider",
+        "ti": null,
+        "what": "turn-slider"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "navStartBtn",
+        "ti": null,
+        "what": "turn-nav-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "navPrevBtn",
+        "ti": null,
+        "what": "turn-nav-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "navNextBtn",
+        "ti": null,
+        "what": "turn-nav-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "navEndBtn",
+        "ti": null,
+        "what": "turn-nav-btn"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "cell-button candidate"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "cell-button candidate"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "cell-button candidate"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "cell-button candidate"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "unit-id-copy"
+      },
+      {
+        "tag": "SPAN",
+        "id": "",
+        "ti": "0",
+        "what": "clear"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "on"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "on"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": ""
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "lens-tick lens-tick-solid"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "lens-tick lens-tick-solid"
+      },
+      {
+        "tag": "BUTTON",
+        "id": "",
+        "ti": null,
+        "what": "lens-tick lens-tick-solid"
+      }
+    ]
+  },
+  "pageErrors": [],
+  "tablet-768x1024": {
+    "overflow": {
+      "scrollW": 768,
+      "clientW": 768,
+      "bodyW": 768
+    },
+    "rosterRows": 3,
+    "selected": "red-A",
+    "targets": [
+      {
+        "what": "al-btn",
+        "w": 64.6,
+        "h": 23,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "shortcutsHintBtn",
+        "w": 112.7,
+        "h": 21,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "submitAllBtn",
+        "w": 78.9,
+        "h": 22,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "suicideBtn",
+        "w": 80.9,
+        "h": 22,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navStartBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navPrevBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navNextBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navEndBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate selected",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 232,
+        "h": 59,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 232,
+        "h": 44,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 232,
+        "h": 44,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lock",
+        "w": 169.7,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "undo",
+        "w": 139.3,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "clear",
+        "w": 91.8,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "bracket",
+        "w": 86.3,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "vim",
+        "w": 29.6,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lefthand",
+        "w": 52.4,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "compact",
+        "w": 51.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "default",
+        "w": 44,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roomy",
+        "w": 41.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lane-tick",
+        "w": 10.9,
+        "h": 12,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lens-lane-foot",
+        "w": 670,
+        "h": 12,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "tour-link",
+        "w": 48.1,
+        "h": 20,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "BUTTON",
+        "w": 42.6,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      }
+    ],
+    "undersized": [
+      {
+        "what": "al-btn",
+        "w": 64.6,
+        "h": 23,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "shortcutsHintBtn",
+        "w": 112.7,
+        "h": 21,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "submitAllBtn",
+        "w": 78.9,
+        "h": 22,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "suicideBtn",
+        "w": 80.9,
+        "h": 22,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lock",
+        "w": 169.7,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "undo",
+        "w": 139.3,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "clear",
+        "w": 91.8,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "bracket",
+        "w": 86.3,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "vim",
+        "w": 29.6,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lefthand",
+        "w": 52.4,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "compact",
+        "w": 51.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "default",
+        "w": 44,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roomy",
+        "w": 41.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lane-tick",
+        "w": 10.9,
+        "h": 12,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lens-lane-foot",
+        "w": 670,
+        "h": 12,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "tour-link",
+        "w": 48.1,
+        "h": 20,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "BUTTON",
+        "w": 42.6,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      }
+    ],
+    "under44": 29,
+    "boardBox": {
+      "w": 550,
+      "h": 550,
+      "left": 109,
+      "top": 259,
+      "cell": 50,
+      "visible": true
+    },
+    "railBox": {
+      "w": 694,
+      "h": 199,
+      "top": 1234,
+      "visible": true
+    },
+    "controlsBox": {
+      "w": 694,
+      "h": 69,
+      "top": 1433,
+      "bottom": 1502,
+      "inViewport": false
+    },
+    "candidate": {
+      "k": "up",
+      "pos": {
+        "x": 2,
+        "y": 3
+      }
+    },
+    "cellPx": {
+      "x": 234,
+      "y": 633.796875,
+      "size": 50
+    },
+    "selectedMoveAfterTap": "up",
+    "lock": {
+      "d0": 0,
+      "d1": 1
+    },
+    "longPress": {
+      "ran": true,
+      "before": {
+        "inspect": null
+      },
+      "after": {
+        "inspect": null
+      }
+    },
+    "errors": []
+  },
+  "phone-390x844": {
+    "overflow": {
+      "scrollW": 580,
+      "clientW": 390,
+      "bodyW": 580
+    },
+    "rosterRows": 3,
+    "selected": "red-A",
+    "targets": [
+      {
+        "what": "al-btn",
+        "w": 64.6,
+        "h": 23,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "shortcutsHintBtn",
+        "w": 112.7,
+        "h": 21,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "submitAllBtn",
+        "w": 60.7,
+        "h": 36,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "suicideBtn",
+        "w": 62.7,
+        "h": 36,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navStartBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navPrevBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navNextBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "navEndBtn",
+        "w": 40,
+        "h": 28.8,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate selected",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "cell-button candidate",
+        "w": 49.6,
+        "h": 49.6,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 360,
+        "h": 47,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 360,
+        "h": 44,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roster-row",
+        "w": 360,
+        "h": 44,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lock",
+        "w": 157.4,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "undo",
+        "w": 139.3,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "clear",
+        "w": 91.8,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "bracket",
+        "w": 50.7,
+        "h": 26,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "vim",
+        "w": 29.6,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lefthand",
+        "w": 36.3,
+        "h": 26,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "compact",
+        "w": 51.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "default",
+        "w": 44,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roomy",
+        "w": 41.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lane-tick",
+        "w": 10.9,
+        "h": 12,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lens-lane-foot",
+        "w": 302,
+        "h": 12,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "tour-link",
+        "w": 48.1,
+        "h": 20,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "BUTTON",
+        "w": 42.6,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      }
+    ],
+    "undersized": [
+      {
+        "what": "al-btn",
+        "w": 64.6,
+        "h": 23,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "shortcutsHintBtn",
+        "w": 112.7,
+        "h": 21,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "copy-id",
+        "w": 22.8,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lock",
+        "w": 157.4,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "undo",
+        "w": 139.3,
+        "h": 22,
+        "tag": "SPAN",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "clear",
+        "w": 91.8,
+        "h": 22,
+        "tag": "SPAN",
+        "role": "button",
+        "tabindex": "0"
+      },
+      {
+        "what": "vim",
+        "w": 29.6,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "compact",
+        "w": 51.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "default",
+        "w": 44,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "roomy",
+        "w": 41.8,
+        "h": 15,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lane-tick",
+        "w": 10.9,
+        "h": 12,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "lens-lane-foot",
+        "w": 302,
+        "h": 12,
+        "tag": "DIV",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "tour-link",
+        "w": 48.1,
+        "h": 20,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      },
+      {
+        "what": "BUTTON",
+        "w": 42.6,
+        "h": 18,
+        "tag": "BUTTON",
+        "role": null,
+        "tabindex": null
+      }
+    ],
+    "under44": 29,
+    "boardBox": {
+      "w": 550,
+      "h": 550,
+      "left": -80,
+      "top": 182,
+      "cell": 50,
+      "visible": true
+    },
+    "railBox": {
+      "w": 326,
+      "h": 211,
+      "top": 1530,
+      "visible": true
+    },
+    "controlsBox": {
+      "w": 326,
+      "h": 96,
+      "top": 1741,
+      "bottom": 1837,
+      "inViewport": false
+    },
+    "candidate": {
+      "k": "up",
+      "pos": {
+        "x": 2,
+        "y": 3
+      }
+    },
+    "cellPx": {
+      "x": 45,
+      "y": 556.796875,
+      "size": 50
+    },
+    "selectedMoveAfterTap": "up",
+    "lock": {
+      "d0": 0,
+      "d1": 1
+    },
+    "longPress": {
+      "ran": true,
+      "before": {
+        "inspect": null
+      },
+      "after": {
+        "inspect": null
+      }
+    },
+    "errors": []
+  }
+}

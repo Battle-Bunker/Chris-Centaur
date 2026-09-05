@@ -256,7 +256,8 @@ superseded**, and the surface says so rather than refusing silently.
 
 One row of chips, one grammar — **glyph · verb · key · state** — for every
 control the focused unit has. They are clickable, so none of this needs the
-keyboard.
+keyboard: every command below can be reached with unmodified left clicks
+alone, which is what a touchscreen, a head pointer and a switch have.
 
 | chip | key | what it does | what it costs the bot |
 |---|---|---|---|
@@ -264,9 +265,25 @@ keyboard.
 | `⦿ lock` | `Shift+Space` | stages the **whole moveset** — pins every member the selected row needs | every unit it pins leaves the cluster; the bot no longer chooses for any of them this turn |
 | `↺ undo` | `U` | pops the last thing you did and says what it took back | hands the unit back; the bot solves for it again on the next emission |
 | `⛨ hold` | `H` | a **standing order** to hold position — pieces only | governs every turn after it, not just this one |
+| `⟂ foil` | `F` | puts the runner-up on the board, dashed, only where it differs | nothing — it is a reading |
+| `⌕ drill` | `B` | opens the breakdown for a cluster-mate; a **long-press** on a moveset row does the same | one inspection out of the turn's reserve |
 | `◎ goto` | right-click | a destination reward on a cell — drawn as a **cross** | biases the search toward that cell; it is not a command to move there |
 | `◉ near` | ctrl-click | a proximity reward — drawn as a **ring** | biases the search toward staying within a radius |
 | `✕ clear` | `Del` | clears your manual input for the unit | removes the override; queue and target go with it |
+
+**Two ways to reach `goto` and `near`.** The right-click and the ctrl-click are
+the fast path and are unchanged. But there is no right button on a tablet and
+none on a switch, so both chips also **arm**: press the chip and it re-reads
+`goto — press a cell`, the board takes a dashed ring, and the next ordinary
+left press sets the target. `Esc` cancels and the arm expires on its own after
+eight seconds. On a touchscreen a **held press** on a cell sets the goto target
+too, which is where every platform puts its secondary click.
+
+**Two ways to pick a move.** Click the candidate cell, or **drag from the
+unit's head to it** — both reach exactly the same selection, and `Space` stages
+whichever you used. A drag that does not start on the unit does nothing. If you
+would rather the board ignored drags entirely, `move: click` in the rail turns
+them off; click-click always works whatever that is set to.
 
 Also: `Tab` cycles your units, `Esc` deselects (and cancels an armed lock), and
 `Ctrl+Enter` is **Submit All**, which is binding and keeps its dialog.
@@ -347,6 +364,27 @@ chord is in the hot path, and no scheme touches `Tab`, `Esc`, the arrow pad,
 `Alt`.
 
 ![the cheat strip](design/ux/manual/09-keys.png)
+
+### The hand you use
+
+Three more preferences sit beside the key scheme and the density, in the same
+row, and they are the same kind of thing — a hand posture, not an opinion about
+the product. They are remembered per browser.
+
+* **`move`** — `click`, `both` (the default), or `drag`. What gesture picks a
+  candidate on the board. Click-click works under all three.
+* **`hand`** — `R` (the default) or `L`. Which side of the board the control
+  column sits on. A left-handed operator's mouse hand should not have to cross
+  the board it is reading; nothing else about the layout mirrors.
+* **`targets`** — `auto` or `large`. `auto` gives every control the 24 px
+  minimum and, on a touchscreen, 44 px. `large` asks for the 44 px figure on a
+  mouse too — worth having with a trackball, a head pointer, or a tremor.
+
+**On a tablet or a phone** the interface rearranges itself: the board is clamped
+to the screen, the header wraps, and the **command bar sits fixed at the bottom
+of the screen** so the lock and the undo are under your thumb while the board is
+still in front of you. Everything you press is at least 44 px. See
+`docs/design/ux/12-INPUT-MODALITIES.md` for why each of those is where it is.
 
 ### Printable cheat sheet
 

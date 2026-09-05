@@ -830,7 +830,149 @@
         max-height: calc(100vh - 24px);
         overflow-y: auto;
       }
+      /* HANDEDNESS MIRRORS THE WORKING COLUMN AND NOTHING ELSE (12 §1.6).
+         The literature supports a MIRRORED optimum for the hand that points —
+         occlusion is the mechanism, and a static placement disadvantages one
+         group or the other — and supports nothing wider than that: reading
+         order is left-to-right whichever hand holds the mouse, so the rail's
+         own contents, the board and the roster are untouched. This swaps the
+         column the pointing hand works in, so a left-handed operator's hand
+         no longer crosses the board it is reading. Default `right` changes
+         nothing. */
+      #gameUI.input-hand-left,
+      .input-hand-left #gameUI {
+        grid-template-columns: 380px minmax(0, 1fr);
+        grid-template-areas: "banner banner" "rail board" "rail roster";
+      }
     }
+
+    /* ── THE INPUT LAYER'S OWN SURFACE (docs/design/ux/12-INPUT-MODALITIES.md)
+       Three groups, and the first two are DELIBERATELY invisible at rest on a
+       fine pointer, so the desktop surface every other document photographs is
+       pixel-identical. Only the coarse-pointer block moves anything. */
+
+    /* 1 — THE HIT AREA, GROWN WITHOUT GROWING THE DRAWING (12 §2, I-7).
+       WCAG 2.2 SC 2.5.8 (AA) asks for 24 x 24 CSS px of TARGET, and the target
+       is the region that accepts the pointer, not the ink. Our chips are 22 px
+       tall, the pickers 15, the copy control 22.8 x 18 — all of them a couple
+       of pixels short of a criterion that is law under the EAA. Android's own
+       guidance names the mechanism (a touch delegate: grow the touchable
+       region, keep the view), and a pseudo-element is the web's version of it:
+       a press on `::after` reports the OWNING element as its target, so every
+       delegated `closest()` handler on this page resolves it unchanged. The
+       expansion is 1-5 px per side and sits inside the existing 5 px chip gap,
+       so no two targets' regions overlap. Nothing is painted; nothing moves. */
+    .lens-aff[data-lens-action],
+    .lens-scheme button,
+    .lens-lane-foot,
+    .unit-id-copy,
+    .shortcuts-hint,
+    #submitAllBtn, #suicideBtn {
+      position: relative;
+    }
+    .lens-aff[data-lens-action]::after,
+    .lens-scheme button::after,
+    .lens-lane-foot::after,
+    .unit-id-copy::after,
+    .shortcuts-hint::after,
+    #submitAllBtn::after, #suicideBtn::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0;
+      top: 50%;
+      height: 24px;
+      transform: translateY(-50%);
+      min-width: 24px;
+    }
+    /* The copy control is the one that is short on BOTH axes (22.8 x 18). */
+    .unit-id-copy::after { left: -1px; right: -1px; }
+
+    /* 2 — THE ARMED BOARD TARGET, said on the board's own edge. An armed
+       gesture the operator cannot see is the trap 02 §3.4 refuses; the chip
+       says it in words and this says it where the press will land. */
+    .canvas-wrapper.input-arming { outline: 2px dashed var(--lens-warn); outline-offset: 2px; }
+
+    /* 3 — THE COARSE POINTER (12 §2, I-5/I-6/I-7). Everything below is inside
+       a media query or behind the `input.targets: large` preference, so a
+       mouse-driven desktop is untouched. */
+    @media (pointer: coarse), (hover: none) {
+      /* I-6 — NO TWO-AXIS SCROLL. The canvas is a fixed 550 CSS px and hung 80
+         px off the left of a 390 px viewport. `pointerToCanvas` already maps a
+         CSS-scaled canvas correctly (it divides by the box, not the buffer),
+         so clamping the box is the whole fix and no coordinate maths changes. */
+      .canvas-wrapper { max-width: 100%; }
+      #gameCanvas { max-width: 100%; height: auto; }
+      /* The resize grip is a drag, and a drag inside a scrolling touch page is
+         a scroll. It is hidden rather than left to fight the page. */
+      .board-resize-handle { display: none; }
+      /* AND THE HEADER ROW, WHICH WAS THE REST OF THE OVERFLOW. Clamping the
+         canvas took the phone from 580 px of content to 485; the remaining 95
+         were a single non-wrapping flex row — turn number, help, Submit All,
+         Suicide All, timer, ping — whose intrinsic width is 485 whatever the
+         viewport is. A row that cannot wrap sets the layout viewport, which is
+         why `position: fixed` elements were 485 px wide on a 390 px screen. */
+      /* A row scrolled to by anchor or by a script must clear the fixed bar. */
+      .snake-info-item, .lens-aff, .lens-panel { scroll-margin-bottom: 140px; }
+      .board-header { flex-wrap: wrap; gap: var(--space-6); }
+      .board-header > div { flex-wrap: wrap; min-width: 0; }
+      .header { flex-wrap: wrap; height: auto; min-height: 60px; }
+      .header-controls { flex-wrap: wrap; }
+
+      /* I-5 — THE COMMAND BAR IN THE THUMB ZONE. Below 1180 px the rail stacks
+         under the board AND under the roster, which put `#lensControls` 1433
+         px (tablet) / 1741 px (phone) below the board: staging a candidate
+         picked on the board cost a ~1.4 k px scroll away and back, inside a
+         500 ms turn. The bar is the one thing that must be reachable while the
+         board is legible, and on a phone the reachable place is the bottom
+         (12 §1.4). It is the SAME element with the same chips and the same
+         handlers — only its box moves. */
+      #lensControls {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        z-index: var(--z-header);
+        margin: 0;
+        border-top: 1px solid var(--grey-444444);
+        border-radius: 0;
+        background: var(--grey-1a1a1a);
+        box-shadow: 0 -2px 10px var(--wash-black-40);
+        max-height: 40vh;
+        overflow-y: auto;
+      }
+      body { padding-bottom: 128px; }
+
+      /* I-7 — THE TOUCH FIGURE. 44 px is the Apple HIG / WCAG 2.5.5 number and
+         48 dp is Material's; 44 is the floor both agree is enough, and it is
+         what the chips, the pickers and the lane get here. The lane grows with
+         its ticks so the ticks do not overlap the row above. */
+      .lens-aff { min-height: 44px; padding: var(--space-6) var(--space-10); }
+      .lens-scheme { gap: var(--space-6); flex-wrap: wrap; }
+      .lens-scheme button { min-width: 44px; min-height: 44px; padding: var(--space-4) var(--space-10); }
+      .unit-id-copy { min-width: 44px; min-height: 44px; }
+      .snake-info-item.selectable { min-height: 44px; }
+      #submitAllBtn, #suicideBtn, .shortcuts-hint { min-height: 44px; }
+      .lens-lane { height: 44px; }
+      .lens-lane-track { height: 44px; }
+      .lens-tick { min-width: 24px; min-height: 44px; }
+      .lens-lane-foot { min-height: 44px; }
+      /* The grown hit areas are redundant once the drawing itself is 44 px. */
+      .lens-aff[data-lens-action]::after,
+      .lens-scheme button::after,
+      .lens-lane-foot::after,
+      .unit-id-copy::after,
+      .shortcuts-hint::after,
+      #submitAllBtn::after, #suicideBtn::after { display: none; }
+    }
+
+    /* The same sizing, asked for on a fine pointer: tremor, a trackball and a
+       head pointer all want the touch figure on a mouse (12 §1.5). */
+    .input-targets-large .lens-aff { min-height: 44px; padding: var(--space-6) var(--space-10); }
+    .input-targets-large .lens-scheme { flex-wrap: wrap; }
+    .input-targets-large .lens-scheme button { min-width: 44px; min-height: 44px; padding: var(--space-4) var(--space-10); }
+    .input-targets-large .unit-id-copy { min-width: 44px; min-height: 44px; }
+    .input-targets-large .snake-info-item.selectable { min-height: 44px; }
+    .input-targets-large .lens-lane,
+    .input-targets-large .lens-lane-track { height: 44px; }
+    .input-targets-large .lens-tick { min-width: 24px; min-height: 44px; }
   </style>
 </head>
 <body>
@@ -1202,6 +1344,12 @@
   <script src="/lens-view.js"></script>
   <script src="/lens-panel.js"></script>
   <script src="/keynav-machine.js"></script>
+  <!-- The pointer/touch half of the same input vocabulary: the gesture
+       recogniser (tap / long-press / drag) and the `input.*` preferences. It
+       drives NO machine of its own — every gesture it recognises ends in the
+       same `selectMove` / `lensRunAction` call the keyboard makes. See
+       docs/design/ux/12-INPUT-MODALITIES.md §3. -->
+  <script src="/input-layer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
   <script src="/firebase-status-banner.js"></script>
@@ -1591,6 +1739,35 @@
     let lensUndoCleared = false;
     let lensArmed = null;      // { everyMember, pins } while a lock is armed
     let lensArmTimer = null;
+    /**
+     * THE ARMED BOARD TARGET — 'green' (goto) or 'blue' (near) or null.
+     *
+     * `goto` and `near` shipped as a right-click and a ctrl-click, which is
+     * two gestures a touchscreen does not have and a switch user cannot make
+     * (12 §2, I-3). Arming borrows the LOCK's own idiom rather than inventing
+     * one: the chip re-reads `goto — press a cell`, the next unmodified press
+     * on the board sets that target, `Esc` cancels, and the arm expires on its
+     * own after eight seconds — an armed gesture that waits forever is a trap
+     * the operator walks into on the next press (02 §3.4). It sends the SAME
+     * `set-waypoint` message the modifier gestures send: no new game
+     * semantics, one more way to reach the ones we have.
+     */
+    let lensPendingTarget = null;
+    let lensPendingTimer = null;
+    function lensArmTarget(type) {
+      if (lensPendingTimer) { clearTimeout(lensPendingTimer); lensPendingTimer = null; }
+      lensPendingTarget = lensPendingTarget === type ? null : type;
+      const wrap = document.querySelector('.canvas-wrapper');
+      if (wrap) wrap.classList.toggle('input-arming', !!lensPendingTarget);
+      if (lensPendingTarget) {
+        lensPendingTimer = setTimeout(() => {
+          lensPendingTarget = null;
+          lensPendingTimer = null;
+          renderLensControls();
+        }, 8000);
+      }
+      renderLensControls();
+    }
     let lensUndoNote = null;   // what U would undo, as a sentence
 
     /** AN ARM IS A WINDOW, NOT A MODE. It expires on its own after four
@@ -1707,13 +1884,54 @@
           note: canHold ? '' : 'pieces only',
           action: canHold ? 'hold' : null,
         }),
+        // THE FOIL, AND THE DRILL, AS CHIPS (12 §2, I-1/I-2). Both were
+        // key-only — `F` and `B` — so the mouse-first operator §3.3 promises a
+        // path for could not ask for the runner-up on the board or open a
+        // breakdown at all. They carry the same action names the keymap
+        // carries and go through `lensRunAction`, so there is one action set
+        // and one dispatcher, not a pointer copy of a keyboard feature.
         LensPanel.chipHTML({
-          glyph: '◎', label: 'goto', key: 'right-click',
-          off: !way || way.type !== 'green',
+          glyph: '⟂',
+          label: 'foil',
+          key: keyOf('foil') || 'F',
+          tone: lensCursor && lensCursor.foil !== 'off' ? 'primary' : '',
+          off: !lensCursor || !lensCursor.unit,
+          note: lensCursor && lensCursor.foil !== 'off' ? 'on the board' : '',
+          action: 'foil',
         }),
         LensPanel.chipHTML({
-          glyph: '◉', label: 'near', key: 'ctrl-click',
-          off: !way || way.type !== 'blue',
+          glyph: '⌕',
+          label: 'drill',
+          key: keyOf('drill') || 'B',
+          off: !lensCursor || !lensCursor.unit,
+          note: lensCursor && lensCursor.drill ? 'drilled' : 'long-press a row',
+          action: 'drill',
+        }),
+        // GOTO AND NEAR, REACHABLE BY A PRIMARY CLICK (12 §2, I-3). They were
+        // inert text naming a right-click and a ctrl-click — two gestures a
+        // touchscreen does not have and a switch user cannot make, which made
+        // the interface's two PERSISTENT commands (the ones 12 §2 I-13 finds
+        // are the premove-shaped ones we already ship) unreachable on half the
+        // devices. The chip ARMS the next board press, borrowing the armed
+        // lock's own idiom: press the chip, press a cell, `Esc` cancels. The
+        // modifier gestures are untouched and remain the fast path.
+        LensPanel.chipHTML({
+          glyph: '◎',
+          label: lensPendingTarget === 'green' ? 'goto — press a cell' : 'goto',
+          key: 'right-click',
+          tone: lensPendingTarget === 'green' ? 'armed' : '',
+          off: !selectedSnakeId,
+          note: way && way.type === 'green' ? 'set' : '',
+          action: selectedSnakeId ? 'goto' : null,
+        }),
+        LensPanel.chipHTML({
+          glyph: '◉',
+          label: lensPendingTarget === 'blue' ? 'near — press a cell' : 'near',
+          key: 'ctrl-click',
+          tone: lensPendingTarget === 'blue' ? 'armed' : '',
+          off: !selectedSnakeId,
+          note: way && way.type === 'blue' ? 'set' : '',
+          action: selectedSnakeId ? 'near' : null,
         }),
         LensPanel.chipHTML({ glyph: '✕', label: 'clear', key: 'Del', action: 'clear' }),
       ];
@@ -1744,6 +1962,7 @@
       applyLensPrefs();
     }
     function applyLensPrefs() {
+      if (typeof InputLayer !== 'undefined') InputLayer.applyClasses(document);
       const panel = document.getElementById('selectedSnakePanel');
       if (panel) {
         panel.classList.toggle('lens-compact', lensDensityPref === 'compact');
@@ -1784,9 +2003,36 @@
             `${name}</button>`
         )
         .join('');
+      // THE INPUT PREFERENCES, BESIDE THE KEY PREFERENCES, in the same row and
+      // the same picker markup — because they are the same KIND of thing: a
+      // hand posture, not an opinion about the product (02 §3.1). They are
+      // read and written through `InputLayer`, which defers to `window.Prefs`
+      // when the operator-preferences module is present and mirrors to
+      // localStorage under the same `input.*` names when it is not, so there
+      // is one store and not two (12 §3.1).
+      const pick = (name, values, labels) => values
+        .map((v, i) => `<button type="button" data-input-pref="${name}" data-input-value="${v}" ` +
+          `class="${v === inputPref(name) ? 'on' : ''}">${LensPanel.escapeHTML((labels || values)[i])}</button>`)
+        .join('');
+      const inputs = typeof InputLayer === 'undefined' ? '' :
+        `<div class="lens-scheme">move ${pick('input.moveGesture', ['click', 'both', 'drag'])}` +
+        ` · hand ${pick('input.handedness', ['right', 'left'], ['R', 'L'])}` +
+        ` · targets ${pick('input.targets', ['auto', 'large'])}</div>`;
       el.innerHTML =
         LensPanel.cheatSheetHTML(scheme) +
-        `<div class="lens-scheme">keys ${schemes} · density ${densities}</div>`;
+        `<div class="lens-scheme">keys ${schemes} · density ${densities}</div>` +
+        inputs;
+    }
+
+    /** The `input.*` preferences, through the one store. */
+    function inputPref(name) {
+      return typeof InputLayer === 'undefined' ? null : InputLayer.pref(name);
+    }
+    function setInputPref(name, value) {
+      if (typeof InputLayer === 'undefined') return;
+      if (!InputLayer.setPref(name, value)) return;
+      InputLayer.applyClasses(document);
+      renderLensKeys();
     }
 
     /** The shortcuts pane's own keys, from the same table. The pane is the
@@ -1826,12 +2072,22 @@
       }
     }
 
+    /**
+     * A CHIP, FIRED. The four that were here have their own page-level
+     * meanings; everything else in the bar is a LENS action and goes to the
+     * one dispatcher `lensHandleKey` uses, so the chip and the key are the
+     * same call with the same name (12 §3).
+     */
     function fireLensControl(el) {
-      switch (el.getAttribute('data-lens-action')) {
+      const action = el.getAttribute('data-lens-action');
+      switch (action) {
         case 'lock': stageSelectedMove(); break;
         case 'undo': lensUndo(); break;
         case 'hold': if (selectedSnakeId) toggleHold([selectedSnakeId]); break;
         case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
+        case 'goto': lensArmTarget('green'); break;
+        case 'near': lensArmTarget('blue'); break;
+        default: if (action) lensRunAction(action); break;
       }
     }
 
@@ -1840,6 +2096,11 @@
       if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
       const density = e.target.closest && e.target.closest('[data-lens-density]');
       if (density) { setLensDensity(density.getAttribute('data-lens-density')); return; }
+      const inp = e.target.closest && e.target.closest('[data-input-pref]');
+      if (inp) {
+        setInputPref(inp.getAttribute('data-input-pref'), inp.getAttribute('data-input-value'));
+        return;
+      }
       const action = e.target.closest && e.target.closest('[data-lens-action]');
       if (!action || action.getAttribute('aria-disabled') === 'true') return;
       fireLensControl(action);
@@ -1858,7 +2119,9 @@
       const scheme = e.target.closest('[data-lens-scheme]');
       if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
       const density = e.target.closest('[data-lens-density]');
-      if (density) { setLensDensity(density.getAttribute('data-lens-density')); }
+      if (density) { setLensDensity(density.getAttribute('data-lens-density')); return; }
+      const inp = e.target.closest('[data-input-pref]');
+      if (inp) setInputPref(inp.getAttribute('data-input-pref'), inp.getAttribute('data-input-value'));
     });
 
     // The control chips are `role="button"` spans, so Enter and Space are
@@ -2283,12 +2546,36 @@
         lensArm(null);
         return true;
       }
+      // The armed board target cancels on the same key, for the same reason.
+      if (lensPendingTarget && e.key === 'Escape') {
+        lensArmTarget(null);
+        return true;
+      }
       const binding = LensPanel.keyBinding(e);
       if (!binding) return false;
+      lensRunAction(binding.action);
+      return true;
+    }
+
+    /**
+     * THE ONE ACTION DISPATCHER — the whole lens vocabulary, by name.
+     *
+     * This was the body of `lensHandleKey`'s switch, and while it lived there
+     * the keyboard was the only caller: a mouse-only operator could not ask
+     * for the FOIL (02 §8's cheapest signal on the screen) or drill a
+     * breakdown, because `F` and `B` were the actions' only spelling
+     * (12 §2, I-1 and I-2). Pulling it out is the whole of the fix: the chips
+     * call this with the same names the keymap carries, so pointer and
+     * keyboard reach one action set through one function and cannot drift.
+     *
+     * This is NOT a second machine. Every branch below still transitions the
+     * one lens cursor through `view.applyCursorEvent`, exactly as it did.
+     */
+    function lensRunAction(action) {
       lensReleaseHold();
       const view = lensView();
       const frame = lensFrame();
-      switch (binding.action) {
+      switch (action) {
         case 'timeline.prev': lensSeek(-1, false); break;
         case 'timeline.next': lensSeek(1, false); break;
         case 'timeline.prevEmission': lensSeek(-1, true); break;
@@ -2299,20 +2586,20 @@
         case 'lock.moveset': lensLock(true); break;
         default:
           if (!view || !frame || !lensCursor) break;
-          if (binding.action === 'moveset.prev' || binding.action === 'moveset.next') {
-            lensStepMoveset(binding.action === 'moveset.next' ? 1 : -1);
-          } else if (binding.action === 'foil') {
+          if (action === 'moveset.prev' || action === 'moveset.next') {
+            lensStepMoveset(action === 'moveset.next' ? 1 : -1);
+          } else if (action === 'foil') {
             lensCursor = view.applyCursorEvent(lensCursor, frame, {
               t: 'foil', mode: lensCursor.foil === 'off' ? 'latched' : 'off',
             });
-          } else if (binding.action === 'drill' || binding.action === 'drill.all') {
+          } else if (action === 'drill' || action === 'drill.all') {
             const cluster = view.clusterOf(frame, lensCursor.unit);
             const member = cluster && cluster.members.find((m) => m !== lensCursor.drill);
             if (member) {
               lensCursor = view.applyCursorEvent(lensCursor, frame, { t: 'drill', unit: member });
               if (lensCursor.moveset) lensAskBreakdown(lensCursor.moveset, [member]);
             }
-          } else if (binding.action === 'release') {
+          } else if (action === 'release') {
             // UNDO, AND ITS OLDEST MEANING. `U` takes back the last thing this
             // operator did — a lock's pins, a hold, a staged move — and where
             // there is nothing of theirs to take back it falls to what it
@@ -2608,6 +2895,56 @@
     document.querySelector('.canvas-wrapper').addEventListener(
       'pointerdown', handleBoardPointerDown, true
     );
+
+    /**
+     * THE POINTER/TOUCH GESTURES THE BOARD HAD NO MEANING FOR.
+     *
+     * `handleBoardPointerDown` above is untouched and still answers every
+     * press on the capture phase. This adds the two gestures 12 §2 found
+     * unbound — a DRAG from the head to a candidate (I-4) and a HELD press
+     * (I-8) — and it adds them through the same calls the click and the key
+     * already make. `input-layer.js` owns the recogniser; this owns what a
+     * recognised gesture means for the game, and nothing else.
+     *
+     * A drag is an ALTERNATIVE, never a requirement: click-click keeps
+     * working under every value of `input.moveGesture`, because a drag-only
+     * path is WCAG 2.2 SC 2.5.7 failure F108 (12 §1.5).
+     */
+    if (typeof InputLayer !== 'undefined' && InputLayer.install) {
+      InputLayer.install({
+        boardEl: document.querySelector('.canvas-wrapper'),
+        railEl: document.getElementById('lensRail'),
+        cellAt: (p) => {
+          const ctx = cellInspectContext();
+          const b = ctx && ctx.board;
+          if (!b) return null;
+          const cell = BoardRenderer.getClickedCell(
+            document.getElementById('gameCanvas'), b, { clientX: p.x, clientY: p.y }
+          );
+          if (!cell) return null;
+          return cell.x >= 0 && cell.x < b.width && cell.y >= 0 && cell.y < b.height ? cell : null;
+        },
+        headCell: () => {
+          const snake = getSelectedSnake();
+          return snake && snake.body && snake.body[0] ? snake.body[0] : null;
+        },
+        candidateAt: (cell) => {
+          const ms = inspectionContext().moveState;
+          if (!ms || !ms.moves) return null;
+          for (const key of Object.keys(ms.moves)) {
+            const pos = ms.moves[key].position;
+            if (pos && pos.x === cell.x && pos.y === cell.y) return ms.moves[key].key ?? key;
+          }
+          return null;
+        },
+        selectMove: (key) => selectMove(key),
+        setWaypoint: (cell, type) => {
+          if (!selectedSnakeId) return;
+          setWaypointForSnake(selectedSnakeId, { type, x: cell.x, y: cell.y });
+        },
+        runAction: (name) => lensRunAction(name),
+      });
+    }
 
     // An UNMODIFIED left click anywhere clears the cell inspection. Alt+Left is
     // what SETS it, so it must not immediately clear itself, and the other
@@ -4381,6 +4718,21 @@
         event.stopPropagation();
         if (!inBounds) { clearCellSelection(); return; }
         selectCell(cell);
+        return;
+      }
+
+      // ── An ARMED target: the modifier-free path to goto and near ───────
+      // The chip armed it and the press spends it, in one unmodified left
+      // click — which is the only gesture a switch user, a head pointer or a
+      // touchscreen has (12 §1.5, I-3). It sends what the modifier gestures
+      // send and then disarms, so the next press is an ordinary press again.
+      if (lensPendingTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        const type = lensPendingTarget;
+        lensArmTarget(null);
+        if (!selectedSnakeId || !inBounds) return;
+        setWaypointForSnake(selectedSnakeId, { type, x, y });
         return;
       }
 
