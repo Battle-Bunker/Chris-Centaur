@@ -426,3 +426,367 @@ Both are the operator's preparation, and both are — per I-3 — the two comman
 with no primary-click path. **The premove-shaped work this round owes is
 therefore I-3, not a new command**, and that is what §3.3 builds.
 
+---
+
+## 3. What was built
+
+One layer, not a scatter of handlers. `src/web/input-layer.js` is the pointer
+half of the same input vocabulary the keyboard already has, and it is
+deliberately small: it owns the preferences, a pure gesture recogniser, and the
+wiring — and it owns **no game meaning at all**. Every gesture it recognises
+ends in a call the keyboard also makes.
+
+### 3.1 The preferences, in one store
+
+Three, named `input.*` and resolved through one accessor:
+
+| name | values | default | what it changes |
+|---|---|---|---|
+| `input.moveGesture` | `click` · `both` · `drag` | `both` | whether a drag from the head selects a candidate. Click-click works under **all three** — a drag-only path is WCAG 2.2 F108 (§1.5). |
+| `input.handedness` | `right` · `left` | `right` | which side of the board the control column sits on, and nothing else (§1.6). |
+| `input.targets` | `auto` · `large` | `auto` | `auto` is the 24 px floor everywhere and 44 px under a coarse pointer; `large` asks for the touch figure on a fine pointer too. |
+
+`InputLayer.pref` reads `window.Prefs.get(name, default)` first and falls back
+to `localStorage` under the same name; `InputLayer.setPref` writes through
+`window.Prefs.set` and mirrors locally. **There is one store, and the operator
+preferences module owns it** — this file owns only what the names mean and
+what values are legal. A value outside the allowed set resolves to the
+default, so a stale or hand-edited store cannot invent a mode.
+
+The pickers sit in the rail's existing scheme/density row, in the same markup,
+because they are the same kind of thing: a hand posture, not an opinion about
+the product (02 §3.1).
+
+### 3.2 The gesture recogniser
+
+A pure `{idle → down → tap | longpress | drag}` machine over coordinates and an
+injected clock. Three properties, all asserted in
+`src/tests/input-layer.test.ts`:
+
+* **The outcomes are disjoint.** One press yields exactly one of tap /
+  longpress / dragend. Three independent listeners over one press is how an
+  interface ends up staging a move *and* opening a panel on one gesture — and
+  is, precisely, what a naive long-press bolted beside the shipped click
+  handler would have done.
+* **Long-press is a touch gesture.** It is bound for `touch` and `pen` and not
+  for `mouse`, because both desktop platforms already bind a held primary
+  button to a simulated secondary click (§1.5) and we must not fight the
+  operating system for it.
+* **A second pointer cannot steer or end the first one's gesture.**
+
+The press is **opened on the board and closed on the document**. That is not
+tidiness: a release that lands outside the element the press started on — the
+finger slid onto the fixed command bar, the page scrolled under it — never
+reaches an element-scoped listener, so the press stays open and the long-press
+timer fires half a second after the operator finished. On the phone that
+showed up exactly once during this work: a tap selected a candidate and then,
+450 ms later, silently replaced it with a goto target.
+
+Both board listeners are registered in the **capture** phase, because the
+shipped `handleBoardPointerDown` is registered on the same element in capture
+and calls `stopPropagation()` on every press it answers. A bubble-phase
+listener would have seen only the presses the shipped handler ignored — the
+drag would have worked from the unit's own head and never from a candidate
+cell.
+
+### 3.3 One action set, reached two ways
+
+`lensHandleKey`'s switch became **`lensRunAction(name)`**. While it lived
+inside the key handler the keyboard was its only caller, which is the whole of
+I-1 and I-2: `F` and `B` were the *only spelling* of two actions. Now the
+chips call it with the same names the keymap carries.
+
+The control bar gains two chips in the existing `glyph · verb · key · state`
+grammar and no new vocabulary:
+
+* **`⟂ foil F`** — states `on the board` while latched.
+* **`⌕ drill B`** — states `long-press a row` while idle, `drilled` after.
+
+And `goto` / `near` stop being inert text naming gestures half the devices do
+not have. They are chips that **arm the next board press**, borrowing the
+armed lock's own idiom rather than inventing one: the chip re-reads
+`goto — press a cell`, the board's edge takes a dashed ring, the next
+unmodified left press sets the target, `Esc` cancels, and the arm expires on
+its own after eight seconds — because an armed gesture that waits forever is
+the trap 02 §3.4 refuses. It sends the same `set-waypoint` message the
+modifier gestures send: **no new game semantics, one more way to reach the
+ones we have.** The right-click and the ctrl-click are untouched and remain
+the fast path.
+
+On the board the layer adds exactly two gestures:
+
+* **A drag from the head to a candidate** resolves to `selectMove(key)` — the
+  same call the click makes, which is the same call the arrow pad makes. A
+  drag that did not start on the unit does nothing at all; a board that eats a
+  mis-swipe is worse than one that ignores it.
+* **A held press on a cell** sets the goto target — the secondary click a
+  touchscreen does not have, where both platforms put it.
+
+And on the rail, one: **a held press on a moveset row drills it** (the touch
+twin of `B`). It is never the *only* way there — the chip carries the same
+action — because a meaning available only to a timed press is unavailable to a
+switch user.
+
+### 3.4 The surface
+
+Three groups of CSS, and the first two are invisible at rest on a fine
+pointer.
+
+**The hit region, grown without growing the drawing.** SC 2.5.8 asks for
+24 × 24 CSS px of *target*, and the target is the region that accepts the
+pointer, not the ink. Our chips are 22 px tall, the pickers 15, the copy
+control 22.8 × 18. Android's guidance names the mechanism — grow the touchable
+region, keep the view — and a pseudo-element is the web's version of it: a
+press on `::after` reports the **owning element** as its target, so every
+delegated `closest()` handler on the page resolves it unchanged. The expansion
+is 1–5 px per side and sits inside the existing 5 px chip gap, so no two
+targets' regions overlap. Nothing is painted and nothing moves.
+
+**The coarse pointer.** Under `(pointer: coarse), (hover: none)`:
+
+* the canvas is clamped to the viewport (`max-width: 100%`), which is the whole
+  of the board half of I-6 — `pointerToCanvas` already divides by the box
+  rather than the buffer, so no coordinate maths changes;
+* the header rows wrap. Clamping the canvas took the phone from 580 px of
+  content to 485; the remaining 95 were a single non-wrapping flex row whose
+  intrinsic width is 485 whatever the viewport is, and a row that cannot wrap
+  sets the layout viewport — which is why `position: fixed` elements were
+  485 px wide on a 390 px screen;
+* **`#lensControls` is fixed to the bottom of the viewport.** It is the same
+  element with the same chips and the same handlers; only its box moves. This
+  is I-5, the costliest finding: the bar was 1433–1741 px below a board the
+  operator has to be looking at;
+* chips, pickers, roster rows, buttons and the lane reach 44 px, and
+  `scroll-margin-bottom` keeps a scrolled-to row clear of the fixed bar;
+* the drag-only resize grip is hidden rather than left to fight the page's own
+  scroll.
+
+**Handedness.** `input-hand-left` on the root swaps the ≥1180 px grid to
+`380px minmax(0,1fr)` and the areas to `"rail board" / "rail roster"`. The
+rail's own contents, the board and the roster are untouched: the literature
+supports a *mirrored* optimum for the hand that points and supports nothing
+wider than that (§1.6). The default stamps no class at all.
+
+### 3.5 What was NOT built, and why
+
+* **A premove.** §2 I-13: staging is gated on this turn's candidate
+  enumeration and the undo stack is cleared at the boundary by design, so an
+  input against next turn's board would be an input against a candidate set
+  that does not exist. That is new game semantics. The two commands that *are*
+  already persistent — `hold` and the goto queue — got the pointer path they
+  were missing instead, which is the premove-shaped work these semantics
+  actually permit.
+* **A wheel or pinch meaning on the board** (I-9). The board has no zoom
+  semantics and inventing one here would be a game decision dressed as an
+  input one.
+* **A pointer alternative for the board resize grip** (I-10). It wants a size
+  control, not a bolt-on, and a second sizing affordance is worse than the
+  one gap. Handed back.
+
+---
+
+## 4. Evidence
+
+### 4.1 The gates
+
+`npx tsc --noEmit -p .`, `npx eslint src/**/*.ts src/web/*.js`,
+`npm run build:lens`, and `npx jest --maxWorkers=2 "src/tests/lens-"
+"src/lobster/__tests__/lens-" src/tests/local-game-determinism.test.ts
+src/tests/input-layer.test.ts src/tests/keynav-machine.test.ts` — all green.
+`keynav-machine.test.ts` is in that list on purpose: the claim that the pointer
+and the keyboard drive **one** destination machine is only worth anything if
+the machine's own parity test still passes.
+
+### 4.2 The input drill
+
+`scripts/input-drill.js` plays the same determination the keyboard drill plays,
+three more ways, and asserts the **end state** rather than the pixels:
+`stagedMoves[unit]` carrying the operator's own candidate with
+`source: 'manual'`, and the undo stack one deeper — exactly what
+`lens-walkthrough.js` asserts at `d1-pin`.
+
+```
+node scripts/ux-walk-server.js --port=5503
+node scripts/input-drill.js --port=5503 --out=docs/design/ux/input
+```
+
+Thirty-eight checks, all green, exit code 0:
+
+* **pointer (16)** — focus, candidate, lock, undo, foil, drill, goto armed,
+  goto spent, goto disarmed. **No key is pressed at any point in this drill**:
+  a command reachable only by a key is a command a switch user does not have.
+* **drag (3)** — a drag from the head reaches the *same* selection a click
+  reaches; a drag that did not start on the unit selects nothing;
+  `input.moveGesture: click` turns the drag off and leaves the click alone.
+* **handedness (3)** — one class on the root, the control column crosses the
+  board, and the default stamps nothing.
+* **tablet 768 × 1024 (8)** and **phone 390 × 844 (8)** — no sideways scroll;
+  the command bar in the viewport with the board; every pressed target ≥ 44 px
+  on its short side; a tap on the board selects; a tap on the chip reaches the
+  same end state the keyboard drill asserts; a held press sets the goto
+  target.
+
+One documented exception in the target sweep: **the lane tick is held to 24 px
+wide rather than 44**, and it is named rather than waived. A scrubber tick's
+*position* is the datum, so a 44 px tick would overlap its neighbours and stop
+pointing at what it points at — WCAG 2.5.8's `Essential` case. It is 44 px
+tall, and `,` `.` `Home` `End` are beside it.
+
+### 4.3 The pixel gate
+
+The base commit's tree was stood up on its own port and photographed beside the
+head's, region by region, at rest, with the clock-driven paint frozen
+(`docs/design/ux/input/pixel-gate.json`):
+
+| region | base → head | verdict |
+|---|---|---|
+| `#gameCanvas` | 550 × 551, **0 differing pixels** | unchanged, as intended |
+| `#lensRail` | 346 × 200, **0 differing pixels** | unchanged, as intended |
+| `#lensStage` | 346 × 39, **0 differing pixels** | unchanged, as intended |
+| roster | 760 × 195, 19 796 pixels differ **by exactly 1 level; none by more than 1** | see below |
+| `#lensControls` | 346 × 96 → 346 × **123** | **intended** — the `foil` and `drill` chips wrap to a third line |
+| `#lensKeys` | 346 × 88 → 346 × **116** | **intended** — the three `input.*` pickers |
+
+The chips themselves measure **170 × 22, 139 × 22, 136 × 22 …** in *both*
+trees: the hit-area expansion adds no layout, which is the claim §3.4 makes and
+this is the measurement of it.
+
+The roster's difference is a compositing rounding of one 8-bit level — the
+`position: relative` the hit expansion needs on the per-row copy control gives
+that row's paint its own stacking context. Zero pixels differ by more than one
+level, the region's geometry is identical (760 × 194 at the same origin in both
+trees), and no rule of mine applies to the roster outside the coarse-pointer
+block. It is recorded rather than hidden.
+
+Everything else on the page below y = 446 moves because the rail column grew by
+55 px, which is the two intended changes and nothing else.
+
+### 4.4 The findings, closed and open
+
+| finding | state |
+|---|---|
+| I-1 foil has no pointer path | **fixed** — `⟂ foil` chip, drilled |
+| I-2 L3 drill has no pointer path | **fixed** — `⌕ drill` chip + long-press a moveset row |
+| I-3 goto/near unreachable on touch and by switch | **fixed** — armable chips + long-press, drilled |
+| I-4 a drag does not move a unit | **fixed** — `input.moveGesture`, drilled for parity |
+| I-5 command bar off-screen on touch | **fixed** — fixed thumb-zone bar, drilled |
+| I-6 horizontal overflow at 390 px | **fixed** — canvas clamp + header wrap, drilled |
+| I-7 targets under the 24/44 px floors | **fixed** — hit expansion (fine) + 44 px (coarse), drilled |
+| I-8 a held press means nothing | **fixed** — recogniser, drilled on both touch viewports |
+| I-9 wheel over the board scrolls the page | **open**, by design — no zoom semantics exist |
+| I-10 resize grip is drag-only (SC 2.5.7) | **open**, handed back — wants a size control, hidden under coarse |
+| I-11 no handedness preference | **fixed** — `input.handedness`, drilled |
+| I-12 focus does not follow the pointer | **no defect** — moving focus on a board click would steal `Space` |
+| I-13 premove | **declined on the semantics** — the two persistent commands got their pointer path instead |
+
+Eleven fixed, two open, one non-defect.
+
+### 4.5 The checklist, answered
+
+1. Primary-click completeness — **yes**, drilled in sixteen checks with no key
+   pressed.
+2. Gesture parity — **yes**, asserted as an equality between the click's
+   selection and the drag's.
+3. Modifier reachability — **yes**, `goto` and `near` arm from a chip.
+4. Co-visibility — **yes** on both touch viewports; **yes** on the desktop rail
+   (it was already sticky).
+5. Target size — **yes**, with the lane tick's `Essential` exception named.
+6. Overflow — **yes**, `scrollWidth === clientWidth` at 390 px.
+7. Hover independence — **yes**; the fourteen `:hover` rules on the page are
+   all border/background emphasis and none carries information (T4).
+8. Held-press safety — **yes**; every long-press meaning has a chip, and no
+   long-press is bound on a fine pointer.
+9. Focus parity — **yes**, and deliberately *not* focus-follows-pointer.
+10. One machine — **yes**: `keynav-machine.test.ts` still passes, the drag ends
+    in `selectMove`, and the chips end in `lensRunAction`.
+
+---
+
+## Sources
+
+1. Chess.com forums, *"Click-to-Move Causes Unwanted Premoves"* — click-to-move
+   and premove interacting badly on mobile, and the request to bind premove to
+   drag alone. <https://www.chess.com/forum/view/general/click-to-move-causes-unwanted-premoves>
+2. Lichess preferences and forum, *"Always autopromoting to Queen, but
+   preference is only when premoving"* — move method, premove and auto-promotion
+   as separate switches. <https://lichess.org/forum/lichess-feedback/always-autopromoting-to-queen-but-preference-is-only-when-premoving>
+3. *Premove* — Wikipedia. <https://en.wikipedia.org/wiki/Premove>
+4. Chess Stack Exchange, *"Difference in Premove Limits: Lichess vs.
+   Chess.com"*. <https://chess.stackexchange.com/questions/43490/difference-in-premove-limits-lichess-vs-chess-com>
+5. E. Q. Yan, J. Huang, G. K. Cheung, *"Masters of Control: Behavioral Patterns
+   of Simultaneous Unit Group Manipulation in StarCraft 2"*, CHI '15.
+   <https://jeffhuang.com/papers/MastersOfControl_CHI15.pdf>
+6. Dota 2 hotkey guidance — abilities, items, control groups and quick cast.
+   <https://neznakov.ru/guides-hotkei-dota-2-en>
+7. Frost Giant / Stormgate design statement — automated control groups and the
+   quick macro panel as "lowering the skill floor without affecting the skill
+   ceiling". <https://www.thefpsreview.com/2024/08/01/stormgate-new-rts-from-starcraft-ii-and-warcraft-iii-veterans-now-available-in-early-access-on-steam>
+8. Infil, *The Fighting Game Glossary* — "Buffer Window".
+   <https://glossary.infil.net/?t=Buffer+Window>
+9. A. Jens, *"I wanna make a fighting game — input buffers"* — buffers, and
+   negative edge as leniency. <https://andrea-jens.medium.com/i-wanna-make-a-fighting-game-a-practical-guide-for-beginners-part-6-311c51ab21c4>
+10. *"Game input buffering explained: pre-input queues, coyote time and
+    responsive combat"* — dropped early inputs read as "laggy controls"; the
+    10-frame buffer and the 38% perfect-dodge change.
+    <https://solana.garden/guides/game-input-buffering-explained/>
+11. No Rest For The Wicked feedback, *"Input buffering (combat queueing) feels
+    too unresponsive in dynamic situations"* — the over-long buffer, read as
+    unresponsiveness. <https://forum.norestforthewicked.com/t/input-buffering-combat-queueing-feels-too-unresponsive-in-dynamic-situations/16313>
+12. R. Tomida, W. Kurihara, Y. Kanematsu, K. Mikami, *"An Investigation of
+    Command Input Grace Frame in Fighting Games"*, ITE 2025.
+    <https://www.ite.or.jp/ken/paper/20250310cAnk/eng/>
+13. W3C WAI, *Understanding SC 2.5.8 Target Size (Minimum)* (AA, WCAG 2.2).
+    <https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html>
+14. W3C WAI, *Understanding SC 2.5.5 Target Size* (AAA, WCAG 2.1).
+    <https://www.w3.org/WAI/WCAG21/Understanding/target-size.html>
+15. Apple HIG / Material minimums, summarised with the fingertip-area basis.
+    <https://www.uiguides.com/guides/how-to-design-for-touch>
+16. Android accessibility, *Touch target size* — 48 dp, and `TouchDelegate` to
+    grow the touchable region without growing the view.
+    <https://support.google.com/accessibility/android/answer/7101858>
+17. P. Parhi, A. K. Karlson, B. B. Bederson, *"Target size study for one-handed
+    thumb use on small touchscreen devices"*, Mobile HCI 2006 — 9.2 mm discrete
+    / 7.6 mm serial. <https://www.semanticscholar.org/paper/7fc3a48e6ce88c56a5e5b921e1ee2e0c0e3af976>
+18. Android Developers, *Pointer interactions (desktop experience)* — primary
+    click completeness and Switch Access; long-press as the touch secondary
+    click; drag on touch requiring a long-press first.
+    <https://developer.android.com/design/ui/desktop/guides/interaction/pointer-interactions>
+19. C. Fernández et al., *"Implicit detection of user handedness in touchscreen
+    devices through interaction analysis"*, PeerJ CS 2021 — thumb zones and the
+    handedness asymmetry in reach. <https://pmc.ncbi.nlm.nih.gov/articles/PMC8093950/>
+20. A. K. Karlson, B. B. Bederson, *"Studies in One-Handed Mobile Design"*,
+    Mobile HCI 2006. <https://www.semanticscholar.org/paper/b2724f942cc0a23ebc6fc2b73f7a64bb1736a744>
+21. *"Tap Targets, Thumb Zones, and the 44px Lie"* — size, spacing and position
+    as three separate variables. <https://www.72technologies.com/blog/tap-targets-thumb-zones-mobile-ux>
+22. M. Gifford, *Touch and Pointer Accessibility Best Practices* — a keyboard
+    alternative does not satisfy a pointer criterion.
+    <https://mgifford.github.io/ACCESSIBILITY.md/examples/TOUCH_POINTER_ACCESSIBILITY_BEST_PRACTICES.html>
+23. W3C WAI, *Understanding SC 2.5.1 Pointer Gestures*.
+    <https://www.w3.org/WAI/WCAG22/Understanding/pointer-gestures>
+24. W3C WAI, *Understanding SC 2.5.7 Dragging Movements*.
+    <https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements>
+25. W3C WAI, *F108: Failure of SC 2.5.7 due to not providing a single pointer
+    method that does not require a dragging movement*.
+    <https://www.w3.org/WAI/WCAG22/Techniques/failures/F108>
+26. GNOME Help, *Simulate a right mouse click* (and the equivalent macOS
+    Pointer Control settings) — the held primary button is already spoken for
+    on the desktop. <https://help.gnome.org/users/gnome-help/gnome-help/a11y-right-click.html>
+27. M. Hancock, *Improving Menu Placement Strategies for Pen Input*, UBC 2004 —
+    the mirrored optimum by handedness.
+    <https://www.cs.ubc.ca/labs/imager/th/2003/Hancock2004/Hancock2004.pdf>
+28. P. Brandl et al., *"Occlusion-aware menu design for digital tabletops"*,
+    CHI EA 2009. <https://doi.org/10.1145/1520340.1520461>
+29. Psychology & Neuroscience Stack Exchange, *"Any research on
+    right-hand/left-hand based preferences when interacting with an
+    interface?"* — the caution against deriving layout from handedness alone.
+    <https://psychology.stackexchange.com/questions/2056/>
+30. B. Tognazzini, *"Keyboard vs. The Mouse, pt 1"*, AskTog (1989).
+    <https://www.asktog.com/TOI/toi06KeyboardVMouse1.html>
+31. D. Luu, *"The widely cited studies on mouse vs. keyboard efficiency are
+    completely bogus"*. <https://danluu.com/keyboard-v-mouse>
+32. R. C. Omanson, C. S. Miller, E. Young, D. Schwantes, *"Comparison of Mouse
+    and Keyboard Efficiency"*, HFES 2010. <https://doi.org/10.1177/154193121005400612>
+33. D. M. Lane, H. A. Napier, S. C. Peres, A. Sándor, *"Hidden Costs of
+    Graphical User Interfaces: Failure to Make the Transition from Menus and
+    Icon Toolbars to Keyboard Shortcuts"*.
+    <https://www.ruf.rice.edu/~lane/papers/hidden_costs.pdf>

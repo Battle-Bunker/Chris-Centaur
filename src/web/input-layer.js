@@ -318,21 +318,42 @@
           h.selectMove(key);
         }
       };
-      h.boardEl.addEventListener('pointerdown', boardPointerDown);
-      h.boardEl.addEventListener('pointermove', (e) => {
-        const g = gesture.move(point(e));
-        if (g && g.t === 'dragstart' && h.onDragStart) h.onDragStart(g);
-      });
+      // CAPTURE PHASE, and this is not a style choice. The shipped board
+      // handler is registered on this same element in the capture phase and
+      // calls `stopPropagation()` on every press it answers — a candidate
+      // click, a waypoint, an inspect. `stopPropagation` during capture stops
+      // the event reaching any LATER node, which includes the bubble phase
+      // back at this element, so a bubble-phase listener here would see only
+      // the presses the shipped handler ignored: the drag would work from the
+      // unit's own head (which it returns from) and never from a candidate
+      // cell. Two capture listeners on one node both run — that is
+      // `stopImmediatePropagation`'s job, not this one's — and ours is
+      // registered second, so the shipped handler still answers first.
+      h.boardEl.addEventListener('pointerdown', boardPointerDown, true);
+      // THE RELEASE IS WATCHED ON THE DOCUMENT, NOT ON THE BOARD, and this is
+      // the difference between a gesture machine and a leak. A release that
+      // lands outside the element the press started on — the finger slid onto
+      // the fixed command bar, the page scrolled under it, the pointer was
+      // captured elsewhere — never reaches a board-scoped listener, so the
+      // press stays open and the long-press timer fires on a gesture the
+      // operator finished half a second ago. On the phone that showed up as a
+      // tap that selected a candidate and then, 450 ms later, silently
+      // replaced it with a goto target. The press is opened on the board and
+      // closed by the document, so every press closes exactly once.
       const finish = (e) => {
         stopTimer();
         const g = gesture.up(point(e));
         if (g) onBoardGesture(g, e);
       };
-      h.boardEl.addEventListener('pointerup', finish);
-      h.boardEl.addEventListener('pointercancel', () => {
+      doc.addEventListener('pointermove', (e) => {
+        const g = gesture.move(point(e));
+        if (g && g.t === 'dragstart' && h.onDragStart) h.onDragStart(g);
+      }, true);
+      doc.addEventListener('pointerup', finish, true);
+      doc.addEventListener('pointercancel', () => {
         stopTimer();
         gesture.cancel();
-      });
+      }, true);
     }
 
     // ── the rail ─────────────────────────────────────────────────────────
@@ -365,7 +386,7 @@
           }
         }, 50);
       });
-      h.railEl.addEventListener('pointermove', (e) => railGesture.move(point(e)));
+      doc.addEventListener('pointermove', (e) => railGesture.move(point(e)), true);
       const railFinish = (e) => {
         if (railTimer !== null) {
           global.clearInterval(railTimer);
@@ -374,14 +395,15 @@
         railGesture.up(point(e));
         railRow = null;
       };
-      h.railEl.addEventListener('pointerup', railFinish);
-      h.railEl.addEventListener('pointercancel', () => {
+      // Closed on the document, for the same reason the board's press is.
+      doc.addEventListener('pointerup', railFinish, true);
+      doc.addEventListener('pointercancel', () => {
         if (railTimer !== null) {
           global.clearInterval(railTimer);
           railTimer = null;
         }
         railGesture.cancel();
-      });
+      }, true);
     }
 
     return {

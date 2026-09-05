@@ -830,6 +830,18 @@
       /* The resize grip is a drag, and a drag inside a scrolling touch page is
          a scroll. It is hidden rather than left to fight the page. */
       .board-resize-handle { display: none; }
+      /* AND THE HEADER ROW, WHICH WAS THE REST OF THE OVERFLOW. Clamping the
+         canvas took the phone from 580 px of content to 485; the remaining 95
+         were a single non-wrapping flex row — turn number, help, Submit All,
+         Suicide All, timer, ping — whose intrinsic width is 485 whatever the
+         viewport is. A row that cannot wrap sets the layout viewport, which is
+         why `position: fixed` elements were 485 px wide on a 390 px screen. */
+      /* A row scrolled to by anchor or by a script must clear the fixed bar. */
+      .snake-info-item, .lens-aff, .lens-panel { scroll-margin-bottom: 140px; }
+      .board-header { flex-wrap: wrap; gap: var(--space-6); }
+      .board-header > div { flex-wrap: wrap; min-width: 0; }
+      .header { flex-wrap: wrap; height: auto; min-height: 60px; }
+      .header-controls { flex-wrap: wrap; }
 
       /* I-5 — THE COMMAND BAR IN THE THUMB ZONE. Below 1180 px the rail stacks
          under the board AND under the roster, which put `#lensControls` 1433
@@ -858,8 +870,8 @@
          what the chips, the pickers and the lane get here. The lane grows with
          its ticks so the ticks do not overlap the row above. */
       .lens-aff { min-height: 44px; padding: var(--space-6) var(--space-10); }
-      .lens-scheme { gap: var(--space-6); }
-      .lens-scheme button { min-height: 44px; padding: var(--space-4) var(--space-10); }
+      .lens-scheme { gap: var(--space-6); flex-wrap: wrap; }
+      .lens-scheme button { min-width: 44px; min-height: 44px; padding: var(--space-4) var(--space-10); }
       .unit-id-copy { min-width: 44px; min-height: 44px; }
       .snake-info-item.selectable { min-height: 44px; }
       #submitAllBtn, #suicideBtn, .shortcuts-hint { min-height: 44px; }
@@ -879,7 +891,8 @@
     /* The same sizing, asked for on a fine pointer: tremor, a trackball and a
        head pointer all want the touch figure on a mouse (12 §1.5). */
     .input-targets-large .lens-aff { min-height: 44px; padding: var(--space-6) var(--space-10); }
-    .input-targets-large .lens-scheme button { min-height: 44px; padding: var(--space-4) var(--space-10); }
+    .input-targets-large .lens-scheme { flex-wrap: wrap; }
+    .input-targets-large .lens-scheme button { min-width: 44px; min-height: 44px; padding: var(--space-4) var(--space-10); }
     .input-targets-large .unit-id-copy { min-width: 44px; min-height: 44px; }
     .input-targets-large .snake-info-item.selectable { min-height: 44px; }
     .input-targets-large .lens-lane,
