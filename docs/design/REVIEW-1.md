@@ -380,6 +380,32 @@ board whose middle cell is a wall, or otherwise offers the kind no rotation, the
 kind is recorded as facing-insensitive everywhere. Confirm by placing a wall on
 the middle cell of an odd-by-odd board and reading `facingMatters('pawn')`.
 
+**REVIEW-2 verdict: NOT A DEFECT. The probe cannot be wrong, and the recipe
+above has no instance.** `rotationTargets` filters `legalActions` for
+`action.kind === 'rotate'`, and the ONLY branch in the whole grammar that
+returns one is the pawn's side-square case at
+`engine-vendor/engine/moveGrammar.ts:229` — which carries no board condition at
+all: no `interior` test, no occupancy test, no wall test. Its own comment says
+so: *"The pawn never enters the square, so it may sit anywhere — including a
+wall."* A pawn's side squares are the two cells orthogonal to its facing, and a
+marshalled board is `width + 2` by `height + 2`, so at least one of them is
+always on the grid. So `rotationTargets` is non-empty at EVERY cell for a pawn
+and empty at every cell for every other kind: the answer is a property of the
+kind alone, which is exactly what the memo-per-kind assumes and what
+`orientationSensitive`'s own docstring claims ("it has one wherever it
+stands").
+
+Swept to confirm rather than only read — all seven kinds x four orientations x
+nine board shapes (9x9, 11x11, 8x8, 4x6, 3x5, 1x1, 2x2, 1x2 and the degenerate
+0x0), plus a 9x9 with the probe cell and both its side squares occupied:
+
+    uniform everywhere, probe agrees   — every row
+
+And the finding's own recipe was tried directly. On a 2x2 play area (full 4x4)
+and on 1x2 (full 3x4) the probe cell IS a wall — `sub.isWall(probe)` is true —
+and `facingMatters('pawn')` is still `true`. There is no board on which the
+middle cell offers a pawn no rotation. No change made.
+
 ### F10 — `canPromote`'s probe settles at the arrival turn under the turn cap
 
 `src/lobster/substrate.ts:640`.
