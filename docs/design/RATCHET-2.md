@@ -240,6 +240,33 @@ possibly-alive set, so `kept` grows and `lo` rises. R3: with nothing held
 nothing is contingent, the two predicates coincide, and the reading is the one
 it is today.
 
+**Measured, and KEPT. `room.lo` 73 → 0 — the class is CLOSED — and the play is
+flat.** Bounds: `totalLo` 0, `totalHi` 9, no other class moved, `room.hi` still
+absent; `bounds/soundness.test.ts`, `bounds/exact-reply.test.ts` and the whole
+`lobster/__tests__` suite green with `lens-cost.test.ts`'s recording UNMOVED on
+both boards; the sixteen-arm gate `npm run gate:exact` zero floors and zero
+ceilings on all sixteen (`mixed` 1–3, `snakes` 1–3, `sparse` 1–3, `potions`
+1–6 and 8).
+
+The play, 60 turns, `--nodes`, `scripts/ab-compare.js` per board class, never
+pooled, against `02cd772`:
+
+| board | what moved |
+|---|---|
+| `snakes` 1–5 | every game counter 0 (`nodes` 310 166 → 310 171) |
+| `sparse` 1–5 | byte-identical |
+| `sparse-lean` 1–5 | byte-identical |
+| `potions` 1–8 | every counter 0 on all eight seeds (`nodes` 568 766 → 568 767) |
+| `mixed` 1–5 | one seed moves: seed 3 meals/100 **+0.771** and `seedKept`/100 +0.257; deaths, causes, `unitTurns`, `stationary`, `lost` and every other counter flat on all five |
+
+**Deaths up on 0 of 5 board classes and down on 0**, meals up on one and down
+on none. That is neutral-or-better per class with a class closed, which is
+exactly §7.1's bar; the change is taken. It is also the cheapest of the three
+repairs by construction: `barsIn` disagrees with itself only on a unit the
+settlement left contingent on OUR side, so on a board where nothing is held
+the flood is the flood it always was, and four of five board classes never
+reach the line at all.
+
 ## 4. `food.hi` — 63 worlds, all 63 a slider halted by a claim
 
 `food` is a positional gradient over our own units: `pull(u) = (1 − d/D)`
