@@ -3395,6 +3395,310 @@ export const MIRROR_SPARSE_LEAN_SCENARIO: GameSpec = {
   foodEnergy: 20,
 };
 // --- end side symmetry ------------------------------------------------------
+// === BEGIN wide-corpus scenarios — owned by the `wide-corpus` worker ========
+//
+// THE FIVE ABOVE ARE THE WHOLE CORPUS THE BEHAVIOUR PROGRAMME RAN OUT OF.
+// `docs/ORCHESTRATOR-LOOP.md`: "the behaviour programme on the 26-game corpus
+// is at its floor... the only decidable next step is more board." Everything
+// from here down is that board, and it is written as PARAMETERS rather than as
+// five more hand-placed rosters, because the five above are already the proof
+// that a hand-placed roster is a board one cannot vary: `mixed` and `potions`
+// differ by a field, `sparse` and `sparse-lean` by a field, and no seed, no
+// flag and no script could ask any of them for one more unit or one more file.
+//
+// A shape states WHAT IS ON THE BOARD (size, each team's roster, how many meals
+// and potions stand) and the placement rule below states WHERE, deterministically
+// and identically for every shape — so two shapes that differ in one parameter
+// differ in one thing on the board, which is the property the whole A/B method
+// rests on. The five hand-written scenarios above are NOT rebuilt through it:
+// they are frozen inputs of every A/B in `docs/design/ab/`, and a builder that
+// reproduced them "to the letter" would be one refactor away from silently
+// moving a spawn cell.
+
+/** What is on a board. `boardOfShape` decides where. */
+export interface CorpusShape {
+  readonly width: number;
+  readonly height: number;
+  /** One entry per team: that team's unit kinds, in spawn order. */
+  readonly rosters: ReadonlyArray<ReadonlyArray<string>>;
+  /** Meals standing at turn 1, and kept standing (`foodTarget`). */
+  readonly food: number;
+  /** Potions standing at turn 1, and kept standing. Absent: a potion-free board,
+   *  which carries no potion fields at all (see `buildBoard`). */
+  readonly potions?: number;
+  readonly potionRespawnTurns?: number;
+  readonly maxTurns?: number;
+  readonly foodEnergy?: number;
+}
+
+/** Team ids, in spawn order. Team 0 is OURS everywhere (`--opponent`). */
+const TEAM_IDS = ['red', 'blue', 'green', 'gold', 'violet', 'teal'] as const;
+
+interface Anchor {
+  readonly at: Coord;
+  /** Which way this team's file fans INTO the board. */
+  readonly inward: { readonly dx: number; readonly dy: number };
+}
+
+/**
+ * Corners first, then the two mid-edges, inset one cell from the wall and two
+ * rows in from the top and bottom so a snake's three-cell body (grown straight
+ * DOWN from its head by `makeUnit`) is on the board at turn 1.
+ */
+function anchorsFor(teams: number, width: number, height: number): Anchor[] {
+  const mid = Math.floor((width - 1) / 2);
+  const all: Anchor[] = [
+    { at: { x: 1, y: 2 }, inward: { dx: 1, dy: 1 } },
+    { at: { x: width - 2, y: height - 3 }, inward: { dx: -1, dy: -1 } },
+    { at: { x: width - 2, y: 2 }, inward: { dx: -1, dy: 1 } },
+    { at: { x: 1, y: height - 3 }, inward: { dx: 1, dy: -1 } },
+    { at: { x: mid, y: 2 }, inward: { dx: 1, dy: 1 } },
+    { at: { x: mid, y: height - 3 }, inward: { dx: -1, dy: -1 } },
+  ];
+  if (teams > all.length) throw new Error(`boardOfShape: no anchor for team ${teams}`);
+  return all.slice(0, teams);
+}
+
+/**
+ * A team's file, as offsets from its anchor: a row of four two apart, then a
+ * second row three back. Two apart because adjacent spawns on a crowded board
+ * are a contest on turn 1 and this corpus is meant to vary DENSITY, not to
+ * hand every dense class a first-turn clash the sparse ones never see.
+ */
+const FAN: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [2, 0],
+  [4, 0],
+  [6, 0],
+  [1, 3],
+  [3, 3],
+  [5, 3],
+  [7, 3],
+  [0, 6],
+  [2, 6],
+  [4, 6],
+  [6, 6],
+];
+
+const cellKey = (x: number, y: number): string => `${x},${y}`;
+
+/** The cells a unit spawned at (x, y) occupies: a piece one, a snake three. */
+function spawnCells(kind: string, x: number, y: number): Array<[number, number]> {
+  return isPiece(kind)
+    ? [[x, y]]
+    : [
+        [x, y],
+        [x, y - 1],
+        [x, y - 2],
+      ];
+}
+
+/**
+ * Place every team's roster from its anchor along `FAN`, skipping any offset
+ * whose cells are off the board or already claimed — so an asymmetric roster
+ * and a four-team board place by the same rule as a two-team one, and no shape
+ * can spawn two units on one cell however crowded it is.
+ */
+function placeTeams(shape: CorpusShape): TeamSpec[] {
+  const anchors = anchorsFor(shape.rosters.length, shape.width, shape.height);
+  const taken = new Set<string>();
+  return shape.rosters.map((roster, t) => {
+    const anchor = anchors[t] as Anchor;
+    let next = 0;
+    const units = roster.map((kind) => {
+      for (; next < FAN.length; next++) {
+        const [a, b] = FAN[next] as readonly [number, number];
+        const x = anchor.at.x + anchor.inward.dx * a;
+        const y = anchor.at.y + anchor.inward.dy * b;
+        const cells = spawnCells(kind, x, y);
+        const free = cells.every(
+          ([cx, cy]) =>
+            cx >= 0 &&
+            cy >= 0 &&
+            cx < shape.width &&
+            cy < shape.height &&
+            !taken.has(cellKey(cx, cy))
+        );
+        if (!free) continue;
+        for (const [cx, cy] of cells) taken.add(cellKey(cx, cy));
+        next += 1;
+        return { kind, x, y };
+      }
+      throw new Error(`boardOfShape: nowhere to spawn ${kind} for ${TEAM_IDS[t] ?? t}`);
+    });
+    return { id: TEAM_IDS[t] ?? `team${t}`, units };
+  });
+}
+
+/**
+ * `count` item cells, spread. Every free interior cell of the given parity,
+ * ordered by ring distance from the centre outward, then strided — so items
+ * land on several rings instead of in one clump, and food (parity 0) and
+ * potions (parity 1) can never land on the same cell.
+ */
+function itemCells(
+  count: number,
+  shape: CorpusShape,
+  taken: ReadonlySet<string>,
+  parity: 0 | 1
+): Coord[] {
+  const cx = (shape.width - 1) / 2;
+  const cy = (shape.height - 1) / 2;
+  const pool: Coord[] = [];
+  for (let y = 1; y < shape.height - 1; y++) {
+    for (let x = 1; x < shape.width - 1; x++) {
+      if ((x + y) % 2 !== parity) continue;
+      if (taken.has(cellKey(x, y))) continue;
+      pool.push({ x, y });
+    }
+  }
+  pool.sort((p, q) => {
+    const dp = Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy));
+    const dq = Math.max(Math.abs(q.x - cx), Math.abs(q.y - cy));
+    return dp - dq || p.y - q.y || p.x - q.x;
+  });
+  if (count > pool.length) throw new Error('boardOfShape: not enough free cells for the items');
+  const stride = Math.max(1, Math.floor(pool.length / count));
+  return Array.from({ length: count }, (_, i) => pool[i * stride] as Coord);
+}
+
+/** A shape, as the `GameSpec` the runner and `buildBoard` already understand. */
+export function boardOfShape(shape: CorpusShape): GameSpec {
+  const teams = placeTeams(shape);
+  const taken = new Set<string>();
+  for (const team of teams) {
+    for (const u of team.units) {
+      for (const [x, y] of spawnCells(u.kind, u.x, u.y)) taken.add(cellKey(x, y));
+    }
+  }
+  const food = itemCells(shape.food, shape, taken, 0);
+  const potions = shape.potions === undefined ? undefined : itemCells(shape.potions, shape, taken, 1);
+  return {
+    width: shape.width,
+    height: shape.height,
+    teams,
+    food,
+    foodTarget: shape.food,
+    maxTurns: shape.maxTurns ?? 100,
+    ...(shape.foodEnergy === undefined ? {} : { foodEnergy: shape.foodEnergy }),
+    ...(potions === undefined
+      ? {}
+      : {
+          potions,
+          potionTarget: shape.potions,
+          potionRespawnTurns: shape.potionRespawnTurns ?? 3,
+          potionWindowTurns: DEFAULT_POTION_WINDOW_TURNS,
+        }),
+  };
+}
+
+/**
+ * THE BIG BOARD — 15x15, three teams of four, eight meals.
+ *
+ * The question it asks that none of the five can: does the bot SCALE? Every
+ * member of the fold is read off a flood fill or a reach set, and both grow
+ * with the board while `DEFAULT_NODE_BUDGET` does not — so on 225 cells the
+ * same 550 units of kernel work buy a smaller fraction of the board than they
+ * do on 121, and any member that was accidentally global on `mixed` is local
+ * here. Twelve units on 225 cells is also DELIBERATELY sparser per cell than
+ * `mixed`'s eight on 121: the board grows and the crowd does not, so what
+ * separates this class from `mixed` is distance, not density. `dense` is the
+ * other half of that pair.
+ */
+export const WIDE_SCENARIO: GameSpec = boardOfShape({
+  width: 15,
+  height: 15,
+  rosters: [
+    ['snake', 'pawn', 'knight', 'snake'],
+    ['snake', 'queen', 'pawn', 'snake'],
+    ['snake', 'knight', 'pawn', 'snake'],
+  ],
+  food: 8,
+});
+
+/**
+ * THE CROWDED BOARD — four teams of three on `mixed`'s own 11x11.
+ *
+ * Twelve units on 121 cells against `mixed`'s eight: half again the crowd, on
+ * the same board, with a fourth team so no unit has a single enemy to model.
+ * `contest`, `room` and the entrapment instrument are all crowd readings, and
+ * `contest-classA.md` §4 refused a rule because the deciding margin was "a 0.16
+ * TERRITORY gap" on a board that had barely any territory pressure to speak of.
+ * This is the class that has it.
+ */
+export const DENSE_SCENARIO: GameSpec = boardOfShape({
+  width: 11,
+  height: 11,
+  rosters: [
+    ['snake', 'pawn', 'knight'],
+    ['snake', 'queen', 'pawn'],
+    ['snake', 'knight', 'pawn'],
+    ['snake', 'pawn', 'snake'],
+  ],
+  food: 6,
+});
+
+/**
+ * THE UNFAIR BOARD — five units, three units, one unit, on a 13x13.
+ *
+ * Every one of the five scenarios is SYMMETRIC in material: each team fields
+ * the same count, and two of them field the same kinds. So the whole behaviour
+ * programme measured a bot that has never once been ahead or behind on
+ * material at turn 1, and `material` is the heaviest weight in the table
+ * (10, `calibration.ts`). This board asks the question that hides behind that:
+ * with team 0 (`red`) two units up on `blue` and four up on `green`, does the
+ * material floor still hold, or does the bot spend a lead it cannot lose?
+ * Team 0 is the LARGE team deliberately — `--opponent` names team 0 as ours,
+ * so `red`'s deaths under an asymmetry are ours to explain.
+ */
+export const ASYM_SCENARIO: GameSpec = boardOfShape({
+  width: 13,
+  height: 13,
+  rosters: [
+    ['snake', 'pawn', 'knight', 'queen', 'snake'],
+    ['snake', 'pawn', 'knight'],
+    ['snake'],
+  ],
+  food: 6,
+});
+
+/**
+ * THE POTION-RICH BOARD — eight potions on a 13x13, refilled every other turn.
+ *
+ * `potions` stands four on 121 cells and refills every third turn; this stands
+ * eight on 169 and refills every second, so a collector is almost never more
+ * than two cells from a pickup and a window almost never lapses with the board
+ * empty. `docs/design/potion-shape.md` closed the potion member with "leave the
+ * member alone UNTIL THE GAME CHANGES"; the game changing is this class, and
+ * the reckless-pickup share (71% on `potions`) is the number to watch on it.
+ */
+export const POTION_RICH_SCENARIO: GameSpec = boardOfShape({
+  width: 13,
+  height: 13,
+  rosters: [
+    ['snake', 'pawn', 'knight'],
+    ['snake', 'queen', 'pawn'],
+    ['snake', 'knight'],
+  ],
+  food: 5,
+  potions: 8,
+  potionRespawnTurns: 2,
+});
+
+/**
+ * THE LONG GAME — `mixed`, run to 120 turns instead of 60.
+ *
+ * Not a new board: the SAME board, so its first sixty turns are byte-identical
+ * to `mixed`'s at every seed and everything that differs is the second sixty.
+ * `docs/design/BEHAVIOUR-AUDIT.md`'s standing rule is that "a 30-turn arm is a
+ * truncation of the same games, not a board class" — which cuts both ways, and
+ * sixty has never been checked against anything longer. An endgame the corpus
+ * has never reached (few units left, food far, health low) is where a horizon-1
+ * evaluator with a hunger term is least like a good player.
+ */
+export const LONG_SCENARIO: GameSpec = { ...MIXED_SCENARIO, maxTurns: 120 };
+
+// === END wide-corpus scenarios =============================================
 
 export const SCENARIOS: Record<string, GameSpec> = {
   snakes: SNAKE_SCENARIO,
@@ -3412,6 +3716,13 @@ export const SCENARIOS: Record<string, GameSpec> = {
   'mirror-potions': MIRROR_POTION_SCENARIO,
   'mirror-sparse-lean': MIRROR_SPARSE_LEAN_SCENARIO,
   // --- end side symmetry ----------------------------------------------------
+  // --- the wide corpus's classes (this file's `wide-corpus` section) -------
+  wide: WIDE_SCENARIO,
+  dense: DENSE_SCENARIO,
+  asym: ASYM_SCENARIO,
+  'potion-rich': POTION_RICH_SCENARIO,
+  long: LONG_SCENARIO,
+  // --- end wide-corpus classes --------------------------------------------
 };
 
 // --- side symmetry (docs/design/SIDE-ASYMMETRY.md) --------------------------
