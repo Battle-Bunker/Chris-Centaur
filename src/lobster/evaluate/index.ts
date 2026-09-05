@@ -198,7 +198,11 @@ export class BoundEvaluator implements Evaluator {
         this.profile.reachHorizonTurns,
         // One bag, carrying I1's royalReachers and I2's command /
         // energyReserveRatio. See makeContext's signature.
-        this.profile
+        this.profile,
+        // THE PLAN, for `EvalContext.staged`. Every shipped evaluation names
+        // it here, which is what makes `contest`'s standing charge a fact
+        // about the plan rather than about the settlement.
+        plan
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
       const made = finish(ctx, evaluation);

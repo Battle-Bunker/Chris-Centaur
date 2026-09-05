@@ -97,7 +97,8 @@
 
 import type { CellIndex } from '../contracts';
 import type { EngineSubstrate } from '../substrate';
-import { type Feature, ourUnitTerm } from './bound';
+import { type Bound, type Feature, add, ourUnitTerm, point } from './bound';
+import { CONTEST_STANDING } from './calibration';
 import type { EvalContext, Standing } from './features';
 import { perBoardPerTeam } from './memo';
 
@@ -393,10 +394,81 @@ export const contestFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     let field: ContestField | undefined;
-    return ourUnitTerm(ctx, (s) => {
+    const arrival = ourUnitTerm(ctx, (s) => {
       if (field === undefined) field = contestField(ctx.sub, ctx.asTeam);
       const [worst, best] = costOf(ctx, s, field);
       return [-worst, -best];
     });
+    // σ = 0 IS TODAY'S FOLD, BYTE FOR BYTE — not `add(arrival, point(0))`,
+    // which is the same number by IEEE arithmetic but is not the same code
+    // path, and the zero-dose identity is what the law sweep is pinned
+    // against.
+    if (CONTEST_STANDING === 0) return arrival;
+    return add(arrival, standingTerm(ctx));
   },
 };
+
+/**
+ * THE STANDING CHARGE — `contest-gap.md` §3's σ, and the reason it is a POINT.
+ *
+ *     d_u        the cell this plan's staged action leaves u standing on
+ *     field⁺     contestField ∪ each enemy's own turn-start cell
+ *     standing_u 1 if beatenAt(field⁺, tier_u, weight_u, d_u) else 0
+ *
+ *     −σ · Σ_u standing_u / |ours|      lo = est = hi
+ *
+ * ── WHY IT IS SOUND WITHOUT A BRACKET ──────────────────────────────────────
+ *
+ * Both inputs are functions of the STAGED PLAN and the TURN-START BOARD.
+ * `ctx.staged` is the plan's own ray end (see `EvalContext.staged`), `field⁺`
+ * is built off the turn-start roster and the frozen grammar, and the divisor
+ * is the count of our units the plan names. None of the three moves when a
+ * held unit's world is chosen, so the reading is the same number in every
+ * completion world the claims admit — which is R1 and R3 outright and makes R2
+ * trivial. That is also why it may not read `bestAlive`/`worstAlive`: those
+ * ARE the world, and conditioning on them would put a world-dependent number
+ * into an interval declaring itself world-independent.
+ *
+ * ── WHY IT IS NOT THE ARRIVAL CHARGE AGAIN ─────────────────────────────────
+ *
+ * `costOf` prices the cell the unit's arrival SETTLES on, over the set of
+ * cells a world could settle it on, which contains the origin — so once the
+ * origin is beaten the worst reading is `CONTEST_LOSS` at every candidate and
+ * the member goes exactly flat. This addend never reads the settle cell at
+ * all. It says what the PLAN did, and a plan that walks a unit into an enemy's
+ * fan did that whether or not the world lets the unit arrive.
+ *
+ * ── AND WHY `field⁺` RATHER THAN `contestField` ────────────────────────────
+ *
+ * The origin clause is D1's, and it is the rules: an enemy either holds its
+ * cell or vacates it along our edge, so a meeting there is certain either way,
+ * and a trail unit's own square is in no arrival set at all. It is applied
+ * HERE, where it is a fact about the plan, and not inside `costOf`, where D1
+ * measured that it buys one unit-turn of discrimination and costs meals.
+ */
+function standingTerm(ctx: EvalContext): Bound {
+  const staged = ctx.staged;
+  if (staged === null) return ZERO_BOUND;
+  let ours = 0;
+  let charged = 0;
+  let field: ContestField | undefined;
+  for (const s of ctx.standing) {
+    if (s.team !== ctx.asTeam || s.held) continue;
+    // THE SAME DIVISOR `ourUnitTerm` USES — our units the plan names, alive or
+    // not. A count that moved with the reading would make the addend a
+    // function of the world through the back door.
+    ours++;
+    const cell = staged.get(s.unitId);
+    if (cell === undefined) continue;
+    const unit = ctx.sub.unitOf(s.unitId);
+    if (unit === undefined) continue;
+    if (field === undefined) field = standingField(ctx.sub, ctx.asTeam);
+    const tier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
+    if (beatenAt(field, tier, unit.weight, cell)) charged++;
+  }
+  if (ours === 0 || charged === 0) return ZERO_BOUND;
+  return point((-CONTEST_STANDING * charged) / ours);
+}
+
+/** One frozen zero, for the same reason `ZERO_CHARGE` is one. */
+const ZERO_BOUND: Bound = point(0);

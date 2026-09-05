@@ -526,6 +526,13 @@ export interface ContestStandingRead {
   readonly options: number;
   /** `contest` is EXACTLY constant across every offered option. */
   readonly flat: boolean;
+  /**
+   * The same over every LEGAL action the enumerator admits, offered or pruned.
+   * Kept because `contest-gap.md` §2.3's own figure (`mixed` 1-6, 140 flat
+   * unit-turns) reconciles against this reading and not against the offered
+   * one, and a bucket measured two different ways is two different buckets.
+   */
+  readonly flatAll: boolean;
   /** No offered option's staged cell is in any enemy's one-step arrival set. */
   readonly fieldSilent: boolean;
   /** Every offered option's staged cell is beaten. */
@@ -557,10 +564,11 @@ function contestStandingRead(
   plan: JointPlan,
   asTeam: number,
   unitId: UnitId,
-  offered: ReadonlyArray<Candidate>
+  offer: ReadonlyArray<Candidate>
 ): ContestStandingRead | null {
   const unit = sub.unitOf(unitId);
-  if (unit === undefined || offered.length === 0) return null;
+  if (unit === undefined || offer.length === 0) return null;
+  const offered = new Set(offer.map((c) => c.to));
   const origin = unit.cells[0] as number;
   const arrivals = contestField(sub, asTeam);
   const standings = standingField(sub, asTeam);
@@ -571,18 +579,25 @@ function contestStandingRead(
   let standingFirst: boolean | null = null;
   let standingVaries = false;
   let contestFirst: string | null = null;
+  let contestFirstAll: string | null = null;
   let flat = true;
+  let flatAll = true;
   let tieFirst: string | null = null;
   let tied = true;
-  for (const option of offered) {
+  // The same cap `traceFor` prices under, so the two readings of one unit-turn
+  // never disagree about which options they saw.
+  for (const option of sub.actionsOf(unitId).slice(0, 24)) {
+    const mine = offered.has(option.to);
     const cell = stagedCellOf(option, origin);
-    if (arrivals.reached[cell] === 1) reached = true;
-    const beaten = beatenAt(arrivals, tier, unit.weight, cell);
-    if (beaten) beatenAny = true;
-    else beatenAll = false;
     const standing = beatenAt(standings, tier, unit.weight, cell);
-    if (standingFirst === null) standingFirst = standing;
-    else if (standing !== standingFirst) standingVaries = true;
+    const beaten = beatenAt(arrivals, tier, unit.weight, cell);
+    if (mine) {
+      if (arrivals.reached[cell] === 1) reached = true;
+      if (beaten) beatenAny = true;
+      else beatenAll = false;
+      if (standingFirst === null) standingFirst = standing;
+      else if (standing !== standingFirst) standingVaries = true;
+    }
     const trial = new Map(plan);
     trial.set(unitId, option);
     let value;
@@ -594,6 +609,9 @@ function contestStandingRead(
     const contest = value.parts['contest'];
     const key =
       contest === undefined ? 'none' : `${contest.lo}|${contest.est}|${contest.hi}`;
+    if (contestFirstAll === null) contestFirstAll = key;
+    else if (key !== contestFirstAll) flatAll = false;
+    if (!mine) continue;
     if (contestFirst === null) contestFirst = key;
     else if (key !== contestFirst) flat = false;
     const tieKey = `${value.bound.lo}|${value.bound.est}`;
@@ -603,8 +621,9 @@ function contestStandingRead(
   return {
     wireId: unit.wireId,
     originBeaten: beatenAt(arrivals, tier, unit.weight, origin),
-    options: offered.length,
+    options: offer.length,
     flat,
+    flatAll,
     fieldSilent: !reached,
     allBeaten: beatenAll,
     tied,
@@ -1665,6 +1684,9 @@ export interface GameMetrics {
   contestGradedTurns: number;
   /** Flat-bucket unit-turns where the STANDING charge would discriminate. */
   contestFlatStandingVaries: number;
+  /** The flat bucket read over every LEGAL action rather than the offered set
+   *  — `contest-gap.md` §2.3's own reading. See `ContestStandingRead.flatAll`. */
+  contestFlatAllTurns: number;
   contestOutsideDeaths: number;
   contestExposedDeaths: number;
   contestFlatDeaths: number;
@@ -1854,6 +1876,7 @@ export async function runGame(
     contestFlatTurns: 0,
     contestGradedTurns: 0,
     contestFlatStandingVaries: 0,
+    contestFlatAllTurns: 0,
     contestOutsideDeaths: 0,
     contestExposedDeaths: 0,
     contestFlatDeaths: 0,
@@ -1975,11 +1998,14 @@ export async function runGame(
             entryStanding.set(read.wireId, read);
             if (read.arrivalVaries || read.allBeaten) metrics.contestExposedTurns++;
             else metrics.contestOutsideTurns++;
-          } else if (read.flat) {
-            metrics.contestFlatTurns++;
-            if (read.standingVaries) metrics.contestFlatStandingVaries++;
           } else {
-            metrics.contestGradedTurns++;
+            if (read.flatAll) metrics.contestFlatAllTurns++;
+            if (read.flat) {
+              metrics.contestFlatTurns++;
+              if (read.standingVaries) metrics.contestFlatStandingVaries++;
+            } else {
+              metrics.contestGradedTurns++;
+            }
           }
         }
         // --- end contest-standing instrument --------------------------------
@@ -2478,6 +2504,7 @@ export interface RunSummary {
     readonly contestFlatTurns: number;
     readonly contestGradedTurns: number;
     readonly contestFlatStandingVaries: number;
+    readonly contestFlatAllTurns: number;
     readonly contestOutsideDeaths: number;
     readonly contestExposedDeaths: number;
     readonly contestFlatDeaths: number;
@@ -2596,6 +2623,7 @@ export function summaryOf(
       contestFlatTurns: metrics.contestFlatTurns,
       contestGradedTurns: metrics.contestGradedTurns,
       contestFlatStandingVaries: metrics.contestFlatStandingVaries,
+      contestFlatAllTurns: metrics.contestFlatAllTurns,
       contestOutsideDeaths: metrics.contestOutsideDeaths,
       contestExposedDeaths: metrics.contestExposedDeaths,
       contestFlatDeaths: metrics.contestFlatDeaths,
@@ -2709,6 +2737,7 @@ async function summarise(
     contestFlatTurns: 0,
     contestGradedTurns: 0,
     contestFlatStandingVaries: 0,
+    contestFlatAllTurns: 0,
     contestOutsideDeaths: 0,
     contestExposedDeaths: 0,
     contestFlatDeaths: 0,
@@ -2822,6 +2851,7 @@ async function summarise(
         `FLAT=${totals.contestFlatTurns}/${totals.contestFlatDeaths} ` +
         `graded=${totals.contestGradedTurns}/${totals.contestGradedDeaths} ` +
         `flatStandingVaries=${totals.contestFlatStandingVaries} ` +
+        `flatAll=${totals.contestFlatAllTurns} ` +
         `classes A=${totals.contestClassA} B=${totals.contestClassB} ` +
         `C=${totals.contestClassC} E=${totals.contestClassE} ` +
         `other=${totals.contestClassOther} unknown=${totals.contestClassUnknown}`

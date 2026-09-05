@@ -183,6 +183,43 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
 export const CLIFF_MATERIAL_WEIGHT = 10;
 
 /**
+ * σ — `CONTEST_STANDING`, the price of STAGING A UNIT ONTO A CELL AN ENEMY
+ * BEATS. `docs/design/contest-gap.md` §3.
+ *
+ * ── WHAT IT IS FOR ─────────────────────────────────────────────────────────
+ *
+ * `contest`'s existing charge asks what the cell a unit ENDS on costs. That is
+ * a world-dependent quantity, so it must be bracketed; the bracket
+ * (`contest.ts`'s `settlesOn`) contains the unit's ORIGIN, because the
+ * commonest completion world is the one where the move does not happen; and a
+ * max over a set containing the origin can never reward leaving it. Measured:
+ * once a unit's own cell is beaten, `contest` is EXACTLY CONSTANT across every
+ * option that unit has — 5-6% of decider unit-turns, carrying 67-73% of all
+ * contest deaths at twenty times the rate of equally exposed unit-turns where
+ * the member still has a gradient. The diagnosis's theorem is that no
+ * refinement INSIDE the bracket can repair it, because any bracket containing
+ * the origin is pinned by the origin.
+ *
+ * σ prices a different question — "does this PLAN stage a unit onto a cell an
+ * enemy beats" — which is a fact about the plan and the turn-start board, so
+ * it is a POINT, needs no bracket, and nothing about the origin enters it.
+ *
+ * ── WHAT ITS RANGE COSTS ───────────────────────────────────────────────────
+ *
+ * The per-unit reading widens from `[-1, 0]` to `[-1-σ, 0]`, so the cliff
+ * inequality of fact 1 above goes from `w_contest x 1 < 10 x lightest` to
+ * `w_contest x (1+σ) < 10 x lightest` — at `w_contest = 3` and σ ≤ 1 that is
+ * `6 < 10`, and the term still cannot buy a unit's life. σ MAY NOT EXCEED
+ * 1: the diagnosis states the knob on [0, 1] and the certificate is pinned
+ * there.
+ *
+ * ZERO IS TODAY'S FOLD, BYTE FOR BYTE — `contest.ts` returns the arrival term
+ * untouched at σ = 0, which is what lets the law sweep be pinned against a
+ * zero-dose identity.
+ */
+export const CONTEST_STANDING: number = 0.125;
+
+/**
  * How many turns ahead the reach flood runs. Shells are keyed by ABSOLUTE
  * turn, so a unit held since turn 7 and read at turn 10 gets its three turns of
  * head start as a SEED rather than as an inexpressible negative delay. That
