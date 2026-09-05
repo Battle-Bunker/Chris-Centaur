@@ -91,6 +91,56 @@ function lensRefusal(refusal: LensRefusalReason, detail: string): LensRefusal {
   return { ok: false, refusal, detail };
 }
 
+/**
+ * THE WIRE, MADE SLOW ON PURPOSE.
+ *
+ * In this dev environment the browser, the centaur and the "game server" are
+ * one process, so both hops are free and every latency signal an operator is
+ * given reads zero — which is exactly the condition under which a latency
+ * surface cannot be designed, let alone tested. This shapes the socket so it
+ * can be: a delay in each direction, jitter around it, and a drop rate.
+ *
+ * THIS IS A TEST-HARNESS KNOB AND NOT A PRODUCT FLAG. Nothing in `src/index.ts`
+ * or the config store can reach it; the only caller is
+ * `src/tests/lens-walkthrough-server.ts`, which sets it from its own command
+ * line. Unset (the default) the shaping code is one null check on the send
+ * path and nothing else.
+ *
+ * ORDER IS PRESERVED. A websocket is an ordered stream and an operator's
+ * mental model of one depends on that, so jitter must not be allowed to swap
+ * two frames: each direction of each connection keeps a release clock and a
+ * frame is never released before the frame in front of it. Jitter therefore
+ * shows up as bunching and gaps — which is what jitter looks like on a stream
+ * protocol — rather than as reordering, which is what it looks like on a
+ * datagram one.
+ */
+export interface TransportShaping {
+  /** Centaur → client, milliseconds of one-way delay. */
+  readonly downMs?: number;
+  /** Client → centaur, milliseconds of one-way delay. */
+  readonly upMs?: number;
+  /** Uniform ± jitter added to each direction's delay. */
+  readonly jitterMs?: number;
+  /** 0..1 — the fraction of droppable outbound frames that never leave. */
+  readonly lossRate?: number;
+  /**
+   * Drop ANY outbound type, not just the superseded ones. Off by default and
+   * it matters: `lens-frames` carries the turn's only copy of its events and
+   * nothing above the socket retransmits, so a dropped batch is a hole in the
+   * fold for the rest of the turn. That is a real property of this protocol
+   * and worth being able to see; it is not a thing to leave switched on.
+   */
+  readonly lossAny?: boolean;
+}
+
+interface Shaping {
+  readonly downMs: number;
+  readonly upMs: number;
+  readonly jitterMs: number;
+  readonly lossRate: number;
+  readonly lossAny: boolean;
+}
+
 export class GameWebSocketServer {
   private wss: WebSocketServer;
   private clients: Set<WSClient> = new Set();
@@ -127,9 +177,81 @@ export class GameWebSocketServer {
   // joiner never receives, because a broadcast carries only new events.
   private lensAnchors: Map<string, TurnEvent> = new Map();
 
+  // The injected-latency knob, and the two release clocks it needs to keep a
+  // shaped stream ordered. Null is the shipped state and the only state
+  // production can be in.
+  private shaping: Shaping | null = null;
+  private releaseDown: WeakMap<WebSocket, number> = new WeakMap();
+  private releaseUp: WeakMap<WebSocket, number> = new WeakMap();
+  // When the centaur received the turn it is currently broadcasting, per game.
+  // The client is told the difference (`gameLagMs` on `board-update`) so the
+  // second hop — centaur ↔ game server — has a number of its own rather than
+  // being folded into the one hop a browser can measure for itself.
+  private turnArrivedAt: Map<string, number> = new Map();
+
   /** Attached by whoever owns the running decision. */
   attachLensPort(port: InspectionPort | null): void {
     this.lensPort = port;
+  }
+
+  /**
+   * Shape the wire. See `TransportShaping` — a harness knob, null to restore.
+   */
+  shapeTransport(shape: TransportShaping | null): void {
+    this.shaping =
+      shape === null
+        ? null
+        : {
+            downMs: Math.max(0, shape.downMs ?? 0),
+            upMs: Math.max(0, shape.upMs ?? 0),
+            jitterMs: Math.max(0, shape.jitterMs ?? 0),
+            lossRate: Math.min(1, Math.max(0, shape.lossRate ?? 0)),
+            lossAny: shape.lossAny === true,
+          };
+  }
+
+  /**
+   * WHEN THE GAME SERVER PRODUCED THIS TURN — the far end of the second hop,
+   * which is the one end this process cannot measure for itself.
+   *
+   * The transport reports the difference between this and the moment it
+   * broadcasts the turn (`gameLagMs` on `board-update`), so the operator is
+   * shown the centaur ↔ game-server lag as its own number instead of having
+   * it folded into the one hop a browser can time. Where nobody has called
+   * this the field is `null`, and the surface says the lag is UNKNOWN rather
+   * than saying it is zero. In production the caller is whoever receives the
+   * turn — the Firebase interface, through `ActiveGameManager`; that seam is
+   * not this file's and no hook into it is invented here.
+   */
+  noteTurnOrigin(gameId: string, atMs: number = Date.now()): void {
+    this.turnArrivedAt.set(gameId, atMs);
+  }
+
+  /** One direction's delay for one frame, order preserved. Returns the number
+   *  of ms to hold the frame, or -1 to drop it. */
+  private holdFor(
+    ws: WebSocket,
+    clocks: WeakMap<WebSocket, number>,
+    baseMs: number,
+    droppable: boolean
+  ): number {
+    const shape = this.shaping;
+    if (shape === null) return 0;
+    if (droppable && shape.lossRate > 0 && Math.random() < shape.lossRate) return -1;
+    const jitter = shape.jitterMs === 0 ? 0 : (Math.random() * 2 - 1) * shape.jitterMs;
+    const now = Date.now();
+    const earliest = Math.max(now, clocks.get(ws) ?? 0);
+    const at = Math.max(earliest, now + baseMs + jitter);
+    clocks.set(ws, at);
+    return at - now;
+  }
+
+  /** Outbound hold, in ms; -1 drops the frame. 0 when the wire is not shaped. */
+  private holdOutbound(ws: WebSocket, msgType: string): number {
+    const shape = this.shaping;
+    if (shape === null) return 0;
+    const droppable = shape.lossAny || SUPERSEDED_MSG_TYPES.has(msgType);
+    return this.holdFor(ws, this.releaseDown, shape.downMs, droppable);
   }
 
   /**
@@ -278,7 +400,15 @@ export class GameWebSocketServer {
               ServerEventLogger.getInstance().recordUserIntent();
             }
           }
-          this.handleMessage(client, msg);
+          // The client → centaur hop, when the wire is shaped. Unshaped this
+          // is `hold === 0` and the call is the same synchronous one it has
+          // always been.
+          const shape = this.shaping;
+          const hold =
+            shape === null ? 0 : this.holdFor(ws, this.releaseUp, shape.upMs, shape.lossAny);
+          if (hold < 0) return;
+          if (hold === 0) this.handleMessage(client, msg);
+          else transientTimeout(() => this.handleMessage(client, msg), hold);
         } catch (e) {
           console.error('WebSocket message parse error:', e);
         }
@@ -339,6 +469,12 @@ export class GameWebSocketServer {
         turn: gameState.turn,
         gameState: gameState,
         turnExpiryTime: game?.turnExpiryTime || null,
+        // The second hop, named. `null` is "nobody reported an arrival", which
+        // is a different statement from "the hop was instant".
+        gameLagMs: (() => {
+          const arrived = this.turnArrivedAt.get(gameId);
+          return arrived === undefined ? null : Math.max(0, Date.now() - arrived);
+        })(),
         selections: this.getSelectionsForGame(gameId),
         owners: this.gameManager.getOwnersForGame(gameId),
         stagedMoves: this.getStagedMovesForGame(gameId),
@@ -1188,7 +1324,7 @@ export class GameWebSocketServer {
     // above the incumbent — and plain JSON turns it into `null`, which reads
     // as "unmeasured". The client revives it with the same codec, so the frame
     // it folds is the frame the server built.
-    const data = lensStringify(msg);
+    const data = lensStringify(stampSent(msg));
     for (const client of this.clients) {
       if (client.gameId !== gameId || client.isLobby || client.ws.readyState !== WebSocket.OPEN) {
         continue;
@@ -1217,7 +1353,11 @@ export class GameWebSocketServer {
       try { ws.terminate(); } catch {}
       return;
     }
-    ws.send(lensStringify(msg));
+    const data = lensStringify(stampSent(msg));
+    const hold = this.holdOutbound(ws, msg?.type ?? '');
+    if (hold < 0) return;
+    if (hold === 0) ws.send(data);
+    else transientTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.send(data); }, hold);
   }
 
   /**
@@ -1267,8 +1407,23 @@ export class GameWebSocketServer {
       return;
     }
 
-    ws.send(data);
+    const hold = this.holdOutbound(ws, msgType);
+    if (hold < 0) return;
+    if (hold === 0) ws.send(data);
+    else transientTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.send(data); }, hold);
   }
+}
+
+/**
+ * WHEN THE SERVER LET GO OF IT. Stamped before the wire (and before any
+ * injected delay), so a client subtracting it from its own skew-corrected
+ * clock measures the FLIGHT and not the server's own queueing. Every outbound
+ * envelope carries it; the browser reads it for one-way transport, board
+ * staleness and the freshness ladder.
+ */
+function stampSent(msg: any): any {
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return msg;
+  return { ...msg, serverSentAt: Date.now() };
 }
 
 // Graceful-shutdown close: 1001 "going away", the standard server-restart code.

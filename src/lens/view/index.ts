@@ -128,15 +128,78 @@ export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<Tu
   return events.map((e) => reviveLens(e));
 }
 
-/** The turn's events, folded onto their own `board.arrived` anchor. Shared by
- *  both entry points below, because the fold is the half that must not differ
- *  between a live turn and a recorded one. */
-function storeOf(
+/**
+ * THE FOLD, KEPT — one turn's fold, reused while the turn's array is the array
+ * it was folded from.
+ *
+ * `storeOf` is a `reduce` over every event of the turn and `frameAt` is a
+ * second pass over the same array; between them they are the fold, and the
+ * page asks for one about forty-three times a turn for the twelve batches that
+ * actually arrive (`docs/design/ux/03-LATENCY.md` §1.4). Nothing about that is
+ * wrong except that the answer is the same answer: the fold is PURE, so the
+ * only thing that can change it is the array growing.
+ *
+ * So the memo is keyed on the array's own identity and validated on the two
+ * facts that make a prefix a prefix — its length, and the object that was last
+ * in it. The page grows `lensEvents` by pushing and re-sorting, and events
+ * arrive in `seq` order, so the common case is "the same events plus a few
+ * more" and the extension folds ONLY the new ones onto the store it already
+ * had. Anything else — a different anchor, a different settlement, an array
+ * whose prefix moved — falls through to the full fold, which is the
+ * un-memoised function exactly as it was.
+ *
+ * This is a cache and NOT a second fold: every entry in it was produced by
+ * `applyEvent`, in order, from `emptyStore(anchor)`. `lens-determinism` and
+ * `lens-replay-parity` are the gate, and they compare what comes out of here
+ * against what the reducer produces with no memo in front of it.
+ */
+interface FoldMemo {
+  readonly settlement: BoardSnapshot | null;
+  readonly anchorEvent: TurnEvent;
+  readonly length: number;
+  readonly tail: TurnEvent | undefined;
+  readonly store: FrameStore;
+  readonly at: Cursor;
+  readonly frames: Map<string, LensFrame>;
+}
+
+// Per events-array, and at most two entries — a live fold (no settlement) and
+// a replayed one (the turn's board handed in). Weak, so a closed turn's fold
+// is collected with the array the page dropped on the turn boundary.
+const FOLDS = new WeakMap<object, FoldMemo[]>();
+// A turn holds tens of events, so tens of distinct `seq` under the playhead.
+// The cap is two orders above that and exists so a pathological caller cannot
+// grow one turn's map without bound.
+const FRAME_CACHE_CAP = 512;
+
+function foldOf(
   events: ReadonlyArray<TurnEvent>,
   settlement?: BoardSnapshot | null
-): { store: FrameStore; at: Cursor } {
+): FoldMemo {
   const found = events.find((e) => e.kind === 'board.arrived') ?? events[0];
   if (found === undefined) throw new Error('a turn with no events has no frame');
+  const want = settlement ?? null;
+  const held = FOLDS.get(events as object);
+  const memo = held?.find((m) => m.settlement === want && m.anchorEvent === found);
+  if (
+    memo !== undefined &&
+    events.length >= memo.length &&
+    events[memo.length - 1] === memo.tail
+  ) {
+    if (events.length === memo.length) return memo;
+    let store = memo.store;
+    for (let i = memo.length; i < events.length; i++) {
+      const event = events[i] as TurnEvent;
+      if (event.seq > memo.at.seq) store = applyEvent(store, event);
+    }
+    return remember(events, held, {
+      ...memo,
+      length: events.length,
+      tail: events[events.length - 1],
+      store,
+      frames: new Map(),
+    });
+  }
   // A STORED ANCHOR HAS NO BOARD. `logStoredEvent` drops the settlement on the
   // way to Postgres — `turn_boards` holds it — so a caller folding rows read
   // back out of `turn_events` must hand the board over, exactly as
@@ -148,7 +211,38 @@ function storeOf(
   const store = events
     .filter((e) => e.seq > anchor.seq)
     .reduce<FrameStore>((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-  return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
+  return remember(events, held, {
+    settlement: want,
+    anchorEvent: found,
+    length: events.length,
+    tail: events[events.length - 1],
+    store,
+    at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq },
+    frames: new Map(),
+  });
+}
+
+function remember(
+  events: ReadonlyArray<TurnEvent>,
+  held: FoldMemo[] | undefined,
+  memo: FoldMemo
+): FoldMemo {
+  const kept = (held ?? []).filter(
+    (m) => !(m.settlement === memo.settlement && m.anchorEvent === memo.anchorEvent)
+  );
+  kept.unshift(memo);
+  FOLDS.set(events as object, kept.slice(0, 2));
+  return memo;
+}
+
+/** One frame out of a kept fold, memoised on the cursor it answers for. */
+function frameOf(memo: FoldMemo, key: string, build: () => LensFrame): LensFrame {
+  const hit = memo.frames.get(key);
+  if (hit !== undefined) return hit;
+  const frame = build();
+  if (memo.frames.size >= FRAME_CACHE_CAP) memo.frames.clear();
+  memo.frames.set(key, frame);
+  return frame;
 }
 
 export function frameAtSeq(
@@ -156,8 +250,10 @@ export function frameAtSeq(
   seq: number,
   isHead: boolean
 ): LensFrame {
-  const { store, at } = storeOf(events);
-  return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
+  const memo = foldOf(events);
+  return frameOf(memo, `live/${seq}/${isHead ? 'head' : 'scrub'}`, () =>
+    makeLiveDecisionSource({ store: memo.store, at: { ...memo.at, seq }, isHead }).frame()
+  );
 }
 
 /**
@@ -176,8 +272,10 @@ export function replayFrameAtSeq(
   seq: number,
   settlement: BoardSnapshot | null = null
 ): LensFrame {
-  const { store, at } = storeOf(events, settlement);
-  return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
+  const memo = foldOf(events, settlement);
+  return frameOf(memo, `replay/${seq}`, () =>
+    makeReplayDecisionSource({ store: memo.store, at: { ...memo.at, seq } }).frame()
+  );
 }
 
 // ---------------------------------------------------------------------------
