@@ -370,38 +370,6 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false }
 export const HEALTH_RESERVE_RATIO = 0.5;
 
 /**
- * HOW MANY MEALS BEHIND FULL A UNIT MUST BE TO READ AS FULLY HUNGRY — the
- * denominator of `food.ts`'s hunger scale, in MEALS rather than in tank.
- *
- * BEHAVIOUR-AUDIT-2 P3. The scale used to divide the shortfall by the tank, and
- * a tank is not an appetite: a snake at 71 of 100 read hunger 0.29 whether that
- * shortfall was one meal or five. On `sparse-lean` (`foodEnergy: 20`) it is five,
- * and the bot ate 13% LESS often than on the identical `sparse` board where the
- * same shortfall is a single meal — 6.25 meals per 100 unit-turns against 7.22,
- * with three of four units on seed 2 still falling at turn 60.
- *
- * At 1, one meal short of a full tank is fully hungry. Where a meal fills the
- * tank — `foodEnergy = DEFAULT_FOOD_ENERGY = 100 = defaultMaxEnergy`, which is
- * every scenario in the repo but `sparse-lean` — `HUNGER_SPAN * foodEnergy` IS
- * the cap and the reading is bit-identical to the tank-denominated one it
- * replaces. Only a lean board can tell the two apart.
- *
- * IT SATURATES, AND THAT IS SAFE HERE FOR THE REASON D3 WAS NOT. D3 saturated
- * `fearsOf`'s `short`, which was the ORDERING signal itself, and a saturated
- * ordering signal ranks nothing. `hunger` is a per-unit CONSTANT within one
- * decision (`food.ts` reads turn-start energy so the feature stays purely
- * positional); the per-candidate ordering lives entirely in `near`, which this
- * denominator does not touch. Saturating it raises the GAIN on a gradient
- * instead of flattening an order.
- *
- * THE COUNTER IT WAS GATED AGAINST is `HUNGER_FLOOR`'s own table (`./food.ts`):
- * a full unit that hunts anyway coils into a spiral and dies in it. The A/B gate
- * was therefore `sparse-lean` deaths staying at 0 and `grownMeals/meals` staying
- * at or above 0.5, not meals alone.
- */
-export const HUNGER_SPAN = 1;
-
-/**
  * THE PRODUCTION PROFILE. Territory-carrying, because the deficit against the
  * legacy path was measured to be in the OBJECTIVE and not in the search: a
  * material-only maximin is blind to food more than one move away and to a unit

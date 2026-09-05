@@ -325,6 +325,95 @@ above 0, the rule is out on the same evidence that set `HUNGER_FLOOR`.
   **byte-identical**, because `HUNGER_SPAN · foodEnergy = cap` there makes the new
   denominator the old one to the bit.
 
+### STATUS: BUILT, MEASURED, REVERTED — every predicted number lands and the counter kills a snake (`beh-p3`)
+
+The rule was implemented exactly as written: one knob `HUNGER_SPAN` in meals,
+default 1, in `calibration.ts` beside the other measured numbers, with
+`pullOf` (`food.ts`) dividing the shortfall by `HUNGER_SPAN · foodEnergy`
+instead of by the tank. `near` untouched. `tsc`, `eslint`, the boundary tests,
+`soundness`, `evaluate`, `local-game-determinism` and `law-sweep` all green on
+it, and the nineteen-arm inversion gate clean ON THE P3 ARM ITSELF
+(`CENTAUR_DEBUG_INVERSION=1`, the sixteen arms of audit 2's gate plus
+`sparse-lean` seeds 1–3: **no `INVERSION` line on any arm**) — checked so this
+revert cannot be read as a soundness failure. The bound arithmetic never
+moves: `hunger` is a per-unit constant multiplying a `near` this rule does not
+touch, so `lo <= hi` holds by exactly the construction it held by before.
+
+`sparse-lean` seeds 1–3, 60 turns, `--nodes --json`, `ab-compare` per class:
+
+| seed | meals before → after | grown | deaths | t41–60 mean energy | ends at own min |
+|---|---|---|---|---|---|
+| 1 | 15 → 21 | 12 → 18 | 0 → 0 | 90.6 → 91.4 | 0/4 → 0/4 |
+| 2 | 12 → **17** | 10 → 13 | 0 → **1** | 75.6 → **84.6** | 3/4 → **1/4** |
+| 3 | 18 → 26 | 16 → 25 | 0 → 0 | 86.1 → 94.9 | 2/4 → 1/4 |
+| **1–3** | **45 → 64** | 38 → 56 | **0 → 1** | — | 5/12 → 2/12 |
+
+**EVERY PREDICTED NUMBER LANDS.** meals/100 6.25 → **9.01**, against a
+pre-registered ≥7.22 and against `sparse`'s own 7.22 — the lean board now
+out-eats the rich one, which is the right direction for a board where a meal is
+worth a fifth as much. `grownMeals/meals` 0.84 → **0.88**, against a
+pre-registered ≥0.5. Seed 2's turn-41–60 mean energy 75.6 → 84.6, and units
+finishing at their own minimum 3 of 4 → 1 of 4. The four other classes and both
+material-only arms are **byte-identical on every counter of every seed** — 12 of
+12 paired summaries equal field-for-field, exactly as claimed.
+
+**AND THE RULE IS OUT ANYWAY, on the counter it was gated against.**
+`sparse-lean` deaths 0 → 1. The pre-registration was unconditional — "if
+`sparse-lean` deaths go above 0, the rule is out on the same evidence that set
+`HUNGER_FLOOR`" — and it is not being re-argued here because the meals came in
+high.
+
+**THE MECHANISM IS `HUNGER_FLOOR`'s OWN, TRANSPOSED FROM A COIL TO A CORNER.**
+seed 2, red-A, which under the old scale spent turns 44–52 crossing the open
+bottom of the board and ate at (12,0), an edge cell with an exit:
+
+    T 46 red-A snake hp84 (1,10)->(1,11)  top3: (1,11)=-47.35 (0,10)=-47.36 (2,10)=-47.45
+    T 47 red-A snake hp83 (1,11)->(0,11)  top3: (0,11)=-47.30 (1,12)=-48.54 (2,11)=-89.46
+    T 48 red-A snake hp82 (0,11)->(0,12)  top3: (0,12)=-38.42 (0,10)=-48.13 (-1,11)!=-89.48
+      ATE red-A
+      ENTRAPPED red-A kept=1/7
+    T 49 red-A snake hp100 (0,12)->(1,12) top3: (1,12)=-41.04 (0,13)!=-89.01 (-1,12)!=-89.01
+    T 50 red-A snake hp 99 (1,12)->(2,12) top3: (2,12)=-88.90 (1,13)!=-88.95 (0,12)!=-88.95
+      DEATH red-A (bodyBlock)  body was (1,12)(0,12)(0,11)(1,11)(1,10)
+
+It climbs the `x = 1` column for eight turns into the top-left corner after the
+meal at (0,12), eats at turn 48 — 82 → 100, a full tank, so the meal GROWS it —
+and is dead three turns later, walled in by the five body cells it laid on the
+way in, one of which it only has because that meal grew it. At turn 48 it had
+one legal option of seven, and the alternatives were already off-board.
+
+**One line of arithmetic says why.** At hp 84 the tank scale reads hunger
+`16/100 = 0.16` and a gain of `0.15 + 0.85·0.16 = 0.286`; the meal scale reads
+`16/20 = 0.8` and a gain of `0.83`. **2.9× the pull**, on the same `near`, toward
+a meal sitting in a two-wide dead end. That extra gain is exactly what bought the
+eight-turn trip up the column, and the growth at the end of it is what sealed the
+pocket. red-A was never in danger of starving — 0 starvation deaths in both arms,
+and it never fell below 82 — so this is a unit that took a meal it did not need
+and paid a life for it. That is `HUNGER_FLOOR`'s calibration table, in a corner
+instead of a spiral.
+
+**What survives the revert, for whoever picks this up.** The diagnosis in this
+section is not withdrawn: hunger really is denominated in the wrong unit, the
+lean board really is under-eaten, and saturating `hunger` really is safe where
+saturating D3's `short` was not — the ordering never moved, and the 12-of-12
+byte-identity off a lean board confirms the containment claim exactly. What is
+refuted is that the denominator ALONE fixes it. Appetite is not the only thing
+that should read `foodEnergy`: the same shortfall that makes a unit hungrier also
+makes the meal at the end of a dead end worth less, and nothing on the approach
+priced the pocket. A next attempt should carry the meal size into whatever
+prices the ENTRY — `room`'s reading of the cell the meal sits in, or a growth
+term that knows a full-tank meal lengthens the eater — and only then re-run this
+gate. `HUNGER_SPAN` on its own is measured and closed.
+
+**One implementation note worth keeping.** The rule must be written as
+`(1 - energy/cap) · (cap/span)` and not as the algebraically equal
+`(cap - energy)/span`. `1 - e/c` is not bit-equal to `(c - e)/c` in IEEE 754 —
+they differ in the last ulp for 188 of the 476 integer energies under this repo's
+kind ceilings — so the second form perturbs every non-lean board in the last
+place and the byte-identity claim fails on a rounding artifact rather than on a
+rule. Multiplying by a `cap/span` of exactly 1.0 is exact. The 12-of-12 result
+above depends on this and on nothing else.
+
 ---
 
 ## P4 — D5 is unchanged and still makes `mixed`'s entrapment instrument unreadable
