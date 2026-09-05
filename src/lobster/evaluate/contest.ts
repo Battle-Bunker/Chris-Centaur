@@ -60,6 +60,20 @@
  * above worlds the resolver itself produces. `settlesOn` names the set and
  * `costOf` brackets over it.
  *
+ * ── THE THIRD MEETING: AN EDGE, NOT A CELL ─────────────────────────────────
+ *
+ * `turnEngine` c1 settles one more fatal meeting before any arrival is
+ * adjudicated: two units traversing the SAME EDGE in opposite directions
+ * inside one sub-step, decided by the same `strictMaximum` an arrival is.
+ * `contestField` cannot see it — it stamps the cells an enemy could END on,
+ * and the cell an enemy is LEAVING is not one of them unless the enemy's own
+ * grammar also offers a hold there. A trail unit has no hold ("staging their
+ * own square is not a move"), so the square an adjacent enemy snake is
+ * standing on is priced at ZERO by the arrival field, and stepping onto it
+ * while it steps onto ours is an `edge` death the fold never charged for.
+ * `crossingField` and `EDGE_EXCHANGE` are that charge; the measurement and the
+ * verdict are `docs/design/EDGE-EXCHANGE.md`.
+ *
  * ── WHY AN EVALUATOR TERM ──────────────────────────────────────────────────
  *
  * The floor already knows a contested cell is dangerous, and that is precisely
@@ -248,6 +262,104 @@ function chargeAt(field: ArrivalField, tier: number, weight: number, cell: numbe
   return beatenAt(field, tier, weight, cell) ? CONTEST_LOSS : 0;
 }
 
+// ---------------------------------------------------------------------------
+// EDGE_EXCHANGE(λ) — docs/design/BEHAVIOUR-AUDIT-3.md W2
+// ---------------------------------------------------------------------------
+
+/**
+ * λ — WHAT AN ARRIVAL COSTS WHEN THE ENEMY STANDING ON IT COULD LEAVE THROUGH
+ * OUR OWN ORIGIN.
+ *
+ * The dose, in `CONTEST_LOSS` units: λ = 1 prices the crossing exactly as an
+ * arrival contest, λ = 0 is the state before W2 was read. It is a MAXIMUM
+ * against the arrival charge and never a sum — a unit dies once, and this
+ * term's per-unit charge is the indicator of that one death, which is what
+ * keeps the whole term inside `[-1, 0]` on every roster size.
+ */
+export const EDGE_EXCHANGE: number = 0;
+
+/**
+ * WHO IS STANDING WHERE, AND WHERE THEY COULD WALK OUT THROUGH.
+ *
+ * One record per enemy: the head cell it occupies at turn start, the frozen
+ * pair a crossing would be adjudicated on, and a mask of every cell its legal
+ * actions ENTER. The mask is the engine's own path — `actionsOf` hands back
+ * `queries.pathOf`, the untruncated ray the resolver is itself handed — so a
+ * ray crossing our origin three cells out is in it for the same reason the
+ * adjacent step is, and nothing here re-derives a direction or a distance.
+ *
+ * Head cells only. The c1 exchange is head-to-head ("trails make no
+ * difference — the contest is head-to-head, decided before either head can
+ * reach the far side"), and a body cell we walk into is a `bodyBlock` the
+ * material fold already answers.
+ */
+interface CrossingField {
+  /** Enemy index + 1 at that enemy's turn-start head cell; 0 elsewhere. */
+  readonly headAt: Int32Array;
+  /** Per enemy, the cells its legal actions enter. */
+  readonly exits: ReadonlyArray<Uint8Array>;
+  /** Per enemy, frozen tier and weight — `arrivalField`'s pair, unpooled. */
+  readonly tier: Int32Array;
+  readonly weight: Int32Array;
+}
+
+const CROSSINGS = new WeakMap<object, Map<number, CrossingField>>();
+
+/**
+ * Built once per board per subject team, off the same enumeration pass
+ * `contestField` already caches. A knight is absent from it by the rules'
+ * own exemption: it traverses no edge, so it can neither win nor lose one.
+ */
+export function crossingField(sub: EngineSubstrate, asTeam: number): CrossingField {
+  return perBoardPerTeam(CROSSINGS, sub.marshalled, asTeam, () => {
+    const cells = sub.grid.cells;
+    const headAt = new Int32Array(cells);
+    const exits: Uint8Array[] = [];
+    const tier: number[] = [];
+    const weight: number[] = [];
+    for (const unit of sub.roster()) {
+      if (unit.team === asTeam) continue;
+      if (!sub.traversesEdges(unit.unitId)) continue;
+      const head = unit.cells[0];
+      if (head === undefined || head < 0 || head >= cells) continue;
+      const mask = new Uint8Array(cells);
+      for (const action of sub.actionsOf(unit.unitId)) {
+        for (const cell of action.path) if (cell >= 0 && cell < cells) mask[cell] = 1;
+      }
+      headAt[head] = exits.length + 1;
+      exits.push(mask);
+      tier.push(frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn));
+      weight.push(unit.weight);
+    }
+    return { headAt, exits, tier: Int32Array.from(tier), weight: Int32Array.from(weight) };
+  });
+}
+
+/**
+ * `λ · CONTEST_LOSS` where entering `cell` from `origin` is a crossing we lose.
+ *
+ * The three clauses are the rule and nothing else: an enemy head standing on
+ * the cell we are entering, our own origin on one of that enemy's exit paths,
+ * and `winsContest` — the same tier-then-weight order, on the same scale —
+ * saying we are not the survivor of it.
+ */
+function crossingChargeAt(
+  cross: CrossingField,
+  tier: number,
+  weight: number,
+  origin: number,
+  cell: number
+): number {
+  if (cell < 0 || cell >= cross.headAt.length) return 0;
+  if (origin < 0 || origin >= cross.headAt.length) return 0;
+  const at = cross.headAt[cell] as number;
+  if (at === 0) return 0;
+  const them = at - 1;
+  if ((cross.exits[them] as Uint8Array)[origin] !== 1) return 0;
+  if (winsContest(tier, weight, cross.tier[them] as number, cross.weight[them] as number)) return 0;
+  return EDGE_EXCHANGE * CONTEST_LOSS;
+}
+
 /**
  * WHERE THIS UNIT'S ARRIVAL COULD SETTLE — the contingent set, and the reason
  * this term has two readings at all.
@@ -309,11 +421,26 @@ function costOf(ctx: EvalContext, s: Standing, field: ArrivalField): readonly [l
   const settled = chargeAt(field, ourTier, unit.weight, s.cell);
   const contingent = settlesOn(ctx, s, unit.wireId);
   if (contingent === null) return settled === 0 ? ZERO_CHARGE : [settled, settled];
-  let worst = settled;
+  // THE CROSSING IS A WORST-WORLD CHARGE, AND ONLY WHERE A WORLD IS LEFT TO
+  // CHOOSE. It rides the `lo` reading alone — the enemy has other exits, so a
+  // meeting over the edge is a world and not a certainty — and it is asked
+  // only of a CONTINGENT unit, which is the discharge contract and not a
+  // softening: where the ledger does not name this unit, `settlePartial`
+  // guarantees its disposition (where it went, whether it lived) is the same
+  // in every world the claims admit, so an exchange it did not suffer in the
+  // timeline is not available to any world either, and `material` has already
+  // priced the one it did. That is what keeps `dischargeable` true at λ > 0.
+  const cross = EDGE_EXCHANGE > 0 ? crossingField(ctx.sub, ctx.asTeam) : null;
+  const origin =
+    cross === null || !ctx.sub.traversesEdges(s.unitId) ? -1 : (unit.cells[0] ?? -1);
+  const crossedAt = (cell: number): number =>
+    cross === null || origin < 0 ? 0 : crossingChargeAt(cross, ourTier, unit.weight, origin, cell);
+  let worst = Math.max(settled, crossedAt(s.cell));
   let best = settled;
   for (const cell of contingent) {
     const c = chargeAt(field, ourTier, unit.weight, cell);
-    if (c > worst) worst = c;
+    const w = Math.max(c, crossedAt(cell));
+    if (w > worst) worst = w;
     if (c < best) best = c;
   }
   return [worst, best];

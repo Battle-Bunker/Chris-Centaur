@@ -46,6 +46,7 @@ import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
+import { traversesEdges } from '../engine-vendor/engine/moveGrammar';
 import type { BoardShape, GrammarUnit } from '../engine-vendor/engine/queries';
 import { coverOf, legalTargets, pathOf as pathOfQuery } from '../engine-vendor/engine/queries';
 import { settleTurn } from '../engine-vendor/engine/settleTurn';
@@ -675,6 +676,19 @@ export class EngineSubstrate implements Substrate {
     const promotes = (settled.unitTypes[record.id] ?? record.type) !== record.type;
     this.promotable.set(record.type, promotes);
     return promotes;
+  }
+
+  /**
+   * Does this unit CROSS EDGES on its way — the engine's own exemption for a
+   * jump. `turnEngine`'s c1 in-flight exchange is head-to-head over one edge
+   * and "the only exemption is a jump, which traverses no edge at all", so the
+   * predicate is the rules' (`moveGrammar.traversesEdges`) and not a kind test
+   * written up here. Asked of the KIND, which is what the engine asks.
+   */
+  traversesEdges(unitId: UnitId): boolean {
+    const record = this.records.get(unitId);
+    if (record === undefined) throw new UnknownUnitError(unitId);
+    return traversesEdges(record.type);
   }
 
   /** Does this unit's grammar walk rays — more than one cell in a step? */

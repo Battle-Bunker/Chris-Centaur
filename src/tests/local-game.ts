@@ -19,7 +19,7 @@ import type { Board, Coord, Snake } from '../types/battlesnake';
 import { toApiCoord, apiCoordToIndex } from '../firebase/translate';
 import { marshalBoard, claimsAfter } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
-import { ORTHOGONALS, leavesTrail } from '../engine-vendor/engine/moveGrammar';
+import { ORTHOGONALS, leavesTrail, traversesEdges } from '../engine-vendor/engine/moveGrammar';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import { legalActions, legalTargets } from '../engine-vendor/engine/queries';
 import type { BoardShape } from '../engine-vendor/engine/queries';
@@ -1792,6 +1792,17 @@ export interface EnemyOccupiedEntry {
   readonly enemy: string;
   /** `winsContest` says we do not survive the meeting. */
   readonly lost: boolean;
+  // --- edge exchange (BEHAVIOUR-AUDIT-3.md W2) ------------------------------
+  /**
+   * The enemy standing there could leave THROUGH the cell we set out from —
+   * our origin is on one of its legal exit paths and both kinds traverse
+   * edges — so `turnEngine` c1 can settle the meeting as an in-flight
+   * exchange over that edge rather than as an arrival on the cell. W2's
+   * denominator: `crossable ⊆ entries`, and the rule is worth taking only if
+   * the crossable share is SMALL and the lost share of it is LARGE.
+   */
+  readonly crossable: boolean;
+  // --- end edge exchange ----------------------------------------------------
 }
 
 export function enemyOccupiedEntriesAt(
@@ -1805,6 +1816,33 @@ export function enemyOccupiedEntriesAt(
     const head = u.occupancy[0];
     if (head !== undefined) occupant.set(head, u);
   }
+  // --- edge exchange (BEHAVIOUR-AUDIT-3.md W2): the exit paths of the enemy
+  // being stepped on, asked of the grammar and cut for nothing, exactly as
+  // `substrate.actionsOf` asks it. Built lazily and memoised, because the
+  // common turn stages no occupied cell at all. --------------------------
+  const shape: BoardShape = {
+    boardWidth: m.config.boardWidth,
+    boardHeight: m.config.boardHeight,
+    walls: m.config.walls,
+    hazards: m.config.hazards,
+    occupancy: m.units.map((v) => ({ id: v.id, cells: v.occupancy })),
+    food: m.config.food,
+  };
+  const exitCache = new Map<string, ReadonlySet<number>>();
+  const exitsOf = (u: ResolveUnit): ReadonlySet<number> => {
+    const hit = exitCache.get(u.id);
+    if (hit !== undefined) return hit;
+    const cells = new Set<number>();
+    for (const entry of legalActions(
+      { type: u.type, occupancy: u.occupancy, orientation: u.orientation },
+      shape
+    )) {
+      if (entry.action.kind === 'move') for (const cell of entry.action.path) cells.add(cell);
+    }
+    exitCache.set(u.id, cells);
+    return cells;
+  };
+  // --- end edge exchange ----------------------------------------------------
   const out: EnemyOccupiedEntry[] = [];
   for (const u of m.units) {
     const to = staged.get(u.id);
@@ -1813,10 +1851,18 @@ export function enemyOccupiedEntriesAt(
     // A unit staging its own cell is a hold, and an ally's cell is not a
     // contest the rules adjudicate between two teams.
     if (them === undefined || them.id === u.id || them.teamID === u.teamID) continue;
+    const from = u.occupancy[0];
     out.push({
       id: u.id,
       enemy: them.id,
       lost: !winsContest(u.tier, u.occupancy.length, them.tier, them.occupancy.length),
+      // --- edge exchange (BEHAVIOUR-AUDIT-3.md W2) --------------------------
+      crossable:
+        from !== undefined &&
+        traversesEdges(u.type) &&
+        traversesEdges(them.type) &&
+        exitsOf(them).has(from),
+      // --- end edge exchange -------------------------------------------------
     });
   }
   return out;
@@ -2008,6 +2054,13 @@ export interface GameMetrics {
   /** Those of them `winsContest` says we do not survive — D1's counter. */
   enemyOccupiedEntriesLost: number;
   // --- end enemy-occupied entry instrument --------------------------------
+  // --- edge exchange (BEHAVIOUR-AUDIT-3.md W2) -----------------------------
+  /** Those entries where the enemy standing there could leave through the cell
+   *  we set out from — W2's denominator, a subset of `enemyOccupiedEntries`. */
+  crossableEntries: number;
+  /** Those of THOSE `winsContest` says we do not survive — W2's numerator. */
+  crossableEntriesLost: number;
+  // --- end edge exchange ----------------------------------------------------
   // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ----------
   // Five counters, computed post hoc on the concrete board the turn left. They
   // read the rules; they never touch the decision, so they cannot move any
@@ -2484,6 +2537,10 @@ export async function runGame(
     deathsWhileBuffed: 0,
     enemyOccupiedEntries: 0,
     enemyOccupiedEntriesLost: 0,
+    // --- edge exchange (W2) --------------------------------------------------
+    crossableEntries: 0,
+    crossableEntriesLost: 0,
+    // --- end edge exchange ----------------------------------------------------
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -2853,6 +2910,12 @@ export async function runGame(
     for (const e of enemyOccupiedEntriesAt(board, turn, staged)) {
       metrics.enemyOccupiedEntries++;
       if (e.lost) metrics.enemyOccupiedEntriesLost++;
+      // --- edge exchange (W2) ------------------------------------------------
+      if (e.crossable) {
+        metrics.crossableEntries++;
+        if (e.lost) metrics.crossableEntriesLost++;
+      }
+      // --- end edge exchange --------------------------------------------------
       rows.push(
         `  ENEMY-CELL ${e.id} -> ${e.enemy}'s square  ${e.lost ? 'LOST' : 'won'}`
       );
@@ -3846,6 +3909,10 @@ export interface RunSummary {
     // --- enemy-occupied entry instrument (BEHAVIOUR-AUDIT.md D1) -----------
     readonly enemyOccupiedEntries: number;
     readonly enemyOccupiedEntriesLost: number;
+    // --- edge exchange (W2) ------------------------------------------------
+    readonly crossableEntries: number;
+    readonly crossableEntriesLost: number;
+    // --- end edge exchange --------------------------------------------------
     // --- entrapment instrument (docs/design/entrapment.md §7.2) ------------
     readonly entrappedUnitTurns: number;
     readonly entrapmentEpisodes: number;
@@ -4023,6 +4090,10 @@ export function summaryOf(
       // --- enemy-occupied entry instrument -----------------------------------
       enemyOccupiedEntries: metrics.enemyOccupiedEntries,
       enemyOccupiedEntriesLost: metrics.enemyOccupiedEntriesLost,
+      // --- edge exchange (W2) ------------------------------------------------
+      crossableEntries: metrics.crossableEntries,
+      crossableEntriesLost: metrics.crossableEntriesLost,
+      // --- end edge exchange --------------------------------------------------
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurns: metrics.entrappedUnitTurns,
       entrapmentEpisodes: metrics.entrapmentEpisodes,
@@ -4070,6 +4141,10 @@ export function summaryOf(
       // --- enemy-occupied entry instrument -----------------------------------
       enemyOccupiedEntriesPer100: per(metrics.enemyOccupiedEntries),
       enemyOccupiedEntriesLostPer100: per(metrics.enemyOccupiedEntriesLost),
+      // --- edge exchange (W2) ------------------------------------------------
+      crossableEntriesPer100: per(metrics.crossableEntries),
+      crossableEntriesLostPer100: per(metrics.crossableEntriesLost),
+      // --- end edge exchange --------------------------------------------------
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurnsPer100: per(metrics.entrappedUnitTurns),
       entrapmentEpisodesPer100: per(metrics.entrapmentEpisodes),
@@ -4168,6 +4243,10 @@ async function summarise(
     deathsWhileBuffed: 0,
     enemyOccupiedEntries: 0,
     enemyOccupiedEntriesLost: 0,
+    // --- edge exchange (W2) --------------------------------------------------
+    crossableEntries: 0,
+    crossableEntriesLost: 0,
+    // --- end edge exchange ----------------------------------------------------
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -4336,6 +4415,11 @@ async function summarise(
       `lost=${totals.enemyOccupiedEntriesLost} ` +
       `entries/100=${per(totals.enemyOccupiedEntries as number)} ` +
       `lost/100=${per(totals.enemyOccupiedEntriesLost as number)} ` +
+      // --- edge exchange (W2): the share of the entries that are crossings,
+      // and the share of THOSE that are lost. -------------------------------
+      `crossable=${totals.crossableEntries} ` +
+      `crossableLost=${totals.crossableEntriesLost} ` +
+      // --- end edge exchange -------------------------------------------------
       `meals=${totals.foodEaten} grown=${totals.grownMeals} ` +
       `grown/meals=${
         (totals.foodEaten as number) === 0
