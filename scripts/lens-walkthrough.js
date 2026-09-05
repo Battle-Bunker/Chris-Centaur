@@ -514,52 +514,112 @@ async function main() {
   const undoDepth = () =>
     page.evaluate(() => (typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length));
 
-  /** CAN THIS HARNESS STAGE AT ALL? `stageSelectedMove` needs
-   *  `userSelectedMove`, which needs a candidate in `moveState.moves`, which
-   *  `setupMoveStateForSnake` builds from `controlled-snake-turn-data` — a
-   *  message the walkthrough server does not send. So `moveState.moves` is
-   *  `{}` here and NO press of `Space` can stage anything, on any candidate,
-   *  in any state this walk reaches. That is a gap in the harness, not in the
-   *  page, and the honest thing is to say so out loud and assert what can be
-   *  asserted rather than to pass on a stack entry left standing by an earlier
-   *  step. It rides in `report.json` so the gap cannot go quiet. */
-  const stageable = await page.evaluate(
-    () => Object.keys((typeof moveState !== 'undefined' && moveState && moveState.moves) || {}).length
+  /** THE UNIT'S STAGING STATE, from the page: the candidate enumeration the
+   *  turn data built, the candidate the cursor has selected, and the staged
+   *  record the unit is actually carrying. All three, because a stage is only
+   *  a stage when the third one moved. */
+  const stagingOf = () =>
+    page.evaluate(() => ({
+      moves: Object.keys(
+        (typeof moveState !== 'undefined' && moveState && moveState.moves) || {}
+      ),
+      selected: typeof userSelectedMove === 'undefined' ? null : userSelectedMove,
+      unit: typeof selectedSnakeId === 'undefined' ? null : selectedSnakeId,
+      staged:
+        typeof stagedMoves === 'undefined' || !selectedSnakeId
+          ? null
+          : stagedMoves[selectedSnakeId] || null,
+    }));
+
+  /** THE CURSOR ONTO A CANDIDATE, BY AN OPERATOR GESTURE. The rail click
+   *  above only lands when the reserve answered a conditional for this unit
+   *  and the row is still mounted; when it did not, the arrow pad is the
+   *  operator's other path to the same selection, and one of the two has to
+   *  work or there is nothing to stage. Never `selectMove` from the harness:
+   *  a drill that reaches into the page to set the thing it is about to
+   *  assert has asserted nothing. */
+  const armCursor = async () => {
+    for (const key of [null, 'ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft']) {
+      if (key !== null) {
+        await page.keyboard.press(key);
+        await sleep(400);
+      }
+      const now = await stagingOf();
+      if (now.selected) return now;
+    }
+    return stagingOf();
+  };
+
+  /** THE HARNESS CAN STAGE — asserted, not hoped for. Until P-1 the
+   *  walkthrough server published a board and a decision and nothing per
+   *  unit, so `setupMoveStateForSnake` never ran with `moveEvaluations`,
+   *  `moveState.moves` was `{}` for the whole run, and no press of `Space`
+   *  could stage anything on any candidate in any state this walk reached
+   *  (05 §0). That is how H-2 — a rail click that never armed `Space` for a
+   *  snake — shipped behind a comment saying it was fixed. The server sends
+   *  the production `snake-turn-update` now, so the emptiness is a FAILURE
+   *  rather than a caveat, and this is the assertion that says so. */
+  const cursorOn = await armCursor();
+  report.notes.pinStageable = cursorOn.moves.length;
+  check(
+    'stage — the unit has a candidate enumeration and the cursor is on one of them',
+    cursorOn.moves.length > 0 && !!cursorOn.selected,
+    cursorOn
   );
-  report.notes.pinStageable = stageable;
-  if (stageable === 0) {
-    console.log(
-      '  ⚠ drill/pin — this harness sends no controlled-snake-turn-data, so ' +
-        'moveState.moves is empty and no candidate is stageable. The pin step ' +
-        'asserts the undo AFFORDANCE, not a staged move.'
-    );
-  }
 
   // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
   // the operator's own unit, no confirmation, and an undo the moment it lands.
+  // THE ROUND TRIP, ON A SNAKE: stage, take it back, stage again. The middle
+  // step is what makes the first one a fact — a staged record that survives an
+  // undo was never the operator's.
   at = 'drill/pin';
   const depthBeforePin = await undoDepth();
   await page.keyboard.press(' ');
   await sleep(1200);
   const afterPin = await railOf();
   const depthAfterPin = await undoDepth();
+  const stagedPin = await stagingOf();
   check(
-    stageable === 0
-      ? 'pin — the undo affordance names the stack it stands over (nothing is stageable on this harness)'
-      : 'pin — the determination lands on the undo stack, and the affordance says so',
-    stageable === 0
-      ? // With nothing stageable, the honest property is that the bar and the
-        // stack AGREE: `nothing yet` iff the stack is empty. A bar that said
-        // otherwise would be the lie this check exists to catch.
-        depthAfterPin === depthBeforePin &&
-          /nothing yet/.test(afterPin.controls || '') === (depthAfterPin === 0)
-      : depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
-    { controls: afterPin.controls, before: beforePin.controls, depthBeforePin, depthAfterPin, stageable }
+    'pin — the determination lands on the undo stack, and the affordance says so',
+    depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
+    { controls: afterPin.controls, before: beforePin.controls, depthBeforePin, depthAfterPin }
+  );
+  // THE STAGED RECORD ITSELF, not the affordance over it. `Space` puts the
+  // candidate under the cursor on the wire as this unit's manual override;
+  // the page paints it at once as the operator's own. Asserting the stack
+  // depth alone would pass on any entry from any source, which is the class
+  // of defect H-15 was.
+  check(
+    'pin — the unit carries the operator\u2019s own candidate as its requested move',
+    !!stagedPin.staged &&
+      String(stagedPin.staged.requestedMove) === String(stagedPin.selected) &&
+      stagedPin.staged.source === 'manual',
+    stagedPin
   );
   check('pin — the stage line names a plan for every unit', /Bot stages/.test(afterPin.stage || ''), {
     stage: afterPin.stage,
   });
   await drillShot('d1-pin', 'the operator drill: a pin, and the undo it arrives with');
+
+  // 1b — AND BACK. `U` on the entry that press just pushed: the stack pops
+  // and the unit stops carrying the operator's move. This is the undo half of
+  // the confirm-vs-undo policy (02 §3.4) exercised on the gesture it was
+  // written for, in the turn it was taken.
+  at = 'drill/pin-undo';
+  await page.keyboard.press('u');
+  await sleep(1200);
+  const unstaged = await stagingOf();
+  check(
+    'pin — `U` takes the stage back, and the unit stops carrying it',
+    (await undoDepth()) === depthBeforePin &&
+      (!unstaged.staged || unstaged.staged.source !== 'manual'),
+    unstaged
+  );
+  // Re-taken, so the rest of the drill runs over the surface an operator who
+  // meant it would be looking at.
+  await armCursor();
+  await page.keyboard.press(' ');
+  await sleep(1000);
 
   // 2 — LOCK. `Shift+Space` is the one gesture that spends authority on units
   // the operator never looked at, so it ARMS first — the affordance itself is

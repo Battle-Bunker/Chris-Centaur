@@ -66,8 +66,15 @@ import type {
   TurnEventRow,
   UnitKey,
 } from '../lens/types';
-import type { Board, BoardSnapshot, Coord, Direction, Game } from '../types/battlesnake';
+import type { Board, BoardSnapshot, Coord, Direction, Game, GameState } from '../types/battlesnake';
 import type { JointPlan, KernelInput, PinEvent, UnitId } from '../lobster/contracts';
+import { NO_ORDER_MOVE } from '../lobster/contracts';
+// The row builder production publishes with, and the one translation from a
+// staged cell to the Direction a snake puts on the wire. Both are imported
+// rather than restated: a harness that built its own would be the one place
+// the page's candidate list came from somewhere else.
+import { buildDecisionRows } from '../lobster/telemetry';
+import { moveIndexToDirection } from '../firebase/translate';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { rigFor } from '../lobster/candidates';
 // The SHIPPED digest, not a second opinion about one: it is what puts
@@ -523,6 +530,78 @@ async function main(): Promise<void> {
         for (const [unitId, cand] of plan) {
           const unit = sub.unitOf(unitId);
           if (unit !== undefined) staged.set(unit.wireId, cand.to);
+        }
+      }
+
+      // ── THE UNIT'S OWN CANDIDATE ENUMERATION, PUBLISHED ────────────────
+      //
+      // Until this block the harness broadcast a board and a decision and
+      // NOTHING per unit, so `setupMoveStateForSnake` never ran with
+      // `moveEvaluations`, `moveState.moves` was `{}` for the whole run, and
+      // no press of `Space` could stage anything on any candidate in any
+      // state the walk reached (05 §0). The staging path — the single most
+      // important gesture on the surface — had never been exercised in a
+      // browser, which is how a candidate click that never armed `Space` for
+      // a snake shipped behind a comment saying it was fixed (H-2).
+      //
+      // THE PRODUCTION ORDER, NOT A CONVENIENT ONE. `emitTelemetry` in
+      // `lobster/team-decision-engine.ts` builds the rows with
+      // `buildDecisionRows` and hands each one to
+      // `ActiveGameManager.setBotRecommendation`, which is what emits
+      // `snake-turn-update` — the message the page reads. This is those two
+      // calls, with the same row builder, the same `TurnData` fields and the
+      // same snakes-only rule (a PIECE's rows are rebuilt by the manager from
+      // its own candidate enumeration, so publishing lobster rows for one
+      // would trade a richer live panel for a poorer one).
+      //
+      // It runs BEFORE the turn resolves, because that is where it sits in
+      // production: the decision publishes what it considered, and only then
+      // does the deadline take the staged move.
+      if (plan !== null) {
+        const views = new Map<string, GameState>(
+          (board.snakes ?? [])
+            .filter((s) => ourIds.includes(s.id))
+            .map((s) => [s.id, { game: meta, turn, board, you: s } as GameState])
+        );
+        const rows = buildDecisionRows({
+          gameId: opts.gameId,
+          sub,
+          asTeam,
+          gen,
+          evaluate,
+          finalPlan: plan,
+          views,
+          // The engine's own `moveOf`, which is private to it: a snake stages
+          // a Direction, a piece the full-board destination index, and a
+          // destination the wire has no word for keys no row at all.
+          moveOf: (unit, candidate) => {
+            if (unit.type !== 'snake') {
+              return candidate.to === NO_ORDER_MOVE
+                ? (unit.cells[0] as number)
+                : candidate.to;
+            }
+            if (candidate.to === NO_ORDER_MOVE) return null;
+            return moveIndexToDirection(unit.cells[0] as number, candidate.to, sub.grid.width);
+          },
+        });
+        for (const row of rows) {
+          const unit = sub.unitOfWireId(row.snakeId);
+          const view = views.get(row.snakeId);
+          if (unit === undefined || unit.type !== 'snake' || view === undefined) continue;
+          const to = staged.get(row.snakeId);
+          const move =
+            to === undefined
+              ? null
+              : moveIndexToDirection(unit.cells[0] as number, to, sub.grid.width);
+          if (move === null) continue;
+          manager.setBotRecommendation(opts.gameId, row.snakeId, move, {
+            gameState: view,
+            moveEvaluations: row.moveEvaluations,
+            territoryCells: {},
+            botRecommendation: move,
+            timestamp: Date.now(),
+            bot: { botId: 'lobster-local', behaviourId: `walkthrough/${opts.scenario}` },
+          });
         }
       }
       events = captured.get(turn) ?? [];
