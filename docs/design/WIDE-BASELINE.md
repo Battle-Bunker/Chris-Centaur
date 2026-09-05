@@ -16,9 +16,13 @@ cancel on pooling. The one number below that IS taken across classes is a COUNT
 of classes, which is what `ab-compare.js` does at the end of its own report.
 
 `docs/design/wide/TABLE.md` is the full machine-written table and is regenerated
-from disk; the seed range each class actually carries is the `runs` column
-there. This document quotes the seeds 1–5 corpus (100 games), which is complete
-on all ten classes and both arms.
+from disk, so it grows as the corpus does; the seed range each class actually
+carries is its `runs` column. **Every number in this document is the seeds 1–5
+corpus** — 100 games, complete on all ten classes and both arms — frozen as
+`docs/design/wide/TABLE-seeds-1-5.md` so it stays checkable after the corpus is
+deepened. Deeper seeds are recorded into the same directory and read by the same
+two commands; nothing about a later slice invalidates a number here, it only
+narrows its interval.
 
 ## 1. Play, per class, mirror arm — every team on the default profile
 
