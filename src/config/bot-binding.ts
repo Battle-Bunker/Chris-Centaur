@@ -163,7 +163,7 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
     weights: Record<string, number>;
     reachHorizonTurns: number;
     royalReachers?: boolean;
-    command?: { ground: number; food: number; royal: boolean };
+    command?: { ground: number; food: number; mobility: number; royal: boolean };
     energyReserveRatio?: number;
   } = { name: raw.name, weights, reachHorizonTurns: horizon };
 
@@ -181,11 +181,27 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
       !Number.isFinite(c.ground) ||
       typeof c.food !== 'number' ||
       !Number.isFinite(c.food) ||
+      typeof c.mobility !== 'number' ||
+      !Number.isFinite(c.mobility) ||
       typeof c.royal !== 'boolean'
     ) {
-      return { error: 'profile.command must be {ground: number, food: number, royal: boolean}' };
+      return {
+        error:
+          'profile.command must be {ground: number, food: number, mobility: number, ' +
+          'royal: boolean}',
+      };
     }
-    profile.command = { ground: c.ground, food: c.food, royal: c.royal };
+    // NAMED, NEVER DEFAULTED. `checkWeights` refuses a knob that reads
+    // `undefined` for the same reason it refuses a forgotten weight — the
+    // arithmetic downstream is `undefined * n`, which is a NaN in every piece
+    // evaluation on the board — so a stored binding that predates a knob is a
+    // loud startup failure and not a silently different bot.
+    profile.command = {
+      ground: c.ground,
+      food: c.food,
+      mobility: c.mobility,
+      royal: c.royal,
+    };
   }
   if (raw.energyReserveRatio !== undefined) {
     if (typeof raw.energyReserveRatio !== 'number' || !Number.isFinite(raw.energyReserveRatio)) {

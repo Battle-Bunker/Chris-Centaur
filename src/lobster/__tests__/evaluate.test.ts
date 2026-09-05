@@ -26,6 +26,7 @@ import {
   FEATURES,
   REACH_HORIZON_TURNS,
   SPECIALIST_FACTS,
+  COMMAND_KNOBS,
   TERRITORY_PROFILE,
   WIN,
   checkCollapse,
@@ -48,6 +49,7 @@ import {
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
 import { makeSnake, piece, cellAt } from '../../tests/board-fixtures';
+import { legalActions } from '../../engine-vendor/engine/queries';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -2067,40 +2069,57 @@ describe('the turn cap is seated, and it is the engine that decides it', () => {
   });
 });
 
-// ------------------------------------------------ D2: the pawn that parks
+// ------------------------------------------- P1: the pawn against the wall
 
 /**
- * A PAWN'S ORIENTATION IS INVISIBLE TO THE FOLD — BEHAVIOUR-AUDIT D2, pinned at
- * the coordinates it was found on, as the DEFECT it still is.
+ * A PAWN AGAINST THE WALL HAS NO MOVE THAT CHANGES ITS CELL — BEHAVIOUR-AUDIT
+ * D2, re-read as BEHAVIOUR-AUDIT-2 P1 and pinned at the coordinates both were
+ * found on, now as the REPAIR rather than as the defect.
  *
- * The reproduction is `potions` seed 5, turn 27: blue-C, a pawn on (0,10) with
+ * The reproduction is `potions` seed 8, turn 17: blue-C, a pawn on (0,10) with
  * the wall on two sides, facing INTO one of them, printing
  *
- *     T 27 blue-C pawn hp90 (0,10)->(0,10)  top3: (0,11)=91.23 (0,10)=91.23 (0,9)=91.23
+ *     T 17 blue-C pawn hp90 (0,10)->(-1,10) PARKED DITHER  top3:
+ *         (-1,10)=-19.49 (0,10)=-19.49 (1,10)=-19.49
  *
- * — a three-way tie between the hold and both rotations, and nineteen
- * consecutive turns of it. Every member reads `Standing.cell` and a rotation
- * does not move it, so a rotation and a hold are the same position to all of
- * them but `command`, and `command` intersects the piece's front with the
- * contested trail domain and the food board, both of which a queen's claim
- * cloud collapses near the perimeter (`entrapment.md` §4.4). The one cell that
- * differs between two orientations is in neither board.
+ * — a three-way tie between the hold and both rotations, taken on the rotation
+ * that faces further OUT of the board, after which blue-C held (0,10) for the
+ * last 44 turns of the game. `potions` seeds 1 and 3 run the same episode for
+ * 36 and 22 turns, and D2's own reproduction (`potions` seed 5, turns 27–45)
+ * is the same tie at the same cell.
  *
- * The board below is that geometry rebuilt: our pawn in the corner facing the
- * wall, our snake and an enemy snake to give plane 1 a domain, an enemy queen
- * whose cloud is what collapses it near the pawn, and the only food on the far
- * side of the board.
+ * WHY IT TIED. `moveGrammar.planUnitAction` gives a pawn a forward step only
+ * into the INTERIOR and two side squares that are `rotate` and are legal
+ * anywhere, so a pawn on the perimeter facing outward has exactly three legal
+ * actions and all three leave it on the same cell. Every member scores
+ * `Standing.cell`; `momentum` charges a rotation and a hold alike; and
+ * `command`, the one member that reads a next-turn front, intersects that
+ * front with the contested trail domain and the food board, both of which a
+ * queen's claim cloud collapses near the perimeter (`entrapment.md` §4.4).
  *
- * THE REPAIR D2 PROPOSED IS NOT IN THE FOLD, AND THIS TEST IS WHY IT IS STILL
- * WORTH PINNING. A third `command` addend paying the front's own cardinality
- * was built, swept at 0.25, 0.5 and 1 over `mixed` seeds 1–6 and `potions`
- * seeds 1–3, and taken at no dose: it unparks the pawn at every dose and buys
- * that with `mixed` bodyBlock deaths OF PIECES, 0 → 1 → 3 → 3 with the dose,
- * because a cardinality intersected with nothing knows nothing about what is
- * standing on the cells it counts. The tie below is the defect; the dose table
- * in `BEHAVIOUR-AUDIT.md` §D2 is what a repair for it has to beat.
+ * WHAT BREAKS IT. `CommandKnobs.mobility` — an INDICATOR `m_u ∈ {0, 1}` read
+ * from `queries.legalActions`, one for a piece that still has a legal `move`
+ * where this candidate leaves it and zero for one that does not. At (0,10)
+ * facing west the forward cell is the perimeter and so are both diagonals, and
+ * the same is true facing north; facing SOUTH the forward step is interior.
+ * So exactly one of the pawn's three options restores it a move, and this is
+ * the test that the fold now says so.
+ *
+ * THE REFUTED ATTEMPT IS THE OTHER HALF OF WHAT IS PINNED HERE. D2 built this
+ * addend with `|F_u|`, the raw front cardinality, swept it at 0.25, 0.5 and 1,
+ * and refused it at every dose: it unparks the pawn and buys that with `mixed`
+ * bodyBlock deaths OF PIECES, 0 → 1 → 3 → 3 with the dose, because a
+ * cardinality intersected with nothing knows nothing about what is standing on
+ * the cells it counts. The last case below is what makes this a different
+ * term and not a smaller one: the two blind options stay EXACTLY tied with
+ * each other, because an indicator has nothing to say about which of them is
+ * more central.
+ *
+ * The board is that geometry rebuilt: our pawn in the corner facing the wall,
+ * our snake and an enemy snake to give plane 1 a domain, an enemy queen whose
+ * cloud is what collapses it near the pawn, and the only food far away.
  */
-describe('D2 — a pawn at the wall, where a rotation and a hold tie', () => {
+describe('P1 — a pawn at the wall, where only one rotation restores a move', () => {
   const PARKED_TURN = 27;
   const parkedBoard: Board = {
     width: 11,
@@ -2119,13 +2138,13 @@ describe('D2 — a pawn at the wall, where a rotation and a hold tie', () => {
     ],
   } as Board;
 
-  /** Every action the pawn has, scored by the WHOLE fold at shipped weights. */
-  const scored = (): Map<number, number> => {
+  /** Every action the pawn has, scored by the WHOLE fold at a given profile. */
+  const scored = (profile = TERRITORY_PROFILE): Map<number, number> => {
     clearGeometryCache();
     const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
     const asTeam = sub.teamNumber('blue');
     const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
-    const evaluator = new BoundEvaluator(TERRITORY_PROFILE);
+    const evaluator = new BoundEvaluator(profile);
     const out = new Map<number, number>();
     for (const action of sub.actionsOf(pawn)) {
       const plan = new Map<UnitId, Candidate>(defaultPlan(sub));
@@ -2135,38 +2154,78 @@ describe('D2 — a pawn at the wall, where a rotation and a hold tie', () => {
     return out;
   };
 
-  const hold = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 10 });
-  const alongTheBoard = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 9 });
+  /** The shipped profile with the one knob under test set to zero — the fold
+   *  exactly as it stood when D2 measured this tie. */
+  const BLIND_PROFILE = {
+    ...TERRITORY_PROFILE,
+    name: 'lobster-territory-no-mobility',
+    command: { ...COMMAND_KNOBS, mobility: 0 },
+  };
 
-  test('the pawn has three options and the fold cannot tell them apart', () => {
+  const hold = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 10 });
+  /** The rotation to face SOUTH: the only one of the three that leaves an
+   *  interior cell in front of the pawn. */
+  const opensTheBoard = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 9 });
+  /** The rotation to face NORTH: still facing off the board, still stuck. */
+  const staysBoxed = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 11 });
+
+  test('the pawn has three options and every one of them leaves it on (0,10)', () => {
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    const actions = sub.actionsOf(pawn);
+    expect(actions.length).toBe(3);
+    // The grammar's own reading: a rotation walks no cells, and the hold walks
+    // none either, so nothing here changes `Standing.cell`.
+    for (const a of actions) expect(a.path.length).toBe(0);
     const arm = scored();
-    // It really does have three, as the trace printed: the hold, the rotation
-    // along the board, and the rotation further into the wall.
     expect(arm.size).toBe(3);
     expect(arm.has(hold)).toBe(true);
-    expect(arm.has(alongTheBoard)).toBe(true);
+    expect(arm.has(opensTheBoard)).toBe(true);
+    expect(arm.has(staysBoxed)).toBe(true);
+  });
+
+  test('with the mobility knob at zero the fold cannot tell them apart', () => {
+    // D2's measurement, kept: at the shipped weights MINUS this one knob all
+    // three options score identically to twelve digits, the salted tie key
+    // decides, and half the rotations point back into the wall.
+    const arm = scored(BLIND_PROFILE);
     const values = [...arm.values()];
     for (const v of values) expect(v).toBeCloseTo(values[0] as number, 12);
   });
 
-  test('so nothing in the fold prefers the rotation that opens the board', () => {
+  test('and with it the rotation that restores a legal move outranks the hold', () => {
     const arm = scored();
-    // Not "the rotation loses" — it does not even differ. A tie-break decides,
-    // and D2's corpus says the tie-break holds: 7.2% of `mixed` unit-turns and
-    // 10.4% of `potions` are a unit standing on the cell it stood on last turn.
-    expect(arm.get(alongTheBoard) as number).toBeCloseTo(arm.get(hold) as number, 12);
+    expect(arm.get(opensTheBoard) as number).toBeGreaterThan(arm.get(hold) as number);
+    expect(arm.get(opensTheBoard) as number).toBeGreaterThan(arm.get(staysBoxed) as number);
   });
 
-  test("and the reason is `command`'s two boards, not the front itself", () => {
-    // The pawn's front DOES differ between the two orientations — the geometry
-    // is not degenerate. What is degenerate is what `command` intersects it
-    // with: at this cell neither the contested trail domain nor the food board
-    // contains the cell the rotation buys, so both addends read the same.
-    // (The unintersected cardinality is what D2 proposed to add, and what the
-    // dose sweep refused; see this block's header.)
-    clearGeometryCache();
+  test('the two options that leave it boxed stay exactly tied — it is an indicator', () => {
+    // THE DIFFERENCE FROM THE REFUTED `|F_u|`, asserted rather than argued. A
+    // cardinality would separate these two as well, on centrality, which is
+    // the reading that walked pieces onto bodies. An indicator is flat
+    // wherever it cannot see a legal move, so it breaks the tie it was built
+    // for and no other.
+    const arm = scored();
+    expect(arm.get(staysBoxed) as number).toBeCloseTo(arm.get(hold) as number, 12);
+  });
+
+  test('and the grammar is where the ranking comes from, not a board special case', () => {
+    // `legalActions` is asked the same question the fold asks: standing on
+    // (0,10) facing south there is a legal `move`, and facing west or north
+    // there is not. Nothing in `commandSum` knows what a wall is.
     const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
-    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
-    expect(sub.actionsOf(pawn).length).toBe(3);
+    const shape = sub.shape();
+    const at = (sub.unitOfWireId('bC') as { cells: ReadonlyArray<number> }).cells[0] as number;
+    const canMove = (dx: number, dy: number): boolean =>
+      legalActions({ type: 'pawn', occupancy: [at], orientation: { dx, dy } }, shape).some(
+        (e) => e.action.kind === 'move'
+      );
+    // Engine coordinates, in which the api's (0,10) is the full board's (1,1):
+    // `+dy` is the facing the rotation to api (0,9) leaves the pawn with, and
+    // it is the one facing of the three whose forward cell is interior.
+    expect(canMove(0, 1)).toBe(true); // the rotation to api (0,9)
+    expect(canMove(-1, 0)).toBe(false); // the facing it was found on
+    expect(canMove(0, -1)).toBe(false); // the rotation to api (0,11)
   });
 });
