@@ -235,6 +235,17 @@ export interface LedgerEntry {
   readonly subStep: SubStep
   readonly polarity: "if_present" | "if_absent"
   readonly note: string
+  /**
+   * `ledgerKey(this)`, PRECOMPUTED — optional, and never load-bearing.
+   *
+   * It is exactly the string `bounds/score.ts` would build and cache against
+   * this object (`unitId:cell:subStep:polarity`, the `note` deliberately
+   * out), filled at construction by the translation that mints the entries the
+   * hot path actually merges. An entry without it — a test fixture, a
+   * hand-built residue — keys through the WeakMap exactly as before, so this
+   * changes no key, no dedup and no order.
+   */
+  readonly canonicalKey?: string
 }
 
 /** Named assumptions ride every score; scores with different assumption bases

@@ -26,6 +26,23 @@ import type { BoardShape } from '../engine-vendor/engine/queries';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
 import { winsContest } from '../lobster/evaluate/contest';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
+// --- outcome instrument (ENDGAME) -----------------------------------------
+// WHAT THE GAME ACTUALLY SCORES. Every counter in this file so far is a
+// process reading — meals, deaths, parks — and none of them is the result:
+// TacticToes adjudicates at the turn cap by TEAM WEIGHT, and a bot that eats
+// more and dies less can still lose every game. So the runner records the
+// engine's own verdict, read from the single encoding rather than a second
+// one: `adjudicate` is the rule the server, the harness and a client
+// predicting a line all defer to, and this file CALLS it rather than
+// reproducing it (engine-vendor/VENDOR.md).
+//
+// Nothing here can reach a decision. Every call below runs AFTER settlement,
+// prices no plan, touches no board the bot will see and draws nothing from the
+// rng — which is what makes the instrument byte-identical in play to the build
+// that had no instrument at all.
+import { adjudicate, sharePar } from '../engine-vendor/engine/adjudicate';
+import type { BoardView, EndKind, Outcome } from '../engine-vendor/engine/adjudicate';
+// --- end outcome instrument -----------------------------------------------
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
 import { EngineSubstrate, makeSubstrate, clearGeometryCache } from '../lobster/substrate';
@@ -377,6 +394,168 @@ export const DEFAULT_NODE_BUDGET = 550;
  * the same in both modes.
  */
 const DETERMINISTIC_SLICE_FRACTION = 1 / 6;
+
+/**
+ * THE BUDGET KNOB — `--budget-scale=<x>`.
+ *
+ * The deterministic mode already takes a budget by number (`--nodes=N`), and
+ * that is the knob a one-off experiment turns. What a SWEEP needs is the same
+ * arm expressed as a multiple of the shipped default, so that a file of runs
+ * says "half" and "four times" rather than 275 and 2200 and so that the arm at
+ * 1.0 is the shipped bot rather than a number that happens to equal it.
+ *
+ * IDENTITY AT 1.0 IS EXACT AND NOT APPROXIMATE: the scale is applied only when
+ * it differs from 1, so a run without the flag — and a run with `=1` — takes
+ * the caller's budget object through untouched, and the summary's `budget`
+ * field is the same integer it always was. `ms` mode is scaled too, for
+ * symmetry, but nothing in this study uses it: a wall-clock arm is not
+ * reproducible and cannot be paired.
+ */
+export function scaleBudget(budget: DecisionBudget, scale: number): DecisionBudget {
+  if (scale === 1) return budget;
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error(`bad budget scale ${scale}`);
+  return budget.kind === 'ms'
+    ? { kind: 'ms', ms: budget.ms * scale }
+    : { kind: 'nodes', nodes: Math.max(1, Math.round(budget.nodes * scale)) };
+}
+
+/**
+ * WHAT A DECISION LOOKED LIKE BEFORE IT WAS TAKEN — the observable complexity
+ * an allocation rule would be a function of, and the axis a per-decision diff
+ * is read on.
+ *
+ * Every field is a function of the BOARD ALONE: no evaluation, no search, no
+ * clock. That is deliberate. A rule that gave a decision more budget because
+ * of something only the search knows could not be computed before the search
+ * starts, and a diff bucketed on such a field would be bucketing on the
+ * outcome it is trying to explain.
+ */
+export interface DecisionShape {
+  /** Units this team may command — the free set the partitioner starts from. */
+  readonly units: number;
+  /** Connected components of the occupancy-reach graph, as `partitionOf` cuts
+   *  them: `u ~ v` iff `influenceOf(u)` meets `influenceOf(v)`. */
+  readonly clusters: number;
+  /** Members in the biggest one. `1` is the trivial turn. */
+  readonly maxCluster: number;
+  /** Candidates offered, summed over the free set, and the biggest single
+   *  offer. The generator's own count, before any pruning the bank does. */
+  readonly candSum: number;
+  readonly candMax: number;
+  /** The joint option space, `Π candidates`, capped so a wide board cannot
+   *  overflow the JSON. What one decision would have to enumerate exactly. */
+  readonly product: number;
+  /** Our units whose influence meets a LIVE ENEMY's influence — contact, in
+   *  the same geometry the partitioner uses for our own coupling. */
+  readonly contact: number;
+  /** Our units with no move at all: the decision has nothing to spend on them. */
+  readonly frozen: number;
+}
+
+/** One (turn, team) decision, re-taken at one budget scale on the SAME board. */
+export interface ProbeRow {
+  readonly scenario: string;
+  readonly seed: number;
+  readonly turn: number;
+  readonly team: string;
+  readonly scale: number;
+  readonly budget: number;
+  readonly shape: DecisionShape;
+  /** The staged set differs from the reference arm's, on this same board. */
+  readonly changed: boolean;
+  /** How many units staged a different cell than the reference arm did. */
+  readonly changedUnits: number;
+  readonly nodes: number;
+  readonly slices: number;
+}
+
+/**
+ * `DecisionShape`, off one throwaway substrate.
+ *
+ * It runs BESIDE the decision and never inside it: the substrate here is its
+ * own, the generator is its own, and nothing it touches is charged to any
+ * decision clock. Two substrates over one board are the same board.
+ */
+export function decisionShapeOf(board: Board, turn: number, teamId: string): DecisionShape {
+  const ourIds = (board.snakes ?? [])
+    .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
+    .map((s) => s.id);
+  const empty: DecisionShape = {
+    units: 0,
+    clusters: 0,
+    maxCluster: 0,
+    candSum: 0,
+    candMax: 0,
+    product: 0,
+    contact: 0,
+    frozen: 0,
+  };
+  if (ourIds.length === 0) return empty;
+  const sub = makeSubstrate({ gameId: 'shape', board, turn, asTeam: teamId, modeled: ourIds });
+  try {
+    const asTeam = sub.teamNumber(teamId);
+    const { gen } = rigFor(sub);
+    const free = [...sub.commandable(asTeam)];
+    if (free.length === 0) return empty;
+    const influence = free.map((u) => sub.influenceOf(u));
+    // Union-find over the occupancy-reach graph, by the inverted cell index —
+    // `partition.ts`'s `componentsOf`, in the runner's own hands because the
+    // runner has no epoch, posture or basis to hand the partitioner and does
+    // not need one to count components.
+    const parent = free.map((_, i) => i);
+    const find = (i: number): number => {
+      let r = i;
+      while (parent[r] !== r) r = parent[r] as number;
+      return r;
+    };
+    const owner = new Map<number, number>();
+    influence.forEach((cells, i) => {
+      for (const cell of cells) {
+        const first = owner.get(cell);
+        if (first === undefined) owner.set(cell, i);
+        else {
+          const a = find(i);
+          const b = find(first);
+          if (a !== b) parent[a] = b;
+        }
+      }
+    });
+    const sizes = new Map<number, number>();
+    free.forEach((_, i) => sizes.set(find(i), (sizes.get(find(i)) ?? 0) + 1));
+    // Contact: an enemy whose influence meets ours. Live units only — a dead
+    // one's cells are not on the board the decision is taken on.
+    const enemies = sub
+      .roster()
+      .filter((u) => u.team !== asTeam)
+      .map((u) => sub.influenceOf(u.unitId));
+    let contact = 0;
+    let candSum = 0;
+    let candMax = 0;
+    let frozen = 0;
+    let product = 1;
+    free.forEach((unitId, i) => {
+      const n = gen.candidatesFor(sub, unitId).candidates.length;
+      candSum += n;
+      candMax = Math.max(candMax, n);
+      if (n <= 1) frozen++;
+      product = Math.min(product * Math.max(1, n), 1e9);
+      const mine = influence[i] as ReadonlySet<number>;
+      if (enemies.some((cells) => [...cells].some((c) => mine.has(c)))) contact++;
+    });
+    return {
+      units: free.length,
+      clusters: sizes.size,
+      maxCluster: Math.max(...sizes.values()),
+      candSum,
+      candMax,
+      product,
+      contact,
+      frozen,
+    };
+  } finally {
+    sub.release();
+  }
+}
 
 function makeUnit(
   id: string,
@@ -764,6 +943,20 @@ export interface TurnOutcome {
    * body, which is a tier window paying for itself as surely as a kill is.
    */
   readonly contestants: ReadonlyArray<string>;
+  // --- outcome instrument (ENDGAME) ---------------------------------------
+  /**
+   * SETTLEMENT'S OWN ENDING, or null while the game runs. `settleTurn` already
+   * adjudicates the board it just settled (`Settlement.outcome`), so the
+   * runner reads that field instead of asking a second time.
+   */
+  readonly outcome: Outcome | null;
+  /**
+   * The settled board as adjudication sees it — the same `alive` order and the
+   * same post-promotion occupancies `settleTurn` hands `adjudicate`, so a
+   * verdict taken off this view is the verdict the engine would take.
+   */
+  readonly view: BoardView;
+  // --- end outcome instrument ---------------------------------------------
 }
 
 /** Clash kinds a tier decides. `bodyBlock`, `wall`, `self` and the two
@@ -776,7 +969,11 @@ export function stepGame(
   staged: ReadonlyMap<string, number>,
   rng: () => number,
   foodTarget: number,
-  potions: { target: number; everyTurns: number } = { target: 0, everyTurns: 0 }
+  potions: { target: number; everyTurns: number } = { target: 0, everyTurns: 0 },
+  // --- outcome instrument (ENDGAME): the board the PREVIOUS turn left, which
+  // is the one adjudication falls back to when every remaining team goes down
+  // together. Absent leaves the mutual-wipe branch exactly where it was.
+  previous?: BoardView
 ): TurnOutcome {
   const marshalled = marshalBoard(board, turn);
   // The wire stages a DESTINATION and the server's own movement grammar turns
@@ -815,6 +1012,11 @@ export function stepGame(
     potionWindowTurns: marshalled.potionWindowTurns,
     pawnPromotionWeight: marshalled.pawnPromotionWeight,
     maxTurns: marshalled.maxTurns,
+    // --- outcome instrument (ENDGAME) -------------------------------------
+    // Read only by the all-eliminated branch of `adjudicate`, and only to
+    // decide an outcome. It cannot move a unit or kill one.
+    ...(previous === undefined ? {} : { previous }),
+    // --- end outcome instrument -------------------------------------------
   }, NO_SPAWN);
 
   const w = marshalled.fullWidth;
@@ -947,6 +1149,20 @@ export function stepGame(
     tierDowns,
     collectors,
     contestants,
+    // --- outcome instrument (ENDGAME) -------------------------------------
+    // `result.board` is exactly the map `settleTurn` builds its own
+    // `BoardView` from: the collision dead, the exhausted and the regicided
+    // are all DELETED from it (resolveTurn steps 3, 5 and 6), and a promoted
+    // pawn's occupancy is already collapsed. Insertion order is the roster
+    // order, so `alive` here is the `aliveInOrder` adjudication reads.
+    outcome: result.outcome,
+    view: {
+      alive: Object.keys(result.board),
+      pieces: Object.fromEntries(
+        Object.entries(result.board).map(([id, u]) => [id, u.occupancy])
+      ),
+    },
+    // --- end outcome instrument -------------------------------------------
   };
 }
 
@@ -1393,6 +1609,73 @@ export function enemyOccupiedEntriesAt(
 // The game loop, and the counters a gate reads
 // ---------------------------------------------------------------------------
 
+// --- outcome instrument (ENDGAME) -------------------------------------------
+
+/**
+ * ONE GAME'S RESULT, as the game itself scores it.
+ *
+ * `result` is the deciding team's — `spec.teams[side]`, the team that keeps the
+ * default profile while `--opponent` gives every other team a different one —
+ * and it is read off `Outcome.winners`, never off a weight comparison of this
+ * file's own: a draw is a draw because adjudication put two teams in `winners`,
+ * not because two numbers looked equal here.
+ *
+ * `lead` is the margin the cap is decided on: our end weight minus the
+ * HEAVIEST rival's. It is signed, it is the quantity a paired sign test has
+ * power on where a three-outcome verdict has almost none, and on a board that
+ * ends level it is exactly zero — which is the draw the endgame audit is about.
+ *
+ * `sharePar` is the engine's own continuous score (`sharePar`): par is 1, the
+ * winner of a two-team game scores between 1 and 2, a wiped team scores 0. A
+ * game won by a nose and a game won by the whole board are not the same result
+ * and this is the field that says so.
+ */
+export interface GameOutcome {
+  /** The deciding team's id — `spec.teams[side].id`. */
+  readonly team: string;
+  /** `side` as passed: which roster slot kept the default profile. */
+  readonly side: number;
+  readonly result: 'win' | 'draw' | 'loss';
+  readonly kind: EndKind;
+  readonly decidedOn: 'settled' | 'previous';
+  readonly winners: ReadonlyArray<string>;
+  readonly weightByTeam: Record<string, number>;
+  /** Our end weight minus the heaviest rival's. Signed; 0 is a level board. */
+  readonly lead: number;
+  /** The engine's share-par score for us: par 1, wiped 0. */
+  readonly sharePar: number;
+  /** The turn the verdict was taken on. */
+  readonly endTurn: number;
+  /**
+   * THE LEAD TRAJECTORY, every ten turns and at the end. A game lost at the cap
+   * and a game that was never ahead are different failures, and the endgame
+   * audit is about the first: it is read here rather than reconstructed from a
+   * log, and it costs one adjudication per ten turns.
+   */
+  readonly trajectory: ReadonlyArray<{
+    readonly turn: number;
+    readonly lead: number;
+    readonly weights: Record<string, number>;
+  }>;
+}
+
+/** Our end weight minus the heaviest rival's — signed, 0 on a level board. */
+export function leadOf(weights: { readonly [teamID: string]: number }, us: string): number {
+  const mine = weights[us] ?? 0;
+  let best: number | null = null;
+  for (const [team, w] of Object.entries(weights)) {
+    if (team === us) continue;
+    if (best === null || w > best) best = w;
+  }
+  return best === null ? mine : mine - best;
+}
+
+/** The verdict off adjudication's own winners list — never off a weight test. */
+const verdictOf = (winners: ReadonlyArray<string>, us: string): 'win' | 'draw' | 'loss' =>
+  !winners.includes(us) ? 'loss' : winners.length === 1 ? 'win' : 'draw';
+
+// --- end outcome instrument -------------------------------------------------
+
 export interface GameMetrics {
   turns: number;
   unitTurns: number;
@@ -1559,7 +1842,7 @@ export interface GameMetrics {
   // that stops killing enemies lowers the board-wide count while getting
   // worse. So the split is a counter rather than a note.
   //
-  // "OURS" IS THE DECIDER TEAM — `spec.teams[opts.deciderIndex ?? 0]`, the
+  // "OURS" IS THE DECIDER TEAM — `spec.teams[opts.side ?? 0]`, the
   // team that keeps `opts.evaluate`, whatever colour that is. "THEIRS" is
   // every other team POOLED, which on the three-team boards is two teams: a
   // raw ours-vs-theirs weight comparison there is one team against two and
@@ -1616,6 +1899,10 @@ export interface GameMetrics {
   decisions: number;
   /** The loud product over every B3 preamble of the game (08 §5 step 1). */
   loud: LoudHistogram;
+  // --- outcome instrument (ENDGAME): the game's own verdict, null only until
+  // the game has been played. --------------------------------------------
+  outcome: GameOutcome | null;
+  // --- end outcome instrument ---------------------------------------------
   crashed: string | null;
 }
 
@@ -1789,13 +2076,40 @@ export async function runGame(
      */
     opponent?: Opponent;
     /**
-     * THE COLOUR SWAP — which seat the default plays.
+     * THE PAIRED PROBE — how the same decision comes out at another budget.
      *
-     * An index into `spec.teams`, and ZERO is the default and the state every
-     * previous measurement was taken in: team 0 keeps `opts.evaluate` and the
-     * opponent takes the rest. Set it to 1 and the default plays the SECOND
-     * team instead, with the opponent on team 0 and (on the three-team boards)
-     * on team 2 as well.
+     * A budget sweep played as separate games cannot say WHICH decisions moved:
+     * two arms diverge on the first disagreement and every position after it is
+     * a different game, so a transcript diff past turn one compares boards and
+     * not choices. The probe fixes the board instead. The game is played at the
+     * reference budget exactly as it would be without this option; at every
+     * (turn, team) the SAME position is additionally decided at each scale in
+     * `scales`, and the row records whether the staged set moved.
+     *
+     * Those extra decisions are a measurement and reach nothing: the game
+     * advances on the reference decision, each probe builds its own substrate
+     * and kernel, and `scores: false` keeps a probe from paying for traces
+     * nobody reads. The reference arm's counters are therefore what they would
+     * be with no probe at all — the probe costs wall time and nothing else.
+     */
+    probe?: {
+      readonly scenario: string;
+      readonly scales: ReadonlyArray<number>;
+      readonly row: (row: ProbeRow) => void;
+    };
+    // --- outcome instrument (ENDGAME): THE COLOUR SWAP -------------------
+    /**
+     * WHICH ROSTER SLOT KEEPS THE DEFAULT PROFILE — the one canonical name for
+     * the colour swap, and the option every caller should pass.
+     *
+     * An index into `spec.teams`, by the scenario's OWN roster order and never
+     * the alphabetical order the turn loop iterates in. ZERO is the default and
+     * the state every arm taken before this option existed measured:
+     * `spec.teams[0]` keeps `opts.evaluate` and every other team plays
+     * `opponent`'s profile. One hands the default profile to `spec.teams[1]`
+     * instead and gives team 0 the opponent's — the same experiment played from
+     * the other side of an asymmetric board. Nothing else changes: same seed,
+     * same food stream, same rng draws.
      *
      * It exists because a matchup measured from one seat is not a matchup.
      * These scenarios are not symmetric: `mixed` gives red a snake, a pawn and
@@ -1807,7 +2121,18 @@ export async function runGame(
      * Out of range is refused rather than clamped: a silent fallback to team 0
      * would report a swapped run's numbers under a swapped run's label.
      */
+    side?: number;
+    /**
+     * THE ALIAS, and it is only an alias. `deciderIndex` is the name the
+     * opponent bench and `scripts/round-robin.sh` were written against, before
+     * the endgame instrument landed the same option as `side`. Two names for
+     * one seat index is one name too many, so `side` is canonical and this one
+     * MAPS ONTO IT — `side ?? deciderIndex ?? 0`, resolved once below and never
+     * read again — rather than being a second parameter with its own semantics
+     * that could drift from it. Passing both with different values is refused.
+     */
     deciderIndex?: number;
+    // --- end outcome instrument -------------------------------------------
   } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
@@ -1894,6 +2219,9 @@ export async function runGame(
     worstDecisionNodes: 0,
     decisions: 0,
     loud: emptyLoudHistogram(),
+    // --- outcome instrument (ENDGAME) ---------------------------------------
+    outcome: null,
+    // --- end outcome instrument ---------------------------------------------
     crashed: null,
   };
   /**
@@ -1932,16 +2260,25 @@ export async function runGame(
   // THE DECIDING TEAM, per the scenario's OWN roster (`spec.teams[i]`) — a
   // fact about the board, fixed for the whole game, and independent of the
   // alphabetical order the turn loop below iterates teams in. This is the team
-  // `opts.opponent` never touches. The index is 0 unless the caller swapped
-  // colours (`opts.deciderIndex`), and at 0 every line below is what it was.
-  const deciderIndex = opts.deciderIndex ?? 0;
-  if (deciderIndex < 0 || deciderIndex >= spec.teams.length) {
+  // `opts.opponent` never touches.
+  // --- outcome instrument (ENDGAME): `opts.side` picks the slot; absent it is
+  // 0, which is the team-0 reading this line has always taken. `deciderIndex`
+  // is the bench's older name for the same thing and is RESOLVED HERE, once,
+  // into `side` — see its docstring above. --------------------------------
+  if (opts.side !== undefined && opts.deciderIndex !== undefined && opts.side !== opts.deciderIndex) {
     throw new Error(
-      `deciderIndex ${deciderIndex} is outside this scenario's roster of ` +
+      `side ${opts.side} and deciderIndex ${opts.deciderIndex} disagree — ` +
+        '`deciderIndex` is an alias for `side`, so pass one or the other'
+    );
+  }
+  const side = opts.side ?? opts.deciderIndex ?? 0;
+  if (side < 0 || side >= spec.teams.length) {
+    throw new Error(
+      `side ${side} is outside this scenario's roster of ` +
         `${spec.teams.length} teams (${spec.teams.map((t) => t.id).join(', ')})`
     );
   }
-  const deciderTeamId = spec.teams[deciderIndex]?.id;
+  const deciderTeamId = spec.teams[side]?.id;
   const isOurs = (teamId: string | undefined): boolean => teamId === deciderTeamId;
   metrics.teamsOurs = 1;
   metrics.teamsTheirs = Math.max(0, spec.teams.length - 1);
@@ -1952,6 +2289,30 @@ export async function runGame(
   // policy is actually in play, so a run without it touches nothing.
   const policyRng =
     opts.opponent?.policy === undefined ? null : mulberry32((spec.seed ?? 1) ^ 0x5f37_59df);
+  /**
+   * EVERY CONFIGURED UNIT'S TEAM, living or dead — adjudication's own
+   * requirement (`adjudicate`: "that is what makes a wiped team weigh 0
+   * instead of vanishing"). Built from the spec's roster with `buildBoard`'s
+   * own naming, so a team wiped on turn 3 still weighs 0 at the cap rather
+   * than dropping out of the weight table.
+   */
+  const teamOfAll: { [unitID: string]: string } = {};
+  for (const team of spec.teams) {
+    team.units.forEach((_, i) => {
+      teamOfAll[`${team.id}-${LETTERS[i]}`] = team.id;
+    });
+  }
+  /**
+   * The board the last settled turn left, and the one before it. Both start
+   * ABSENT rather than fabricated from the opening position: `previous` is
+   * read only by the mutual-wipe branch, and handing it a made-up view would
+   * be this file answering a rules question instead of the engine.
+   */
+  let view: BoardView | undefined;
+  let previousView: BoardView | undefined;
+  let settledOutcome: Outcome | null = null;
+  const trajectory: Array<{ turn: number; lead: number; weights: Record<string, number> }> = [];
+  // --- end outcome instrument ---------------------------------------------
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     const teams = new Set(
@@ -1994,6 +2355,43 @@ export async function runGame(
         metrics.worstDecisionNodes = Math.max(metrics.worstDecisionNodes, decision.nodes);
         metrics.decisions++;
         addLoud(metrics.loud, decision.loud);
+        if (opts.probe !== undefined && decision.traces.length > 0) {
+          const probe = opts.probe;
+          const shape = decisionShapeOf(board, turn, teamId);
+          const reference = decision.staged;
+          const emitProbe = (
+            scale: number,
+            scaled: DecisionBudget,
+            alt: ReadonlyMap<string, number>,
+            nodes: number,
+            slices: number
+          ): void => {
+            let changedUnits = 0;
+            for (const [id, to] of reference) if (alt.get(id) !== to) changedUnits++;
+            probe.row({
+              scenario: probe.scenario,
+              seed: spec.seed ?? 1,
+              turn,
+              team: teamId,
+              scale,
+              budget: scaled.kind === 'ms' ? scaled.ms : scaled.nodes,
+              shape,
+              changed: changedUnits > 0,
+              changedUnits,
+              nodes,
+              slices,
+            });
+          };
+          // The reference arm's own row first, so a file of probe rows carries
+          // the population every other scale's row is a share OF.
+          emitProbe(1, budget, decision.staged, decision.nodes, decision.slices);
+          for (const scale of probe.scales) {
+            if (scale === 1) continue;
+            const scaled = scaleBudget(budget, scale);
+            const alt = await decideTeam(board, turn, teamId, scaled, evaluateForTeam, false);
+            emitProbe(scale, scaled, alt.staged, alt.nodes, alt.slices);
+          }
+        }
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
@@ -2081,7 +2479,7 @@ export async function runGame(
       );
     }
     // --- end enemy-occupied entry instrument -------------------------------
-    const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule);
+    const outcome = stepGame(board, turn, staged, rng, foodTarget, potionSchedule, previousView);
     metrics.foodEaten += outcome.ate.length;
     metrics.grownMeals += outcome.grown.length;
     metrics.potionPickups += outcome.potionsTaken;
@@ -2158,6 +2556,24 @@ export async function runGame(
     }
     board = outcome.board;
     metrics.turns = turn;
+    // --- outcome instrument (ENDGAME) --------------------------------------
+    // Taken off the settlement that has just run: its own ending (null while
+    // the game continues) and the board adjudication saw. Reading the
+    // trajectory costs one `adjudicate` per ten turns, with the limit passed
+    // as null so the sample is a WEIGHT reading and never an ending.
+    previousView = view;
+    view = outcome.view;
+    settledOutcome = outcome.outcome;
+    if (deciderTeamId !== undefined && turn % 10 === 0) {
+      // `view` is this turn's settlement, so it is set.
+      const at = adjudicate(view, previousView, teamOfAll, turn, null);
+      trajectory.push({
+        turn,
+        lead: leadOf(at.weightByTeam, deciderTeamId),
+        weights: { ...at.weightByTeam },
+      });
+    }
+    // --- end outcome instrument ---------------------------------------------
     const food = board.food.map((f) => `(${f.x},${f.y})`).join(' ');
     emit(`turn ${turn}  food: ${food || '(none)'}`);
     for (const r of rows) emit(r);
@@ -2254,6 +2670,51 @@ export async function runGame(
     }
   }
   // --- end outcome proxy ---------------------------------------------------
+  // --- outcome instrument (ENDGAME) -----------------------------------------
+  //
+  // TWO WAYS A GAME ENDS HERE, and both are adjudication's own reading.
+  //
+  //  * SETTLEMENT ALREADY ENDED IT. `settleTurn` adjudicates every board it
+  //    settles, so a wipe, a last team standing or a regicide has already
+  //    produced an `Outcome` and it is kept exactly as it came.
+  //
+  //  * THE RUNNER STOPPED ON THE COUNT. `settleTurn` is handed the BOARD's
+  //    limit — which `buildBoard` states nothing about, so it is the engine's
+  //    `DEFAULT_MAX_TURNS` of 100 — and a 60-turn arm therefore stops with no
+  //    ending at all. That is the hole this instrument closes: the game the
+  //    harness played DID end on the count, on the turn the loop stopped, so
+  //    the verdict is `adjudicate`'s at that turn with that turn as the limit.
+  //    Same function, same board, same team map; nothing is re-derived.
+  //
+  //    (It is also the audit's first finding, and it is a fact about the bot
+  //    and not only about the instrument: the evaluator reads the same 100 off
+  //    the same board, so on a 60-turn arm `terminal.ts` cannot fire at all.)
+  if (deciderTeamId !== undefined && view !== undefined) {
+    const ended =
+      settledOutcome !== null && settledOutcome.kind !== 'turn-limit'
+        ? settledOutcome
+        : adjudicate(view, previousView, teamOfAll, metrics.turns, metrics.turns);
+    const teams = spec.teams.length;
+    const lead = leadOf(ended.weightByTeam, deciderTeamId);
+    const last = trajectory[trajectory.length - 1];
+    if (last === undefined || last.turn !== metrics.turns) {
+      trajectory.push({ turn: metrics.turns, lead, weights: { ...ended.weightByTeam } });
+    }
+    metrics.outcome = {
+      team: deciderTeamId,
+      side,
+      result: verdictOf(ended.winners, deciderTeamId),
+      kind: ended.kind,
+      decidedOn: ended.decidedOn,
+      winners: [...ended.winners],
+      weightByTeam: { ...ended.weightByTeam },
+      lead,
+      sharePar: sharePar(ended, teams)[deciderTeamId] ?? 0,
+      endTurn: metrics.turns,
+      trajectory,
+    };
+  }
+  // --- end outcome instrument -----------------------------------------------
   return { metrics, log, finalBoard: board };
 }
 
@@ -2456,16 +2917,6 @@ export interface RunSummary {
    */
   readonly opponent?: string;
   /**
-   * WHICH SEAT THE DEFAULT PLAYED — the index into the scenario's own roster.
-   * ABSENT for seat 0, which is every run taken before the colour swap existed
-   * and is what keeps such a run's JSON byte-identical to a build that never
-   * heard of it. Present (1, 2, …) the default was the second or third team
-   * and the opponent held the rest, so a summary carrying it is a DIFFERENT
-   * experiment on the same board and seed and is never subtracted against one
-   * that does not — the same rule `opponent` is paired under.
-   */
-  readonly decider?: number;
-  /**
    * WHAT A MEAL WAS WORTH, when the board said. Absent means the engine's
    * `DEFAULT_FOOD_ENERGY`, which is what every scenario but `sparse-lean` runs,
    * so a summary from before this field existed is byte-identical to one taken
@@ -2473,6 +2924,23 @@ export interface RunSummary {
    * are two experiments over the same geometry.
    */
   readonly foodEnergy?: number;
+  // --- outcome instrument (ENDGAME) ---------------------------------------
+  /**
+   * WHICH ROSTER SLOT KEPT THE DEFAULT PROFILE (`runGame`'s `side`). Absent
+   * for slot 0, which is every arm taken before the colour swap existed, so
+   * an old summary and a new unswapped one are byte-identical — and
+   * `ab-compare.js` pairs on it, because red-plays-us and blue-plays-us are
+   * two experiments over one asymmetric board and are never subtracted
+   * against each other.
+   */
+  readonly side?: number;
+  /**
+   * THE RESULT. Absent only from a summary taken before this existed; every
+   * run written now carries one, and it is what `ab-compare.js`'s outcome
+   * section reads. See `GameOutcome`.
+   */
+  readonly outcome?: GameOutcome;
+  // --- end outcome instrument -----------------------------------------------
   readonly mode: 'ms' | 'nodes';
   /** Milliseconds in `ms` mode, work units in `nodes` mode. */
   readonly budget: number;
@@ -2577,11 +3045,12 @@ export function summaryOf(
      *  `RunSummary.opponent`. Threaded through rather than re-derived: an
      *  `Evaluator` exposes nothing a name could be read back off. */
     opponent?: string;
-    /** The seat the default played, or absent for seat 0 — see
-     *  `RunSummary.decider`. Threaded through like `opponent` is. */
-    decider?: number;
     /** The spec's `foodEnergy`, or absent where it stated none. */
     foodEnergy?: number;
+    // --- outcome instrument (ENDGAME): absent for slot 0, exactly as
+    // `opponent` is absent for a mirror. ----------------------------------
+    side?: number;
+    // --- end outcome instrument -------------------------------------------
   },
   budget: DecisionBudget
 ): RunSummary {
@@ -2601,9 +3070,14 @@ export function summaryOf(
     // Absent for seat 0 — the same `JSON.stringify` drop, for the same reason:
     // an unswapped run's summary is byte-identical to one from a build that
     // never heard of the swap.
-    decider: where.decider === undefined || where.decider === 0 ? undefined : where.decider,
     // Absent when the spec states none, exactly as `opponent` is.
     foodEnergy: where.foodEnergy,
+    // --- outcome instrument (ENDGAME). `side` rides only when it is not the
+    // slot every earlier arm played, so an unswapped summary keeps the shape
+    // it had; the outcome itself is always written. ------------------------
+    side: where.side === 0 ? undefined : where.side,
+    outcome: metrics.outcome ?? undefined,
+    // --- end outcome instrument -------------------------------------------
     mode: budget.kind,
     budget: budget.kind === 'ms' ? budget.ms : budget.nodes,
     turnsRequested: where.turnsRequested,
@@ -2725,8 +3199,13 @@ async function summarise(
     say: (line: string) => void;
     /** Absent: every team mirrors the default profile, as always. */
     opponent?: Opponent;
-    /** Which seat the default plays. 0, and absent, are the same run. */
-    deciderIndex?: number;
+    /** `--probe`: the paired per-decision diff, on every seed this summarises. */
+    probe?: { readonly scales: ReadonlyArray<number>; readonly row: (row: ProbeRow) => void };
+    // --- outcome instrument (ENDGAME): which roster slot keeps the default
+    // profile. Absent is 0 — the side every earlier arm played, and the one
+    // `--decider=N` resolves to. ------------------------------------------
+    side?: number;
+    // --- end outcome instrument -------------------------------------------
   }
 ): Promise<void> {
   const totals: Record<string, number> = {
@@ -2780,6 +3259,10 @@ async function summarise(
     // --- end side split ---------------------------------------------------------
   };
   const causes: Record<string, number> = {};
+  // --- outcome instrument (ENDGAME): the results, never pooled with anything
+  // and never averaged into a rate. -----------------------------------------
+  const outcomes: GameOutcome[] = [];
+  // --- end outcome instrument -----------------------------------------------
   const loud = emptyLoudHistogram();
   let worst = 0;
   let nodes = 0;
@@ -2794,8 +3277,16 @@ async function summarise(
         seed,
         ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
       },
-      { scores: false, opponent: out.opponent, deciderIndex: out.deciderIndex }
+      {
+        scores: false,
+        opponent: out.opponent,
+        side: out.side,
+        ...(out.probe === undefined ? {} : { probe: { scenario, ...out.probe } }),
+      }
     );
+    // --- outcome instrument (ENDGAME) -------------------------------------
+    if (r.metrics.outcome !== null) outcomes.push(r.metrics.outcome);
+    // --- end outcome instrument -------------------------------------------
     for (const k of Object.keys(totals)) {
       totals[k] = (totals[k] as number) + ((r.metrics as unknown as Record<string, number>)[k] ?? 0);
     }
@@ -2814,8 +3305,8 @@ async function summarise(
             seed,
             turnsRequested: turns,
             opponent: out.opponent?.name,
-            decider: out.deciderIndex,
             foodEnergy: spec.foodEnergy,
+            side: out.side,
           },
           budget
         )
@@ -2825,9 +3316,51 @@ async function summarise(
   }
   const ut = totals.unitTurns as number;
   const per = (n: number): string => (ut === 0 ? '0.00' : ((100 * n) / ut).toFixed(2));
+  // --- THE OUTCOME LINE (ENDGAME), first, because it is what the game scores.
+  // W/D/L is a COUNT over seeds and never a rate: the result of a game is not
+  // per unit-turn and dividing it by one would be a number with no referent.
+  // `lead` is the signed margin the cap was decided on, meaned over the seeds
+  // it can be meaned over, and `kinds` says how the games actually ended.
+  if (outcomes.length > 0) {
+    const w = outcomes.filter((o) => o.result === 'win').length;
+    const d = outcomes.filter((o) => o.result === 'draw').length;
+    const l = outcomes.filter((o) => o.result === 'loss').length;
+    const kinds: Record<string, number> = {};
+    for (const o of outcomes) kinds[o.kind] = (kinds[o.kind] ?? 0) + 1;
+    const meanOf = (xs: number[]): string =>
+      xs.length === 0 ? 'n/a' : (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2);
+    // The lead every ten turns, over the seeds that reached that decade — the
+    // trajectory, pooled across seeds of ONE board only, which is the one
+    // pooling this file allows.
+    const decades = [...new Set(outcomes.flatMap((o) => o.trajectory.map((t) => t.turn)))].sort(
+      (a, b) => a - b
+    );
+    const traj = decades
+      .map((turn) => {
+        const leads = outcomes
+          .map((o) => o.trajectory.find((t) => t.turn === turn))
+          .filter((t): t is { turn: number; lead: number; weights: Record<string, number> } => t !== undefined)
+          .map((t) => t.lead);
+        return `T${turn}:${meanOf(leads)}`;
+      })
+      .join(' ');
+    out.say(
+      `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''}` +
+        `${out.side ? ` side=${out.side}` : ''} OUTCOME: ` +
+        `team=${outcomes[0]?.team} W${w}/D${d}/L${l} of ${outcomes.length} ` +
+        `winRate=${((w + 0.5 * d) / outcomes.length).toFixed(3)} ` +
+        `lead=${meanOf(outcomes.map((o) => o.lead))} ` +
+        `sharePar=${meanOf(outcomes.map((o) => o.sharePar))} ` +
+        `endTurn=${meanOf(outcomes.map((o) => o.endTurn))} ` +
+        `kinds=${JSON.stringify(kinds)} ` +
+        `leads=[${outcomes.map((o) => o.lead).join(',')}] ` +
+        `| trajectory ${traj}`
+    );
+  }
+  // --- end outcome line -----------------------------------------------------
   out.say(
     `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''}` +
-      `${out.deciderIndex ? ` decider=${out.deciderIndex}` : ''} seeds=${seeds} ` +
+      `${out.side ? ` side=${out.side}` : ''} seeds=${seeds} ` +
       `unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
       `stationary%=${per(totals.stationary as number)} longestPark=${longestPark} ` +
@@ -2946,12 +3479,29 @@ Flags
                  byte-identical counters and traces, every run. The positional
                  budgetMs is ignored. Without this flag the ms mode is exactly as
                  it was, and is NOT reproducible.
+  --budget-scale=X  THE BUDGET KNOB. Multiply each decision's budget by X, so
+                 an arm is named as a multiple of the shipped default rather
+                 than as a number. X=1 (the default, and the absent flag) is
+                 the identity: the budget object is passed through untouched
+                 and the run is byte-identical to one from before this flag
+                 existed. Use with --nodes, where the budget is reproducible.
+  --probe=FILE   THE PAIRED PER-DECISION DIFF. Play the game at the given
+                 budget and, at every (turn, team), decide the SAME position
+                 again at each --probe-scales scale; write one JSON row per
+                 (turn, team, scale) carrying the decision's observable shape
+                 (units, clusters, candidates, contact) and whether the staged
+                 set moved. The game itself still advances on the reference
+                 decision, so the run's own counters are unchanged; only wall
+                 time is spent. Separate games at two budgets cannot answer
+                 this: they diverge on the first disagreement and every
+                 position after it is a different game.
+  --probe-scales=A,B,C  What --probe re-decides at (default 0.5,2,4).
   --json[=FILE]  One JSON summary object per run: JSON Lines to stdout, or to
                  FILE. Two builds' files are what scripts/ab-compare.js diffs.
                  Human output moves to stderr when this writes to stdout.
   --label=NAME   Names the arm inside the JSON (default: "local").
-  --opponent=NAME  STRATEGY DIVERSITY. The DECIDING team — team 0 of the
-                 scenario's own roster, or --decider=N — keeps the default
+  --opponent=NAME  STRATEGY DIVERSITY. The DECIDING team — slot 0 of the
+                 scenario's own roster, or --side=N — keeps the default
                  profile; every other team plays NAME instead of mirroring it.
                  NAME is a member of the production bot catalog
                  (src/config/bot-binding.ts, BUILTIN_BOTS) or of the opponent
@@ -2966,14 +3516,22 @@ Flags
                  Absent: every team mirrors the default profile, exactly as
                  before this flag existed. The JSON summary then carries
                  \`opponent\` with NAME; a mirror run carries no such field.
-  --decider=N    THE COLOUR SWAP — which seat the default plays, as an index
-                 into the scenario's own roster (default 0). A matchup measured
-                 from one seat is not a matchup: these boards are not
-                 symmetric in roster, in food placement or in the alphabetical
-                 order the turn loop decides teams in. The JSON summary carries
-                 \`decider\` when N is nonzero and no such field at N = 0, so a
-                 swapped run is a different experiment and never pairs against
-                 an unswapped one.
+  --side=N       WHICH ROSTER SLOT PLAYS US (the colour swap). 0, the default
+                 and what every arm before this flag measured, is
+                 \`spec.teams[0]\` — the team that keeps the default profile
+                 while --opponent gives every other team a different one. 1 is
+                 the same experiment from the other side of an asymmetric
+                 board. Same seed, same food stream, same rng draws; only which
+                 team's copy of the evaluator folds against which profile
+                 changes. Out of range is refused rather than clamped: a silent
+                 fallback to slot 0 would report a swapped run's numbers under
+                 a swapped run's label. The JSON summary carries \`side\` when
+                 it is not 0, so a swapped run is a different experiment and
+                 never pairs against an unswapped one.
+  --decider=N    AN ALIAS FOR --side=N, and only an alias. It is the name the
+                 opponent bench and \`scripts/round-robin.sh\` were written
+                 against; it sets the same slot, writes the same \`side\` field
+                 and is refused if it disagrees with an explicit --side.
   --food-energy=N  WHAT ONE MEAL IS WORTH (\`GameSetup.foodEnergy\`). Absent: the
                  scenario's own value, which for every scenario but
                  \`sparse-lean\` is nothing at all, so the engine reads
@@ -2992,27 +3550,37 @@ Examples
 
 interface Flags {
   readonly nodes: number | null;
+  /** `--budget-scale=x`: the node budget as a multiple of the shipped one.
+   *  1 is the identity and is applied as one — see `scaleBudget`. */
+  readonly budgetScale: number;
+  /** `--probe=FILE`: write one JSON row per (turn, team, scale). */
+  readonly probe: string | null;
+  /** `--probe-scales=a,b,c`: the scales the probe re-decides at. */
+  readonly probeScales: ReadonlyArray<number>;
   readonly json: string | boolean;
   readonly label: string;
   readonly opponent: string | null;
-  /** `--decider=N`, the seat the default plays. 0 is every run taken before
-   *  the flag existed. */
-  readonly decider: number;
   /** `--food-energy=N`, or null for "whatever the scenario says", which for
    *  every scenario but `sparse-lean` is nothing at all and therefore the
    *  engine's own `DEFAULT_FOOD_ENERGY`. */
   readonly foodEnergy: number | null;
+  // --- outcome instrument (ENDGAME): the colour swap, 0 unless asked. ------
+  readonly side: number;
+  // --- end outcome instrument -----------------------------------------------
   readonly positional: string[];
 }
 
 function parseFlags(argv: readonly string[]): Flags {
   const positional: string[] = [];
   let nodes: number | null = null;
+  let budgetScale = 1;
+  let probe: string | null = null;
+  let probeScales: number[] = [0.5, 2, 4];
   let json: string | boolean = false;
   let label = 'local';
   let opponent: string | null = null;
-  let decider = 0;
   let foodEnergy: number | null = null;
+  let side = 0;
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -3025,6 +3593,27 @@ function parseFlags(argv: readonly string[]): Flags {
       case 'nodes':
         nodes = value === null ? DEFAULT_NODE_BUDGET : Number(value);
         break;
+      case 'budget-scale': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error('--budget-scale requires a positive number, e.g. --budget-scale=2');
+        }
+        budgetScale = n;
+        break;
+      }
+      case 'probe':
+        if (value === null || value === '') throw new Error('--probe requires a file');
+        probe = value;
+        break;
+      case 'probe-scales': {
+        const parts = (value ?? '').split(',').filter((x) => x !== '');
+        const ns = parts.map(Number);
+        if (ns.length === 0 || ns.some((n) => !Number.isFinite(n) || n <= 0)) {
+          throw new Error('--probe-scales requires positive numbers, e.g. --probe-scales=0.5,2,4');
+        }
+        probeScales = ns;
+        break;
+      }
       case 'json':
         json = value === null ? true : value;
         break;
@@ -3037,14 +3626,26 @@ function parseFlags(argv: readonly string[]): Flags {
         }
         opponent = value;
         break;
+      // --- outcome instrument (ENDGAME) -----------------------------------
+      // `--decider` is the bench's older spelling of `--side` and sets the
+      // same slot — one option, two names, and never two values. Disagreement
+      // is refused rather than resolved by argument order.
+      case 'side':
       case 'decider': {
         const n = value === null ? Number.NaN : Number(value);
         if (!Number.isInteger(n) || n < 0) {
-          throw new Error('--decider requires a non-negative roster index, e.g. --decider=1');
+          throw new Error(`${arg.split('=')[0]} requires a roster slot, e.g. --side=1`);
         }
-        decider = n;
+        if (side !== 0 && side !== n) {
+          throw new Error(
+            `--side and --decider disagree (${side} vs ${n}) — ` +
+              '`--decider` is an alias for `--side`, so pass one or the other'
+          );
+        }
+        side = n;
         break;
       }
+      // --- end outcome instrument -------------------------------------------
       case 'food-energy': {
         const n = value === null ? Number.NaN : Number(value);
         if (!Number.isFinite(n) || n <= 0) {
@@ -3061,7 +3662,7 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, opponent, decider, foodEnergy, positional };
+  return { nodes, budgetScale, probe, probeScales, json, label, opponent, foodEnergy, side, positional };
 }
 
 /**
@@ -3110,30 +3711,47 @@ async function main(): Promise<void> {
   if (argv[0] === 'sum') {
     const turns = Number(argv[2] ?? 60);
     const seeds = Number(argv[3] ?? 5);
-    const budget: DecisionBudget =
+    const budget: DecisionBudget = scaleBudget(
       flags.nodes === null
         ? { kind: 'ms', ms: Number(argv[4] ?? 100) }
-        : { kind: 'nodes', nodes: flags.nodes };
+        : { kind: 'nodes', nodes: flags.nodes },
+      flags.budgetScale
+    );
+    const probeRows: string[] = [];
     for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
       await summarise(name, spec, turns, seeds, budget, {
         label: flags.label,
         json: emitJson,
         say,
         opponent,
-        deciderIndex: flags.decider,
+        ...(flags.probe === null
+          ? {}
+          : {
+              probe: {
+                scales: flags.probeScales,
+                row: (row: ProbeRow): void => {
+                probeRows.push(JSON.stringify(row));
+              },
+              },
+            }),
+        side: flags.side,
       });
     }
+    if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
     finish();
     return;
   }
 
+  const probeRows: string[] = [];
   const which = argv[0] ?? 'snakes';
   const turns = Number(argv[1] ?? 30);
   const seed = Number(argv[2] ?? 1);
-  const budget: DecisionBudget =
+  const budget: DecisionBudget = scaleBudget(
     flags.nodes === null
       ? { kind: 'ms', ms: Number(argv[3] ?? 150) }
-      : { kind: 'nodes', nodes: flags.nodes };
+      : { kind: 'nodes', nodes: flags.nodes },
+    flags.budgetScale
+  );
   const named = SCENARIOS[which];
   if (named === undefined) throw new Error(`unknown scenario ${which}`);
   const spec = withFoodEnergy(named, flags.foodEnergy);
@@ -3144,8 +3762,24 @@ async function main(): Promise<void> {
       seed,
       ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
     },
-    { onTurn: say, opponent, deciderIndex: flags.decider }
+    {
+      onTurn: say,
+      opponent,
+      ...(flags.probe === null
+        ? {}
+        : {
+            probe: {
+              scenario: which,
+              scales: flags.probeScales,
+              row: (row: ProbeRow): void => {
+                probeRows.push(JSON.stringify(row));
+              },
+            },
+          }),
+      side: flags.side,
+    }
   );
+  if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
   emitJson?.(
     JSON.stringify(
       summaryOf(
@@ -3156,8 +3790,8 @@ async function main(): Promise<void> {
           seed,
           turnsRequested: turns,
           opponent: opponent?.name,
-          decider: flags.decider,
           foodEnergy: spec.foodEnergy,
+          side: flags.side,
         },
         budget
       )
@@ -3165,10 +3799,23 @@ async function main(): Promise<void> {
   );
   if (opponent !== undefined) {
     say(
-      `opponent: ${opponent.name} (team ${flags.decider}, ` +
-        `"${spec.teams[flags.decider]?.id}", keeps the default profile)`
+      `opponent: ${opponent.name} (team ${flags.side}, ` +
+        `"${spec.teams[flags.side]?.id}", keeps the default profile)`
     );
   }
+  // --- outcome instrument (ENDGAME): the result, before the process counters.
+  if (result.metrics.outcome !== null) {
+    const o = result.metrics.outcome;
+    say(
+      `--- outcome --- ${o.team} ${o.result.toUpperCase()} by ${o.kind} at turn ${o.endTurn}: ` +
+        `winners=[${o.winners.join(', ')}] weights=${JSON.stringify(o.weightByTeam)} ` +
+        `lead=${o.lead} sharePar=${o.sharePar.toFixed(3)}`
+    );
+    say(
+      `    lead trajectory: ${o.trajectory.map((t) => `T${t.turn}=${t.lead}`).join(' ')}`
+    );
+  }
+  // --- end outcome instrument -------------------------------------------------
   say('--- metrics ---');
   say(JSON.stringify(result.metrics, null, 2));
   const perHundred =

@@ -30,3 +30,7 @@ worktrees/
 
 # The round-robin harness writes its matchup files here by default.
 .round-robin/
+
+# Paired A/B builds (scripts/ab-compare.js).
+distA/
+distB/

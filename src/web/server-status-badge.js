@@ -90,6 +90,12 @@
     ensureBadge();
     badge.className = 'server-state-badge state-' + state;
     label.textContent = text;
+    // Mirror into the page header's chip where there is one (page-chrome.js).
+    // The corner bubble stays exactly where it is — play-game.html's chrome is
+    // owned elsewhere and has no header to mirror into — but on the lobby the
+    // same reading is also placed where the eye already passes, which is the
+    // whole point of a peripheral status (01-RESEARCH #7, #10).
+    if (window.PageChrome) window.PageChrome.setSocket(state, text);
   }
 
   window.ServerStatusBadge = { set };

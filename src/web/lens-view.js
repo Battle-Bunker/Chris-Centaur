@@ -62,6 +62,7 @@ var LensView = (() => {
     reviveEvents: () => reviveEvents,
     rowTrails: () => rowTrails,
     rowsFor: () => rowsFor,
+    stageSummary: () => stageSummary,
     stagedCellOf: () => stagedCellOf,
     widenAutoAcceptMs: () => widenAutoAcceptMs
   });
@@ -919,20 +920,72 @@ var LensView = (() => {
   function reviveEvents(events) {
     return events.map((e) => reviveLens(e));
   }
-  function storeOf(events, settlement) {
+  var FOLDS = /* @__PURE__ */ new WeakMap();
+  var FRAME_CACHE_CAP = 512;
+  function foldOf(events, settlement) {
     const found = events.find((e) => e.kind === "board.arrived") ?? events[0];
     if (found === void 0) throw new Error("a turn with no events has no frame");
+    const want = settlement ?? null;
+    const held = FOLDS.get(events);
+    const memo = held?.find((m) => m.settlement === want && m.anchorEvent === found);
+    if (memo !== void 0 && events.length >= memo.length && events[memo.length - 1] === memo.tail) {
+      if (events.length === memo.length) return memo;
+      let store2 = memo.store;
+      for (let i = memo.length; i < events.length; i++) {
+        const event = events[i];
+        if (event.seq > memo.at.seq) store2 = applyEvent(store2, event);
+      }
+      return remember(events, held, {
+        ...memo,
+        length: events.length,
+        tail: events[events.length - 1],
+        store: store2,
+        frames: /* @__PURE__ */ new Map()
+      });
+    }
     const anchor = settlement ? anchorWithSettlement(found, settlement) : found;
     const store = events.filter((e) => e.seq > anchor.seq).reduce((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-    return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
+    return remember(events, held, {
+      settlement: want,
+      anchorEvent: found,
+      length: events.length,
+      tail: events[events.length - 1],
+      store,
+      at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq },
+      frames: /* @__PURE__ */ new Map()
+    });
+  }
+  function remember(events, held, memo) {
+    const kept = (held ?? []).filter(
+      (m) => !(m.settlement === memo.settlement && m.anchorEvent === memo.anchorEvent)
+    );
+    kept.unshift(memo);
+    FOLDS.set(events, kept.slice(0, 2));
+    return memo;
+  }
+  function frameOf(memo, key, build) {
+    const hit = memo.frames.get(key);
+    if (hit !== void 0) return hit;
+    const frame = build();
+    if (memo.frames.size >= FRAME_CACHE_CAP) memo.frames.clear();
+    memo.frames.set(key, frame);
+    return frame;
   }
   function frameAtSeq(events, seq, isHead) {
-    const { store, at } = storeOf(events);
-    return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
+    const memo = foldOf(events);
+    return frameOf(
+      memo,
+      `live/${seq}/${isHead ? "head" : "scrub"}`,
+      () => makeLiveDecisionSource({ store: memo.store, at: { ...memo.at, seq }, isHead }).frame()
+    );
   }
   function replayFrameAtSeq(events, seq, settlement = null) {
-    const { store, at } = storeOf(events, settlement);
-    return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
+    const memo = foldOf(events, settlement);
+    return frameOf(
+      memo,
+      `replay/${seq}`,
+      () => makeReplayDecisionSource({ store: memo.store, at: { ...memo.at, seq } }).frame()
+    );
   }
   var CLUSTER_GLYPHS = "αβγδεζηθικλμν";
   function clusterGlyph(index) {
@@ -1114,6 +1167,7 @@ var LensView = (() => {
         list.truncated
       )
     ];
+    const foil = selected === null ? null : foilRow(frame, cursor, selected);
     for (const row of rows) {
       const cell = depthCell(row, row.key === leader?.key ? loud : null);
       const priced = row.unpriced !== true;
@@ -1146,7 +1200,14 @@ var LensView = (() => {
           row.complement,
           row.key === selected?.key,
           row.staged,
-          trail
+          trail,
+          // WHICH ROW IS THE RUNNER-UP, and the row's own estimate. Both are
+          // appended rather than woven in, so every existing reader keeps its
+          // indices: the rail marks the foil row at full size beside rank 1, and
+          // draws the bracket as a BAND with `est` as its marked point rather
+          // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
+          row.key === foil?.key,
+          priced ? row.est : null
         )
       );
     }
@@ -1162,7 +1223,6 @@ var LensView = (() => {
       );
     }
     if (selected !== null) {
-      const foil = foilRow(frame, cursor, selected);
       ops.push(
         foil === null ? call("panel.foil", null, null, noFoilReason(list), null) : call(
           "panel.foil",
@@ -1298,11 +1358,46 @@ var LensView = (() => {
     }
     return ops;
   }
+  function stageSummary(frame) {
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    const push = (unit, clusterId, fixity, by, boundTo = null) => {
+      if (seen.has(unit)) return;
+      seen.add(unit);
+      const row = frame.units.find((u) => u.unit === unit);
+      const staged = stagedCellOf(frame, unit) ?? boundTo;
+      const planned = staged !== null || clusterId === null ? null : rankOne(frame.movesets[reservoirListKey(clusterId)] ?? [])?.moves.find(
+        (m) => m.unit === unit
+      )?.to ?? null;
+      out.push({
+        unit,
+        letter: row?.letter || unit,
+        to: staged !== null ? staged : planned,
+        source: staged !== null ? "staged" : planned !== null ? "plan" : "none",
+        fixity,
+        by
+      });
+    };
+    for (const cluster of frame.partition) {
+      for (const member of cluster.members) push(member, cluster.id, "free", null);
+      for (const bound of cluster.boundedBy) {
+        push(
+          bound.unit,
+          cluster.id,
+          FIXITY_VERB[bound.why] ?? bound.why,
+          authorOf(frame, bound.unit, bound.by),
+          bound.to
+        );
+      }
+    }
+    return out;
+  }
   function renderFrame(frame, cursor = initialCursor(), trails = []) {
     const selected = selectedRow(frame, cursor);
     const ops = [call("frame", frame.at.turn, frame.at.seq, frame.at.tMono)];
     ops.push(...boardOps(frame, cursor, selected));
     ops.push(call("panel.advice", frame.advice.length));
+    ops.push(call("panel.stage", stageSummary(frame)));
     if (cursor.unit !== null) {
       const row = frame.units.find((u) => u.unit === cursor.unit);
       const cluster = clusterOf(frame, cursor.unit);

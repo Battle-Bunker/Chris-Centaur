@@ -28,6 +28,22 @@
  *   npx ts-node --transpile-only src/tests/lens-walkthrough-server.ts \
  *     --port=5055 --warmup=2 --seed=1 --nodes=550
  *
+ * THE WIRE CAN BE MADE SLOW, because in this process it is free and a latency
+ * surface designed against a free wire is a surface nobody has read:
+ *
+ *   --latency=120            both directions, client ↔ centaur, one way
+ *   --latency-down=200       centaur → client only (the board goes old)
+ *   --latency-up=200         client → centaur only (the press lands late)
+ *   --jitter=40              uniform ± on each direction, order preserved
+ *   --loss=0.1               drop a tenth of the superseded broadcasts
+ *   --loss-any               ...and of every other type, `lens-frames` too
+ *   --latency-game=300       centaur ↔ game server: the turn arrives late
+ *   --turn-timeout=500       give the harness a real turn deadline
+ *
+ * Every one of them also reads from the environment (`LENS_LATENCY`,
+ * `LENS_JITTER`, `LENS_LATENCY_GAME`, …). All default to zero, and at zero
+ * nothing is installed at all.
+ *
  * Then: `/game/lens-walk` is the LIVE game (POST `/dev/step` plays one more
  * turn into the connected sockets) and `/game/lens-walk-replay` is the same
  * recorded log read back through the replay path.
@@ -85,13 +101,33 @@ interface Args {
   readonly nodes: number;
   readonly warmup: number;
   readonly gameId: string;
+  /** The injected wire. All zero — the default — is the wire this harness has
+   *  always had, and the walkthrough's own re-run is against exactly that. */
+  readonly downMs: number;
+  readonly upMs: number;
+  readonly jitterMs: number;
+  readonly lossRate: number;
+  readonly lossAny: boolean;
+  readonly gameLagMs: number;
+  /** A real turn clock, in ms. `0` — the default — is the harness as it has
+   *  always been: no `turnExpiryTime` on any envelope, so no countdown, and
+   *  the widen banner's deadline-scaled timer stays on its 6 s cap. Setting
+   *  it gives the page a deadline to draw and the latency surface a
+   *  last-safe-press mark to put on it. */
+  readonly turnTimeoutMs: number;
 }
 
 function args(): Args {
   const read = (name: string, fallback: string): string => {
     const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
-    return hit === undefined ? fallback : hit.slice(name.length + 3);
+    if (hit !== undefined) return hit.slice(name.length + 3);
+    const env = process.env[`LENS_${name.toUpperCase().replace(/-/g, '_')}`];
+    return env === undefined ? fallback : env;
   };
+  // `--latency=N` is both directions; `--latency-down` / `--latency-up` split
+  // them, because the two are not symmetric to an operator: a slow DOWN hop
+  // makes the board old, and a slow UP hop makes the press late.
+  const both = read('latency', '0');
   return {
     port: parseInt(read('port', '5055'), 10),
     scenario: read('scenario', 'mixed'),
@@ -99,7 +135,23 @@ function args(): Args {
     nodes: parseInt(read('nodes', '550'), 10),
     warmup: parseInt(read('warmup', '2'), 10),
     gameId: read('game', 'lens-walk'),
+    downMs: parseInt(read('latency-down', both), 10) || 0,
+    upMs: parseInt(read('latency-up', both), 10) || 0,
+    jitterMs: parseInt(read('jitter', '0'), 10) || 0,
+    lossRate: parseFloat(read('loss', '0')) || 0,
+    lossAny: read('loss-any', '') !== '',
+    gameLagMs: parseInt(read('latency-game', '0'), 10) || 0,
+    turnTimeoutMs: parseInt(read('turn-timeout', '0'), 10) || 0,
   };
+}
+
+/** An unref'd sleep, for the injected game-server hop. */
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+  });
 }
 
 /** The runner's own food placement stream. Not the search's salt. */
@@ -260,6 +312,29 @@ async function main(): Promise<void> {
 
   const httpServer = createServer(app);
   const ws = new GameWebSocketServer(httpServer);
+  // ── THE INJECTED WIRE ───────────────────────────────────────────────────
+  // Both hops are free in this process, so a latency surface built here would
+  // be a surface nobody had ever seen say anything. This makes them cost
+  // something on demand: `--latency=120 --jitter=40` is a plausible bad
+  // connection, `--latency-game=300` is a game server falling behind, and
+  // `--loss=0.1` drops a tenth of the superseded broadcasts (add `--loss-any`
+  // to drop `lens-frames` too, which is unrecoverable by design and is
+  // therefore worth being able to see rather than worth leaving on).
+  //
+  // ZERO IS THE DEFAULT AND ZERO IS THE SHIPPED WIRE: with no flags the
+  // shaping is never installed, so `10-WALKTHROUGH.md`'s re-run compares
+  // against the same transport it always did.
+  const shaped =
+    opts.downMs > 0 || opts.upMs > 0 || opts.jitterMs > 0 || opts.lossRate > 0;
+  if (shaped) {
+    ws.shapeTransport({
+      downMs: opts.downMs,
+      upMs: opts.upMs,
+      jitterMs: opts.jitterMs,
+      lossRate: opts.lossRate,
+      lossAny: opts.lossAny,
+    });
+  }
   // The one outbound path, wired exactly as `src/index.ts` wires it — and
   // tapped on the way past, because the manager is also the only place the
   // turn's written events can be read back without a database.
@@ -287,6 +362,14 @@ async function main(): Promise<void> {
    * WIDENS while a browser is looking at it.
    */
   async function playTurn(): Promise<void> {
+    // THE SECOND HOP. The turn exists at the game server now; the centaur
+    // learns about it `--latency-game` milliseconds later, and reports the
+    // difference to every operator as `gameLagMs`. The whole decision moves
+    // with it, which is the point — a late turn is a late decision, not just
+    // a late number.
+    const producedAt = Date.now();
+    ws.noteTurnOrigin(opts.gameId, producedAt);
+    await delay(opts.gameLagMs);
     const settlement: BoardSnapshot = { game: meta, turn, board };
     const ourIds = (board.snakes ?? [])
       .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
@@ -296,6 +379,15 @@ async function main(): Promise<void> {
       for (const id of ourIds) {
         manager.registerGame(settlement, id, { id: teamId, name: teamId, color: '#e53935' });
       }
+    }
+    // THE TURN CLOCK, when one was asked for. `recordTurnArrival` is the seam
+    // production's Firebase interface calls with the game server's own expiry;
+    // this passes the local timeout instead, which is the same computation
+    // (`arrival + timeout − delivery estimate`) with a locally-sourced arrival.
+    // It is set BEFORE `updateBoard`, because that is what broadcasts the turn
+    // and the deadline has to be on the envelope that carries it.
+    if (opts.turnTimeoutMs > 0) {
+      manager.recordTurnArrival(opts.gameId, Date.now(), opts.turnTimeoutMs);
     }
     manager.updateBoard(opts.gameId, settlement);
 
@@ -479,6 +571,14 @@ async function main(): Promise<void> {
 
   await new Promise<void>((resolve) => httpServer.listen(opts.port, '127.0.0.1', resolve));
   console.log(`[walkthrough] listening on http://127.0.0.1:${opts.port}`);
+  console.log(
+    shaped || opts.gameLagMs > 0 || opts.turnTimeoutMs > 0
+      ? `[walkthrough] wire: down ${opts.downMs}ms · up ${opts.upMs}ms · ` +
+          `jitter ±${opts.jitterMs}ms · loss ${(opts.lossRate * 100).toFixed(0)}%` +
+          `${opts.lossAny ? ' (any type)' : ''} · game hop ${opts.gameLagMs}ms` +
+          `${opts.turnTimeoutMs > 0 ? ` · turn clock ${opts.turnTimeoutMs}ms` : ''}`
+      : '[walkthrough] wire: unshaped — both hops are free'
+  );
 
   for (let i = 0; i < opts.warmup; i++) await playTurn();
   console.log(

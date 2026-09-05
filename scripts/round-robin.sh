@@ -115,6 +115,10 @@ run_one() {
   # control, and passing --opponent=lobster-territory would NOT be the same run
   # (it would route the non-decider teams through the opponent branch).
   if [ "${arm}" != "mirror" ]; then args+=("--opponent=${arm}"); fi
+  # `--decider` is the alias; `--side` is the canonical name the endgame
+  # instrument landed. Passed as the alias ON PURPOSE — it is the spelling this
+  # harness has always used, and a run that stopped exercising it would let the
+  # alias rot without anything noticing.
   if [ "${seat}" != "0" ]; then args+=("--decider=${seat}"); fi
   if node "${RUNNER}" "${args[@]}" >"${base}.log" 2>&1; then
     mv "${base}.jsonl.partial" "${base}.jsonl"

@@ -83,7 +83,7 @@ async function playAgainst(
           seed: SEED,
           turnsRequested: turns,
           opponent: opponent.name,
-          decider: deciderIndex,
+          side: deciderIndex,
         },
         { kind: 'nodes', nodes: NODES }
       )
@@ -295,6 +295,16 @@ describe('the deterministic mode', () => {
   describe('the colour swap', () => {
     test('seat 0 is the run that was always taken — the flag adds no field', async () => {
       const { json } = await play(MIXED_SCENARIO, 'mixed');
+      // The TOP-LEVEL field, asked of the parsed object rather than of the
+      // text: the endgame instrument's `outcome` block carries a `side` of its
+      // own, so a substring search would fire on that and prove nothing about
+      // the summary's own shape.
+      const summary = JSON.parse(json) as Record<string, unknown>;
+      expect(summary.side).toBeUndefined();
+      // `decider` was the bench's own name for this field before the two
+      // merged. It is an ALIAS at the call sites and nowhere in the JSON:
+      // one seat index, one spelling on the wire.
+      expect(summary.decider).toBeUndefined();
       expect(json).not.toContain('"decider"');
     });
 
@@ -302,8 +312,8 @@ describe('the deterministic mode', () => {
       const opponent = resolveOpponent('material-only');
       const seat0 = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
       const seat1 = await playAgainst(MIXED_SCENARIO, 'mixed', opponent, TURNS, 1);
-      expect(JSON.parse(seat0.json).decider).toBeUndefined();
-      expect(JSON.parse(seat1.json).decider).toBe(1);
+      expect(JSON.parse(seat0.json).side).toBeUndefined();
+      expect(JSON.parse(seat1.json).side).toBe(1);
       expect(seat1.log).not.toBe(seat0.log);
       // And "ours" followed the default to its new seat: on `mixed` red has
       // three units and blue has three, so the two seats' own unit-turn counts
@@ -316,9 +326,49 @@ describe('the deterministic mode', () => {
       await expect(
         runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
           scores: false,
+          side: 3,
+        })
+      ).rejects.toThrow(/outside this scenario's roster/);
+      // …and through the alias too, because that is the name the round-robin
+      // passes and a check that only guards one spelling guards nothing.
+      await expect(
+        runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
+          scores: false,
           deciderIndex: 3,
         })
       ).rejects.toThrow(/outside this scenario's roster/);
+    });
+
+    /**
+     * `deciderIndex` IS AN ALIAS AND NOTHING ELSE. `side` is the canonical
+     * option (the endgame instrument's), `deciderIndex` is the name the
+     * opponent bench and `scripts/round-robin.sh` were written against, and
+     * the whole content of "alias" is that the two produce the SAME GAME.
+     * Two names that drift apart would be worse than either name alone.
+     */
+    test('deciderIndex is an alias for side — same game, and disagreement is refused', async () => {
+      const opponent = resolveOpponent('material-only');
+      const viaSide = await runGame(
+        { ...MIXED_SCENARIO, maxTurns: TURNS, seed: SEED, nodeBudget: NODES },
+        { scores: false, opponent, side: 1 }
+      );
+      clearGeometryCache();
+      const viaAlias = await runGame(
+        { ...MIXED_SCENARIO, maxTurns: TURNS, seed: SEED, nodeBudget: NODES },
+        { scores: false, opponent, deciderIndex: 1 }
+      );
+      clearGeometryCache();
+      expect(viaAlias.log.join('\n')).toBe(viaSide.log.join('\n'));
+      expect(viaAlias.metrics.oursUnitTurns).toBe(viaSide.metrics.oursUnitTurns);
+      expect(viaAlias.metrics.outcome).toEqual(viaSide.metrics.outcome);
+
+      await expect(
+        runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
+          scores: false,
+          side: 0,
+          deciderIndex: 1,
+        })
+      ).rejects.toThrow(/alias for `side`/);
     });
   });
 

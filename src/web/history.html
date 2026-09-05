@@ -6,50 +6,98 @@
   <title>Game History</title>
   <link rel="stylesheet" href="/chrome.css">
   <style>
-    .status-bar {
-      background: #2a2a2a; border-radius: 8px; padding: 15px;
-      margin-bottom: 20px;
+    /* The row, and the two ways into the lens. Header/nav/chips/focus/hover
+       come from chrome.css — docs/design/ux/04-SECONDARY-SCREENS.md §2.1. */
+
+    .game-card {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 12px 14px; position: relative; cursor: pointer;
     }
-    .status-text { font-size: 14px; color: #888; }
-    .game-card-header {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 8px;
+    .entry-link { color: #fff; text-decoration: none; }
+    .entry-link::after { content: ''; position: absolute; inset: 0; }
+    .entry-link:focus-visible::after {
+      outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 8px;
     }
-    .game-card-team { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
-    .team-swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-    .game-card-time { font-size: 12px; color: #4CAF50; white-space: nowrap; }
-    .game-card-id { font-size: 11px; color: #666; word-break: break-all; margin-bottom: 8px; }
-    .game-card-meta { font-size: 12px; color: #888; margin-bottom: 10px; }
-    .game-card-snakes { display: flex; flex-wrap: wrap; gap: 8px; }
+    .above { position: relative; z-index: 1; }
+
+    .row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .row-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .row-top .grow { flex: 1; }
+    .game-card-time { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+    .meta { font-size: 12px; color: var(--ink-dim); }
+    .meta b { color: #ddd; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .team-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--ink-dim);
+      border: 1px solid #4a4a4a; border-radius: 10px; padding: 1px 8px;
+    }
+    .team-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    .game-card-snakes { display: flex; flex-wrap: wrap; gap: 6px; }
     .snake-tag {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: #333; padding: 4px 10px; border-radius: 12px;
-      font-size: 13px; border: 1px solid #555;
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #333; padding: 2px 9px; border-radius: 12px;
+      font-size: 12px; border: 1px solid #555;
     }
-    .snake-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .snake-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .snake-len { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+    /* ── The path into the lens ───────────────────────────────────────────
+       A game is not a thing an operator wants to open; a TURN is. These sit
+       above the row's stretched entry link so they are the deliberate choice
+       and the row's own click is the "just open it" default. */
+    .into-lens {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      font-size: 12px; color: var(--ink-dim);
+    }
+    .into-lens .turn-input {
+      width: 5.5em; background: #1e1e1e; border: 1px solid var(--line);
+      border-radius: 4px; color: var(--ink); font: inherit; font-size: 12px;
+      padding: 3px 6px; text-align: right; font-variant-numeric: tabular-nums;
+    }
+    .into-lens a, .into-lens button {
+      font: inherit; font-size: 12px; color: #cfe8d0; background: #333;
+      border: 1px solid #4a4a4a; border-radius: 4px; padding: 3px 9px;
+      text-decoration: none; cursor: pointer;
+    }
+    .into-lens a:hover, .into-lens button:hover { background: #3d3d3d; border-color: #666; }
+    .into-lens .resume { border-color: #3c6e3e; }
     .loading { text-align: center; padding: 40px; color: #888; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Game History</h1>
-    <div class="nav-links">
-      <a href="/play">Play</a>
-      <a href="/config">Config</a>
-    </div>
-  </div>
+  <div class="header"><h1>History</h1></div>
 
   <div class="main-content">
-    <div class="status-bar">
-      <span class="status-text" id="statusText">Loading recorded games...</span>
+    <div class="list-bar">
+      <input class="list-filter" id="filter" type="search" autocomplete="off"
+             placeholder="Filter by id, team, snake or outcome  ( / )"
+             aria-label="Filter recorded games">
+      <span class="count-read" id="statusText">Loading recorded games…</span>
     </div>
-    <div id="gameContainer">
-      <div class="loading">Loading...</div>
+    <div id="gameContainer" role="list">
+      <div class="loading">Loading…</div>
     </div>
   </div>
 
   <script src="/dom-utils.js"></script>
+  <script src="/page-chrome.js"></script>
+  <script src="/replay-deeplink.js"></script>
+  <script src="/firebase-status-banner.js"></script>
   <script>
+    'use strict';
+
+    let allGames = [];
+    let filterText = '';
+
+    // This page holds no socket and takes exactly one fetch. Saying so is the
+    // point: a blank status area would read as "healthy" (04 §1 F5).
+    window.PageChrome.setSocketAbsent(
+      'History reads /api/logs/games once, on load. It holds no socket and ' +
+      'polls nothing, so it reports no live freshness.'
+    );
+
     async function loadGames() {
       const container = document.getElementById('gameContainer');
       const status = document.getElementById('statusText');
@@ -61,65 +109,149 @@
           status.textContent = 'No recorded games yet';
           container.innerHTML =
             '<div class="no-games"><h2>No recorded games</h2>' +
-            '<p>Finished games with decision logs will appear here.</p></div>';
+            '<p>Finished games with decision logs appear here, each one a way ' +
+            'into the lens at any turn it recorded.</p></div>';
           return;
         }
-
-        status.textContent = `${games.length} recorded game${games.length === 1 ? '' : 's'}`;
-        container.innerHTML = games.map(renderGameCard).join('');
+        allGames = games;
+        render();
       } catch (err) {
         console.error('Error loading games:', err);
         status.textContent = 'Failed to load recorded games';
         container.innerHTML =
-          '<div class="no-games"><h2>Error</h2><p>Could not load recorded games.</p></div>';
+          '<div class="no-games"><h2>Error</h2>' +
+          '<p>Could not load recorded games. The decision-log store did not answer.</p></div>';
       }
     }
 
-    function renderGameCard(group) {
-      const timestamp = group.timestamp
-        ? new Date(group.timestamp).toLocaleString()
-        : '';
-      const teamSwatch = group.team_color
-        ? `<span class="team-swatch" style="background-color:${escapeHtml(group.team_color)};"></span>`
-        : '';
-      const snakeTags = (group.snakes || []).map((s) => {
+    // The one field that distinguishes two rows, ranked first. The team label
+    // is identical on every row and used to be the headline (04 §1 F3).
+    function outcomeOf(g) {
+      if (g.end_reason === 'draw') return { word: 'Draw', mark: '=', cls: 'draw' };
+      const winner = g.winner_name || g.winner_snake_id;
+      if (!winner) return { word: 'Unfinished', mark: '·', cls: 'open' };
+      const ours = g.team_label && String(winner).toLowerCase().includes(String(g.team_label).toLowerCase());
+      return ours
+        ? { word: 'Won', mark: '▲', cls: 'won' }
+        : { word: 'Lost to ' + winner, mark: '▼', cls: 'lost' };
+    }
+
+    function haystack(g) {
+      return [
+        g.game_id, g.team_label, g.ruleset_name, g.winner_name, g.end_reason,
+        outcomeOf(g).word, (g.snakes || []).map((s) => s.snake_name).join(' '),
+      ].join(' ').toLowerCase();
+    }
+
+    function renderGameCard(g, n) {
+      const when = g.timestamp ? new Date(g.timestamp) : null;
+      const oc = outcomeOf(g);
+      const turns = Number(g.turns) || 0;
+      const lastTurn = window.ReplayDeepLink
+        ? window.ReplayDeepLink.lastTurnFor(g.game_id)
+        : null;
+
+      const teamChip = `<span class="team-chip">
+          <span class="team-swatch" style="background:${safeColor(g.team_color, '#666')}"></span>
+          ${escapeHtml(g.team_label || 'Team')}</span>`;
+
+      const snakeTags = (g.snakes || []).map((s) => {
         const dot = s.color
-          ? `<span class="snake-dot" style="background-color:${escapeHtml(s.color)};"></span>`
+          ? `<span class="snake-dot" style="background:${safeColor(s.color)}"></span>`
           : '';
-        // Weight (= body length for snakes, stack weight for pieces).
-        const len = s.length != null ? ` ⚖️${s.length}` : '';
+        // Weight = body length for snakes, stack weight for pieces. Plain text
+        // rather than an emoji: the chrome has no emoji font and ⚖️ rendered
+        // as tofu (04 §1 F11).
+        const len = s.length != null ? ` <span class="snake-len">len ${escapeHtml(s.length)}</span>` : '';
         return `<span class="snake-tag">${dot}${escapeHtml(s.snake_name || 'Snake')}${len}</span>`;
       }).join('');
 
-      // Game-level metadata from the authoritative games table (null when the
-      // info was never captured, e.g. no end webhook).
       const bits = [];
-      if (group.board_width && group.board_height) bits.push(`${group.board_width}\u00d7${group.board_height}`);
-      if (group.ruleset_name) bits.push(group.ruleset_name);
-      if (group.end_reason === 'draw') {
-        bits.push('Draw');
-      } else if (group.winner_name || group.winner_snake_id) {
-        bits.push(`Winner: ${group.winner_name || group.winner_snake_id}`);
-      }
-      const metaBits = bits.length
-        ? ` \u00b7 ${bits.map(escapeHtml).join(' \u00b7 ')}`
+      if (g.board_width && g.board_height) bits.push(`${g.board_width}×${g.board_height}`);
+      if (g.ruleset_name) bits.push(g.ruleset_name);
+
+      const resume = lastTurn != null
+        ? `<a class="resume above" href="${escapeHtml(gameUrl(g.game_id, lastTurn))}"
+              title="You last looked at turn ${escapeHtml(lastTurn)} of this game">↩ resume at ${escapeHtml(lastTurn)}</a>`
         : '';
 
       return `
-        <div class="game-card" onclick="openGame('${escapeHtml(group.game_id)}')">
-          <div class="game-card-header">
-            <span class="game-card-team">${teamSwatch}${escapeHtml(group.team_label || 'Team')}</span>
-            ${timestamp ? `<span class="game-card-time">${escapeHtml(timestamp)}</span>` : ''}
+        <div class="game-card" role="listitem" data-href="${escapeHtml(gameUrl(g.game_id, lastTurn == null ? undefined : lastTurn))}">
+          <span class="idx" aria-hidden="true">${n <= 9 ? n : '·'}</span>
+          <div class="row-body">
+            <div class="row-top">
+              <a class="entry-link outcome outcome-${oc.cls}"
+                 href="${escapeHtml(gameUrl(g.game_id, lastTurn == null ? undefined : lastTurn))}">
+                <span aria-hidden="true">${oc.mark}</span>${escapeHtml(oc.word)}
+              </a>
+              <span class="meta"><b>${escapeHtml(turns)}</b> turns${bits.length ? ' · ' + escapeHtml(bits.join(' · ')) : ''}</span>
+              <span class="grow"></span>
+              <span class="game-card-time" title="${when ? escapeHtml(when.toLocaleString()) : ''}">${when ? escapeHtml(fmtAgo(when.getTime())) : ''}</span>
+            </div>
+            <div class="into-lens">
+              ${teamChip}
+              ${resume}
+              <span>open at turn</span>
+              <input class="turn-input above" type="number" min="0" max="${escapeHtml(turns)}"
+                     placeholder="0–${escapeHtml(turns)}" aria-label="Turn to open in the lens"
+                     title="Empty opens at the head of the game" data-game="${escapeHtml(g.game_id)}">
+              <button type="button" class="above go-turn" data-game="${escapeHtml(g.game_id)}">Go</button>
+              <span class="mono">${escapeHtml(g.game_id)}</span>
+            </div>
+            <div class="game-card-snakes">${snakeTags}</div>
           </div>
-          <div class="game-card-id">${escapeHtml(group.game_id)}</div>
-          <div class="game-card-meta">Turns: ${escapeHtml(group.turns)}${metaBits}</div>
-          <div class="game-card-snakes">${snakeTags}</div>
-        </div>
-      `;
+        </div>`;
     }
+
+    function render() {
+      const container = document.getElementById('gameContainer');
+      const status = document.getElementById('statusText');
+      const shown = filterText === ''
+        ? allGames
+        : allGames.filter((g) => haystack(g).includes(filterText.toLowerCase()));
+
+      status.textContent = filterText === ''
+        ? `${allGames.length} recorded game${allGames.length === 1 ? '' : 's'}`
+        : `${shown.length} of ${allGames.length} shown`;
+
+      if (shown.length === 0) {
+        container.innerHTML =
+          `<div class="no-games"><h2>Nothing matches “${escapeHtml(filterText)}”</h2>` +
+          `<p>${allGames.length} recorded games. Press Esc to clear the filter.</p></div>`;
+        return;
+      }
+      container.innerHTML = shown.map((g, i) => renderGameCard(g, i + 1)).join('');
+    }
+
+    // A turn is the unit the operator wants; the fragment is what carries it
+    // (replay-deeplink.js reads `#turn=` in the viewer).
+    document.getElementById('gameContainer').addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('.go-turn');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const input = btn.parentElement.querySelector('.turn-input');
+      const turn = parseInt(input && input.value, 10);
+      openGame(btn.dataset.game, Number.isFinite(turn) ? turn : undefined);
+    });
+    document.getElementById('gameContainer').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const input = e.target.closest && e.target.closest('.turn-input');
+      if (!input) return;
+      e.preventDefault();
+      const turn = parseInt(input.value, 10);
+      openGame(input.dataset.game, Number.isFinite(turn) ? turn : undefined);
+    });
+
+    window.PageChrome.list({
+      container: document.getElementById('gameContainer'),
+      itemSel: '.game-card[data-href]',
+      filterEl: document.getElementById('filter'),
+      onFilter: (text) => { filterText = text; render(); },
+      open: (el) => { window.location.href = el.dataset.href; },
+    });
 
     loadGames();
   </script>
-<script src="/firebase-status-banner.js"></script>
 </body>
 </html>

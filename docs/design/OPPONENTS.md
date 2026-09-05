@@ -83,7 +83,11 @@ and nothing else. `sparse-lean` is left out: it is `sparse` with a leaner meal a
 has never recorded a death or a contest, so it would add 84 games and no
 distinguishing power.
 
-**Both seats, always.** `--decider=N` says which team keeps the default profile.
+**Both seats, always.** `--side=N` says which team keeps the default profile —
+and `--decider=N`, the name this bench and `scripts/round-robin.sh` were written
+against before the endgame instrument landed the same option, is an ALIAS for it:
+same slot, same `side` field on the wire, refused if it disagrees with an
+explicit `--side`. One seat index, one spelling in the JSON.
 A matchup measured from one seat is a fact about that seat: `mixed` gives red a
 snake, a pawn and a knight and blue a snake, a queen and a pawn; the food is not
 placed symmetrically; and the turn loop decides teams in ALPHABETICAL order, so
@@ -101,9 +105,16 @@ Every field both builds carry is identical. The bench, the policy switch and the
 colour swap are reachable only through `--opponent` and `--decider`, and a run
 that passes neither takes the path it always took.
 
-**The outcome column is WEIGHT AT THE CAP.** `git fetch origin` finds no
-win/draw/loss counter on any branch — the endgame worker's outcome counter has
-not landed — and every game here runs to the turn cap and stops, so there is no
+**The outcome column is WEIGHT AT THE CAP, and the corpus predates the counter
+that would replace it.** When these 336 games were played, `git fetch origin`
+found no win/draw/loss counter on any branch; the endgame worker's `adjudicate`
+instrument (`metrics.outcome`: result, kind, winners, `weightByTeam`, lead,
+`sharePar`, and a lead trajectory) landed in the merge AFTER the sweep, and the
+merge also changed the bot — the working head's engine and evaluator commits move
+play on `mixed` seed 3, so this corpus is a snapshot of `4681263`'s build and not
+of the current one. §6 says what to do about that, and it is the first thing the
+next worker on this row should do. Every game here runs to the turn cap and
+stops, so at the time there was no
 adjudicated result to report. The proxy is the total occupancy of the units still
 standing when the cap stopped the game, per side, which is the same number
 `substrate.ts` reads a unit's material off. Material is what the game is won with
@@ -399,10 +410,18 @@ would have to be enormous to move it, and the one class where it is informative
 the most interesting player on the bench and the worst gate, because its result
 changes sign with the seat on both classes it is interesting on.
 
+**Re-run the sweep first.** The outcome counter this document says it lacks has
+now landed, and the merge that brought it also moved the bot's play. Both facts
+point the same way: the table above is a snapshot of the build it was taken on,
+`npm run round-robin -- --out .round-robin --force` re-takes it, and the W/D/L
+the runner now prints is a stronger reading than weight at the cap on every row.
+§4.4 is the reason to keep the death columns anyway: at seat 1 the share moved
+−0.005 while our deaths quadrupled, and a win rate could hide that too.
+
 **Two follow-ups this corpus asks for and cannot do itself.** First, split
 `deathsByCause` and `enemyOccupiedEntries[Lost]` by side; today they are
 board-wide, and §4.4's mechanism is an inference rather than a measurement
 because of it. Second, when the `endgame` worker's win/draw/loss counter lands,
 re-run the sweep — the outcome column here is weight at the cap because there was
-no adjudicated result to report, and §4.4 is a live demonstration that share and
-deaths can point in different directions.
+no adjudicated result to report when it was taken, and §4.4 is a live
+demonstration that share and deaths can point in different directions.

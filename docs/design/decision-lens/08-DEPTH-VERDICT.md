@@ -918,3 +918,43 @@ and `ε = 0.25`: bound-clean at both (`contest.lo` still closed, `totalLo` 0,
 `exact-reply` exact), and refused by the play — `mixed` meals −3.3% and −5.7%,
 and `ε = 0.125` takes `potions` deaths 26 → 27. So the bound obstacle in front
 of that half is gone and the tempo obstacle is not.
+
+**AN ELEVENTH CLASS IS CLOSED AND TWO MORE WERE CLOSED AND HANDED BACK
+(2026-09-05, `ratchet-2`).** `docs/design/RATCHET-2.md` classified the five
+largest remaining classes by cause before touching any code, named three
+repairs and two refusals, and measured all three against the bar above.
+
+* **`room.lo` 73 → 0, KEPT.** `barsIn('lo')` admitted a barrier only from a
+  unit alive in our worst world — the right rule for a term that COUNTS ground
+  and backwards for a FEAR, where a barrier is the thing being feared and
+  fewer crowders means a HIGHER floor. All 73 worlds were one shape: one of
+  OURS the settlement left contingent, walked through by the `lo` flood and
+  not by the world. `s.worstAlive || s.bestAlive` closes the class, and the
+  play is flat — `sparse`, `sparse-lean` byte-identical, `snakes` and
+  `potions` 1–8 identical on every game counter, `mixed` moving on one seed
+  (meals/100 +0.771) with **deaths up on 0 of 5 board classes**. Sixteen-arm
+  `gate:exact` zero. **The repair that ships is the one whose A/B is flat.**
+* **`command.hi` 600 → 65, REVERTED.** The ceiling priced our own piece
+  against `partition('hi').domain`, which drops every HELD unit of theirs;
+  reading the wide board as the union of the two readings' domains closes 89%
+  of the class. `mixed` deaths 12 → 14 with `edge` and `wall` appearing as new
+  causes, `potions` 1–8 21 → 22 with meals −0.66 and `lost` 4 → 10.
+* **`food.hi` 63 → 0, REVERTED, and it is the informative one.** It is
+  `contest.lo`'s own repair — bracket over the cells a contingent arrival could
+  settle on — in a second member, and the mechanism does NOT transfer. The
+  bracket is a standing tax on advancing; that tax BUYS deaths when it prices a
+  DANGER (D1, above) and costs them when it prices a REWARD, because it
+  flattens the gradient that separated the food-side options while `contest`'s
+  cliff stays: `mixed` deaths 12 → 16 (`contest` 9 → 15) and meals −0.66,
+  `potions` 1–8 deaths 21 → 23.
+* **`reach.hi` 220 and `reach.lo` 128 were refused at classification.** Plane 2
+  pays out on plane 1's cover, `ours` is monotone in the enemy's presence in
+  neither direction, and the only single-sweep bound saturates on any board
+  with a slider on it — the deletion of the member rather than a looser floor.
+
+So the sweep now prints `reach.hi` 220, `command.hi` 600, `reach.lo` 128,
+`food.hi` 63, `material.hi` 8, `energy.hi` 10, `momentum.lo` 27, and neither
+`contest.lo` nor `room.lo` at all. Three of the eight open classes are now
+classified-and-refused rather than open by neglect, and the pins on
+`command.hi` and `food.hi` are known-repairable numbers kept deliberately: the
+bound is not what refuses them, the play is.
