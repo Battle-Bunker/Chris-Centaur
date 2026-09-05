@@ -285,7 +285,6 @@
     .lens-fixed { margin-right: 10px; white-space: nowrap; }
     .lens-foil { font-size: calc(var(--lens-size) - 1px); color: #4DB6AC; margin-top: 6px; }
     .lens-foil-absent { color: #9db8b3; font-style: italic; }
-    .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
     .lens-empty { font-size: var(--lens-size); color: #9a9a9a; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
@@ -860,8 +859,11 @@
           <div class="lens-rail" id="lensRail"></div>
           <!-- Every control the focused unit has, in one row, in one
                vocabulary, with its key on it: pin/lock, undo, hold, goto,
-               near, clear. The lock's exact pin count is in the rail above
-               (`.lens-lock`) and its ARMED state is here, where the key is. -->
+               near, clear. THE ONLY LOCK AFFORDANCE ON THE SURFACE: the
+               movesets panel used to draw a second one in a second grammar a
+               few pixels above (05 H-6), and the exact pin count, the armed
+               state and the reason a press would refuse are all here now,
+               where the key is. -->
           <div class="lens-panel" id="lensControls"></div>
           <!-- The cheat sheet, at rest. Ctrl+/ is the full reference and it is
                a modal; this is the eight keys in the hot path, rendered from
@@ -1552,6 +1554,25 @@
       const snake = typeof getSelectedSnake === 'function' ? getSelectedSnake() : null;
       const canHold = !!snake && typeof unitIsPiece === 'function' && unitIsPiece(snake);
       const way = selectedSnakeId ? waypoints[selectedSnakeId] : null;
+      // WHAT `Space` WILL ACTUALLY DO, asked of the same four preconditions
+      // `stageSelectedMove` refuses on. `pins n of m` is the reach of the
+      // MOVESET lock (`Shift+Space`) — the units whose staged cell the
+      // selected moveset would change — and at `pins 0 of 0` there is no
+      // cluster and no moveset under the cursor, so that gesture has nothing
+      // to take. `Space` is unaffected by any of it: it stages the candidate
+      // under the cursor, which is the one-unit lock §3.4 calls "what `Space`
+      // has always done". So the bar was drawing `pins 0 of 0` in `primary` —
+      // the loudest thing in the row — beside a key whose reach it was not
+      // describing (05 H-6). The count stays where it is true, and where it
+      // is not, the chip says what the press does instead.
+      const stageRefusal =
+        typeof stageRefusalReason === 'function' ? stageRefusalReason() : null;
+      const canStage = !readOnly && stageRefusal === null;
+      const stageNote = canStage
+        ? `stages ${selectedCandidateLabel() || 'the cursor'}`
+        : readOnly
+          ? 'read-only'
+          : (stageRefusal && stageRefusal.note) || 'nothing to stage';
 
       const chips = [
         LensPanel.chipHTML({
@@ -1562,9 +1583,9 @@
           // only `Shift+Space` completes is the one lie this bar exists to
           // stop telling.
           key: lensArmed && lensArmed.everyMember ? 'Shift+Space' : 'Space',
-          tone: lensArmed ? 'armed' : readOnly ? '' : 'primary',
-          off: readOnly,
-          note: pins ? `pins ${pins[1]} of ${pins[2]}` : 'read-only',
+          tone: lensArmed ? 'armed' : canStage || (pins && Number(pins[1]) > 0) ? 'primary' : '',
+          off: !canStage && !(pins && Number(pins[1]) > 0),
+          note: pins && Number(pins[1]) > 0 ? `pins ${pins[1]} of ${pins[2]}` : stageNote,
           action: 'lock',
         }),
         LensPanel.chipHTML({
@@ -2634,6 +2655,67 @@
     let timelineHasNative = false;    // sticky: this game has native turn rows
     let timelineInflight = null;
     let timelineLastFetchAt = 0;
+    // THE CACHE HAS A CEILING (08 §1.4). This map was the page's last
+    // unbounded collection: one full board snapshot per turn, kept forever,
+    // measured at 1.48 KB/turn over 200 turns — 5.3 MB an hour at one turn a
+    // second, on a surface an operator leaves open all afternoon. Every row
+    // of it is re-fetchable from `/api/games/:id/turns`, so a window plus a
+    // refetch outside it is all it ever needed.
+    //
+    // ONLY THE ROWS THIS PAGE MINTED ARE GIVEN BACK. A live board doubles as a
+    // timeline row (`seedTimelineFromLive`), and that is the collection with
+    // no end: it grows with the SESSION. A row fetched from the database was
+    // asked for — by a scrub, by the post-game reconcile — and is bounded by
+    // the length of the game rather than by how long the tab has been open, so
+    // it stays. That also keeps a backward drag from thrashing: the rows a
+    // scrub pulls in are the rows a scrub keeps.
+    //
+    // SIXTY-FOUR TURNS is a minute of instant scrubbing at one turn a second
+    // and caps the live cache at about 95 KB. Past it the frame repaints from
+    // the network when the fetch lands — which is exactly what a cold page
+    // already does on its first scrub, on the path that was already there for
+    // it (`renderHistoricAtTurn`'s "nothing covers this turn yet").
+    const TIMELINE_CACHE_TURNS = 64;
+    // The highest turn given back, or null while none has been. A MISS at or
+    // below this is a scrub into the part of the game the cache released, and
+    // is answered by fetching it again rather than by the floor row — which
+    // would silently draw a DIFFERENT turn's board, and a board that is quietly
+    // the wrong one is the failure `01 §4` calls the only unacceptable kind.
+    let timelineEvictedThrough = null;
+
+    /** Give back the oldest live-seeded rows once the window is full. The
+     *  high-water marks (`timelineMaxTurn`, `timelineDbMaxTurn`) are facts
+     *  about what the GAME has reached, not about what is cached, and the
+     *  slider's range is computed from them — so nothing here touches them. */
+    function trimTimeline() {
+      let over = timelineTurns.length - TIMELINE_CACHE_TURNS;
+      if (over <= 0) return;
+      const kept = [];
+      for (const at of timelineTurns) {
+        const row = turnTimeline.get(at);
+        if (over > 0 && row && row.liveSeeded) {
+          turnTimeline.delete(at);
+          timelineEvictedThrough =
+            timelineEvictedThrough === null ? at : Math.max(timelineEvictedThrough, at);
+          over--;
+          continue;
+        }
+        kept.push(at);
+      }
+      timelineTurns = kept;
+    }
+
+    /** Is this turn inside the part of the game the cache has given back? */
+    function timelineBelowWindow(turn) {
+      return timelineEvictedThrough !== null && turn <= timelineEvictedThrough;
+    }
+
+    /** A turn the cache released and has not been given back. An exact hit
+     *  always wins — eviction is selective, so a row below the line may still
+     *  be held. */
+    function timelineReleased(turn) {
+      return !turnTimeline.has(turn) && timelineBelowWindow(turn);
+    }
     // Every snake ever observed in this game (live updates or logged turns):
     // id → { snake, turn } at its latest known appearance. Drives the
     // full-roster team list so dead snakes stay visible (greyed out) with
@@ -3662,9 +3744,60 @@
     // queue/waypoint, and publishes the request to Firebase until confirmed.
     // The solid arrow stays on the last Firebase-confirmed staged move until
     // the confirmation for this request lands.
+    /**
+     * WHY `Space` WOULD REFUSE, or null when it would not.
+     *
+     * `stageSelectedMove` guards on four preconditions and, until this
+     * existed, said nothing on any of them: with the cursor visibly on a
+     * candidate and the bar reading `⦿ lock Space`, the press was a no-op
+     * with no notice, no chip change and no reason (05 H-3). One reading of
+     * the four, in the order the function tests them, so the affordance and
+     * the refusal cannot disagree about what the next press will do:
+     *
+     *   · `note` is the chip's state — short enough for the bar;
+     *   · `why` is the sentence the operator gets when they press anyway.
+     */
+    function stageRefusalReason() {
+      if (!selectedSnakeId) {
+        return { note: 'no unit', why: 'no unit is focused — pick one from the roster first' };
+      }
+      if (moveSubmitted) {
+        return {
+          note: 'already committed',
+          why: 'this unit\u2019s move is already committed for this turn',
+        };
+      }
+      if (!userSelectedMove) {
+        return {
+          note: 'no candidate',
+          why: 'no candidate is selected — step the cursor onto one, or click it',
+        };
+      }
+      const entry = moveState && moveState.moves ? moveState.moves[userSelectedMove] : null;
+      const move = entry ? entry.move : userSelectedMove;
+      if (move == null) {
+        return {
+          note: 'unstageable',
+          why: 'that candidate carries no move the wire can express',
+        };
+      }
+      return null;
+    }
+
     function stageSelectedMove() {
-      if (moveSubmitted || !selectedSnakeId) return;
-      if (!userSelectedMove) return;
+      // A REFUSAL IS AN ANSWER, AND IT HAS TO BE GIVEN (05 H-3 / P-3). These
+      // four preconditions used to be four bare early returns: with the cursor
+      // visibly on a candidate and the bar reading `⦿ lock Space`, the press
+      // was a no-op with no notice, no chip change and no reason — the same
+      // class of defect as H-2, and the one that would have hidden the next
+      // one. They are read once, in `stageRefusalReason`, so the affordance
+      // that says whether the press will do anything and the sentence the
+      // operator gets when it does not cannot disagree about why.
+      const refusal = stageRefusalReason();
+      if (refusal !== null) {
+        showBannerNotice(`nothing staged — ${refusal.why}`);
+        return false;
+      }
       // The wire move is the candidate's own id: a Direction for snakes, a
       // numeric full-board destination index for pieces (a pawn's side-square
       // candidate stages the 90° rotation — same id, the server's planner
@@ -3672,7 +3805,6 @@
       // off the entry.
       const entry = moveState?.moves?.[userSelectedMove];
       const move = entry ? entry.move : userSelectedMove;
-      if (move == null) return;
 
       // Optimistic rotation flag for the echo: a pawn side-square candidate is
       // a rotation, whose NEW orientation (wire convention, y down) points from the
@@ -3711,6 +3843,7 @@
 
       updateMoveControls();
       scheduleRender();
+      return true;
     }
 
     // ── Fatal-move confirmation dialog ──────────────────────────────────
@@ -3791,9 +3924,30 @@
       return bestMove;
     }
 
-    /** The turn's own budget, re-learned every turn: the game's timeout is a
-     *  server fact this page is never told, so the bar's full length is the
-     *  longest remaining time this turn has shown. */
+    /** THE TURN BUDGET, FROM THE SERVER (05 H-14 / P-8).
+     *
+     *  The bar's full length used to be "the longest remaining time seen this
+     *  turn", re-learned every turn — which is right only for a page that was
+     *  watching when the turn arrived. A page that attaches MID-TURN — a
+     *  reconnect, a scrub back to now — sees a short remaining time first,
+     *  learns it as the whole budget, and draws a FULL bar over a half-spent
+     *  turn: a lie in the one channel `01 §1` P1 says is read without a
+     *  fixation.
+     *
+     *  The game's timeout is not a fact this page has to infer. It is on the
+     *  board itself (`game.timeout`, the same field
+     *  `ActiveGameManager.recordTurnArrival` computes the deadline from) and
+     *  it rides every `board-update` and every `snake-turn-update`. Read it
+     *  there; the inferred value stays as the fallback for a board that
+     *  carries no timeout at all, which is the only case it was ever right
+     *  for. */
+    function turnBudgetFromServer() {
+      const t = currentGameState && currentGameState.game && currentGameState.game.timeout;
+      return Number.isFinite(t) && t > 0 ? t : null;
+    }
+
+    /** The fallback: the longest remaining time this turn has shown. Only ever
+     *  consulted when the board names no timeout. */
     let turnClockBudget = 0;
 
     function startTurnTimer() {
@@ -3835,10 +3989,12 @@
         const seconds = (remaining / 1000).toFixed(1);
         timerEl.textContent = `${seconds}s`;
         // The same number, in the channel the periphery can read: a bar on the
-        // board's own edge. The budget is the longest remaining time seen this
-        // turn, so the bar is full at arrival whatever the game's timeout is.
+        // board's own edge, against the SERVER's budget — so a page that
+        // attached mid-turn draws the fraction that is actually left instead
+        // of a full bar over a half-spent turn (H-14).
         turnClockBudget = Math.max(turnClockBudget, remaining);
-        updateTurnClock(remaining, turnClockBudget);
+        const budget = turnBudgetFromServer() ?? turnClockBudget;
+        updateTurnClock(remaining, budget);
 
         if (remaining < 500) {
           timerEl.className = 'timer-display urgent';
@@ -5036,7 +5192,13 @@
         recordSnakesSeen(row.game_state);
       }
       if (added > 0) timelineTurns.sort((a, b) => a - b);
-      if (timelineTurns.length > 0) timelineMaxTurn = timelineTurns[timelineTurns.length - 1];
+      if (timelineTurns.length > 0) {
+        timelineMaxTurn = Math.max(timelineMaxTurn, timelineTurns[timelineTurns.length - 1]);
+      }
+      // A refetch of an evicted range re-seeds it, so the window may now hold
+      // more than its ceiling — trim from the front, which is where the rows
+      // nobody is looking at are.
+      trimTimeline();
       return added;
     }
 
@@ -5059,6 +5221,10 @@
       timelineTurns.push(gameState.turn);
       timelineTurns.sort((a, b) => a - b);
       if (gameState.turn > timelineMaxTurn) timelineMaxTurn = gameState.turn;
+      // THE ONE PLACE A LONG SESSION GROWS. Every live board is a timeline
+      // row, so an afternoon of turns is an afternoon of board snapshots; the
+      // window is what stops that being the whole afternoon (08 §1.4).
+      trimTimeline();
     }
 
     // The DATABASE timeline provably covers the end of the game: native
@@ -5077,23 +5243,34 @@
     // rate-limited unless forced. Resolves to the number of NEW rows.
     function ensureTimeline(opts) {
       const force = !!(opts && opts.force);
+      // An explicit floor, for a scrub into a range the window gave back. The
+      // incremental `since` below is the DB high-water mark, which by
+      // construction never reaches backwards; an evicted turn needs the fetch
+      // aimed at it, and it forces past both the completeness check and the
+      // rate limit because there is no other way to get that board.
+      const from = opts && typeof opts.sinceTurn === 'number' ? opts.sinceTurn : null;
       // Deliberately NOT gated on historyFetchesFrozen: for modern games this
       // cache is the ONLY board source, so a timeline that failed to load
       // during the reconcile window must stay recoverable afterwards — the
       // completeness check (plus the rate limit) is what stops the fetching,
       // not the global freeze.
-      if (timelineIsComplete() && !force) return Promise.resolve(0);
+      if (timelineIsComplete() && !force && from === null) return Promise.resolve(0);
       const now = Date.now();
-      if (!force && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
+      if (!force && from === null && timelineLastFetchAt && now - timelineLastFetchAt < 1500) {
         return Promise.resolve(0);
       }
-      if (timelineInflight) return timelineInflight;
+      if (timelineInflight && from === null) return timelineInflight;
       timelineLastFetchAt = now;
       // Incremental from the DATABASE high-water mark (live-seeded rows don't
       // count — their turns still need their DB rows for the shared grids),
       // with a 3-turn trailing overlap so tail rows whose territory upsert
       // landed after the board row was first served get refreshed.
-      const since = timelineDbMaxTurn >= 0 ? Math.max(0, timelineDbMaxTurn - 2) : null;
+      const since =
+        from !== null
+          ? Math.max(0, from - 1)
+          : timelineDbMaxTurn >= 0
+            ? Math.max(0, timelineDbMaxTurn - 2)
+            : null;
       let url = `/api/games/${encodeURIComponent(gameId)}/turns`;
       if (since != null) url += `?sinceTurn=${since}`;
       timelineInflight = fetch(url)
@@ -5115,6 +5292,15 @@
     // timelines degrade to the nearest earlier board, like the old per-snake
     // resolution did). Null when nothing at/before the turn is cached.
     function timelineFloorRow(turn) {
+      // NOT ACROSS THE EVICTION LINE. Floor semantics are a graceful
+      // degradation over a SPARSE timeline — the nearest earlier board is the
+      // best answer anyone ever had for that turn. Below the window it would
+      // be something else: a board the cache is holding for a different turn,
+      // drawn as if it were this one, with nothing on screen to say so. The
+      // honest answer there is "nothing covers this turn", which is what every
+      // caller already knows how to handle — it kicks the fetch that gets the
+      // row back (08 §1.4).
+      if (timelineReleased(turn)) return null;
       let lo = 0, hi = timelineTurns.length - 1, best = -1;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
@@ -5722,8 +5908,10 @@
       const tlRow = timelineFloorRow(turnNumber);
       if (!tlRow || !tlRow.game_state || !tlRow.game_state.board) {
         // Nothing covers this turn yet — kick the load, repaint when it
-        // lands, and keep the current frame instead of blanking.
-        ensureTimeline()
+        // lands, and keep the current frame instead of blanking. A turn the
+        // window gave back needs the fetch AIMED at it: the incremental one
+        // starts at the database high-water mark and never reaches backwards.
+        ensureTimeline(timelineReleased(turnNumber) ? { sinceTurn: turnNumber } : undefined)
           .then((added) => {
             if (added > 0 && viewMode === 'historic' && !isScrubbing) {
               scheduleHistoricCommitRender();

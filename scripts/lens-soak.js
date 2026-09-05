@@ -703,6 +703,53 @@ async function main() {
     last: { turn: last.turn, heapMB: +(last.heapUsed / 1048576).toFixed(2), nodes: last.nodes, listeners: last.listeners },
   };
 
+  // ── THE GATE ────────────────────────────────────────────────────────────
+  //
+  // A soak that only MEASURES is a soak whose finding rots the first time
+  // somebody adds a cache. `08 §1.4` named the one line that was not flat —
+  // `turnTimeline`, one full board snapshot per turn, unbounded, 1.48 KB/turn
+  // — and it is bounded now (`TIMELINE_CACHE_TURNS` in `play-game.html`).
+  // These are the two properties that says, asserted rather than printed:
+  // the cache stops growing, and the heap with it.
+  //
+  // The heap threshold is ONE-SIDED, because the property is that the page
+  // does not GROW, not that it does not move: a page under a real browser
+  // never fits a slope of exactly zero — code caches, string interning and the
+  // renderer's own arenas all move, and a bounded cache releasing its oldest
+  // rows can fit NEGATIVE. It is also set from measurement rather than from a
+  // round number, over four 200-turn runs of this script: unbounded fits
+  // +2136 and +1519 bytes/turn (`soak/before.json`, `soak/after.json`), and
+  // the bounded page fits −713 and +713. 1024 sits between the two clusters —
+  // 44 % above the noisiest flat run and a third below the quietest growing
+  // one — so it separates "the cache is filling" from "the fit wandered".
+  const gateCap = await page.evaluate(() =>
+    typeof TIMELINE_CACHE_TURNS === 'undefined' ? null : TIMELINE_CACHE_TURNS
+  );
+  const heldLast = (report.samples[report.samples.length - 1] || {}).held || {};
+  const HEAP_FLAT_BYTES_PER_TURN = 1024;
+  report.gate = [
+    {
+      check: 'the board timeline stops growing — a bounded window, not the whole session',
+      ok: gateCap !== null && heldLast.turnTimeline !== null && heldLast.turnTimeline <= gateCap,
+      saw: { turnTimeline: heldLast.turnTimeline, cap: gateCap },
+    },
+    {
+      check: 'its key list is bounded with it',
+      ok: gateCap !== null && heldLast.timelineTurns !== null && heldLast.timelineTurns <= gateCap,
+      saw: { timelineTurns: heldLast.timelineTurns, cap: gateCap },
+    },
+    {
+      check: 'heap per turn is flat over the second half',
+      ok:
+        report.growth.perTurn.heapBytes !== null &&
+        report.growth.perTurn.heapBytes <= HEAP_FLAT_BYTES_PER_TURN,
+      saw: {
+        bytesPerTurn: report.growth.perTurn.heapBytes,
+        allowed: HEAP_FLAT_BYTES_PER_TURN,
+      },
+    },
+  ];
+
   fs.writeFileSync(path.join(OUT, `${LABEL}.json`), JSON.stringify(report, null, 2));
   console.log(`\n${LABEL}: ${TURNS} turns`);
   console.log(
@@ -722,8 +769,17 @@ async function main() {
   console.log(`  live timers by module:   ${JSON.stringify(finalInst.timers.live)}`);
   console.log(`  exceptions: ${report.exceptions.length}, console errors: ${report.console.length}`);
   console.log(`  → ${path.join(OUT, `${LABEL}.json`)}`);
+  for (const g of report.gate) {
+    console.log(`  ${g.ok ? '\u2713' : '\u2717'} soak/${g.check}${g.ok ? '' : ` — saw: ${JSON.stringify(g.saw)}`}`);
+  }
 
   await browser.close();
+
+  const failed = report.gate.filter((g) => !g.ok);
+  if (failed.length > 0) {
+    console.error(`\nsoak FAILED: ${failed.map((f) => f.check).join('; ')}`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
