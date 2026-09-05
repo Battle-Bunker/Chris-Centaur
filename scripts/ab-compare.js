@@ -125,7 +125,13 @@ const opponentOf = (run) => run.opponent ?? 'none';
 // keys on the literal string 'default', for the same reason `opponent` keys on
 // 'none': an `undefined` in a `Map` key would make it vanish rather than print.
 const foodEnergyOf = (run) => (run.foodEnergy === undefined ? 'default' : String(run.foodEnergy));
-const keyOf = (run) => `${run.scenario}|${run.seed}|${opponentOf(run)}|${foodEnergyOf(run)}`;
+// AND SO IS WHICH SIDE PLAYED US. `--side=1` is the same board from the other
+// colour: an asymmetric roster gives the two slots different openings, so a
+// swapped arm and an unswapped one pair no more than two boards do. A summary
+// with no `side` field is slot 0 — every arm taken before the swap existed.
+const sideOf = (run) => (run.side === undefined ? 0 : Number(run.side));
+const keyOf = (run) =>
+  `${run.scenario}|${run.seed}|${opponentOf(run)}|${foodEnergyOf(run)}|${sideOf(run)}`;
 const pick = (run, dotted) =>
   dotted.split('.').reduce((o, k) => (o === undefined || o === null ? undefined : o[k]), run);
 
@@ -225,6 +231,9 @@ function main() {
   process.stdout.write(`A = ${labelA}   B = ${labelB}   (delta = B - A)\n`);
 
   const verdicts = [];
+  // --- outcome instrument (ENDGAME): one entry per arm, counted at the end.
+  const outcomeVerdicts = [];
+  // --- end outcome instrument -----------------------------------------------
   for (const scenario of scenarios) {
     // OPPONENTS ARE NEVER POOLED, same rule as board classes: a mirror run
     // ('none') and a run against 'material-only' are different experiments
@@ -236,25 +245,27 @@ function main() {
       ...new Set(
         before
           .filter((r) => r.scenario === scenario)
-          .map((r) => `${opponentOf(r)}|${foodEnergyOf(r)}`)
+          .map((r) => `${opponentOf(r)}|${foodEnergyOf(r)}|${sideOf(r)}`)
       ),
     ].sort();
     for (const arm of arms) {
-      const [opponent, foodEnergy] = arm.split('|');
-      const pairKey = (seed) => `${scenario}|${seed}|${opponent}|${foodEnergy}`;
+      const [opponent, foodEnergy, side] = arm.split('|');
+      const pairKey = (seed) => `${scenario}|${seed}|${opponent}|${foodEnergy}|${side}`;
       const seeds = before
         .filter(
           (r) =>
             r.scenario === scenario &&
             opponentOf(r) === opponent &&
-            foodEnergyOf(r) === foodEnergy
+            foodEnergyOf(r) === foodEnergy &&
+            String(sideOf(r)) === side
         )
         .map((r) => r.seed)
         .filter((seed) => byKeyB.has(pairKey(seed)))
         .sort((a, b) => a - b);
       const label =
         (opponent === 'none' ? scenario : `${scenario} / opponent=${opponent}`) +
-        (foodEnergy === 'default' ? '' : ` / foodEnergy=${foodEnergy}`);
+        (foodEnergy === 'default' ? '' : ` / foodEnergy=${foodEnergy}`) +
+        (side === '0' ? '' : ` / side=${side}`);
       process.stdout.write(`\n=== ${label}  (${seeds.length} paired seeds) ===\n`);
       if (seeds.length === 0) continue;
 
@@ -292,6 +303,84 @@ function main() {
           lowerIsBetter: true,
         })),
       ];
+
+      // --- THE OUTCOME SECTION (ENDGAME) ---------------------------------
+      //
+      // WHAT THE GAME SCORES, printed before the process counters because it
+      // is the thing the counters are proxies for. Two readings, and they
+      // answer different questions:
+      //
+      //  * W/D/L AND THE WIN RATE. A count over the seeds — a game's result is
+      //    not per unit-turn and dividing it by one would be a number with no
+      //    referent. `winRate` scores a draw as half a win, which is the only
+      //    scoring under which "beat the opponent more often" and "lose less
+      //    often" are the same statement.
+      //
+      //  * A PAIRED SIGN TEST ON THE LEAD AT THE CAP. The verdict is three
+      //    valued and a five-seed W/D/L moves in steps of 0.2, so it has
+      //    almost no power; the MARGIN the cap is decided on is continuous,
+      //    paired by seed, and is the quantity a sign test can actually read.
+      //    A change that turns three level boards into three one-weight leads
+      //    shows up here and nowhere else — and it is the honest early signal
+      //    that a win-rate change is coming, not a substitute for one.
+      //
+      // MIRROR ARMS ARE REPORTED AND MEAN LITTLE. In self-play both teams fold
+      // the same profile, so an outcome there is a fact about the board's
+      // asymmetry, not about the change. The arm that carries the question is
+      // the one against a named `--opponent`.
+      const outcomeRows = seeds
+        .map((seed) => ({
+          seed,
+          a: byKeyA.get(pairKey(seed)).outcome,
+          b: byKeyB.get(pairKey(seed)).outcome,
+        }))
+        .filter((r) => r.a !== undefined && r.b !== undefined);
+      if (outcomeRows.length > 0) {
+        const tally = (get) => {
+          const rs = outcomeRows.map(get).map((o) => o.result);
+          const w = rs.filter((r) => r === 'win').length;
+          const d = rs.filter((r) => r === 'draw').length;
+          const l = rs.filter((r) => r === 'loss').length;
+          return { w, d, l, rate: (w + 0.5 * d) / rs.length };
+        };
+        const ta = tally((r) => r.a);
+        const tb = tally((r) => r.b);
+        const leadDeltas = outcomeRows.map((r) => r.b.lead - r.a.lead);
+        const st = signTest(leadDeltas);
+        const meanLeadA = mean(outcomeRows.map((r) => r.a.lead));
+        const meanLeadB = mean(outcomeRows.map((r) => r.b.lead));
+        const kinds = (get) => {
+          const k = {};
+          for (const r of outcomeRows) k[get(r).kind] = (k[get(r).kind] ?? 0) + 1;
+          return JSON.stringify(k);
+        };
+        process.stdout.write(
+          `  outcome  A: W${ta.w}/D${ta.d}/L${ta.l} winRate=${ta.rate.toFixed(3)} ` +
+            `lead=${meanLeadA.toFixed(2)} kinds=${kinds((r) => r.a)}\n` +
+            `  outcome  B: W${tb.w}/D${tb.d}/L${tb.l} winRate=${tb.rate.toFixed(3)} ` +
+            `lead=${meanLeadB.toFixed(2)} kinds=${kinds((r) => r.b)}\n` +
+            `  outcome  delta winRate=${(tb.rate - ta.rate).toFixed(3)} ` +
+            `delta lead=${(meanLeadB - meanLeadA).toFixed(2)} ` +
+            `sign(lead) ${st.up}/${st.down} p=${st.p.toFixed(3)}\n` +
+            `  outcome  per seed: ` +
+            outcomeRows
+              .map(
+                (r) =>
+                  `${r.seed}:${r.a.result[0].toUpperCase()}${r.a.lead >= 0 ? '+' : ''}${r.a.lead}` +
+                  `->${r.b.result[0].toUpperCase()}${r.b.lead >= 0 ? '+' : ''}${r.b.lead}`
+              )
+              .join(' ') +
+            '\n'
+        );
+        outcomeVerdicts.push({
+          scenario,
+          opponent,
+          side,
+          deltaWinRate: tb.rate - ta.rate,
+          deltaLead: meanLeadB - meanLeadA,
+        });
+      }
+      // --- end outcome section ----------------------------------------------
 
       const head = ['metric'.padEnd(34), ...seeds.map((s) => `seed${s}`.padStart(9))].join(' ');
       process.stdout.write(`${head}      mean A    mean B       delta   sign(p)\n`);
@@ -341,6 +430,38 @@ function main() {
       );
     }
   }
+  // --- THE OUTCOME COUNT ACROSS BOARD CLASSES (ENDGAME) --------------------
+  // A COUNT, never a mean, for the same reason the counter version above is:
+  // "up on two boards and down on none" is the keep rule's own sentence, and
+  // it is only readable as a count. Mirror arms are listed separately from
+  // the arms against a named opponent, because only the second kind carries
+  // the question.
+  if (outcomeVerdicts.length > 0) {
+    for (const opponent of [...new Set(outcomeVerdicts.map((v) => v.opponent))].sort()) {
+      const forOpponent = outcomeVerdicts.filter((v) => v.opponent === opponent);
+      process.stdout.write(
+        `\n=== outcomes across board classes` +
+          `${opponent === 'none' ? ' (MIRROR — symmetric, reported not read)' : ` / opponent=${opponent}`}` +
+          ` (a COUNT, never a mean) ===\n`
+      );
+      for (const field of ['deltaWinRate', 'deltaLead']) {
+        const up = forOpponent.filter((v) => v[field] > 0).length;
+        const down = forOpponent.filter((v) => v[field] < 0).length;
+        process.stdout.write(
+          `${field.padEnd(24)} up on ${up}/${forOpponent.length} arms, down on ${down}, ` +
+            `flat on ${forOpponent.length - up - down}\n`
+        );
+      }
+      for (const v of forOpponent) {
+        process.stdout.write(
+          `  ${`${v.scenario}${v.side === '0' ? '' : `/side=${v.side}`}`.padEnd(24)} ` +
+            `winRate ${v.deltaWinRate >= 0 ? '+' : ''}${v.deltaWinRate.toFixed(3)}  ` +
+            `lead ${v.deltaLead >= 0 ? '+' : ''}${v.deltaLead.toFixed(2)}\n`
+        );
+      }
+    }
+  }
+  // --- end outcome count ----------------------------------------------------
   if (unmatched.length > 0) {
     process.stdout.write(`\nunpaired runs (excluded):\n  ${unmatched.join('\n  ')}\n`);
   }
