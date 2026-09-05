@@ -227,6 +227,52 @@ import { perBoard, perBoardPerTeam } from './memo';
  */
 export const PERIL_WEIGHT = 2;
 
+/**
+ * `D` — HOW MUCH OF THE PERIL IS THE GATED-ESCAPE SHAPE.
+ *
+ * The fifth attempt's one knob (`docs/design/potion-shape.md` §3), and it
+ * replaces a single point: `D = 0` is the term this file has always shipped,
+ * to the bit — no claim pass is taken and no arithmetic changes — and `D = 1`
+ * is the shape the measurement names. Four attempts moved every free part of
+ *
+ *     peril = Σ_k w_k · beaten_k / |ground_k|
+ *
+ * — D4 the weights, P2 the shape of the share, P3 the ground, the second
+ * attempt the level — and all four moved the LEVEL and left the composition
+ * flat, because horizons 2..W are saturated at 1 by geometry and no
+ * reparameterisation of a mean over a constant can widen what it says.
+ *
+ * So this shape is not a reparameterisation. It DROPS the saturated tail
+ * instead of reweighting it, GATES on the one horizon that the 35-pickup
+ * measurement says separates good pickups from bad (AUC 0.924, and all of its
+ * content at horizon 1), and takes its GRADIENT from a per-plan COUNT — the
+ * escape squares left from the arrival cell — rather than from a per-plan
+ * share, which is the reading P3 measured at AUC 0.30 and refuted.
+ */
+export const PERIL_SHAPE_MIX: number = 1;
+
+/**
+ * τ — the horizon-1 beaten share at which the gate is fully open.
+ *
+ * NOT CHOSEN: `peril ≤ 0.268` is the best single threshold over the 35 pickups
+ * (`docs/design/potion-shape.md` §2, Fisher p = 0.0001), and `beaten_1 = 0` is
+ * true of 7 of 7 GOOD pickups and 5 of the other 28. 0.20 is that threshold
+ * rounded to the ground sizes actually observed — one beaten cell out of five
+ * opens the gate, none leaves it shut.
+ */
+const PERIL_GATE_TAU = 0.2;
+
+/**
+ * K — the scale that holds the corpus's median charge fixed.
+ *
+ * `median(peril_today) / median(gate/(1 + escape))` over the same 35 pickups:
+ * D4's own first prescription — *hold the mean cost of the corpus fixed and let
+ * the shape do the work* — done literally, so that what is measured below is a
+ * change of COMPOSITION and not one more change of level. At `D = 1` the corpus
+ * median peril is 0.565 before and after.
+ */
+const PERIL_ESCAPE_SCALE = 5.08;
+
 // ---------------------------------------------------------------------------
 // The window, the edge, and who collects
 // ---------------------------------------------------------------------------
@@ -515,12 +561,18 @@ function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam
 }
 
 /**
- * The share of the collector's own ground, over the whole window, on which some
- * enemy arrival beats it at the tier the pickup leaves it on. The near turns
- * carry the reading: a claim at horizon k grants the enemy k free turns and the
- * collector none, and the measurement says the far horizons saturate. What the
- * saturated tail costs the reading is D4 in the audit, and the geometric
- * alternative to `W − k + 1` is measured and reverted in `potions.md`.
+ * HOW EXPOSED THE PICKUP LEAVES THE COLLECTOR, blended across `PERIL_SHAPE_MIX`.
+ *
+ * `D = 0` is the reading this file always shipped — the share of the
+ * collector's own ground, over the whole window, on which some enemy arrival
+ * beats it at the tier the pickup leaves it on, near turns carrying it. What
+ * the saturated tail costs that reading is D4 in the audit; the geometric
+ * weights, the concave share and the plan-conditioned ground are all measured
+ * and reverted in `potions.md`.
+ *
+ * `D = 1` is `gatedPeril` below: the tail dropped, the one discriminating
+ * horizon spent as a gate, and the gradient taken from the per-plan escape
+ * count. `docs/design/potion-shape.md` is the measurement that names it.
  */
 function perilOf(
   ctx: EvalContext,
@@ -529,14 +581,30 @@ function perilOf(
   after: ReadonlyMap<UnitId, number>,
   window: number
 ): number {
-  // The ground is read from where the collector stands as the turn OPENS, not
-  // from the potion cell the plan sends it to. That is an over-approximation in
-  // the safe direction — a superset of where it can be from the potion — and it
-  // is what keeps the whole peril half memoisable per collector, not per plan.
   const unit = ctx.sub.unitOf(collector.unitId);
   if (unit === undefined) return 0;
   const debuffed = after.get(collector.unitId) ?? collector.tierAtArrival;
   const rows = read.ground.get(collector.unitId);
+  const held = heldPeril(read, rows, debuffed, unit.weight, window);
+  // `D = 0` IS THE SHIPPED TERM TO THE BIT: the branch returns before the gate
+  // is read and before any claim pass the shape would take.
+  if (PERIL_SHAPE_MIX === 0) return held;
+  const shaped = gatedPeril(ctx.sub, read, collector, unit.weight, debuffed, rows);
+  return (1 - PERIL_SHAPE_MIX) * held + PERIL_SHAPE_MIX * shaped;
+}
+
+/**
+ * The reading this file has always shipped: the weighted mean of the beaten
+ * share over the whole window, ground read from the turn-start cell. It is the
+ * `D = 0` end of the knob and it is untouched.
+ */
+function heldPeril(
+  read: WindowRead,
+  rows: ReadonlyArray<ReadonlyArray<CellIndex>> | undefined,
+  debuffed: number,
+  weight: number,
+  window: number
+): number {
   let num = 0;
   let den = 0;
   for (let k = 1; k <= read.horizons.length; k++) {
@@ -545,13 +613,124 @@ function perilOf(
     if (cells === undefined || cells.length === 0) continue;
     let beaten = 0;
     for (const cell of cells) {
-      if (beatenAt(h, debuffed, unit.weight, cell)) beaten++;
+      if (beatenAt(h, debuffed, weight, cell)) beaten++;
     }
     const w = window - k + 1;
     num += (w * beaten) / cells.length;
     den += w;
   }
   return den > 0 ? num / den : 0;
+}
+
+/**
+ * THE GATE AND THE ESCAPE FLOOR — `docs/design/potion-shape.md` §3.
+ *
+ *     b1     = beaten_1 / |ground_1|        horizon 1 ONLY, turn-start ground:
+ *                                           the shipped reading with the
+ *                                           saturated tail DROPPED rather than
+ *                                           reweighted
+ *     gate   = min(1, b1 / τ)
+ *     escape = cells of the collector's own ONE-TURN CLAIM FROM ITS ARRIVAL
+ *              CELL that the arrival turn's enemy field does not beat it on,
+ *              at the debuffed tier
+ *     peril  = min(1, K · gate · 1/(1 + escape))
+ *
+ * WHY THE TWO HALVES ARE DIFFERENT QUANTITIES, and it is the whole design. The
+ * 35-pickup measurement says `b1` separates good pickups from bad (AUC 0.924)
+ * and that the per-plan escape SHARE does not (AUC 0.30 on the escape-set size,
+ * 0.57 on the free count). But `b1` is a per-COLLECTOR constant — read from the
+ * cell the collector stands on as the turn opens, so identical on every plan in
+ * which that collector collects — and §P2 measured that a constant common to
+ * both sides of a comparison cancels. So the separating quantity is spent as a
+ * GATE, where it needs no gradient, and the gradient comes from the one per-plan
+ * quantity that differs between two collecting plans at all: how many squares
+ * the collector can still stand on unbeaten once it has taken the potion.
+ *
+ * It is a price CUT on the pickups that separate as good — all 7 have `b1 = 0`
+ * and go to `peril = 0` — and a price RISE on the rest. Every previous arm moved
+ * all 35 the same way, which is why every previous arm moved only the level.
+ *
+ * `min(1, ·)` is a kink and not a jump, so `cliff: false` stays honest and the
+ * range is the `[0, 1]` the calibration inequality is written against.
+ */
+function gatedPeril(
+  sub: EngineSubstrate,
+  read: WindowRead,
+  collector: Standing,
+  weight: number,
+  debuffed: number,
+  rows: ReadonlyArray<ReadonlyArray<CellIndex>> | undefined
+): number {
+  const h1 = read.horizons[0];
+  const ground1 = rows?.[0];
+  if (h1 === undefined || ground1 === undefined || ground1.length === 0) return 0;
+  let beaten = 0;
+  for (const cell of ground1) {
+    if (beatenAt(h1, debuffed, weight, cell)) beaten++;
+  }
+  // THE GATE IS SHUT AT `beaten_1 = 0`, which is the measurement's whole claim:
+  // 7 of 7 good pickups read zero here, and a shut gate is a free pickup.
+  if (beaten === 0) return 0;
+  const gate = Math.min(1, beaten / ground1.length / PERIL_GATE_TAU);
+  const exits = arrivalExits(sub, collector);
+  let escape = 0;
+  for (const cell of exits) {
+    if (!beatenAt(h1, debuffed, weight, cell)) escape++;
+  }
+  return Math.min(1, (PERIL_ESCAPE_SCALE * gate) / (1 + escape));
+}
+
+/**
+ * THE COLLECTOR'S OWN ONE-TURN CLAIM FROM THE CELL THE PLAN LEAVES IT ON.
+ *
+ * P3's construction at one horizon: the engine's own `claimsAfter` asked of a
+ * board whose ONLY change is the collector's settled occupancy, and only that
+ * unit's claim read back. The other units stand where the turn opened, so a
+ * blocker is read one turn early — the same inexactness the whole claim layer
+ * carries, and a far smaller one than reading the escape set from a cell the
+ * plan is not taking.
+ *
+ * ONE claim pass per DISTINCT (collector, settled occupancy) — not per node and
+ * not per candidate: a collector's arrival cell is always a potion cell, so the
+ * key set is bounded by our roster times the potions standing. P3 paid `W − 1`
+ * passes for the same key set and the corpus cost 3m20 against 3m15.
+ */
+const ARRIVAL_EXITS = new WeakMap<object, Map<string, ReadonlyArray<CellIndex>>>();
+
+function arrivalExits(sub: EngineSubstrate, collector: Standing): ReadonlyArray<CellIndex> {
+  const occupancy = collector.occupancy;
+  if (occupancy.length === 0) return EMPTY_GROUND;
+  const unit = sub.unitOf(collector.unitId);
+  if (unit === undefined) return EMPTY_GROUND;
+  const cache = perBoard(
+    ARRIVAL_EXITS,
+    sub.marshalled,
+    () => new Map<string, ReadonlyArray<CellIndex>>()
+  );
+  const wireId = unit.wireId;
+  const key = `${wireId}@${occupancy.join(',')}`;
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  const m = sub.marshalled;
+  const moved = {
+    ...m,
+    units: m.units.map((u) => (u.id === wireId ? { ...u, occupancy: [...occupancy] } : u)),
+  };
+  const mine = claimsAfter(moved, 1).find((c) => c.id === wireId);
+  const out = mine === undefined ? EMPTY_GROUND : (mine.everPossible as ReadonlyArray<CellIndex>);
+  cache.set(key, out);
+  return out;
+}
+
+/**
+ * The peril half alone, for one named collector, so a boundary test measures
+ * the member's own arithmetic rather than a second copy of it.
+ */
+export function perilRead(ctx: EvalContext, collector: Standing): number {
+  const sub = ctx.sub;
+  const { window } = windowOf(sub);
+  const read = windowRead(sub, ctx.asTeam, window);
+  return perilOf(ctx, read, collector, sub.tiersAfterPickupBy(collector.unitId), window);
 }
 
 /**
