@@ -172,49 +172,48 @@
   const CSS = `
 #tour-mount { position: static; }
 .tour-link {
-  position: fixed; right: 10px; bottom: 40px; z-index: 60;
-  background: #23282e; color: #9fb4c7; border: 1px solid #3a4149;
-  border-radius: 4px; padding: 3px 9px; font-size: 11px; font-family: inherit;
+  position: fixed; right: var(--space-10); bottom: 40px; z-index: var(--z-tour-link);
+  background: var(--tour-link-bg); color: var(--tour-link-ink); border: 1px solid var(--tour-line);
+  border-radius: var(--radius-4); padding: var(--space-3) var(--space-9); font-size: var(--size-11); font-family: inherit;
   cursor: pointer;
 }
-.tour-link:hover { color: #d7e4ee; border-color: #55606b; }
-.tour-link:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 2px; }
-.tour-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.tour-link:hover { color: var(--tour-link-hover-ink); border-color: var(--tour-link-hover-line); }
+.tour-link:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset); }
+.tour-layer { position: fixed; inset: 0; z-index: var(--z-tour-layer); pointer-events: none; }
 /* FOUR PANELS AND A HOLE. The dim is drawn AROUND the region rather than over
    it, so the thing being explained is at full strength and un-tinted, and the
    pointer reaches the board through every one of them. */
-.tour-dim { position: fixed; background: rgba(8, 10, 12, 0.62); pointer-events: none; }
+.tour-dim { position: fixed; background: var(--tour-dim); pointer-events: none; }
 .tour-ring {
-  position: fixed; border: 2px solid #8ab4f8; border-radius: 4px;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.6); pointer-events: none;
-  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+  position: fixed; border: 2px solid var(--focus); border-radius: var(--radius-4);
+  box-shadow: var(--shadow-hairline); pointer-events: none;
+  transition: left var(--dur-tour) ease, top var(--dur-tour) ease, width var(--dur-tour) ease, height var(--dur-tour) ease;
 }
 .tour-card {
-  position: fixed; z-index: 71; width: 340px; max-width: calc(100vw - 24px);
-  background: #1b2026; color: #dfe7ee; border: 1px solid #3a4149;
-  border-left: 3px solid #8ab4f8; border-radius: 5px;
-  padding: 10px 12px 8px; font-size: 12px; line-height: 1.5;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.55); pointer-events: auto;
-  transition: left .18s ease, top .18s ease;
+  position: fixed; z-index: var(--z-tour-card); width: var(--tour-card-w); max-width: calc(100vw - 24px);
+  background: var(--tour-card-bg); color: var(--tour-card-ink); border: 1px solid var(--tour-line);
+  border-left: 3px solid var(--focus); border-radius: var(--radius-5);
+  padding: var(--space-10) var(--space-12) var(--space-8); font-size: var(--size-12); line-height: 1.5;
+  box-shadow: var(--shadow-tour); pointer-events: auto;
+  transition: left var(--dur-tour) ease, top var(--dur-tour) ease;
 }
-.tour-card h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .04em;
-  text-transform: uppercase; color: #8ab4f8; font-weight: 700; }
-.tour-card p { margin: 0 0 8px; }
-.tour-foot { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #8b98a4; }
+.tour-card h4 { margin: 0 0 var(--space-4); font-size: var(--size-12); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--focus); font-weight: var(--weight-bold); }
+.tour-card p { margin: 0 0 var(--space-8); }
+.tour-foot { display: flex; align-items: center; gap: var(--space-8); font-size: var(--size-11); color: var(--tour-foot-ink); }
 .tour-foot .tour-count { margin-right: auto; font-variant-numeric: tabular-nums; }
 .tour-foot button {
-  background: #2a323a; color: #dfe7ee; border: 1px solid #3f4852;
-  border-radius: 3px; padding: 2px 9px; font-size: 11px; font-family: inherit;
+  background: var(--tour-btn-bg); color: var(--tour-card-ink); border: 1px solid var(--tour-btn-line);
+  border-radius: var(--radius-3); padding: var(--space-2) var(--space-9); font-size: var(--size-11); font-family: inherit;
   cursor: pointer;
 }
-.tour-foot button:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 2px; }
+.tour-foot button:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset); }
 .tour-card kbd {
-  background: #10151a; border: 1px solid #39424c; border-radius: 3px;
-  padding: 0 4px; font-size: 10px; font-family: inherit;
+  background: var(--tour-kbd-bg); border: 1px solid var(--tour-kbd-line); border-radius: var(--radius-3);
+  padding: 0 var(--space-4); font-size: var(--size-10); font-family: inherit;
 }
-@media (prefers-reduced-motion: reduce) {
-  .tour-ring, .tour-card { transition: none; }
-}
+/* The @media block that used to be here is tokens.css group E, which zeroes
+   --dur-tour for every sheet on the page at once. */
 `;
 
   function ensureStyle() {
@@ -325,7 +324,7 @@
     const bottom = Math.min(H, r.bottom + pad);
     const dim = state.layer.querySelectorAll('.tour-dim');
     const set = (node, css) => {
-      node.style.cssText = `position:fixed;background:rgba(8,10,12,0.62);pointer-events:none;${css}`;
+      node.style.cssText = `position:fixed;background:var(--tour-dim);pointer-events:none;${css}`;
     };
     set(dim[0], `left:0;top:0;width:${W}px;height:${top}px`);
     set(dim[1], `left:0;top:${bottom}px;width:${W}px;height:${Math.max(0, H - bottom)}px`);

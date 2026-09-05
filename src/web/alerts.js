@@ -569,35 +569,35 @@
   // board's own styles.
 
   const CSS = `
-#alerts-mount { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+#alerts-mount { position: relative; display: inline-flex; align-items: center; gap: var(--space-6); }
 
 .al-btn {
-  background: #1f1f1f; color: #bbb; border: 1px solid #3a3a3a; border-radius: 4px;
-  font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  letter-spacing: .04em; padding: 5px 8px; cursor: pointer;
+  background: var(--al-btn-bg); color: var(--al-btn-ink); border: 1px solid var(--al-btn-line); border-radius: var(--radius-4);
+  font: var(--weight-bold) var(--size-11)/1 var(--font-ui-short);
+  letter-spacing: .04em; padding: var(--space-5) var(--space-8); cursor: pointer;
 }
-.al-btn[data-muted="1"] { color: #7a7a7a; border-color: #2c2c2c; }
-.al-btn:focus-visible { outline: 2px solid #7aa2f7; outline-offset: 2px; }
+.al-btn[data-muted="1"] { color: var(--al-btn-muted-ink); border-color: var(--al-btn-muted-line); }
+.al-btn:focus-visible { outline: var(--focus-ring-width) solid var(--al-focus); outline-offset: var(--focus-ring-offset); }
 
 /* RIGHT-ANCHORED, because the mount is at the right end of the header row and
    a popover that opens leftwards from there runs off the page — which the
    first photograph caught it doing. Below the page's own modals (z 2000) and
    above everything else: a preferences panel is not an emergency. */
 .al-pop {
-  position: absolute; top: 100%; right: 0; z-index: 1500; margin-top: 6px; min-width: 268px;
-  background: #161616; border: 1px solid #3a3a3a; border-radius: 6px;
-  padding: 10px 12px; color: #ddd;
-  font: 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  position: absolute; top: 100%; right: 0; z-index: var(--z-alert-pop); margin-top: var(--space-6); min-width: var(--al-pop-w);
+  background: var(--al-pop-bg); border: 1px solid var(--al-btn-line); border-radius: var(--radius-6);
+  padding: var(--space-10) var(--space-12); color: var(--al-pop-ink);
+  font: var(--size-12)/1.45 var(--font-ui-short);
+  box-shadow: var(--shadow-pop);
 }
-.al-pop h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; color: #999; text-transform: uppercase; }
-.al-pop label { display: flex; align-items: center; gap: 7px; padding: 3px 0; cursor: pointer; }
+.al-pop h4 { margin: 0 0 var(--space-6); font-size: var(--size-11); letter-spacing: .06em; color: var(--al-pop-head-ink); text-transform: uppercase; }
+.al-pop label { display: flex; align-items: center; gap: var(--space-7); padding: var(--space-3) 0; cursor: pointer; }
 .al-pop input[type="range"] { flex: 1; }
-.al-pop .al-sep { border-top: 1px solid #2c2c2c; margin: 8px 0 6px; }
-.al-pop .al-note { color: #8a8a8a; font-size: 11px; margin-top: 6px; }
+.al-pop .al-sep { border-top: 1px solid var(--al-pop-sep); margin: var(--space-8) 0 var(--space-6); }
+.al-pop .al-note { color: var(--al-pop-note-ink); font-size: var(--size-11); margin-top: var(--space-6); }
 .al-pop button {
-  background: #262626; color: #ddd; border: 1px solid #3a3a3a; border-radius: 4px;
-  padding: 4px 8px; font-size: 11px; cursor: pointer; margin-right: 6px;
+  background: var(--al-pop-btn-bg); color: var(--al-pop-ink); border: 1px solid var(--al-btn-line); border-radius: var(--radius-4);
+  padding: var(--space-4) var(--space-8); font-size: var(--size-11); cursor: pointer; margin-right: var(--space-6);
 }
 
 .al-say {
@@ -615,23 +615,22 @@
      consent dialog is up at exactly the moment the fatal alert fires, and a
      peripheral cue drawn underneath the thing it is about is not a peripheral
      cue. Below the login gate (z 3000), which is not a game state. */
-  position: fixed; pointer-events: none; z-index: 2500;
-  border-style: solid; border-width: 3px; border-radius: 4px;
-  border-color: rgba(255, 214, 130, 0);
-  opacity: 0; transition: opacity 140ms linear, border-color 140ms linear;
+  position: fixed; pointer-events: none; z-index: var(--z-alert-ring);
+  border-style: solid; border-width: var(--al-ring-width); border-radius: var(--radius-4);
+  border-color: var(--al-ring-p2-off);
+  opacity: 0; transition: opacity var(--dur-al-ring-on) linear, border-color var(--dur-al-ring-on) linear;
 }
-.al-pulse[data-priority="1"] { border-width: 5px; border-color: rgba(255, 176, 96, 0); }
-.al-pulse.on { opacity: 1; border-color: rgba(255, 214, 130, .92); }
-.al-pulse.on[data-priority="1"] { border-color: rgba(255, 176, 96, .96); }
-.al-pulse.on[data-priority="3"] { border-color: rgba(198, 214, 235, .72); }
-.al-pulse.off { opacity: 0; transition: opacity 620ms ease-out, border-color 620ms ease-out; }
+.al-pulse[data-priority="1"] { border-width: var(--al-ring-width-p1); border-color: var(--al-ring-p1-off); }
+.al-pulse.on { opacity: 1; border-color: var(--al-ring-p2-on); }
+.al-pulse.on[data-priority="1"] { border-color: var(--al-ring-p1-on); }
+.al-pulse.on[data-priority="3"] { border-color: var(--al-ring-p3-on); }
+.al-pulse.off { opacity: 0; transition: opacity var(--dur-al-ring-off) ease-out, border-color var(--dur-al-ring-off) ease-out; }
 
 /* NO ANIMATION AT ALL under reduced motion: the ring appears, holds, and is
    removed. A fade is still motion, and the whole point of the preference is
-   that the transient itself is the problem. */
-@media (prefers-reduced-motion: reduce) {
-  .al-pulse, .al-pulse.on, .al-pulse.off { transition: none !important; }
-}
+   that the transient itself is the problem. The @media block that used to be
+   here is tokens.css group E, which zeroes --dur-al-ring-on and -off; a
+   transition of zero duration and "transition: none" are the same pixels. */
 `;
 
   let mount = null;

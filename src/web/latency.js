@@ -429,78 +429,81 @@
    question inside a centimetre. Across the board's own width both problems
    go away at once. */
 #latency-mount:empty { display: none; }
-#latency-mount { position: relative; width: 100%; height: 26px; margin: 0 0 4px; font-size: 11px; color: #888; }
+#latency-mount { position: relative; width: 100%; height: 26px; margin: 0 0 var(--space-4); font-size: var(--size-11); color: var(--lat-mount-ink); }
 .lat { position: absolute; left: 0; right: 0; top: 0; }
-.lat-head { display: flex; flex-direction: column; gap: 3px; }
+.lat-head { display: flex; flex-direction: column; gap: var(--space-3); }
 .lat-clock {
-  position: relative; height: 5px; border-radius: 2px; overflow: hidden;
-  background: #1c1c1c; box-shadow: inset 0 0 0 1px #333;
+  position: relative; height: 5px; border-radius: var(--radius-2); overflow: hidden;
+  background: var(--lat-track-bg); box-shadow: inset 0 0 0 1px var(--lat-track-line);
 }
 /* Motion and brightness, which is what the periphery can read: the bar
    shortens as the turn runs out and its fill brightens as it does. */
 .lat-clock-fill {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #35734a;
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--clock-run);
 }
-.lat[data-clock="warn"] .lat-clock-fill { background: #8a7524; }
-.lat[data-clock="urgent"] .lat-clock-fill { background: #c9503f; }
-.lat[data-clock="past"] .lat-clock-fill { background: #3a3a3a; }
+.lat[data-clock="warn"] .lat-clock-fill { background: var(--clock-warn); }
+.lat[data-clock="urgent"] .lat-clock-fill { background: var(--clock-urgent); }
+.lat[data-clock="past"] .lat-clock-fill { background: var(--clock-past); }
 /* THE LAST SAFE PRESS: where the countdown stops being a countdown you can
    act inside. A notch and not a colour, so it survives the fill under it. */
 .lat-clock-safe {
   position: absolute; top: -1px; bottom: -1px; width: 2px; left: 100%;
-  background: #e8e8e8; display: none;
+  background: var(--clock-notch); display: none;
 }
 .lat-clock-safe.on { display: block; }
-.lat-line { display: flex; align-items: center; gap: 6px; white-space: nowrap; height: 15px; }
-.lat-dot { width: 7px; height: 7px; border-radius: 50%; background: #4CAF50; flex: 0 0 auto; }
-.lat[data-state="THINKING"] .lat-dot { background: #8fbf6a; }
-.lat[data-state="DEGRADED"] .lat-dot { background: #d8a13a; }
-.lat[data-state="STALE"] .lat-dot { background: #d8a13a; opacity: 0.5; }
-.lat[data-state="DISCONNECTED"] .lat-dot { background: #b03a2e; }
-.lat-state { font-weight: 700; letter-spacing: 0.04em; color: #bbb; font-size: 10px; }
-.lat[data-state="DEGRADED"] .lat-state, .lat[data-state="STALE"] .lat-state { color: #d8a13a; }
-.lat[data-state="DISCONNECTED"] .lat-state { color: #e0685a; }
+.lat-line { display: flex; align-items: center; gap: var(--space-6); white-space: nowrap; height: 15px; }
+.lat-dot { width: 7px; height: 7px; border-radius: var(--radius-round); background: var(--lat-live); flex: 0 0 auto; }
+.lat[data-state="THINKING"] .lat-dot { background: var(--lat-thinking); }
+.lat[data-state="DEGRADED"] .lat-dot { background: var(--lat-degraded); }
+.lat[data-state="STALE"] .lat-dot { background: var(--lat-stale); opacity: var(--lat-stale-alpha); }
+.lat[data-state="DISCONNECTED"] .lat-dot { background: var(--lat-disconnected); }
+.lat-state { font-weight: var(--weight-bold); letter-spacing: 0.04em; color: var(--lat-state-ink); font-size: var(--size-10); }
+.lat[data-state="DEGRADED"] .lat-state, .lat[data-state="STALE"] .lat-state { color: var(--lat-degraded); }
+.lat[data-state="DISCONNECTED"] .lat-state { color: var(--lat-num-bad); }
 /* The words on the left where reading starts, the numbers hard right against
    the bar's own end, so the eye that has just read the bar lands on them. */
 .lat-nums {
-  display: flex; gap: 10px; margin-left: auto;
-  font-variant-numeric: tabular-nums; color: #6d6d6d;
+  display: flex; gap: var(--space-10); margin-left: auto;
+  font-variant-numeric: tabular-nums; color: var(--lat-num-ink);
 }
-.lat-num[data-grade="warn"] { color: #d8a13a; }
-.lat-num[data-grade="bad"] { color: #e0685a; }
+.lat-num[data-grade="warn"] { color: var(--lat-num-warn); }
+.lat-num[data-grade="bad"] { color: var(--lat-num-bad); }
 /* The overlay: out of flow, so nothing below it moves when it appears. */
 .lat-over {
-  position: absolute; top: 29px; right: 0; width: 340px; z-index: 40;
-  display: flex; flex-direction: column; gap: 3px; pointer-events: none;
+  position: absolute; top: 29px; right: 0; width: var(--lat-over-w); z-index: var(--z-lat-over);
+  display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none;
   text-align: left;
 }
 .lat-banner {
-  display: none; padding: 3px 7px; border-radius: 3px; white-space: normal;
-  background: rgba(38, 30, 12, 0.96); color: #e0b463;
-  border-left: 3px solid #d8a13a; line-height: 1.35;
+  display: none; padding: var(--space-3) var(--space-7); border-radius: var(--radius-3); white-space: normal;
+  background: var(--lat-banner-bg); color: var(--lat-banner-ink);
+  border-left: 3px solid var(--lat-banner-rule); line-height: 1.35;
 }
 .lat-banner.on { display: block; }
 .lat[data-state="DISCONNECTED"] .lat-banner {
-  background: rgba(40, 16, 13, 0.96); color: #e88c80; border-left-color: #b03a2e;
+  background: var(--lat-banner-bad-bg); color: var(--lat-banner-bad-ink); border-left-color: var(--lat-banner-bad-rule);
 }
-.lat-cmds { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.lat-cmds { display: flex; flex-wrap: wrap; gap: var(--space-4); justify-content: flex-end; }
 /* An inline-BLOCK and not the default inline: a chip whose refusal runs to two
    lines must carry its own background onto the second one, and an inline box
    paints only the first. The first photographs caught the naked half-line. */
 .lat-cmd {
   display: inline-block; max-width: 100%; white-space: normal;
-  padding: 1px 5px; border-radius: 3px; font-variant-numeric: tabular-nums;
-  background: #242424; color: #999; box-shadow: inset 0 0 0 1px #383838;
+  padding: 1px var(--space-5); border-radius: var(--radius-3); font-variant-numeric: tabular-nums;
+  background: var(--lat-cmd-bg); color: var(--lat-cmd-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-line);
 }
-.lat-cmd[data-cmd="pending"] { color: #dcdcdc; box-shadow: inset 0 0 0 1px #7a7a7a; }
-.lat-cmd[data-cmd="ack"] { color: #7fbf6a; box-shadow: inset 0 0 0 1px #3d5c34; }
-.lat-cmd[data-cmd="applied"] { color: #8a8a8a; }
-.lat-cmd[data-cmd="refused"] { color: #e0685a; box-shadow: inset 0 0 0 1px #6b2f28; }
+.lat-cmd[data-cmd="pending"] { color: var(--lat-cmd-pending-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-pending-line); }
+.lat-cmd[data-cmd="ack"] { color: var(--lat-cmd-ack-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-ack-line); }
+.lat-cmd[data-cmd="applied"] { color: var(--lat-cmd-applied-ink); }
+.lat-cmd[data-cmd="refused"] { color: var(--lat-cmd-refused-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-refused-line); }
 /* One transient per state change — never a loop, never above 3 Hz, and gone
-   entirely for a reader who asked for less motion. */
+   entirely for a reader who asked for less motion. The @media block that used
+   to be here is tokens.css group E: it zeroes --dur-lat-arrive, and an
+   animation of zero duration leaves the element at its own resting opacity,
+   which is exactly what "animation: none" did. One rule, one place, for every
+   sheet on the page. */
 @keyframes lat-arrive { from { opacity: 0.25; } to { opacity: 1; } }
-.lat-pulse { animation: lat-arrive 900ms ease-out 1; }
-@media (prefers-reduced-motion: reduce) { .lat-pulse { animation: none; } }
+.lat-pulse { animation: lat-arrive var(--dur-lat-arrive) ease-out 1; }
 `;
 
   let root = null;

@@ -1,4 +1,46 @@
 const BoardRenderer = (function () {
+  // ── THE TOKENS, READ FROM THE SHEET ───────────────────────────────────────
+  // A CANVAS DOES NOT CASCADE. Every colour in this file is a JS string, and
+  // before `src/web/tokens.css` there were eighty-odd of them that no
+  // stylesheet could see — which is how the board's violet and the rail's
+  // violet came to be two copies of one decision, and how `#888888` came to
+  // mean three different things in five files
+  // (docs/design/ux/09-DESIGN-TOKENS.md §1.2).
+  //
+  // So the values are declared once, on `:root`, and read off it here. The
+  // read is memoised per name — one `getComputedStyle` for the document
+  // element, then a map — because these are called inside draw loops.
+  //
+  // EVERY CALL CARRIES ITS OWN LITERAL AS THE FALLBACK, and that is not
+  // belt-and-braces: `board-test.html` links no stylesheet at all and has to
+  // keep drawing the board it always drew, and the jest suites load this file
+  // in a `node` environment where there is no `document` to ask. The fallback
+  // IS the value in both of those, and the sheet is the value in the browser.
+  let _tokenRead;
+  const _tokenCache = new Map();
+  function token(name, fallback) {
+    if (_tokenRead === undefined) {
+      _tokenRead = null;
+      try {
+        if (
+          typeof document !== "undefined" &&
+          document.documentElement &&
+          typeof getComputedStyle === "function"
+        ) {
+          const cs = getComputedStyle(document.documentElement);
+          _tokenRead = (n) => (cs.getPropertyValue(n) || "").trim();
+        }
+      } catch (e) {
+        _tokenRead = null;
+      }
+    }
+    if (_tokenCache.has(name)) return _tokenCache.get(name);
+    const read = _tokenRead ? _tokenRead(name) : "";
+    const value = read || fallback;
+    _tokenCache.set(name, value);
+    return value;
+  }
+
   let _potionImage = null;
   let _potionImageLoading = false;
 
@@ -178,6 +220,8 @@ const BoardRenderer = (function () {
   function hexToRgba(hex, alpha) {
     let color = hex;
     if (!color || typeof color !== "string") {
+      // The unit-colour fallback, as a wash. One value, one name — see
+      // `--unit-colour-fallback` in tokens.css and 09-DESIGN-TOKENS §1.2.
       return `rgba(136, 136, 136, ${alpha})`;
     }
     color = color.replace("#", "");
@@ -216,7 +260,7 @@ const BoardRenderer = (function () {
         id: s.id,
         head: prevBody[0],
         body: prevBody.slice(),
-        color: s.customizations?.color || s.color || "#888888",
+        color: s.customizations?.color || s.color || token("--unit-colour-fallback", "#888888"),
       });
     });
     return dead;
@@ -268,7 +312,7 @@ const BoardRenderer = (function () {
   // eye surfacing at the faced edge. Drawn OUTSIDE the head-cell clip: the
   // brow's tips and apex deliberately overhang the cell by a few percent.
   // Callers skip it for ghosts/corpses (an orientation-less cell draws none).
-  const EYE_STROKE = "rgba(56, 174, 255, 0.8)";
+  const EYE_STROKE = token("--board-eye", "rgba(56, 174, 255, 0.8)");
   function drawOrientationEye(ctx, orientation, hx, hy, cellSize) {
     const u = orientationUnitVector(orientation);
     if (!u) return;
@@ -373,8 +417,8 @@ const BoardRenderer = (function () {
   // left unclaimed on this board — sky blue is facing, green is goto, blue is
   // near, red is death.
   const HOLD_SHIELD_COLORS = {
-    fill: "#ffca28",
-    line: "rgba(16, 20, 26, 0.9)",
+    fill: token("--board-food", "#ffca28"),
+    line: token("--board-food-line", "rgba(16, 20, 26, 0.9)"),
   };
 
   // The badge itself: a heater shield — flat top, straight shoulders, flanks
@@ -417,9 +461,9 @@ const BoardRenderer = (function () {
   // orientation eye on the cell edge (drawOrientationEye), which reads as a
   // direction at a glance where a rotated 2D icon does not.
   const ICON_COLORS = {
-    base: "#ffffff",
-    line: "rgba(0, 0, 0, 0.8)",
-    accent: "#e53935",
+    base: token("--grey-ffffff", "#ffffff"),
+    line: token("--board-line", "rgba(0, 0, 0, 0.8)"),
+    accent: token("--health-bar-low", "#e53935"),
   };
   // An Archimedean spiral sampled into a polyline, running outward from the
   // tail at the centre and finishing at `endAngle`. Round joins and caps make
@@ -665,9 +709,9 @@ const BoardRenderer = (function () {
     ctx.textBaseline = "middle";
     ctx.globalAlpha = (opts && opts.alpha) != null ? opts.alpha : 1;
     ctx.lineWidth = Math.max(size * 0.18, 1.5);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.strokeStyle = token("--wash-black-85", "rgba(0, 0, 0, 0.85)");
     ctx.strokeText(glyph, x, y);
-    ctx.fillStyle = (opts && opts.color) || "#80d8ff";
+    ctx.fillStyle = (opts && opts.color) || token("--blue-80d8ff", "#80d8ff");
     ctx.fillText(glyph, x, y);
     ctx.restore();
   }
@@ -733,8 +777,8 @@ const BoardRenderer = (function () {
     ink: { x: 0.5, y: 3, w: 22.5, h: 16.5 },
   };
   const ANVIL_COLORS = {
-    fill: "#c2c7cd", // silver
-    line: "rgba(20, 24, 30, 0.75)", // the rim that keeps it legible on white
+    fill: token("--board-silver", "#c2c7cd"), // silver
+    line: token("--board-silver-line", "rgba(20, 24, 30, 0.75)"), // the rim that keeps it legible on white
   };
 
   // The anvil on a canvas, left-aligned at `x` and vertically centred on
@@ -791,8 +835,8 @@ const BoardRenderer = (function () {
     ink: { x: 0.9, y: 1.4, w: 22.2, h: 18.4 },
   };
   const HAZARD_COLORS = {
-    fill: "#d81b1b", // the hazard lattice's red, at full strength
-    inner: "#ffffff", // the exclamation, backing the even-odd holes
+    fill: token("--board-hazard", "#d81b1b"), // the hazard lattice's red, at full strength
+    inner: token("--grey-ffffff", "#ffffff"), // the exclamation, backing the even-odd holes
   };
 
   // The hazard mark on a canvas, left-aligned at `x` and vertically centred on
@@ -861,11 +905,11 @@ const BoardRenderer = (function () {
 
   // Health-bar track: the dark under-layer the units-table health bar draws
   // its fill on. The on-cell bar uses HEALTH_BAR_CELL_TRACK instead.
-  const HEALTH_BAR_TRACK = "rgba(0, 0, 0, 0.4)";
+  const HEALTH_BAR_TRACK = token("--health-bar-track", "rgba(0, 0, 0, 0.4)");
   // The on-cell bar's track is SOLID BLACK: it sits on the unit's own body
   // colour, and only an opaque track keeps the empty part of the bar reading
   // as "missing health" rather than as a tint of the team colour.
-  const HEALTH_BAR_CELL_TRACK = "#000000";
+  const HEALTH_BAR_CELL_TRACK = token("--grey-000000", "#000000");
 
   // The invulnerability mark for a level, as a stat descriptor: the shield
   // GLYPH when protected, the drawn red hazard MARK when the level is negative
@@ -894,9 +938,9 @@ const BoardRenderer = (function () {
   // orange when low, green otherwise. Shared by the board bar and the unit
   // info panel so the two readouts always agree.
   function healthBarColor(frac) {
-    if (frac < 0.1) return "#e53935";
-    if (frac < 0.25) return "#fb8c00";
-    return "#43a047";
+    if (frac < 0.1) return token("--health-bar-low", "#e53935");
+    if (frac < 0.25) return token("--health-bar-mid", "#fb8c00");
+    return token("--health-bar-high", "#43a047");
   }
 
   // THE SAME RAMP, AS TEXT. The bar is a non-text mark and 3 : 1 is its bar;
@@ -905,9 +949,9 @@ const BoardRenderer = (function () {
   // meaning, lifted just far enough to be readable — kept beside the bar's
   // ramp so the two can never drift into saying different things.
   function healthTextColor(frac) {
-    if (frac < 0.1) return "#ef5350";
-    if (frac < 0.25) return "#ffa726";
-    return "#66bb6a";
+    if (frac < 0.1) return token("--health-text-low", "#ef5350");
+    if (frac < 0.25) return token("--health-text-mid", "#ffa726");
+    return token("--health-text-high", "#66bb6a");
   }
 
   // Health fraction for a snake: health over its configured per-type max
@@ -953,9 +997,9 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    ctx.fillStyle = "rgba(220, 30, 30, 0.18)";
+    ctx.fillStyle = token("--board-hazard-wash", "rgba(220, 30, 30, 0.18)");
     ctx.fillRect(x, y, cellSize, cellSize);
-    ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
+    ctx.strokeStyle = token("--board-hazard-edge", "rgba(200, 12, 12, 0.9)");
     ctx.lineWidth = Math.max(1, cellSize / 11);
     const spacing = Math.max(4, cellSize / 3);
     // Half a spacing in from the edges, so the pattern is centred in the cell
@@ -1012,8 +1056,8 @@ const BoardRenderer = (function () {
   // The plaque a stat item is drawn on: near-white, so a tinted heart, a
   // silver anvil and a dark number keep the same contrast on EVERY team
   // colour and over every terrain a body can lie on.
-  const BODY_ITEM_PLAQUE = "rgba(255, 255, 255, 0.94)";
-  const BODY_ITEM_TEXT = "#14181e";
+  const BODY_ITEM_PLAQUE = token("--board-item-plaque", "rgba(255, 255, 255, 0.94)");
+  const BODY_ITEM_TEXT = token("--board-item-text", "#14181e");
 
   // Every item — the head's letter and every stat behind it — is drawn on ONE
   // square of the same size, so a body reads as a run of identical plates
@@ -1268,16 +1312,16 @@ const BoardRenderer = (function () {
     ctx.save();
     drawBodyPlate(
       ctx, box, item.fill,
-      "rgba(255, 255, 255, 0.9)", Math.max(1, fit.fontSize * 0.11),
+      token("--wash-white-90", "rgba(255, 255, 255, 0.9)"), Math.max(1, fit.fontSize * 0.11),
     );
     ctx.font = fit.font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
     ctx.lineWidth = Math.max(1.5, fit.fontSize * 0.16);
-    ctx.strokeStyle = "rgba(12, 16, 22, 0.72)";
+    ctx.strokeStyle = token("--wash-slate-72", "rgba(12, 16, 22, 0.72)");
     ctx.strokeText(item.text, box.x + box.w / 2, box.y + box.h / 2);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillText(item.text, box.x + box.w / 2, box.y + box.h / 2);
     ctx.restore();
   }
@@ -1299,7 +1343,7 @@ const BoardRenderer = (function () {
 
     const cells = distinctBodyCells(body);
     const owner = opts && opts.owner;
-    const unitColor = snake.customizations?.color || snake.color || "#888888";
+    const unitColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const letterItem = {
       key: "letter",
       chip: true,
@@ -1447,7 +1491,7 @@ const BoardRenderer = (function () {
     const cx = head.x * cellSize + cellSize / 2;
     const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
     const r = cellSize * 0.34;
-    const markColor = color || "#888888";
+    const markColor = color || token("--unit-colour-fallback", "#888888");
     ctx.save();
     if (shadow) {
       ctx.globalAlpha = 0.35;
@@ -1472,7 +1516,7 @@ const BoardRenderer = (function () {
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
-      ctx.strokeStyle = "#000000";
+      ctx.strokeStyle = token("--grey-000000", "#000000");
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.stroke();
@@ -1480,7 +1524,7 @@ const BoardRenderer = (function () {
     const d = r * 0.55;
     ctx.lineCap = "round";
     ctx.lineWidth = Math.max(1.5, cellSize * 0.1);
-    ctx.strokeStyle = shadow ? markColor : "#ffffff";
+    ctx.strokeStyle = shadow ? markColor : token("--grey-ffffff", "#ffffff");
     ctx.globalAlpha = shadow ? 0.85 : 1;
     ctx.beginPath();
     ctx.moveTo(cx - d, cy - d);
@@ -1523,10 +1567,10 @@ const BoardRenderer = (function () {
   // ring, a controlled unit wears thin gold DASHES on its own body outline,
   // and the clash frame is a solid amber line on the cell's own edge, outside
   // all of them.
-  const CLASH_INK = "#FF8F00";
+  const CLASH_INK = token("--board-clash", "#FF8F00");
   // The same ink, lit, for the cell the pointer is resting on.
-  const CLASH_INK_HOT = "#FFC107";
-  const CLASH_HALO = "rgba(0, 0, 0, 0.5)";
+  const CLASH_INK_HOT = token("--board-clash-hot", "#FFC107");
+  const CLASH_HALO = token("--board-clash-halo", "rgba(0, 0, 0, 0.5)");
 
   // How far the frame sits in from the cell's edge. Kept well inside the
   // body's own inset (getSnakeGap) so the frame lives in the margin a unit
@@ -1548,7 +1592,7 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    ctx.fillStyle = hot ? "rgba(255, 143, 0, 0.3)" : "rgba(255, 143, 0, 0.16)";
+    ctx.fillStyle = hot ? token("--wash-amber-30", "rgba(255, 143, 0, 0.3)") : token("--wash-amber-16", "rgba(255, 143, 0, 0.16)");
     ctx.fillRect(x, y, cellSize, cellSize);
 
     const inset = clashFrameInset(cellSize);
@@ -1630,7 +1674,7 @@ const BoardRenderer = (function () {
     const cx = head.x * cellSize + cellSize / 2;
     const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
     const r = cellSize * 0.34;
-    const markColor = color || "#888888";
+    const markColor = color || token("--unit-colour-fallback", "#888888");
     ctx.save();
     // Disc background so the glyph reads on any board cell.
     ctx.fillStyle = markColor;
@@ -1638,13 +1682,13 @@ const BoardRenderer = (function () {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
 
     // Four arrows pointing outward (up, down, left, right) from the disc edge.
-    const arrowColor = "#000000";
+    const arrowColor = token("--grey-000000", "#000000");
     ctx.strokeStyle = arrowColor;
     ctx.fillStyle = arrowColor;
     ctx.lineCap = "round";
@@ -1686,7 +1730,7 @@ const BoardRenderer = (function () {
     }
 
     // "?" glyph centered in the disc.
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `bold ${Math.max(8, Math.round(cellSize * 0.5))}px sans-serif`;
@@ -1725,20 +1769,20 @@ const BoardRenderer = (function () {
 
   const LENS_THEME = {
     light: {
-      lens: "#7B4FE0",
-      wash: "rgba(123, 79, 224, 0.07)",
-      foil: "#00897B",
-      fixed: "#6B6B6B",
-      refuter: "#D84315",
-      chipText: "#ffffff",
+      lens: token("--board-lens-on-light", "#7B4FE0"),
+      wash: token("--board-lens-wash-on-light", "rgba(123, 79, 224, 0.07)"),
+      foil: token("--board-foil-on-light", "#00897B"),
+      fixed: token("--board-fixed-on-light", "#6B6B6B"),
+      refuter: token("--board-refuter-on-light", "#D84315"),
+      chipText: token("--board-chiptext-on-light", "#ffffff"),
     },
     dark: {
-      lens: "#B39DFF",
-      wash: "rgba(179, 157, 255, 0.12)",
-      foil: "#4DB6AC",
-      fixed: "#9A9A9A",
-      refuter: "#FF8A65",
-      chipText: "#14181e",
+      lens: token("--board-lens-on-dark", "#B39DFF"),
+      wash: token("--board-lens-wash-on-dark", "rgba(179, 157, 255, 0.12)"),
+      foil: token("--board-foil-on-dark", "#4DB6AC"),
+      fixed: token("--board-fixed-on-dark", "#9A9A9A"),
+      refuter: token("--board-refuter-on-dark", "#FF8A65"),
+      chipText: token("--board-chiptext-on-dark", "#14181e"),
     },
   };
   const LENS_INK = LENS_THEME.light;
@@ -1849,7 +1893,7 @@ const BoardRenderer = (function () {
     ctx.fillStyle = fill;
     ctx.fill();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.strokeStyle = token("--wash-black-45", "rgba(0, 0, 0, 0.45)");
     ctx.stroke();
     ctx.fillStyle = ink;
     ctx.font = `bold ${Math.max(7, Math.round(r * 1.2))}px sans-serif`;
@@ -1991,7 +2035,7 @@ const BoardRenderer = (function () {
   // The neutral candidate plate. It used to be a quality tint; it is now one
   // colour for every candidate, because ranking a unit's moves against each
   // other is the comparison the bot stopped making.
-  const CANDIDATE_PLATE = "rgba(78, 108, 142, 0.34)";
+  const CANDIDATE_PLATE = token("--board-candidate-plate", "rgba(78, 108, 142, 0.34)");
 
   // Candidate move cell: a pale plate that flattens whatever terrain is
   // underneath (fertile stripes, hazard red, bare board), the neutral plate
@@ -2003,7 +2047,7 @@ const BoardRenderer = (function () {
   // this board, so the cursor and the moveset it implies read as one thought.
   function drawCandidateCell(ctx, x, y, cellSize, tint, isSelected) {
     ctx.save();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.fillStyle = token("--wash-white-55", "rgba(255, 255, 255, 0.55)");
     ctx.fillRect(x, y, cellSize, cellSize);
     ctx.fillStyle = tint || CANDIDATE_PLATE;
     ctx.fillRect(x, y, cellSize, cellSize);
@@ -2016,10 +2060,10 @@ const BoardRenderer = (function () {
       cellSize - inset * 2,
       cellSize * 0.16,
     );
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.strokeStyle = token("--wash-black-85", "rgba(0, 0, 0, 0.85)");
     ctx.lineWidth = Math.max(3, cellSize * 0.14);
     ctx.stroke();
-    ctx.strokeStyle = isSelected ? LENS_INK.lens : "#ffffff";
+    ctx.strokeStyle = isSelected ? LENS_INK.lens : token("--grey-ffffff", "#ffffff");
     ctx.lineWidth = isSelected
       ? Math.max(2.5, cellSize * 0.1)
       : Math.max(1.5, cellSize * 0.06);
@@ -2028,7 +2072,7 @@ const BoardRenderer = (function () {
   }
 
   function hexToRgb(hex) {
-    let color = hex || "#888888";
+    let color = hex || token("--unit-colour-fallback", "#888888");
     color = color.replace("#", "");
     if (color.length === 3)
       color = color
@@ -2075,7 +2119,7 @@ const BoardRenderer = (function () {
   function renderSnakeUnified(ctx, snake, boardHeight, cellSize, options) {
     if (snake.body.length === 0) return;
 
-    const snakeColor = snake.customizations?.color || snake.color || "#888888";
+    const snakeColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const gap = getSnakeGap(cellSize);
     const pathNeighbors = buildPathNeighbors(snake);
     const selectionGlow = options?.selectionGlow || null;
@@ -2122,7 +2166,7 @@ const BoardRenderer = (function () {
     if (invulnLevel !== 0) {
       const outerExpand = Math.max(2, cellSize * 0.06);
       const outerColor =
-        invulnLevel < 0 ? "rgba(255, 40, 40, 1)" : "rgba(40, 120, 255, 1)";
+        invulnLevel < 0 ? token("--board-invuln-down", "rgba(255, 40, 40, 1)") : token("--board-invuln-up", "rgba(40, 120, 255, 1)");
       const lineWidth = Math.max(2, cellSize * 0.08);
       ctx.save();
       ctx.strokeStyle = outerColor;
@@ -2284,7 +2328,7 @@ const BoardRenderer = (function () {
       const innerInset = Math.max(1, cellSize * 0.04);
       const dashLen = Math.max(2, cellSize * 0.1);
       ctx.save();
-      ctx.strokeStyle = "#FFD700";
+      ctx.strokeStyle = token("--board-highlight", "#FFD700");
       ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
       ctx.setLineDash([dashLen, dashLen]);
       ctx.lineCap = "square";
@@ -2491,10 +2535,10 @@ const BoardRenderer = (function () {
     // (e.g. an overlay that mutated globalAlpha without restoring it).
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     for (let x = 0; x <= board.width; x++) {
       const line = crispStroke(ctx, x * cellSize, 1.5);
       ctx.lineWidth = line.width;
@@ -2512,7 +2556,7 @@ const BoardRenderer = (function () {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
 
@@ -2532,7 +2576,7 @@ const BoardRenderer = (function () {
         ctx.beginPath();
         ctx.rect(x, y, cellSize, cellSize);
         ctx.clip();
-        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.strokeStyle = token("--board-ring-mark", "rgba(240, 198, 70, 0.85)");
         ctx.lineWidth = Math.max(1.5, cellSize / 7);
         const stripeSpacing = Math.max(4, cellSize / 3.5);
         for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
@@ -2597,7 +2641,7 @@ const BoardRenderer = (function () {
       ctx.beginPath();
       ctx.rect(x, y, cellSize, cellSize);
       ctx.clip();
-      ctx.fillStyle = "#000000";
+      ctx.fillStyle = token("--grey-000000", "#000000");
       const emojiSize = Math.max(cellSize * 0.7, 10);
       ctx.font = `${emojiSize}px serif`;
       ctx.textAlign = "center";
@@ -2713,7 +2757,7 @@ const BoardRenderer = (function () {
       drawUnitBodyInfo(ctx, bodyPlans.get(snake.id));
 
       let arrowMove = null;
-      let arrowColor = "#4CAF50";
+      let arrowColor = token("--board-goto", "#4CAF50");
       let arrowCommitted = false;
       // The grey recommendation hint arrow is gone (04 §5.3 #15). The bot's
       // recommendation is now BY DEFINITION the rank-1 moveset's assignment
@@ -2744,7 +2788,7 @@ const BoardRenderer = (function () {
           (typeof move === "number" && !rotationStaged);
         const confirmedMove = stagedForThisSnake.move;
         arrowMove = arrowWorthy(confirmedMove) ? confirmedMove : null;
-        arrowColor = stagedForThisSnake.color || "#4CAF50";
+        arrowColor = stagedForThisSnake.color || token("--board-goto", "#4CAF50");
         arrowCommitted = !!stagedForThisSnake.committed;
         const requested = stagedForThisSnake.requestedMove;
         if (arrowWorthy(requested) && requested !== arrowMove) {
@@ -2883,7 +2927,7 @@ const BoardRenderer = (function () {
             const r = cellSize * 0.32;
             ctx.setLineDash([]);
             ctx.lineWidth = Math.max(cellSize * 0.1, 3);
-            ctx.strokeStyle = "#ff1744";
+            ctx.strokeStyle = token("--board-danger-outline", "#ff1744");
             ctx.beginPath();
             ctx.arc(mx, my, r, 0, Math.PI * 2);
             ctx.stroke();
@@ -3156,7 +3200,7 @@ const BoardRenderer = (function () {
   // no operator has taken. Colour is then only ever "someone owns this, on our
   // side" — which is exactly what the eye should find first.
   const TAG_OUTLINE = {
-    unowned: "#8d949c",
+    unowned: token("--board-unowned", "#8d949c"),
     width(fontSize, selected) {
       return selected
         ? Math.max(5, fontSize * 0.36)
@@ -3249,7 +3293,7 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, tagH, r);
     else ctx.rect(rect.x, rect.y, rect.w, tagH);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fill();
     ctx.lineWidth = TAG_OUTLINE.width(fontSize, selected);
     ctx.strokeStyle = outlineColor || unitColor;
@@ -3273,7 +3317,7 @@ const BoardRenderer = (function () {
     ctx.fill();
     ctx.font = letterFont;
     ctx.textAlign = "center";
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillText(letter, chipX + chipW / 2, midY);
 
     // Stat pairs (icon + value), in the units table's icons and order, laid
@@ -3288,11 +3332,11 @@ const BoardRenderer = (function () {
       if (mark) {
         mark.draw(ctx, x, midY, iconH);
       } else {
-        ctx.fillStyle = stat.iconColor || "#1a1a1a";
+        ctx.fillStyle = stat.iconColor || token("--grey-1a1a1a", "#1a1a1a");
         ctx.fillText(stat.icon, x, midY);
       }
       x += statIconWidth(ctx, stat, iconH) + iconGap;
-      ctx.fillStyle = "#1a1a1a";
+      ctx.fillStyle = token("--grey-1a1a1a", "#1a1a1a");
       ctx.fillText(stat.text, x, midY);
       x += ctx.measureText(stat.text).width;
       if (letterAtEnd) x += gap;
@@ -3303,7 +3347,7 @@ const BoardRenderer = (function () {
     // holds the unit without the reader tracing the outline back to a legend.
     if (nameText) {
       if (!letterAtEnd) x += gap;
-      ctx.fillStyle = ownerColor || "#1a1a1a";
+      ctx.fillStyle = ownerColor || token("--grey-1a1a1a", "#1a1a1a");
       ctx.fillText(nameText, x, midY);
     }
     ctx.restore();
@@ -3405,7 +3449,7 @@ const BoardRenderer = (function () {
       if (visibility === "hidden" && hover !== TAG_HOVER.tag) return;
       const owner = owners[snake.id] || null;
       const unitColor =
-        snake.customizations?.color || snake.color || "#888888";
+        snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
       const outlineColor =
         ours && owner ? owner.color || unitColor : TAG_OUTLINE.unowned;
 
@@ -3787,7 +3831,7 @@ const BoardRenderer = (function () {
   function renderSnakeInfoItem(snake, ourSnakeId, opts, currentTurn) {
     const isOurSnake = snake.id === ourSnakeId;
     const isDead = !!(opts && opts.dead);
-    const snakeColor = snake.customizations?.color || snake.color || "#888888";
+    const snakeColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
     // The row writes the buff's TURNS, same as the body plate — its LEVEL is
@@ -3825,7 +3869,7 @@ const BoardRenderer = (function () {
     // Owner badge: shown for owned snakes in the owning player's colour.
     const owner = opts && opts.owner;
     const ownerBadge = owner
-      ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px 6px;border-radius:8px;font-weight:400;">${owner.name}</span>`
+      ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px var(--space-6);border-radius:var(--radius-8);font-weight:var(--weight-normal);">${owner.name}</span>`
       : "";
     const selectable = opts && opts.selectable;
     const active = opts && opts.active;
@@ -3846,7 +3890,7 @@ const BoardRenderer = (function () {
       (selectable ? ` data-select-snake="${snake.id}"` : "") +
       (styleParts.length ? ` style="${styleParts.join("")}"` : "");
     const deadSuffix = isDead
-      ? ' <span style="color:#c4c4c4;font-weight:400;">(dead)</span>'
+      ? ' <span style="color:var(--grey-c4c4c4);font-weight:var(--weight-normal);">(dead)</span>'
       : "";
     // Inline health readout: the shared heart icon, the same red/orange/green
     // bar as the board cell and the unit tag (fraction of the unit's
@@ -3862,7 +3906,7 @@ const BoardRenderer = (function () {
       healthDisplay =
         `<span title="Health" style="display:inline-flex;align-items:center;gap:4px;">` +
         `<span style="color:${healthTextColor(frac)};">${STAT_ICON.health}</span>` +
-        `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
+        `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid var(--wash-black-25);border-radius:var(--radius-4);overflow:hidden;">${fill}</span>` +
         `${snake.health}</span>`;
     }
     // Unit icon: the SAME drawn icon as the unit's board head glyph
@@ -4147,7 +4191,7 @@ const BoardRenderer = (function () {
   function clashParticipantHTML(id, lookup, victimIds, clash) {
     const snake = lookup(id);
     const color =
-      (snake && (snake.customizations?.color || snake.color)) || "#888888";
+      (snake && (snake.customizations?.color || snake.color)) || token("--unit-colour-fallback", "#888888");
     const team = snake ? teamDisplayName(snake) : "";
     const letter = snake && snake.letter ? snake.letter : "";
     const label = snake
@@ -4287,7 +4331,7 @@ const BoardRenderer = (function () {
         const teamColor =
           teamSnakes[0].customizations?.color ||
           teamSnakes[0].color ||
-          "#888888";
+          token("--unit-colour-fallback", "#888888");
         // The team's HUMAN name, never its document id. "(our team)" is a
         // separate marker rather than part of the name so a neutral spectator's
         // scoreboard is the same scoreboard with that one span absent.
@@ -4361,10 +4405,10 @@ const BoardRenderer = (function () {
 
     ctx.imageSmoothingEnabled = false;
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     for (let x = 0; x <= board.width; x++) {
       const line = crispStroke(ctx, x * cellSize, 1);
       ctx.lineWidth = line.width;
@@ -4382,7 +4426,7 @@ const BoardRenderer = (function () {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
 
@@ -4402,7 +4446,7 @@ const BoardRenderer = (function () {
         ctx.beginPath();
         ctx.rect(x, y, cellSize, cellSize);
         ctx.clip();
-        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.strokeStyle = token("--board-ring-mark", "rgba(240, 198, 70, 0.85)");
         ctx.lineWidth = Math.max(1.5, cellSize / 7);
         const stripeSpacing = Math.max(4, cellSize / 3.5);
         for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
