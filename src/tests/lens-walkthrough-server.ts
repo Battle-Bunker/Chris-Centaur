@@ -232,6 +232,23 @@ async function main(): Promise<void> {
   const log: RecordedTurn[] = [];
 
   const manager = ActiveGameManager.getInstance();
+  // ── THE WRITE SIDE OF THE STAND-IN ──────────────────────────────────────
+  //
+  // `stageMove` publishes every staged move through the `MoveSubmitter` and
+  // then waits for the wire to ACK it; production's ack is the Firestore
+  // read-back calling `setConfirmedStagedMove`. With no submitter wired the
+  // manager logged `NOT published`, the backstop fired every retry interval
+  // for the whole run, and each retry wrote a `stage.retry` event — so the
+  // rail repainted forever over a move nobody was ever going to confirm.
+  //
+  // This file stands in for Firestore, so it stands in for the ack too: the
+  // write succeeds and reads back as itself. The staging lane gets its
+  // `stage.requested` → `stage.confirmed` pair, which is the pair the walk is
+  // supposed to photograph, and the retry backstop stays for the case it was
+  // written for.
+  manager.setMoveSubmitter(async (gameId, snakeId, at, move) => {
+    manager.setConfirmedStagedMove(gameId, snakeId, at, move);
+  });
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '../web')));
