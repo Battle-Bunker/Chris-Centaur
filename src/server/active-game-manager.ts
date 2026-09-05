@@ -350,6 +350,23 @@ export interface StagedMoveView {
   color: string;
   source: string;
   fatal: boolean;
+  // WHO STAGED THIS, and the one field `11-MOTION-AND-MARKS.md` §6.2 named.
+  // The projection carried the operator's HUE and nothing else, so the staged
+  // arrow was the one determination on the board attributable by colour alone
+  // — while the head-plate chip, the rail's fixed strip, the timeline lane and
+  // the roster badge all draw that operator's MARK. `color` cannot stand in for
+  // this: it is grey for a bot move, the unattributed green when nobody is
+  // named, and it falls back to the SELECTING user's hue for a snake whose
+  // command came from somewhere else — so a mark resolved from it would claim
+  // an operator the wire never named. This is `cs.intentBy`, the same value
+  // `getCommandStateForGame` publishes as `operators[snakeId]`, and it is null
+  // for exactly the moves that render grey (bot / fallback): a mark on the
+  // arrow appears if and only if the arrow wears an operator's colour.
+  //
+  // Additive. Nothing that read this projection before reads a different value
+  // now, and because `CommandTurnState.stagedMoves` is this same shape, the
+  // replay path gains the attribution with it.
+  by: OperatorRef | null;
   // Pawn rotation: the NEW orientation (wire convention, dy grows downward) when
   // the requested move is a side-square rotation; null/absent otherwise. The
   // client renders a rotation symbol on the pawn's cell instead of a
@@ -3582,6 +3599,10 @@ export class ActiveGameManager {
       // user-coloured arrow always guarantees the user's own requested move.
       const isBot = requested.source === 'bot' || requested.source === 'fallback';
       const color = isBot ? BOT_COLOR : userColor;
+      // Identity rides the SAME gate the colour does (see `StagedMoveView.by`):
+      // a bot-sourced move is nobody's determination, so it carries no operator
+      // and the client draws no mark on it.
+      const by = isBot ? null : cs.intentBy ?? null;
       // `fatal` flags a certain-death requested move so the client can warn
       // the human; it NEVER changes what is staged.
       const fatal = this.isStagedMoveFatal(gameId, snakeId);
@@ -3594,6 +3615,7 @@ export class ActiveGameManager {
         color,
         source: requested.source,
         fatal,
+        by,
         // Recorded at bind time (never recomputed here — this projection also
         // runs after the board advanced, where origin/orientation may no longer
         // match the staged turn).

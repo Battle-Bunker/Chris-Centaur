@@ -716,6 +716,52 @@ const BoardRenderer = (function () {
     ctx.restore();
   }
 
+  // THE STAGED ARROW'S OPERATOR MARK (11-MOTION-AND-MARKS.md §5.3, §6.2).
+  //
+  // The arrow was the last determination on this board attributable by HUE and
+  // nothing else — the head-plate chip, the rail's fixed strip, the lane's
+  // ticks and the roster badge have all drawn the operator's mark since P-4,
+  // and §5.3 left the arrow out because the wire could not say whose it was.
+  // It can now: `StagedMoveView.by` carries the commanding operator, the page
+  // resolves it on the SAME directory the chip's mark comes from, and hands the
+  // resolved glyph down here. The renderer gains no palette, no directory and
+  // no state — one expression, exactly as the chip did.
+  //
+  // WHERE IT SITS. Not on the head cell: the head plate already carries the
+  // letter, the tag and the fixed chip, and a fifth glyph there is the
+  // collision `02 §2.5` exists to prevent. It rides the arrow's own SHAFT,
+  // one arrowhead back from the tip and offset perpendicular, so it is on the
+  // ink whose owner it names, it never covers the arrowhead, and it never
+  // lands on the destination cell's own glyph. Drawn in the arrow's colour
+  // over the same dark halo the rotation badge uses, because §5.4's rule is
+  // that colour is never REQUIRED to read a mark — the shape carries it and
+  // the hue agrees.
+  function drawArrowMark(ctx, from, to, cellSize, glyph, color) {
+    if (!glyph) return;
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const headSize = Math.max(cellSize * 0.45, 18);
+    const back = headSize * 0.95;
+    const off = Math.max(cellSize * 0.2, 8);
+    // One arrowhead back along the shaft, then `off` along the shaft's own
+    // left normal `(-sin, cos)`. Both are functions of the angle, so the mark
+    // rides the arrow at every heading instead of drifting into the arrowhead
+    // on the diagonals a piece's destination arrow takes.
+    const x = to.x - back * Math.cos(angle) - off * Math.sin(angle);
+    const y = to.y - back * Math.sin(angle) + off * Math.cos(angle);
+    const size = Math.max(9, Math.round(cellSize * 0.28));
+    ctx.save();
+    ctx.font = `bold ${size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(size * 0.22, 2);
+    ctx.strokeStyle = token("--wash-black-85", "rgba(0, 0, 0, 0.85)");
+    ctx.strokeText(glyph, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(glyph, x, y);
+    ctx.restore();
+  }
+
   // Head glyph: a PIECE's single cell draws its unit ICON — the custom-drawn
   // piece marks (see UNIT_ICONS) — upright, plus the orientation eye on the
   // faced cell edge; pawns additionally carry the staged-rotation badge. The
@@ -2904,14 +2950,34 @@ const BoardRenderer = (function () {
           // bot, the controller's color for a human). The ONLY visual
           // difference is the arrowhead count: a confirmed staged move draws
           // a single chevron, the turn's finalized move a double chevron.
+          let markedTip = null;
           if (arrowMove) {
-            drawArrow(
+            markedTip = drawArrow(
               arrowMove,
               arrowColor,
               Math.max(cellSize * 0.18, 6),
               arrowDashed,
               1,
               arrowCommitted ? 2 : 1,
+            );
+          }
+
+          // WHO STAGED IT. `mark` is resolved by the page off `staged.by` (the
+          // wire's own operator identity) against the same directory the fixed
+          // chip's mark comes from, so the glyph on the arrow is the glyph
+          // beside that operator's name in the rail. An unattributed or
+          // bot-sourced arrow has no `by`, therefore no mark, and draws exactly
+          // the pixels it always did — a mark is never guessed from a hue.
+          const stagedMark = stagedForThisSnake && stagedForThisSnake.mark;
+          const markTip = markedTip || (ghostMove ? endpointFor(ghostMove) : null);
+          if (stagedMark && markTip) {
+            drawArrowMark(
+              ctx,
+              { x: centerX, y: centerY },
+              { x: markTip.ex, y: markTip.ey },
+              cellSize,
+              stagedMark,
+              arrowColor,
             );
           }
 
@@ -4567,6 +4633,7 @@ const BoardRenderer = (function () {
     drawUnitIcon,
     rotationGlyph,
     drawRotationBadge,
+    drawArrowMark,
     unitIconSVG,
     anvilIconSVG,
     hazardIconSVG,

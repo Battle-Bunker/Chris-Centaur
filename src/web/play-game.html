@@ -3962,6 +3962,48 @@
       return map;
     }
 
+    /**
+     * THE STAGED ARROW'S OPERATOR (11-MOTION-AND-MARKS.md §5.3, §6.2).
+     *
+     * §6.2 named one missing field and the reason it could not be worked
+     * around: the staged-move projection carried the operator's HUE and no
+     * identity, so the arrow was the last determination on this board
+     * attributable by colour alone while every other one drew a mark. The
+     * field is on the wire now — `StagedMoveView.by`, the same `cs.intentBy`
+     * the server already publishes as `operators[snakeId]` — and this is the
+     * one place it is read.
+     *
+     * IT IS NOT `markForColor(view.color)`. That would resolve a mark off a
+     * hue the projection may have taken from the SELECTING user rather than
+     * the commanding one, and off `#4CAF50` when nobody is named at all — a
+     * mark that claims an operator the wire never sent, which §5.3's rule
+     * ("a mark is never guessed") forbids. Resolving from `by` and dropping
+     * the entry when the directory has no answer keeps the arrow honest: a
+     * mark appears if and only if a named operator staged that move.
+     *
+     * The directory is the SAME one the fixed chip, the rail's strip and the
+     * lane read (`LensPanel.operatorMark`, three aliases per operator), so the
+     * glyph on an arrow is the glyph beside that operator's name in the rail.
+     * The server's own object is never mutated — the decorated copy is built
+     * per render and handed to the renderer, which holds no directory.
+     */
+    function stagedWithMarks(staged) {
+      if (!staged) return staged || null;
+      if (typeof LensPanel === 'undefined' || !LensPanel.operatorMark) return staged;
+      const out = {};
+      for (const unitId of Object.keys(staged)) {
+        const view = staged[unitId];
+        const by = view && view.by;
+        const mark = by
+          ? LensPanel.operatorMark(by.userId) ||
+            LensPanel.operatorMark(by.name) ||
+            LensPanel.operatorMark(by.color)
+          : '';
+        out[unitId] = mark ? Object.assign({}, view, { mark }) : view;
+      }
+      return out;
+    }
+
     function renderConnectedUsers() {
       const container = document.getElementById('connectedUsers');
       const others = connectedUsers.filter(u => u.userId !== userId);
@@ -4091,7 +4133,7 @@
         tagHoverUnitId: tagHoverUnitId,
         tagMode: tagDisplayMode,
         clashHoverCell: clashHoverCell,
-        stagedMoves: view.stagedMoves || null,
+        stagedMoves: stagedWithMarks(view.stagedMoves) || null,
         intentModes: view.intentModes || null,
         previousBoard: view.previousBoard || null,
         lastMoves: view.lastMoves || null,

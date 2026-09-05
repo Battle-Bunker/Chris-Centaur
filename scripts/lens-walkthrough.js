@@ -585,6 +585,42 @@ async function main() {
   const afterPin = await railOf();
   const depthAfterPin = await undoDepth();
   const stagedPin = await stagingOf();
+  /** THE STAGED ARROW'S OPERATOR, photographed off the frame the page is
+   *  holding at the one moment in the whole walk when a named operator has
+   *  staged something (11-MOTION-AND-MARKS.md §6.2). It is READ here and
+   *  ASSERTED in `motion/marks`, where the rest of P-4 is, because a second
+   *  determination taken later would put a moment in the harness's own game
+   *  log that the review drill then photographs — a drill must not change the
+   *  game it is walking through. */
+  const stagedArrowFrame = await page.evaluate(() => {
+    const live = (typeof stagedMoves === 'undefined' ? null : stagedMoves) || {};
+    const decorated = stagedWithMarks(live) || {};
+    const me = (connectedUsers || []).find((u) => u.userId === userId) || null;
+    return {
+      rows: Object.keys(live).map((unit) => {
+        const v = live[unit] || {};
+        const by = v.by || null;
+        return {
+          unit,
+          source: v.source,
+          color: v.color,
+          by: by ? { userId: by.userId, name: by.name, color: by.color } : null,
+          mark: (decorated[unit] || {}).mark || null,
+          fromId: by ? LensPanel.operatorMark(by.userId) : '',
+          fromName: by ? LensPanel.operatorMark(by.name) : '',
+          fromPalette: by ? window.LensView.markForColor(by.color) : null,
+        };
+      }),
+      me: me ? { userId: me.userId, name: me.name, color: me.color } : null,
+      meMark: me ? window.LensView.markForColor(me.color) : null,
+      // The renderer draws what the page resolved and nothing else: no
+      // palette, no directory, no second opinion about who staged this.
+      drawnByTheRenderer: String(BoardRenderer.renderBoard).includes('stagedForThisSnake.mark'),
+      rendererHoldsNoPalette:
+        !String(BoardRenderer.drawArrowMark).includes('markForColor') &&
+        !String(BoardRenderer.drawArrowMark).includes('OPERATOR_MARKS'),
+    };
+  });
   check(
     'pin — the determination lands on the undo stack, and the affordance says so',
     depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
@@ -606,6 +642,17 @@ async function main() {
     stage: afterPin.stage,
   });
   await drillShot('d1-pin', 'the operator drill: a pin, and the undo it arrives with');
+  // THE ONE PICTURE OF THE MARK ON THE ARROW. Everywhere else in this walk the
+  // board carries bot-sourced arrows, which are nobody's determination and
+  // draw exactly the pixels they always did; this is the single frame in which
+  // a named operator has staged something, so it is the frame the new ink is
+  // photographed in (11-MOTION-AND-MARKS.md §6.2).
+  await shot(
+    page,
+    'd1c-pin-arrow',
+    'the drill: the staged arrow wearing the mark of the operator who staged it',
+    '#gameCanvas'
+  );
 
   // 1b — AND BACK. `U` on the entry that press just pushed: the stack pops
   // and the unit stops carrying the operator's move. This is the undo half of
@@ -1167,6 +1214,46 @@ async function main() {
   // And the page is put back the way the walk found it, so nothing after this
   // drill sees an operator the server never sent.
   await page.evaluate(() => typeof renderConnectedUsers !== "undefined" && renderConnectedUsers());
+
+  // ── THE STAGED ARROW ────────────────────────────────────────────────────
+  //
+  // §6.2's one field, closed. Everything above this point is asserted against
+  // an operator the DRILL put in the page's directory; this is asserted
+  // against the one the SERVER sent, on the frame the page was actually
+  // holding at `drill/pin` — `stagedMoves`, straight off `selections-update`,
+  // with `StagedMoveView.by` on it. Nothing is staged here: `drill/pin` has
+  // already made the one determination this walk makes, and a second one taken
+  // for a picture would put a moment in the harness's own game log that the
+  // review drill later photographs.
+  at = 'motion/marks-arrow';
+  const arrow = stagedArrowFrame;
+  const attributed = arrow.rows.filter((r) => r.by !== null);
+  mCheck(
+    'marks: the wire says who staged the arrow — StagedMoveView carries `by`',
+    attributed.length > 0 && attributed.every((r) => !!r.by.userId && !!r.by.color),
+    arrow.rows
+  );
+  mCheck(
+    'marks: the arrow’s mark IS the pinning operator’s, off the frame’s own `by`',
+    attributed.length > 0 &&
+      attributed.every((r) => !!r.mark && r.mark === r.fromId && r.mark === r.fromPalette),
+    attributed
+  );
+  mCheck(
+    'marks: and it is the mark that operator wears everywhere else',
+    !!arrow.meMark && attributed.every((r) => r.by.userId !== arrow.me.userId || r.mark === arrow.meMark),
+    { me: arrow.me, meMark: arrow.meMark, attributed }
+  );
+  mCheck(
+    'marks: a bot-sourced arrow is nobody’s determination and gets NO mark',
+    arrow.rows.every((r) => (r.source === 'bot' || r.source === 'fallback' ? r.by === null && r.mark === null : true)),
+    arrow.rows
+  );
+  mCheck(
+    'marks: the renderer draws the resolved glyph and holds no palette of its own',
+    arrow.drawnByTheRenderer && arrow.rendererHoldsNoPalette,
+    arrow
+  );
   report.notes.motion = motion;
 
   // ── THE KEY SCHEME DRILL ────────────────────────────────────────────────
