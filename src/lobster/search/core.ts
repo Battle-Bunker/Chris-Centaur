@@ -279,7 +279,46 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * read on the retention path once per observed trial.
    */
   const deepHorizon = new WeakMap<object, number>();
-  const horizonOfPlan = (plan: JointPlan): number => deepHorizon.get(plan as object) ?? 1;
+  /**
+   * THE SAME READING, KEYED BY THE ASSIGNMENT RATHER THAN BY THE `Map` OBJECT
+   * THAT HAPPENS TO HOLD IT.
+   *
+   * The `WeakMap` above is keyed on object identity, and the search rebuilds a
+   * plan object constantly: `withMove`/`withMoves` return a fresh `Map` on
+   * every trial, so an ascent that wanders off the seeded assignment and comes
+   * back to it arrives holding a DIFFERENT OBJECT for the SAME assignment. The
+   * `WeakMap` then misses, `horizonOfPlan` reads 1, and `better()`'s rungs 4
+   * and 5 — which exist precisely to decline a comparison across a horizon —
+   * fire against a reading proved two plies out. Reproduced on
+   * `seededBoard(1, 6, 2)`: trial 0 is the seed at horizon 2 and declines
+   * correctly, three trials later the ascent takes a rival, and by trial 12 the
+   * incumbent is the seed's assignment again in a new object at horizon 1, with
+   * `hi` deciding at an equal floor. That is the bias against evidence 08 F-10
+   * names, arriving through the door F-10's own guard was meant to shut.
+   *
+   * A depth is a property of a proof about a particular joint ASSIGNMENT — this
+   * file's own words — so the fallback is keyed on `viewPlanKey`, which is that
+   * assignment's identity. Over-attributing a depth is the safe direction and
+   * the only one available here: a horizon that reads deeper only makes the
+   * ladder DECLINE a rung and fall through to the salted tie, which is an
+   * indifferent order, never a preference for the looser bound.
+   *
+   * COSTS NOTHING WHERE NOTHING IS DEEP. The table is written only when an
+   * incumbent arrives claiming a horizon above one, so on a build where
+   * `depthMax` is 1 it stays empty and the `size === 0` line makes
+   * `horizonOfPlan` exactly the `WeakMap` probe it was.
+   */
+  const deepHorizonByPlan = new Map<string, number>();
+  const rememberHorizon = (plan: JointPlan, horizon: number): void => {
+    deepHorizon.set(plan as object, horizon);
+    deepHorizonByPlan.set(viewPlanKey(plan), horizon);
+  };
+  const horizonOfPlan = (plan: JointPlan): number => {
+    const direct = deepHorizon.get(plan as object);
+    if (direct !== undefined) return direct;
+    if (deepHorizonByPlan.size === 0) return 1;
+    return deepHorizonByPlan.get(viewPlanKey(plan)) ?? 1;
+  };
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -377,6 +416,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Drop every live session and return every slab they cached. */
   const release = (): void => {
     for (const key of [...sessions.keys()]) closeSession(key);
+    // Per-DECISION, like everything else this core caches: a depth table that
+    // outlived the decision would answer about an assignment on another board.
+    deepHorizonByPlan.clear();
   };
 
   const open = (ctx: SearchContext): Session => {
@@ -843,7 +885,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         carried.horizon > 1 &&
         viewPlanKey(seeded) === viewPlanKey(carried.plan)
       ) {
-        deepHorizon.set(seeded as object, carried.horizon);
+        rememberHorizon(seeded, carried.horizon);
       }
       // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
       // whole slice never touched would have no row at all, and the operator

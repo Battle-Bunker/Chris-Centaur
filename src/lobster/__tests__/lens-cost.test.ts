@@ -49,15 +49,26 @@ const SEED = 1;
  *  is what it always said: these are the counters with the sink ABSENT, taken
  *  on this build, and a lens change that touched the hot loop would move them.
  *  The claim that the lens does not move the PLAY is a different test and lives
- *  in `src/tests/lens-inspection-cost.test.ts`. */
+ *  in `src/tests/lens-inspection-cost.test.ts`.
+ *
+ *  AND THE `mixed` PAIR AGAIN, once more for a reason that is not the lens: the
+ *  substrate's `perilOf` memo used to live only on the family, so a modelled
+ *  sibling read its PARENT's peril set. Peril is the one view-dependent input
+ *  three caches witness on (`resolveBoundedFor`, `claimSurvivals`, the
+ *  evaluator's own per-resolution memo), so a sibling was reusing the parent's
+ *  material fold and the parent's evaluation as well. Giving the sibling its
+ *  own slot changes what a plan on a board with HELD units is worth, the search
+ *  visits different plans, and the counters move with them. `snake` is
+ *  byte-identical again — no held enemy, no sibling, nothing to answer
+ *  differently — which is exactly the evidence this file exists to keep. */
 const RECORDED = {
   snake: {
     550: { nodes: 6932, reads: 297514, slices: 6430, decisions: 18 },
     1100: { nodes: 13639, reads: 615890, slices: 13137, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7330, reads: 218566, slices: 1356, decisions: 18 },
-    1100: { nodes: 11396, reads: 769163, slices: 3201, decisions: 18 },
+    550: { nodes: 7101, reads: 247886, slices: 1479, decisions: 18 },
+    1100: { nodes: 11396, reads: 769166, slices: 3201, decisions: 18 },
   },
 } as const;
 

@@ -379,6 +379,36 @@ describe('a modelled sibling answers its OWN claim question', () => {
     sub.release();
   });
 
+  test('a sibling answers its OWN peril, whichever view was asked first', () => {
+    // B and C are two blue knights that can take each other, so with red's
+    // units off the board both are possibly-gone: that is `perilOf`. A sibling
+    // that models B holds only C, which nothing can reach — its peril is empty.
+    //
+    // The regression: `perilCache` used to live only on the family, so a
+    // sibling read the PARENT's memo through the prototype and answered the
+    // parent's question. Asked parent-first it said {B, C}; asked
+    // sibling-first, {} — the same view, two answers, and the decision path
+    // always resolves B0 first.
+    const perilBoard = boardOf([
+      piece('A', { x: 0, y: 0 }, 'knight', 1, { teamID: 'red' }),
+      piece('B', { x: 5, y: 5 }, 'knight', 1, { teamID: 'blue' }),
+      piece('C', { x: 6, y: 3 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
+    const widerPeril = (parentFirst: boolean): ReadonlyArray<string> => {
+      const sub = makeSubstrate({ board: perilBoard, turn: TURN, asTeam: 'red' });
+      try {
+        const b = sub.unitOfWireId('B')?.unitId as UnitId;
+        if (parentFirst) expect([...sub.perilOf()].sort()).toEqual(['B', 'C']);
+        const wider = sub.withModelled([...sub.modeled(), b]) as unknown as EngineSubstrate;
+        return [...wider.perilOf()].sort();
+      } finally {
+        sub.release();
+      }
+    };
+    expect(widerPeril(false)).toEqual([]);
+    expect(widerPeril(true)).toEqual([]);
+  });
+
   test('resolution on a sibling is unaffected: the plan is the modelled set', () => {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const a = sub.unitOfWireId('A')?.unitId as UnitId;

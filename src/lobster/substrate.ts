@@ -1185,6 +1185,19 @@ export class EngineSubstrate implements Substrate {
     });
     Object.defineProperties(sibling, {
       modeledIds: own(requested),
+      // PERIL IS THE ONE READING A SIBLING ANSWERS DIFFERENTLY, so it gets its
+      // OWN memo slot. Without this line the sibling reads the parent's
+      // `perilCache` through the prototype: when the parent has already
+      // memoised (which the decision path always does — B0 resolves before the
+      // bank models anything), the sibling silently returns the PARENT's peril
+      // over the parent's wider held set, and `resolveBoundedFor` then reuses
+      // the parent's material fold too, because the peril SET's identity is
+      // its witness. That is unsound in the fatal direction: a held unit the
+      // sibling has proved safe is priced as possibly-gone, so an enemy's
+      // certainly-kept material is understated and our FLOOR comes out too
+      // high. It also made the answer depend on call order — the same sibling
+      // asked before its parent computed the right set.
+      perilCache: own(null),
       // Releasing a sibling must never disturb the parent.
       release: own(() => undefined),
       modeled: own(() => requested),
