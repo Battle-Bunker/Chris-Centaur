@@ -45,9 +45,9 @@
     }
     .timer-display.urgent { color: #f44336; background: rgba(244, 67, 54, 0.15); }
     .timer-display.normal { color: #4CAF50; }
-    .timer-display.idle { color: #888; }
+    .timer-display.idle { color: #a8a8a8; }
     .ping-display {
-      font-size: 11px; color: #666; text-align: right; margin-top: 2px;
+      font-size: 11px; color: #9a9a9a; text-align: right; margin-top: 2px;
       font-variant-numeric: tabular-nums;
       min-width: 70px;
     }
@@ -113,7 +113,7 @@
     .team-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .team-group-ours {
       font-weight: 600; font-size: 10px; letter-spacing: 0.04em;
-      text-transform: none; opacity: 0.75; flex-shrink: 0;
+      text-transform: none; opacity: 0.92; flex-shrink: 0;
     }
     .team-group-score {
       margin-left: auto; flex-shrink: 0;
@@ -141,7 +141,7 @@
     .unit-id-copy {
       flex-shrink: 0; align-self: flex-start;
       background: transparent; border: 1px solid #555; border-radius: 4px;
-      color: #888; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+      color: #9a9a9a; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
       padding: 2px 5px; cursor: pointer; line-height: 1.2;
       font-family: inherit; transition: color 0.15s, border-color 0.15s;
     }
@@ -201,7 +201,7 @@
       letter-spacing: 0.04em; padding: 3px 8px; border-radius: 10px;
       color: #fff; background: #777;
     }
-    .intent-mode-badge.mode-heuristic { background: #777; }
+    .intent-mode-badge.mode-heuristic { background: #6b6b6b; }
     .intent-mode-badge.mode-manual { background: #9c27b0; }
     .intent-mode-badge.mode-goto { background: #4CAF50; }
     .intent-mode-badge.mode-near { background: #1565c0; }
@@ -209,7 +209,7 @@
        to carry white lettering at 11px. */
     .intent-mode-badge.mode-hold { background: #ffca28; color: #1b1b1b; }
     .no-selection-msg {
-      text-align: center; padding: 20px; color: #666; font-size: 14px;
+      text-align: center; padding: 20px; color: #9a9a9a; font-size: 14px;
     }
     /* One line of prose under the unit header: what the unit is doing this
        turn and how to steer it. Replaces the old move-button grid, which said
@@ -245,18 +245,18 @@
        have no gloss anywhere else, and three of them mean something else in
        the rest of the codebase. Quiet, and always — a reader who has to be
        told what a column means is reading a number they cannot check. */
-    .lens-legend { font-size: 10px; color: #7d7d7d; margin: -2px 0 6px; }
-    .lens-list-source { font-size: 10px; color: #8FA6A2; margin: -2px 0 4px; }
+    .lens-legend { font-size: calc(var(--lens-size) - 2px); color: #9a9a9a; margin: -2px 0 6px; }
+    .lens-list-source { font-size: calc(var(--lens-size) - 2px); color: #9fb8b3; margin: -2px 0 4px; }
     .lens-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
     .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
     /* A stale complement is struck through and KEPT: the row was a real
        bracket of a real plan, and its question is what moved. */
-    .lens-row-stale td { text-decoration: line-through; color: #999; }
+    .lens-row-stale td { text-decoration: line-through; color: #a6a6a6; }
     /* A declared narrowing refuses the floor comparison, so the row is present
        and is not sorted against the others. */
-    .lens-row-unsorted td { color: #9A9A9A; font-style: italic; }
-    .lens-width { color: #999; }
+    .lens-row-unsorted td { color: #a6a6a6; font-style: italic; }
+    .lens-width { color: #a6a6a6; }
     /* The `unless` cell — what each moveset is betting on. Quieter than the
        numbers it qualifies and never wrapped away: it is the one column that
        says what the bot does NOT know. */
@@ -279,14 +279,14 @@
     .lens-move-same { color: #9a9a9a; white-space: nowrap; }
     .lens-focus-line { font-size: 13px; color: #eee; }
     .lens-cluster { float: right; color: #B39DFF; }
-    .lens-sub, .lens-provenance { font-size: 11px; color: #888; }
+    .lens-sub, .lens-provenance { font-size: 11px; color: #9a9a9a; }
     .lens-provenance { padding: 0 4px; }
-    .lens-fixed-strip { font-size: 11px; color: #9A9A9A; margin-top: 6px; }
+    .lens-fixed-strip { font-size: 11px; color: #a6a6a6; margin-top: 6px; }
     .lens-fixed { margin-right: 10px; white-space: nowrap; }
     .lens-foil { font-size: 11px; color: #4DB6AC; margin-top: 6px; }
-    .lens-foil-absent { color: #7d9995; font-style: italic; }
+    .lens-foil-absent { color: #9db8b3; font-style: italic; }
     .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
-    .lens-empty { font-size: 12px; color: #888; padding: 4px 0; }
+    .lens-empty { font-size: 12px; color: #9a9a9a; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
     /* A ranking the reserve stopped is a REFUSAL and reads like one; a list
@@ -294,15 +294,15 @@
     .lens-refused { color: #FF8A65; }
     .lens-trail { color: #B39DFF; font-size: 10px; margin-left: 6px; }
     .lens-displaced { color: #FF8A65; font-size: 10px; margin-left: 6px; }
-    .lens-staged-flag { color: #9E9E9E; font-size: 10px; margin-left: 6px; }
+    .lens-staged-flag { color: #ababab; font-size: 10px; margin-left: 6px; }
     /* While a widen is held the whole list is visibly superseded — struck, and
        still there, which is the entire point of the policy. */
-    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #999; }
+    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #a6a6a6; }
     /* A HELD WIDEN OVER AN EMPTY LIST IS STILL HELD. The strike-through only
        ever reached the table, and a cluster with no retained rows draws its
        empty state instead — so the one case where the rail says least about
        itself was also the one case where nothing said it was frozen. */
-    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #999; }
+    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #a6a6a6; }
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {
@@ -326,7 +326,7 @@
       border-bottom: 1px solid #333;
     }
     .lens-lane-name {
-      flex: 0 0 54px; font-size: 10px; color: #666; line-height: 14px;
+      flex: 0 0 54px; font-size: calc(var(--lens-size) - 2px); color: #9a9a9a; line-height: 14px;
     }
     .lens-lane-track { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
     .lens-tick {
@@ -335,7 +335,7 @@
       font-size: 11px; color: inherit;
     }
     .lens-tick-hollow { opacity: .55; }
-    .lens-lane-foot { font-size: 11px; color: #888; margin-top: 4px; }
+    .lens-lane-foot { font-size: 11px; color: #9a9a9a; margin-top: 4px; }
 
     /* ── THE IA LAYERS (docs/design/ux/02-IA-AND-CONTROLS.md §1.4) ────────
        Five layers, placed by LATENCY BUDGET rather than by importance:
@@ -476,11 +476,18 @@
     }
     .lens-aff kbd { margin-left: 1px; }
     .lens-aff-glyph { font-size: calc(var(--lens-size) + 1px); line-height: 1; }
-    .lens-aff-note { color: #8f8f8f; }
+    .lens-aff-note { color: #a2a2a2; }
     .lens-aff-primary { border-color: var(--lens-ink); color: #fff; }
     .lens-aff-undo { border-color: var(--lens-ours); color: #cfe9d1; }
     .lens-aff-armed { border-color: var(--lens-warn); color: #ffd2c2; background: rgba(255,138,101,.12); }
-    .lens-aff-off { opacity: .45; }
+    /* AN OFF CHIP IS STILL A SENTENCE. `opacity: .45` faded the ink onto the
+       ground and took every off chip to 2.0–3.5 : 1 — `⛨ hold H pieces only`
+       at 2.7, and `pins n of m`, the exact count `§1.2` calls what makes a
+       determination checkable, at 2.0. Off is carried by the BORDER and by
+       the chip's own words now, and the text stays legible: a control that
+       says why it cannot act has to be readable to say it. */
+    .lens-aff-off { color: #9a9a9a; border-color: #333; }
+    .lens-aff-off .lens-aff-note, .lens-aff-off .lens-aff-glyph { color: #9a9a9a; }
     .lens-aff[data-lens-action] { cursor: pointer; }
     .lens-aff[data-lens-action]:hover { border-color: #888; }
     /* The armed lock's own sentence, in the control bar where the key is. */
@@ -489,9 +496,9 @@
 
     /* The cheat sheet, at rest, in the rail — because Ctrl+/ is a modal and a
        modal costs the board. */
-    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: #8b8b8b; }
+    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: calc(var(--lens-size) - 2px); color: #9e9e9e; }
     .lens-cheat-item { display: inline-flex; align-items: center; gap: 3px; }
-    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: 10px; color: #8b8b8b; margin-top: 6px; }
+    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: calc(var(--lens-size) - 2px); color: #9e9e9e; margin-top: 6px; }
     .lens-scheme button {
       background: #2f2f2f; border: 1px solid #4a4a4a; color: #bbb; border-radius: 3px;
       font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: inherit;
@@ -674,7 +681,7 @@
       font-size: 13px; font-weight: 700; color: #ddd; min-width: 84px; text-align: center;
       font-variant-numeric: tabular-nums;
     }
-    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #888; min-height: 14px; }
+    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #9a9a9a; min-height: 14px; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
