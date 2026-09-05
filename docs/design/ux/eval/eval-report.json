@@ -1,0 +1,562 @@
+{
+  "suites": {
+    "a11y": {
+      "contrast": {
+        "pairs": 76,
+        "failing": 25,
+        "worst": [
+          {
+            "text": "pins 1 of 1",
+            "selector": "span.lens-aff-note",
+            "color": "rgb(143, 143, 143)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2,
+            "need": 4.5,
+            "pass": false,
+            "count": 9
+          },
+          {
+            "text": "→",
+            "selector": "button#navNextBtn.turn-nav-btn",
+            "color": "rgb(102, 102, 102)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 2.2,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "▶|",
+            "selector": "button#navEndBtn.turn-nav-btn",
+            "color": "rgb(102, 102, 102)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 2.2,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "Ping: 2ms · clock −0.0s",
+            "selector": "div#pingDisplay.ping-display",
+            "color": "rgb(102, 102, 102)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2.5,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "Click on one of your snakes to select and control it",
+            "selector": "div#noSelectionMsg.no-selection-msg",
+            "color": "rgb(102, 102, 102)",
+            "px": 14,
+            "weight": 400,
+            "ratio": 2.5,
+            "need": 4.5,
+            "pass": false,
+            "count": 1
+          },
+          {
+            "text": "anchor",
+            "selector": "span.lens-lane-name",
+            "color": "rgb(102, 102, 102)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 2.5,
+            "need": 4.5,
+            "pass": false,
+            "count": 15
+          },
+          {
+            "text": "hold",
+            "selector": "span.lens-aff.lens-aff-off",
+            "color": "rgb(187, 187, 187)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2.7,
+            "need": 4.5,
+            "pass": false,
+            "count": 9
+          },
+          {
+            "text": "⛨",
+            "selector": "span.lens-aff-glyph",
+            "color": "rgb(187, 187, 187)",
+            "px": 13,
+            "weight": 400,
+            "ratio": 2.7,
+            "need": 4.5,
+            "pass": false,
+            "count": 12
+          },
+          {
+            "text": "undo",
+            "selector": "span.lens-aff.lens-aff-undo.lens-aff-off",
+            "color": "rgb(207, 233, 209)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 3.48,
+            "need": 4.5,
+            "pass": false,
+            "count": 2
+          },
+          {
+            "text": "↺",
+            "selector": "span.lens-aff-glyph",
+            "color": "rgb(207, 233, 209)",
+            "px": 13,
+            "weight": 400,
+            "ratio": 3.48,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies ",
+            "selector": "div.lens-legend",
+            "color": "rgb(125, 125, 125)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 3.49,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "--",
+            "selector": "div#timerDisplay.timer-display.idle",
+            "color": "rgb(136, 136, 136)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 3.56,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "Space",
+            "selector": "kbd",
+            "color": "rgb(255, 255, 255)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 3.79,
+            "need": 4.5,
+            "pass": true,
+            "count": 70
+          },
+          {
+            "text": "Following the live game · drag the slider to review earlier ",
+            "selector": "div#turnControlsInfo.turn-controls-info",
+            "color": "rgb(136, 136, 136)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "18",
+            "selector": "span",
+            "color": "rgb(136, 136, 136)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 40
+          },
+          {
+            "text": "ID",
+            "selector": "button.unit-id-copy",
+            "color": "rgb(136, 136, 136)",
+            "px": 10,
+            "weight": 700,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 20
+          },
+          {
+            "text": "free · 1 of 1 free",
+            "selector": "div.lens-sub",
+            "color": "rgb(136, 136, 136)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "lobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 0q",
+            "selector": "div.lens-provenance",
+            "color": "rgb(136, 136, 136)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "seq 28 · 29 / 29 · LIVE · seq 28 · observed · walkthrough/mi",
+            "selector": "div.lens-lane-foot",
+            "color": "rgb(136, 136, 136)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "(our team)",
+            "selector": "span.team-group-ours",
+            "color": "rgb(76, 175, 80)",
+            "px": 10,
+            "weight": 600,
+            "ratio": 4.07,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "staged",
+            "selector": "span.lens-staged-flag",
+            "color": "rgb(158, 158, 158)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 4.13,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "rank",
+            "selector": "span.lens-cheat-item",
+            "color": "rgb(139, 139, 139)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 4.21,
+            "need": 4.5,
+            "pass": false,
+            "count": 24
+          },
+          {
+            "text": "keys · density",
+            "selector": "div.lens-scheme",
+            "color": "rgb(139, 139, 139)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 4.21,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "♥",
+            "selector": "span",
+            "color": "rgb(67, 160, 71)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.35,
+            "need": 4.5,
+            "pass": false,
+            "count": 20
+          },
+          {
+            "text": "Timer-5",
+            "selector": "span",
+            "color": "rgb(255, 77, 109)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.47,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "Heuristic",
+            "selector": "span#intentModeBadge.intent-mode-badge.mode-heuristic",
+            "color": "rgb(255, 255, 255)",
+            "px": 11,
+            "weight": 700,
+            "ratio": 4.48,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "◇ no runner-up — the conditional list has one row",
+            "selector": "div.lens-foil.lens-foil-absent",
+            "color": "rgb(125, 153, 149)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.69,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "Connected",
+            "selector": "div#connectionStatus.connection-status.connected",
+            "color": "rgb(165, 214, 167)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 4.79,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "would be staged",
+            "selector": "span.lens-row-tag",
+            "color": "rgb(179, 157, 255)",
+            "px": 9,
+            "weight": 700,
+            "ratio": 4.83,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "A11y-3",
+            "selector": "span",
+            "color": "rgb(155, 132, 255)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.88,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          }
+        ]
+      },
+      "tabOrder": {
+        "stops": 0,
+        "withoutVisibleRing": [],
+        "list": []
+      },
+      "railReachable": {
+        "chips": [
+          {
+            "text": "⦿ lock Space pins 1 of 1",
+            "focusable": false,
+            "role": null
+          },
+          {
+            "text": "↺ undo u 1",
+            "focusable": false,
+            "role": null
+          },
+          {
+            "text": "✕ clear Del",
+            "focusable": false,
+            "role": null
+          }
+        ],
+        "schemeButtons": [
+          {
+            "text": "bracket (default)",
+            "focusable": true
+          },
+          {
+            "text": "vim",
+            "focusable": true
+          },
+          {
+            "text": "left hand",
+            "focusable": true
+          },
+          {
+            "text": "compact",
+            "focusable": true
+          },
+          {
+            "text": "default",
+            "focusable": true
+          },
+          {
+            "text": "roomy",
+            "focusable": true
+          },
+          {
+            "text": "bracket (default)",
+            "focusable": true
+          },
+          {
+            "text": "vim",
+            "focusable": true
+          },
+          {
+            "text": "left hand",
+            "focusable": true
+          },
+          {
+            "text": "compact",
+            "focusable": true
+          },
+          {
+            "text": "default",
+            "focusable": true
+          },
+          {
+            "text": "roomy",
+            "focusable": true
+          }
+        ],
+        "movesetRows": [
+          {
+            "key": "0>80:80",
+            "tabIndex": -1
+          }
+        ],
+        "candidateRows": [
+          {
+            "cell": "80",
+            "tabIndex": -1
+          },
+          {
+            "cell": "92",
+            "tabIndex": -1
+          }
+        ],
+        "laneTicks": [
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          }
+        ]
+      },
+      "keyboardActivation": {
+        "tested": true,
+        "target": "vim",
+        "focusable": true,
+        "schemeBefore": null,
+        "schemeAfter": null,
+        "activated": false
+      },
+      "reducedMotion": [
+        {
+          "label": "the clock fill (L0)",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        },
+        {
+          "label": "lobby game card",
+          "present": false
+        },
+        {
+          "label": "lobby nav link",
+          "present": false
+        },
+        {
+          "label": "the connection pill",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        },
+        {
+          "label": "the server badge",
+          "present": false
+        },
+        {
+          "label": "the widen banner",
+          "present": false
+        },
+        {
+          "label": "the header countdown",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        }
+      ],
+      "reducedMotionCanvas": {
+        "queryMatches": true,
+        "rendererConsults": false
+      }
+    }
+  },
+  "shots": [
+    {
+      "name": "a01-normal-board",
+      "note": "the board, normal vision",
+      "bytes": 88171
+    },
+    {
+      "name": "a02-normal-cards",
+      "note": "the cards, normal vision",
+      "bytes": 23035
+    },
+    {
+      "name": "a03-protanopia-board",
+      "note": "the board under protanopia",
+      "bytes": 86734
+    },
+    {
+      "name": "a04-protanopia-cards",
+      "note": "rank 1 and the foil under protanopia",
+      "bytes": 19257
+    },
+    {
+      "name": "a05-protanopia-controls",
+      "note": "the control bar under protanopia",
+      "bytes": 10000
+    },
+    {
+      "name": "a06-protanopia-clock-urgent",
+      "note": "the clock's urgent ramp under protanopia",
+      "bytes": 218
+    },
+    {
+      "name": "a03-deuteranopia-board",
+      "note": "the board under deuteranopia",
+      "bytes": 87484
+    },
+    {
+      "name": "a04-deuteranopia-cards",
+      "note": "rank 1 and the foil under deuteranopia",
+      "bytes": 19545
+    },
+    {
+      "name": "a05-deuteranopia-controls",
+      "note": "the control bar under deuteranopia",
+      "bytes": 10024
+    },
+    {
+      "name": "a06-deuteranopia-clock-urgent",
+      "note": "the clock's urgent ramp under deuteranopia",
+      "bytes": 218
+    },
+    {
+      "name": "a07-focus-chip",
+      "note": "the focus ring on a control chip, if it takes focus",
+      "bytes": 11844
+    },
+    {
+      "name": "a08-focus-scheme",
+      "note": "the focus ring on the scheme picker",
+      "bytes": 9742
+    },
+    {
+      "name": "a09-reduced-motion",
+      "note": "the rail under prefers-reduced-motion",
+      "bytes": 216092
+    }
+  ],
+  "takeovers": 2
+}
