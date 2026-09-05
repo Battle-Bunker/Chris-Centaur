@@ -157,35 +157,46 @@ probe board. Our own A is priced there as a held unit too. The assertion, when
 Direction is as the finding says — both endpoints widen — so the pins do not
 move and this stays a finding.
 
-**BANK-F23 verdict: FIXED, and MEASURED AT A PRICE — the merge is the
-orchestrator's call.** The fix is in the peril probe rather than in `viewFor`:
-`substrate.ts::probeModelled()` takes the FAMILY's modelled set — the team this
-decision commands — off the board alongside the view's own, so a B1/B3 view
-reads peril on a board we are not on and the parent's answer is unchanged
-(the two sets are the same object there). Pinned in
-`src/lobster/__tests__/substrate.test.ts` on review-2's own board, with a
-second board pinning that an enemy pair which takes each other STAYS in the
-view's peril. `viewFor` is deliberately untouched: modelling our commandable
-units there would also move the claim view and the candidate layer's
-`modeled()` readings, which is a wider change than the finding.
+**BANK-F23 verdict: CONFIRMED, the fix MEASURED AND DECLINED.** The finding
+stands exactly as written — a B1/B3 view reads its peril on a board we ARE on,
+because `withModelled` REPLACES the modelled set and `viewFor` names the enemy
+alone, so our own units are held on the probe board and the peril of the other
+enemies carries what our units could do to them, in every plan alike.
 
-The assertion above is the one thing not taken as written: `['B']` is the
-PARENT's peril, i.e. peril read as a family constant, which contradicts the
-merged fix #1 (a sibling answers its OWN peril) and its regression test. The
-view's own board here holds `C` alone, and `C` is not in peril without us, so
-the pinned value is `[]` — `B` is modelled on that view and its reply is fixed
-per branch, so its own peril is not a question the view is asked. For
-`material.ts` the two readings are the same: peril is only ever queried at a
-claim in the settlement, and `B` is a mover there.
+The repair was built and measured. It was one narrowing, in the peril probe
+rather than in `viewFor`: take the FAMILY's modelled set — the team this
+decision commands — off the board alongside the view's own, so a view reads
+peril on a board we are not on and the parent's answer is unchanged. It is
+sound for the reason the parent already relies on: what our movers do to a
+held unit is read per settlement off their own traversal
+(`material.ts::reachedByMovers`) and unioned with this.
 
 The price, per board class and never pooled
-(`docs/design/ab/2026-09-05-bank-f23-vs-0be83a4.md`): `snakes` and `sparse`
-byte-identical, `potions` deaths `−0.022`/100 over eight seeds, and `mixed`
-deaths `+0.248`/100 over six seeds (all of it `deaths.contest`) against meals
-`+1.575`/100. That is the finding's own prediction arriving — the capture gets
-its edge back — but the old direction was SAFE, so this is a tightening and not
-a soundness repair, and §7.1's bar (neutral or better on every class) is not
-cleared on `mixed`.
+(`docs/design/ab/2026-09-05-bank-f23-vs-0be83a4.md`, 60 turns in the
+deterministic node mode): `snakes` and `sparse` byte-identical; `potions`
+deaths `−0.022`/100 over eight seeds; `mixed` deaths `+0.248`/100 over six
+seeds — 3 seeds up, 1 down, 2 byte-identical, ALL of it `deaths.contest`
+(`+1.0`/game, 3 up and none down) — against meals `+1.575`/100. That is the
+finding's own prediction arriving: an over-broad peril made every reachable
+enemy possibly-gone in every plan alike, and giving the capture its edge back
+buys meals and pays for them in contests.
+
+**Why it was declined.** The OLD reading is safe in direction — both endpoints
+widen, as the finding itself says, and the sixteen-arm oracle agrees
+(`gate:exact` 16/16 and no `INVERSION` line, before and after). So this is a
+TIGHTENING, not a soundness repair, and the standing rule
+(`docs/design/decision-lens/08-DEPTH-VERDICT.md` §7.1) is that a change must be
+neutral or better on every board class. On `mixed` it is not. The same rule
+declined `b1-sound` for the same shape of trade
+(`docs/design/ab/2026-09-04-b1-sound-vs-57fd2da.md`), and the conservative
+reading wins again here.
+
+**What a future attempt has to show.** An A/B that is neutral or better on
+every board class at the same seeds and budget — `mixed` deaths in particular,
+which is where the contest deaths land — or a world some arm of the
+exact-reply oracle can point at where the flattening actually costs the floor
+rather than merely blurring it. Absent either, the flattening stays: it is
+visible here, it is safe, and it is cheaper than the deaths the repair buys.
 
 ### F3 — the entanglement gate reads the plan, not the plan plus references
 

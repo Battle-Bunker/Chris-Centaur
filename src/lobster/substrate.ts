@@ -761,7 +761,7 @@ export class EngineSubstrate implements Substrate {
    */
   perilOf(): ReadonlySet<string> {
     if (this.perilCache !== null) return this.perilCache;
-    const held = this.heldOutside(this.probeModelled());
+    const held = this.heldOutside(this.modeledIds);
     const ids = new Set(held.map((id) => this.byUnitId.get(id)?.wireId));
     const units = this.marshalled.units.filter((u) => ids.has(u.id));
     const out = new Set<string>();
@@ -785,36 +785,6 @@ export class EngineSubstrate implements Substrate {
   /** The unit a claim belongs to. */
   unitOfClaim(claim: Claim): SubstrateUnit | undefined {
     return this.byWireId.get(claim.id);
-  }
-
-  /**
-   * THE SET THE PERIL PROBE TAKES OFF THE BOARD: this view's modelled units
-   * AND THE FAMILY'S — which is to say ours.
-   *
-   * `perilOf` asks its question of a board WE ARE NOT ON, and "we" is the team
-   * this decision commands: the family's modelled set, fixed when the
-   * substrate was built. A modelled sibling names the enemy it enumerates and
-   * nothing else (`withModelled` REPLACES the set — a sibling is a narrower
-   * question, not a wider one), so a B1/B3 view's probe board used to hold OUR
-   * units, and the peril of the other enemies then included what our own units
-   * could do to them — in every plan alike, which is exactly the flattening
-   * `perilOf` exists to prevent. See REVIEW-1 F2.
-   *
-   * Taking them off is a NARROWING, and it is sound for the reason the parent
-   * already relies on: what our movers do to a held unit is read per
-   * settlement off their own traversal (`material.ts::reachedByMovers`) and
-   * unioned with this. The same argument covers the view's own modelled enemy
-   * — its reply is fixed in the branch and settles there.
-   *
-   * On the family itself the two sets are the same object, so the parent's
-   * answer is unchanged and costs one identity comparison.
-   */
-  private probeModelled(): ReadonlySet<UnitId> {
-    const ours = this.family.modeledIds;
-    if (ours === this.modeledIds) return this.modeledIds;
-    const out = new Set<UnitId>(this.modeledIds);
-    for (const id of ours) out.add(id);
-    return out;
   }
 
   private heldOutside(modeled: ReadonlySet<UnitId>): ReadonlyArray<UnitId> {
