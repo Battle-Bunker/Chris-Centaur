@@ -832,6 +832,10 @@
 
   <div class="connection-status connecting" id="connectionStatus">Connecting...</div>
 
+  <!-- The one mount the tour owns. Everything it draws is inside this and
+       out of the page's flow, so nothing moves when it opens. -->
+  <div id="tour-mount"></div>
+
   <!-- THE keyboard reference. Every keydown handler on this page is described
        here; there is no other shortcuts UI. Opened/closed with Ctrl+/, closed
        with Esc or a click outside. -->
@@ -1055,6 +1059,10 @@
   <!-- After ws-client.js: the latency surface reads the wire through
        `WSClient.observe`, on the socket this page is already using. -->
   <script src="/latency.js"></script>
+  <!-- The guided tour (docs/OPERATOR-MANUAL.md, in the page it is about).
+       It writes into `#tour-mount` and nothing else, opens no socket and
+       claims no key the lens owns. -->
+  <script src="/tour.js"></script>
   <script>
     const pathParts = window.location.pathname.split('/');
     // Works for both /game/:id (unified) and legacy /play/:id URLs.
