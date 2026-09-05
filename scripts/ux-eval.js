@@ -1343,6 +1343,10 @@ async function a11y(browser) {
   found.keyboardActivation = await page.evaluate(async () => {
     const read = () => {
       try {
+        // The scheme is a preference, and since `12-PREFERENCES.md` it is read
+        // through the store rather than off a key of the lens's own. The
+        // `localStorage` read stays as the fallback for a page without one.
+        if (window.Prefs) return window.Prefs.get('lens.scheme');
         return localStorage.getItem('lensKeyScheme');
       } catch (_e) {
         return null;
