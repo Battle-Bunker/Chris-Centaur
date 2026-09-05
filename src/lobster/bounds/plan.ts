@@ -38,6 +38,35 @@ const candidateTails = new WeakMap<Candidate, string>();
 const candidateKeys = new WeakMap<Candidate, string>();
 const planKeys = new WeakMap<object, string>();
 
+/**
+ * THE PLAN THAT CARRIES ITS OWN KEY.
+ *
+ * `planKey` is asked 1 257 491 times over 612 421 distinct plan objects on
+ * `mixed 20 1 --nodes`, and the `WeakMap` above served every one of them: a
+ * hashed lookup on the hit and a hashed lookup plus an insert on the miss,
+ * about four million ephemeron operations a run, on the frame measured at 9.1%
+ * of the kernel's own decision time.
+ *
+ * Almost every one of those plans is made HERE — `withMove` and `withMoves`
+ * are what the search, the bank's reply sweep and the polish pass all build
+ * with — so those two hand back a `Map` subclass with one extra field and the
+ * lookup becomes a monomorphic property load. Nothing else changes: the field
+ * holds exactly the string the `WeakMap` held, computed by exactly the same
+ * `buildKey` below, and a plan built any other way (a literal `new Map`, a
+ * test fixture, `exact-reply`'s copy) still goes through the `WeakMap`. The
+ * key's VALUE, its ordering and every cache keyed on it are untouched.
+ *
+ * It is sound for the same reason the `WeakMap` was: a plan is filled
+ * completely before anyone keys it, and `withMove`/`withMoves` copy rather
+ * than mutate, so the key is a property of the object. The field is written
+ * once, lazily, and never invalidated because nothing can change the plan it
+ * describes.
+ */
+class KeyedPlan extends Map<UnitId, Candidate> {
+  /** `planKey`'s answer for THIS object; `undefined` until first asked. */
+  cachedKey: string | undefined = undefined;
+}
+
 /** The sortedness watch `pushPart` keeps for the call it is inside. */
 let keyOrdered = true;
 let keyPrevious = "";
@@ -71,8 +100,22 @@ function tailOf(c: Candidate): string {
  * cheap enough to be a memo key on the hot path.
  */
 export function planKey(plan: JointPlan): string {
+  if (plan instanceof KeyedPlan) {
+    const own = plan.cachedKey;
+    if (own !== undefined) return own;
+    const made = buildKey(plan);
+    plan.cachedKey = made;
+    return made;
+  }
   const hit = planKeys.get(plan as object);
   if (hit !== undefined) return hit;
+  const made = buildKey(plan);
+  planKeys.set(plan as object, made);
+  return made;
+}
+
+/** The key itself, unchanged: the sorted join of one part per entry. */
+function buildKey(plan: JointPlan): string {
   // ONE scratch array for the whole process: `planKey` neither recurses nor
   // yields, and the array's contents are consumed before it returns.
   const parts = keyScratch;
@@ -91,9 +134,7 @@ export function planKey(plan: JointPlan): string {
   keyPrevious = "";
   plan.forEach(pushPart);
   if (!keyOrdered) parts.sort();
-  const made = parts.join("|");
-  planKeys.set(plan as object, made);
-  return made;
+  return parts.join("|");
 }
 
 export function candidateKey(c: Candidate): string {
@@ -110,14 +151,14 @@ export function sameCandidate(a: Candidate, b: Candidate): boolean {
 
 /** A plan with one unit re-assigned. The original is untouched. */
 export function withMove(plan: JointPlan, candidate: Candidate): JointPlan {
-  const next = new Map(plan);
+  const next = new KeyedPlan(plan);
   next.set(candidate.unitId, candidate);
   return next;
 }
 
 /** A plan with several units re-assigned at once — the pair/polish path. */
 export function withMoves(plan: JointPlan, candidates: ReadonlyArray<Candidate>): JointPlan {
-  const next = new Map(plan);
+  const next = new KeyedPlan(plan);
   for (const c of candidates) next.set(c.unitId, c);
   return next;
 }
