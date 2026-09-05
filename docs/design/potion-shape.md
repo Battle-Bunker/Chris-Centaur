@@ -276,3 +276,85 @@ the one horizon that separates, and takes its gradient from a per-plan count
 rather than a per-plan share. If that is built, build it with the counter fixed
 first and with the seed count raised — otherwise it will be the fourth arm in a
 row whose result is "the composition is flat while the count moves".
+
+---
+
+## Status: the fifth arm
+
+**Baseline reproduced.** `potions`, 60 turns, seeds 1–8, `--nodes`, on this
+branch before a line changed — identical on every counter to §0's table and to
+P2's and P3's:
+
+| pickups | profitable | reckless | profitable AND safe | arrivalBeaten | ground1 | deathsWhileDebuffed | deaths | unit-turns |
+|---|---|---|---|---|---|---|---|---|
+| 35 | 15 (42.9%) | 25 (**71.4%**) | 7 (**20.0%**) | 5 | 71/316 | 0 | 21 | 3124 |
+
+Both reproductions print at the turn the doc names, to the digit:
+
+    seed 4 T 36 red-C knight hp98 (2,6)->(0,7)
+        top3: (4,5)=-342.30 (0,7)=-342.34 (1,4)=-342.99
+    seed 6 T 39 red-C knight hp91 (3,7)->(5,8)
+        top3: (5,8)=-403.05 (2,5)=-403.08 (1,6)=-403.39
+
+`mixed`, `snakes`, `sparse`, `sparse-lean`, 60 turns seeds 1–3, are the
+potion-free control.
+
+## Status: BUILT, MEASURED, REVERTED — and the member is now closed
+
+The rule of §3 was built exactly as stated, at one knob `D` with `D = 0`
+recovering today's term to the bit, and measured on the corpus this document
+pre-registers. `docs/design/potions.md`, "The fifth attempt", carries the full
+record; the summary is:
+
+| arm | pickups | profitable | reckless | profitable AND safe | arrivalBeaten | ground1 share | deathsWhileDebuffed | deaths |
+|---|---|---|---|---|---|---|---|---|
+| `D = 0` | 35 | 15 | 25 (71.4%) | 7 (20.0%) | 5 | 0.225 | 0 | 21 |
+| `D = 1` | **67** | 18 | 51 (**76.1%**) | 9 (**13.4%**) | 12 | 0.203 | **1** | **23** |
+
+Against §3's own predictions: profitable-and-safe ≥ 25% — **no**, 13.4%.
+Reckless ≤ 65% — **no**, 76.1%. Pickups 28–42 — **no**, 67, and §3 named that
+the sharpest test and the one the `K` calibration existed to pass.
+`deathsWhileDebuffed` 0 — **no**, one. Deaths not above 21 — **no**, 23.
+Potion-free classes byte-identical — **yes**. Law sweep, the sixteen-arm
+inversion gate and the six-suite gate — all clean, no ratchet moved.
+
+**The two board-level predictions HOLD.** Pinned as boundary tests on the two
+boards and measured through the member's own peril half, the shape prices
+`(5,8)` above `(2,5)` by more than the 0.03 margin, above `(1,6)` by more than
+the 0.34 gap, and `(0,7)` above `(4,5)` by more than the 0.04 margin — all three
+as §3 predicts. In the live A/B neither board recurs: both games diverge at turn
+2, on a collecting candidate priced 0.28 fold units cheaper. §3 said "if either
+board is unchanged the rule did not reach the decision and the rest of the A/B
+is noise". The rule DID reach the decision, on both boards, and the rest of the
+A/B is the worst of the five arms. **Reaching the decision was never the binding
+constraint**, and that retires the prescription three previous attempts closed
+on.
+
+The mechanism is §4's first fact arriving from the other side. `b1` separates
+the pickups the bot TOOK; the rule is applied to the pickups it is OFFERED, and
+`K` — calibrated to hold the median charge of the accepted set fixed — cannot
+hold a count still while a third of that set is sent to zero, because the
+distribution it was fitted to is the output of the decision it changes. Deleting
+the saturated tail is the largest price cut of the three arms that moved it, and
+it produced the largest pickup rise: 35 → 67, against D4's 39 → 63 and P3's
+35 → 49.
+
+**The knob is deleted and the boundary tests with it** — a fixture for a refuted
+rule is not taken. `window.ts` and `tier-window.test.ts` are a zero diff against
+the working head and all eight `potions` summaries reproduce the baseline
+byte-for-byte.
+
+### The recommendation, now unconditional
+
+§4's closing paragraph said "the recommendation, if the rule above is not built:
+leave the member alone". The rule was built. **The recommendation stands
+unchanged and is now the finding rather than the fallback: leave the potion
+member alone until the game changes.** Five shapes have been measured — the
+level, the horizon weights, the share, the ground, and a rule that is not a
+reparameterisation of any of them — and all five moved the count and left the
+composition flat. §2.3 proves the audit's target was unreachable in principle:
+six bad pickups are unrefusable at any bounded weight and the reachable ceiling
+is reckless 44.4%. Do not open a sixth arm on this corpus. The only step that
+makes these numbers decidable is more board — twenty seeds, or a scenario with
+more potions and more units — and it has been the recommended next step since
+the second attempt.
