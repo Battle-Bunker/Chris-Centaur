@@ -1,0 +1,97 @@
+{
+  "base": "http://127.0.0.1:5056",
+  "prefix": "after",
+  "shots": [
+    {
+      "name": "play",
+      "url": "/play",
+      "note": "Game list / entry",
+      "bytes": 52696,
+      "horizontalOverflow": false,
+      "title": "Centaur Play - Active Games"
+    },
+    {
+      "name": "play-keys",
+      "url": "/play",
+      "note": "The shared key sheet (Ctrl+/)",
+      "bytes": 73814,
+      "horizontalOverflow": false,
+      "title": "Centaur Play - Active Games"
+    },
+    {
+      "name": "history",
+      "url": "/history",
+      "note": "Replay browsing, with the path into the lens",
+      "bytes": 90605,
+      "horizontalOverflow": false,
+      "title": "Game History"
+    },
+    {
+      "name": "config",
+      "url": "/config",
+      "note": "Bot identity, binding, readback",
+      "bytes": 153377,
+      "horizontalOverflow": false,
+      "title": "Centaur Config"
+    },
+    {
+      "name": "config-heuristics",
+      "url": "/config",
+      "note": "The dials, with the diff readback",
+      "bytes": 147155,
+      "horizontalOverflow": false,
+      "title": "Centaur Config"
+    },
+    {
+      "name": "activity",
+      "url": "/activity",
+      "note": "What the bot did unattended",
+      "bytes": 74244,
+      "horizontalOverflow": false,
+      "title": "Server Activity"
+    },
+    {
+      "name": "debug",
+      "url": "/connection-debug",
+      "note": "Connection debugger",
+      "bytes": 73309,
+      "horizontalOverflow": false,
+      "title": "WebSocket Connection Debugger"
+    }
+  ],
+  "console": [
+    {
+      "at": "play",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "requests": [
+    {
+      "at": "play-keys",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "play-keys",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "history",
+      "url": "http://127.0.0.1:5056/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    }
+  ],
+  "exceptions": []
+}

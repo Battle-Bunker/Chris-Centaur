@@ -29,42 +29,14 @@
  * equal tier and equal weight.
  */
 
-import { Board, Coord, Snake } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
+import { Board, Coord } from '../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { Candidate, UnitId } from '../lobster/contracts';
 import { materialEvaluator, standingOf } from '../lobster/evaluate';
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
-const boardOf = (snakes: Snake[]): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes }) as Board;
+import { piece, boardOf, cellAt } from './board-fixtures';
 
 const TURN = 30;
-const at = (board: Board, cell: Coord): number => marshalBoard(board, TURN).toIndex(cell);
+const at = (board: Board, cell: Coord): number => cellAt(board, TURN, cell);
 
 afterEach(() => clearGeometryCache());
 

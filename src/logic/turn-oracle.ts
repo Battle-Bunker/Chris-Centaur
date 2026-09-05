@@ -46,14 +46,12 @@
  * numbers come from a fully-resolved real turn either way.
  */
 
-import { DEFAULT_PAWN_PROMOTION_WEIGHT } from './piece-moves';
+import { DEFAULT_PAWN_PROMOTION_WEIGHT, isKingUnit, isPieceUnit } from './staging-legality';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import { resolveMaxTurns } from '../engine-vendor/engine/adjudicate';
 import { Board, Coord, Snake } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { TeamDetector } from './team-detector';
-import { isKingUnit, isPieceUnit } from './piece-threats';
-import { tierAtArrival } from './simulator';
 import { planUnitAction } from '../engine-vendor/engine/moveGrammar';
 import {
   ResolveTurnInput,
@@ -67,6 +65,8 @@ import {
   settleTurn,
 } from '../engine-vendor/engine/settleTurn';
 import { ActiveEffect, ClashKind, UnitType } from '@shared/types/Game';
+import { computeClaims } from '../engine-vendor/engine/claims';
+import type { Claim, PartialSettleInput } from '../engine-vendor/engine/claims';
 
 /**
  * What a candidate move DOES to the units on the board, folded into the four
@@ -236,7 +236,7 @@ export interface MarshalledBoard {
 /**
  * THE EXACT TIER A UNIT CARRIES INTO THE ARRIVAL TURN, read off the schedule.
  *
- * `tierAtArrival` (simulator.ts) reads the two fields the WIRE collapses the
+ * `tierAtArrival` (below) reads the two fields the WIRE collapses the
  * schedule into: an aggregate `invulnerabilityLevel` and a single
  * `invulnerabilityExpiryTurn`, which `translate.ts::aggregateExpiryTurn` sets
  * to the EARLIEST expiry among the unit's effects. That collapse is lossy the
@@ -263,6 +263,17 @@ export interface MarshalledBoard {
  * no schedule at all (`activeEffects` absent: hand-built fixtures, documents
  * predating the field) never reaches here and keeps `tierAtArrival` verbatim.
  */
+/**
+ * The tier the WIRE says a unit carries into the turn after `currentTurn`: its
+ * aggregate level, kept only while the aggregate expiry still covers that
+ * turn. The lossy reading — see above for when it is wrong and what corrects
+ * it — but the one every board with no effect schedule at all still gets.
+ */
+export function tierAtArrival(unit: Snake, currentTurn: number): number {
+  const expiry = unit.invulnerabilityExpiryTurn ?? currentTurn;
+  return currentTurn + 1 <= expiry ? (unit.invulnerabilityLevel ?? 0) : 0;
+}
+
 function tierFromSchedule(
   snake: Snake,
   currentTurn: number,
@@ -352,25 +363,25 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
         schedule === undefined
           ? tierAtArrival(snake, currentTurn)
           : tierFromSchedule(snake, currentTurn, governing, listed),
-      health: snake.health,
+      energy: snake.health,
       occupancy,
       orientation: { ...snake.orientation },
     };
   });
 
-  // Per-KIND max health, which is what the engine's food phase restores to.
+  // Per-KIND max ENERGY, which is what the engine's food phase refills toward.
   // The board's own map is the configured source; a unit's resolved
   // `snake.maxHealth` (translate.ts sets it from that same config) fills in
   // for boards that carry the per-unit figure but not the map — hand-built
   // fixtures, mostly, but the two must never disagree about what a meal is
   // worth.
-  const maxHealth: NonNullable<ResolveTurnInput['maxHealth']> = {
-    ...(board.maxHealthPerUnit as ResolveTurnInput['maxHealth']),
+  const maxEnergy: NonNullable<ResolveTurnInput['maxEnergy']> = {
+    ...(board.maxHealthPerUnit as ResolveTurnInput['maxEnergy']),
   };
   for (const snake of living) {
     if (snake.maxHealth === undefined) continue;
     const type = (snake.unitType ?? 'snake') as UnitType;
-    if (maxHealth[type] === undefined) maxHealth[type] = snake.maxHealth;
+    if (maxEnergy[type] === undefined) maxEnergy[type] = snake.maxHealth;
   }
 
   const config: Omit<ResolveTurnInput, 'units'> = {
@@ -381,7 +392,8 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     hazardDamage: board.hazardDamage ?? 100,
     food: (board.food ?? []).map(toIndex),
     regicideTeamIDs: Array.from(regicideTeamIDs),
-    maxHealth,
+    maxEnergy,
+    ...(board.foodEnergy === undefined ? {} : { foodEnergy: board.foodEnergy }),
   };
 
   const potions = (board.invulnerabilityPotions ?? []).map(toIndex);
@@ -413,6 +425,37 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     toIndex,
     toCell,
   };
+}
+
+/** Every field of a settle/claims input that the marshalled board fixes. */
+export function settleInputBase(m: MarshalledBoard): Omit<PartialSettleInput, 'units' | 'held'> {
+  return {
+    ...m.config,
+    turn: m.arrivalTurn,
+    teamOf: Object.fromEntries(m.teamOf),
+    effects: m.effects,
+    potions: m.potions,
+    potionsEnabled: m.potionsEnabled,
+    potionWindowTurns: m.potionWindowTurns,
+    pawnPromotionWeight: m.pawnPromotionWeight,
+    maxTurns: m.maxTurns,
+  };
+}
+
+/**
+ * The rules' own dilation, `k` turns on: every unit held at
+ * `observedTurn = arrivalTurn − k`, because `input.turn − observedTurn` IS the
+ * span a claim dilates over. One statement of it, for the window member, the
+ * pickup reading and the entrapment instrument.
+ */
+export function claimsAfter(m: MarshalledBoard, k: number): ReadonlyArray<Claim> {
+  return computeClaims({
+    ...settleInputBase(m),
+    units: m.units,
+    // `input.turn - observedTurn` IS the span a claim dilates over, so this is
+    // the board k turns on with nothing else assumed.
+    held: m.units.map((u) => ({ id: u.id, observedTurn: m.arrivalTurn - k })),
+  });
 }
 
 /** One assumed enemy intent: the staged cell for each unit that is not ours. */
@@ -612,7 +655,7 @@ export function resolvePartialTurn(
   for (const unit of frozen) {
     const settled = result.board[unit.id];
     if (!settled) continue; // died to a real interaction — that death stands
-    settled.health = marshalled.startHealth.get(unit.id) as number;
+    settled.energy = marshalled.startHealth.get(unit.id) as number;
 
     // A meal it should never have reached: the food phase grew it by one cell
     // and took the food off the board. Both are undone, so the meal is still
@@ -690,7 +733,7 @@ function readOutcome(
     traversed: (result.traversed[ourID] ?? []).map(marshalled.toCell),
     cost: death
       ? ourStartHealth
-      : Math.max(0, ourStartHealth - (survivor?.health ?? ourStartHealth)),
+      : Math.max(0, ourStartHealth - (survivor?.energy ?? ourStartHealth)),
     halted: intendedEnd !== null && finalIndex !== intendedEnd,
     exhausted: result.exhaustions.some((e) => e.unitID === ourID),
     ate: (survivor?.occupancy.length ?? ourStartWeight) > ourStartWeight,
@@ -769,42 +812,6 @@ export function evaluatePathOnBoard(
 ): CandidateOutcome {
   const marshalled = marshalBoard(board, currentTurn);
   return evaluateCandidatePath(marshalled, ourID, apiPath.map(marshalled.toIndex));
-}
-
-/**
- * The health a unit has left after ENTERING `cell`, asked of the engine with
- * nothing else on the board.
- *
- * The solo board is the point: with no other unit present nothing can contest
- * anything, so the only things that can touch the answer are the movement
- * cost, the hazard dose, exhaustion and the end-of-turn meal — which is
- * exactly the question callers want when they are layering health-awareness on
- * top of a separate wall/body passability check (MoveAnalyzer's hazard-step
- * classification, the staged-move fatality probe). Asking the engine keeps
- * even this small a rule out of the bot.
- *
- * <= 0 means the step kills. Note that a step onto FOOD comes back at the
- * unit's type max however low it started, because exhaustion only halts and
- * the food phase runs at the halt cell.
- */
-export function healthAfterEntering(board: Board, currentTurn: number, unit: Snake, cell: Coord): number {
-  const solo: Board = { ...board, snakes: [unit] };
-  const marshalled = marshalBoard(solo, currentTurn);
-  const path = [marshalled.toIndex(cell)];
-  const result = resolvePartialTurn(marshalled, new Map([[unit.id, { path }]]));
-  // Dead means the engine took it to zero or below; report the shortfall the
-  // registry implies rather than inventing a number.
-  return result.board[unit.id]?.health ?? 0;
-}
-
-/** The projected health cost of a path — the name every scoring caller reads. */
-export function projectedHealthCost(
-  board: Board,
-  currentTurn: number,
-  ourID: string,
-  apiPath: Coord[]
-): number {
-  return evaluatePathOnBoard(board, currentTurn, ourID, apiPath).cost;
 }
 
 /** Re-exported so callers need not reach into the vendored tree themselves. */

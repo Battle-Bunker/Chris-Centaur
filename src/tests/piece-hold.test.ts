@@ -21,14 +21,33 @@
  *  - the shield's placement geometry (src/web/board-renderer.js), the one
  *    definition the live and replay draw paths share.
  *
+ * The PREDICATE underneath all of it — which kinds can hold at all, and what
+ * their own square stages — is no longer a mirror of the server's grammar.
+ * `canHold` now comes from `logic/staging-legality.ts`, which asks the
+ * vendored engine: a kind can hold exactly when `planUnitAction` plans an
+ * action for its own square, and the move that gets published is the engine's
+ * own `{ kind: 'stay' }`. So the first describe below is written as an
+ * EQUALITY against the grammar rather than as a list of kinds, and the
+ * manager tests assert the staged action the engine returns rather than a
+ * literal this file made up.
+ *
  * Board: api 11x11 (full board 13x13 with the perimeter wall).
  */
 
 import { ActiveGameManager, CommandTurnState } from '../server/active-game-manager';
-import { CommandLogger, CommandEventEntry } from '../logic/command-logger';
-import { canHold } from '../logic/piece-moves';
+import { CommandLogger } from '../logic/command-logger';
+import type { OperatorCommandPayload, TurnEvent } from '../lens/types';
+import {
+  canHold,
+  grammarUnitAt,
+  resolvedStagingAction,
+  stagingActionFor,
+  stagingBoard,
+} from '../logic/staging-legality';
 import { GameState, Snake, Coord, CentaurMove } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
+import type { UnitType } from '@shared/types/Game';
+import { makeGameState as makeGameStateBase } from './board-fixtures';
 
 // Same pattern as command-logging.test.ts / piece-staging.test.ts: the logger
 // is mocked so no DB writes leak out of the unit tests, and so the emitted
@@ -79,13 +98,9 @@ function makeUnit(
 }
 
 function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
-  const you = snakes.find(s => s.id === youId)!;
-  return {
+  return makeGameStateBase(gameId, turn, snakes, youId, {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
-    board: { width: 11, height: 11, food: [], hazards: [], snakes },
-    you,
-  };
+  });
 }
 
 interface Published {
@@ -96,21 +111,57 @@ interface Published {
   source: string;
 }
 
-function eventsOfType(type: string): CommandEventEntry[] {
+// Operator commands now ride ONE event log with a `seq` on every row: the
+// verb that used to be the `event_type` column is `payload.verb`, and what was
+// the free-form `payload` column is `payload.detail`. The command SEMANTICS
+// are unchanged — same verbs, same details, same "system events carry no
+// operator" rule — so the assertions below are unchanged too, and only the
+// unwrapping moved.
+function eventsOfType(type: string) {
   return mockLogger.logEvent.mock.calls
-    .map(c => c[0] as CommandEventEntry)
-    .filter(e => e.eventType === type);
+    .map(c => c[0] as TurnEvent)
+    .filter(e => e.kind === 'operator.command' && (e.payload as OperatorCommandPayload).verb === type)
+    .map(e => ({
+      gameId: e.gameId,
+      snakeId: e.unit,
+      turn: e.turn,
+      operator:
+        e.actor.kind === 'operator'
+          ? { userId: e.actor.id, name: e.actor.name, color: e.actor.color }
+          : null,
+      payload: (e.payload as OperatorCommandPayload).detail,
+    }));
 }
 
-describe('canHold', () => {
+describe('canHold is the engine’s answer about a unit’s own square', () => {
+  const KINDS: UnitType[] = ['snake', 'pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
+  // An empty 11x11 board, so nothing but the kind decides the answer.
+  const board = stagingBoard({ width: 11, height: 11, food: [], hazards: [], snakes: [] });
+  const home = fullIdx({ x: 5, y: 5 });
+
+  test('a kind can hold exactly when staging its own square plans an action', () => {
+    for (const type of KINDS) {
+      const unit = grammarUnitAt(type, home, { dx: 0, dy: -1 });
+      expect({ type, canHold: canHold(type) }).toEqual({
+        type,
+        canHold: stagingActionFor(unit, home, board) !== null,
+      });
+    }
+  });
+
   test('every chess piece can hold — its stay is a real staged move', () => {
-    for (const type of ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king']) {
+    for (const type of KINDS.filter(k => k !== 'snake')) {
       expect(canHold(type)).toBe(true);
+      const unit = grammarUnitAt(type, home, { dx: 0, dy: -1 });
+      expect(stagingActionFor(unit, home, board)).toEqual({ kind: 'stay' });
     }
   });
 
   test('a snake cannot hold — its head must vacate its square every turn', () => {
     expect(canHold('snake')).toBe(false);
+    // Not a refusal this file invented: the grammar plans nothing for it, so
+    // there is no stay on the wire to publish.
+    expect(stagingActionFor(grammarUnitAt('snake', home, { dx: 0, dy: -1 }), home, board)).toBeNull();
   });
 
   test('a unit with no declared type is a snake (the legacy shape) and cannot hold', () => {
@@ -189,6 +240,12 @@ describe('Hold command (ActiveGameManager.toggleHold)', () => {
     expect(cs.intent.kind).toBe('hold');
     const stay = fullIdx({ x: 5, y: 5 });
     expect(cs.staged).toMatchObject({ snakeId: 'R', turn: 0, move: stay, source: 'manual' });
+    // The staged action is not a literal this test chose: it is what the
+    // engine resolves that staged cell to for this unit.
+    const board = stagingBoard({ width: 11, height: 11, food: [], hazards: [], snakes: [rook] });
+    expect(cs.staged!.action).toEqual(
+      resolvedStagingAction(grammarUnitAt('rook', stay, rook.orientation), stay, board)
+    );
     expect(cs.staged!.action).toEqual({ kind: 'stay' });
     expect(publishedFor(gameId, 'R')).toEqual([
       { gameId, snakeId: 'R', turn: 0, move: stay, source: 'manual' },

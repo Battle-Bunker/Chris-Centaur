@@ -1,20 +1,29 @@
-import { GameState, BoardSnapshot, Direction, Coord, CentaurMove } from '../types/battlesnake';
+import { GameState, BoardSnapshot, Direction, Coord, CentaurMove, Snake } from '../types/battlesnake';
 // Type-only: the wire layer's staged-unit shape, so the team path speaks one
 // vocabulary end to end. Erased at compile time, so there is no module cycle
 // with src/wire/team-submitter.ts (which imports IntendedMoveSource from here,
 // also type-only).
 import type { TeamStagedUnit } from '../wire/team-submitter';
-import { BoardGraph } from '../logic/board-graph';
+import { RouteBoard } from '../logic/route';
 import {
   CasualtyContext,
   emptyCasualtyContext,
   evaluateCandidatePath,
-  healthAfterEntering,
   marshalBoard,
+  resolvePartialTurn,
 } from '../logic/turn-oracle';
-import { planPieceAction, legalPieceDestinations, canHold, PieceAction, Orientation } from '../logic/piece-moves';
+import {
+  BoardShape,
+  Orientation,
+  PieceAction,
+  canHold,
+  fullDims,
+  grammarUnitAt,
+  legalStagingCandidates,
+  stagingActionFor,
+  stagingBoard,
+} from '../logic/staging-legality';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
-import { pickBestMove } from '../logic/decision-engine';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
   WaypointContext,
@@ -24,10 +33,34 @@ import {
   waypointRoute,
   waypointProgressByDestination,
 } from '../logic/waypoint-pathing';
-import { CellOwnership } from '../logic/multi-source-bfs';
+import { CellOwnership, computeTerritoryView, territoryCellsOf } from '../logic/territory-view';
+// The lobster fold's OWN weight table — not `config/heuristics.ts`'s
+// gotoProgress/nearProgress (300/250), which are denominated on the legacy
+// scale (deaths -500, trapped -600) that no longer exists under lobster. See
+// `getWaypointBiasedMove`.
+import { DEFAULT_WEIGHTS as LOBSTER_WEIGHTS } from '../lobster/evaluate/calibration';
 import type { BotIdentity } from '../config/bot-identity';
 import { DecisionLogger } from '../logic/decision-logger';
 import { CommandLogger, OperatorRef } from '../logic/command-logger';
+import {
+  boardHashOf,
+  ingestLensEvents,
+  makeSeqWriter,
+  projectMovesets,
+  type SeqWriter,
+} from '../lens/store';
+import type {
+  Actor,
+  EventId,
+  LensDecision,
+  LensDecisionPort,
+  LensDecisionSummary,
+  CellIndex,
+  LensEvent,
+  PinEvent,
+  TurnEvent,
+  UnitKey,
+} from '../lens/types';
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 import { colorForArrivalIndex } from '../shared/player-palette';
@@ -38,9 +71,7 @@ export interface MoveEvaluation {
   // CentaurMove value staging puts on the wire.
   move: CentaurMove;
   score: number;
-  numStates: number;
-  breakdown: any;
-  projectedTerritoryCells?: { [snakeId: string]: { x: number; y: number }[] };
+  breakdown?: any;
   // The candidate's destination cell (api coords). Always present on piece
   // rows (the enumerator computes it); present on snake rows when the engine's
   // projection pass ran. Optional so legacy rows stay valid.
@@ -49,6 +80,17 @@ export interface MoveEvaluation {
   // candidates and route pawn arrow keys to the side-square rotations. Absent
   // on snake rows.
   kind?: 'stay' | 'move' | 'rotate';
+  // The lobster fold's own evaluation triple for this candidate (see
+  // lobster/telemetry.ts TelemetryEvaluation), when the row was explained
+  // within the telemetry budget. `lo` is the WORST-CASE reading — the
+  // adversary's best response — and it is exactly `evaluate/bound.ts`'s DEAD
+  // (`-Infinity`) when that worst case eliminates our subject team, whether
+  // by this unit dying or by ending the team outright (`evaluate/index.ts`
+  // `finish` does not distinguish the two: both are `subjectGone`). That is
+  // the one real "this is certain death" fact the fold provides, and
+  // `getWaypointBiasedMove` reads it in place of the legacy `trapped` /
+  // `regicide` breakdown keys, which a lobster row never carries.
+  bounds?: { lo: number; est: number; hi: number } | null;
 }
 
 // One legal chess-piece candidate with the waypoint bias applied: the staged
@@ -85,11 +127,29 @@ interface PieceCandidateScore {
   score: number;
 }
 
+// The six weighted terms a piece candidate's score is made of — the score
+// sum, `breakdown`'s raw values, `breakdown.weights` and `breakdown.weighted`
+// each independently restated this same list; this is that list, once. The
+// waypoint term (`weight × stat`, keyed `${kind}Progress`) is not here: its
+// key is dynamic per candidate, so it stays a separate, named term at each of
+// the four sites below.
+const PIECE_TERMS: ReadonlyArray<{
+  readonly key: 'healthLoss' | 'deaths' | 'kills' | 'allyCasualty' | 'regicide' | 'enemyRegicide';
+  readonly weight: number;
+  readonly of: (c: Pick<PieceCandidateScore, 'healthCost' | 'fatal' | 'casualties'>) => number;
+}> = [
+  { key: 'healthLoss', weight: DEFAULT_CONFIG.healthLoss, of: (c) => c.healthCost },
+  { key: 'deaths', weight: DEFAULT_CONFIG.deaths, of: (c) => (c.fatal ? 1 : 0) },
+  { key: 'kills', weight: DEFAULT_CONFIG.kills, of: (c) => c.casualties.kills },
+  { key: 'allyCasualty', weight: DEFAULT_CONFIG.allyCasualty, of: (c) => c.casualties.allyCasualty },
+  { key: 'regicide', weight: DEFAULT_CONFIG.regicide, of: (c) => c.casualties.regicide },
+  { key: 'enemyRegicide', weight: DEFAULT_CONFIG.enemyRegicide, of: (c) => c.casualties.enemyRegicide },
+];
+
 export interface TurnData {
   gameState: GameState;
   moveEvaluations: MoveEvaluation[];
   territoryCells: { [snakeId: string]: { x: number; y: number }[] };
-  safeMoves: Direction[];
   // A Direction for a snake; a FULL-BOARD destination index for a chess piece
   // (own square = stay), the same CentaurMove split staging uses. Pieces had
   // no bot route at all until the piece recommendation channel existed — see
@@ -508,9 +568,35 @@ export type StagedChangeCallback = (gameId: string) => void;
 // gate — the client should show the confirmation dialog for (snakeId, move).
 export type FatalConfirmationCallback = (gameId: string, snakeId: string, move: Direction, turn: number) => void;
 
+/** S→C `lens-frames` (04 §4.5): the turn's new events, in `seq` order, and
+ *  whether the turn they belong to is the live head. EVENTS and not frames —
+ *  the client folds them with the reducer replay folds with. */
+export type LensEventsCallback = (
+  gameId: string,
+  turn: number,
+  events: ReadonlyArray<TurnEvent>,
+  head: boolean
+) => void;
+
 export class ActiveGameManager {
   private static instance: ActiveGameManager;
   private games: Map<string, ActiveGame> = new Map();
+  // ONE `seq` writer per (gameId, turn) — see the lens event log section. The
+  // map holds the CURRENT turn's writer per game; a new board rolls it.
+  private lensWriters: Map<string, SeqWriter> = new Map();
+  // The current turn's board hash per game, computed once when the writer
+  // rolls. Every consumer that needs to name the board this turn opened on
+  // reads it from here rather than hashing again: one board, one hash.
+  private lensBoardHashes: Map<string, string> = new Map();
+  // Written events not yet on the wire, per game. The lens sink is called
+  // several times at one emission barrier (partition, emission, then a
+  // movesets frame per cluster) and the wire envelope is a BATCH, so the
+  // events are coalesced to the end of the tick — which is exactly one
+  // barrier's worth, because the kernel calls the sink synchronously between
+  // slices and yields afterwards.
+  private lensOutbox: Map<string, TurnEvent[]> = new Map();
+  private lensFlushScheduled: boolean = false;
+  private lensEventCallbacks: LensEventsCallback[] = [];
   private turnUpdateCallbacks: TurnUpdateCallback[] = [];
   private boardUpdateCallbacks: BoardUpdateCallback[] = [];
   private moveCommittedCallbacks: MoveCommittedCallback[] = [];
@@ -762,6 +848,13 @@ export class ActiveGameManager {
     this.fatalConfirmationCallbacks.push(callback);
   }
 
+  /** Subscribe to the `seq` writer's output. The writer is the one producer of
+   *  the lens's total order, so it is also the one producer of what goes on
+   *  the wire — a second path to the client would be a second order. */
+  onLensEvents(callback: LensEventsCallback): void {
+    this.lensEventCallbacks.push(callback);
+  }
+
   private notifyFatalConfirmationNeeded(gameId: string, snakeId: string, move: Direction, turn: number): void {
     for (const cb of this.fatalConfirmationCallbacks) {
       try {
@@ -861,6 +954,30 @@ export class ActiveGameManager {
     }
   }
 
+  /** Learn every unit on a snapshot. First write wins: a name is never regressed. */
+  private rememberSnakes(game: ActiveGame, snakes: ReadonlyArray<Snake>): void {
+    for (const snake of snakes) {
+      if (!game.snakes.has(snake.id)) {
+        game.snakes.set(snake.id, { id: snake.id, name: snake.name, letter: snake.letter || '' });
+      }
+    }
+  }
+
+  // The defensive board advance, which should never fire: updateBoard should
+  // always have advanced the board first. Kept so the game stays live if a
+  // transport ever feeds decisions without feeding the board — see the two
+  // callers' own comments — but flagged loudly when it does.
+  private advanceDefensively(gameId: string, game: ActiveGame, from: string, gs: GameState): boolean {
+    console.warn(
+      `[ActiveGameManager] ${from} advanced the board for ${gameId} ` +
+      `(turn ${game.boardStateTurn} -> ${gs.turn}) — updateBoard should have run first`,
+    );
+    game.boardState = gs;
+    game.boardStateTurn = gs.turn;
+    this.rememberSnakes(game, gs.board.snakes);
+    return true;
+  }
+
   // Register a controlled snake against the CANONICAL board state. One game
   // holds one shared board; the snake's own identity (name/letter) is looked
   // up on it by id — there is no per-snake board copy anywhere anymore.
@@ -900,15 +1017,7 @@ export class ActiveGameManager {
     }
     if (ourTeam && !game.ourTeam) game.ourTeam = ourTeam;
 
-    for (const snake of canonical.board.snakes) {
-      if (!game.snakes.has(snake.id)) {
-        game.snakes.set(snake.id, {
-          id: snake.id,
-          name: snake.name,
-          letter: snake.letter || '',
-        });
-      }
-    }
+    this.rememberSnakes(game, canonical.board.snakes);
 
     const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
     if (!game.controlledSnakes.has(snakeId)) {
@@ -966,6 +1075,7 @@ export class ActiveGameManager {
       // events that would bounce the UI; just drop the empty shell.
       console.log(`[ActiveGameManager] endGame for already-drained game ${gameId}, removing`);
       this.games.delete(gameId);
+      this.lensWriters.delete(gameId);
       this.enableTeamStaging(gameId, false);
       this.logIfFullyIdle();
       ActivityController.getInstance().poke();
@@ -1006,6 +1116,7 @@ export class ActiveGameManager {
 
     console.log(`[ActiveGameManager] All controlled snakes ended for game ${gameId}, removing game`);
     this.games.delete(gameId);
+    this.lensWriters.delete(gameId);
     this.enableTeamStaging(gameId, false);
     this.logIfFullyIdle();
     // Game gone — the awake rule may flip (no game branch left to hold it).
@@ -1682,9 +1793,9 @@ export class ActiveGameManager {
         return;
       }
       const board = gs.board;
-      // One graph for every leg: waypointRoute would otherwise rebuild the whole
-      // typed-array board per call, and this runs on every stage.
-      const graph = new BoardGraph(gs);
+      // One route board for every leg: waypointRoute would otherwise rebuild
+      // the whole typed-array board per call, and this runs on every stage.
+      const routeBoard = new RouteBoard(gs);
       // The move staged for THIS turn, if any — a record bound to an earlier
       // turn says nothing about where the unit is heading now.
       const staged = controlled.staged?.turn === game.boardStateTurn ? controlled.staged : null;
@@ -1766,7 +1877,7 @@ export class ActiveGameManager {
       const occupancyByCell = new Map<number, number[]>();
       const noteOccupied = (steps: RouteStep[], firstRouteIndex: number) => {
         steps.forEach((step, n) => {
-          const idx = graph.cellIndexOf(step.cell);
+          const idx = routeBoard.cellIndexOf(step.cell);
           const at = occupancyByCell.get(idx);
           if (at) at.push(firstRouteIndex + n);
           else occupancyByCell.set(idx, [firstRouteIndex + n]);
@@ -1786,7 +1897,7 @@ export class ActiveGameManager {
       for (const target of targets) {
         const legStartIndex = route.length;
         const leg = waypointRoute(gs, snakeId, from, target, {
-          graph,
+          board: routeBoard,
           startTurn: turnCursor,
           occupied,
           orientation: facing,
@@ -1820,17 +1931,31 @@ export class ActiveGameManager {
     }
   }
 
-  // Resolve the goto/near intent to a move by re-running the SAME selection the
-  // decision engine uses, over this turn's per-move evaluations with the
-  // waypoint progress contribution re-derived from the CURRENT target:
-  //   adjusted(move) = engineScore(move)
-  //                  - recordedWaypointContribution(move)   // bias applied at decision time
-  //                  + weight × progressStat(move)          // bias for the target as it is NOW
-  // then pickBestMove (the shared trapped-veto + argmax exported from the
-  // decision engine). This makes a target set or moved MID-TURN take effect
-  // immediately, and guarantees the staged move is always "the best output of
-  // the heuristic matrix with the waypoint weight integrated" — never a hard
-  // path override.
+  // Resolve the goto/near intent to a move by re-scoring this turn's per-move
+  // evaluations with the waypoint progress bias for the CURRENT target added
+  // in:
+  //   adjusted(move) = engineScore(move) + weight × progressStat(move)
+  // then the certain-death veto argmax below. This makes a target set or
+  // moved MID-TURN take effect immediately, and guarantees the staged move is
+  // always "the fold's own recommendation with the waypoint bias added" —
+  // never a hard path override.
+  //
+  // FIX (the goto defect): under lobster `evaluation.score` is already the
+  // fold's own total for this candidate, and the fold has no goto/near member
+  // to have pre-applied — so there is nothing recorded to subtract back out,
+  // unlike the legacy strategy this function used to re-run. This function
+  // used to read `weights.gotoProgress` / `weighted.gotoProgressScore` /
+  // `breakdown.trapped` / `breakdown.regicide` off the row's breakdown, all
+  // four through `??` fallbacks — but a lobster breakdown's keys are the fold's
+  // own feature names (material, reach, room, food, …; see
+  // lobster/telemetry.ts breakdownOf) and never carries any of the four, so
+  // every read silently fell through: the weight defaulted to
+  // `DEFAULT_CONFIG.gotoProgress` (300) — denominated for a scale where deaths
+  // was -500 and trapped -600 — applied on top of a fold whose largest
+  // ordinary term is `material` at 10, and both safety vetoes defaulted to 0,
+  // filtering nothing. `weight` below is on the fold's OWN scale
+  // (`LOBSTER_WEIGHTS`, evaluate/calibration.ts), and the veto reads the
+  // fold's own worst-case verdict (`bounds.lo`) instead.
   //
   // Returns null when this turn's evaluations aren't available (turn 0, the
   // fast staging pass, error paths), letting computeIntendedMove fall through
@@ -1866,26 +1991,18 @@ export class ActiveGameManager {
         snakeId,
         wp,
         rows.map(e => ({ cell: ActiveGameManager.destinationOf(head, e.move) })),
-        { graph: new BoardGraph(gs) }
+        { board: new RouteBoard(gs) }
       );
 
-      return pickBestMove(rows.map((evaluation, i) => {
-        const breakdown: any = evaluation.breakdown || {};
-        const weighted = breakdown.weighted || {};
-        const weights = breakdown.weights || {};
-        const weight = wp.kind === 'goto'
-          ? (weights.gotoProgress ?? DEFAULT_CONFIG.gotoProgress)
-          : (weights.nearProgress ?? DEFAULT_CONFIG.nearProgress);
-        const recorded = (weighted.gotoProgressScore ?? 0) + (weighted.nearProgressScore ?? 0);
-        return {
-          move: evaluation.move,
-          score: evaluation.score - recorded + weight * progress[i].stat,
-          trapped: breakdown.trapped ?? 0,
-          // The regicide veto travels with the row: a waypoint must never
-          // re-bias us onto a move that ends our own team.
-          regicide: breakdown.regicide ?? 0,
-        };
-      }));
+      const weight = wp.kind === 'goto'
+        ? ActiveGameManager.GOTO_PROGRESS_WEIGHT
+        : ActiveGameManager.NEAR_PROGRESS_WEIGHT;
+
+      return ActiveGameManager.argmaxSurvivingMove(rows.map((evaluation, i) => ({
+        move: evaluation.move,
+        score: evaluation.score + weight * progress[i].stat,
+        fatal: ActiveGameManager.isCertainFatal(evaluation),
+      })));
     } catch (e) {
       // Never let waypoint math break staging; fall back to the bot move.
       console.error(`[ActiveGameManager] getWaypointBiasedMove failed for ${gameId}:${snakeId}:`, e);
@@ -1906,6 +2023,58 @@ export class ActiveGameManager {
     return snake?.head || snake?.body?.[0] || null;
   }
 
+  // The goto/near progress bias, on the lobster fold's OWN scale
+  // (`lobster/evaluate/calibration.ts` DEFAULT_WEIGHTS) — an order of
+  // magnitude under `material` (10, where the survival cliff lives) and the
+  // same order as the fold's own top ordinary terms, whose ranges are also
+  // bounded [0,1]/[-1,0] ramps (`food`, `contest`). NEVER
+  // `config/heuristics.ts`'s `gotoProgress`/`nearProgress` (300/250): those
+  // are read by the legacy-scale piece candidate path only and would re-create
+  // exactly the scale collision this function used to have.
+  private static readonly GOTO_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.food; // 4
+  private static readonly NEAR_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.contest; // 3, weaker than goto
+
+  /**
+   * "Certain fatal" per the fold's OWN worst-case verdict for this candidate,
+   * not a stale breakdown key: `bounds.lo` is the DEAD lattice bottom
+   * (`-Infinity`, see `evaluate/bound.ts`) exactly when the adversary's best
+   * response to this candidate eliminates our subject team
+   * (`evaluate/index.ts` `finish`) — which is the single fact the legacy
+   * `trapped` and `regicide` breakdown keys were each trying to name; the fold
+   * does not distinguish "this unit dies" from "this ends our team" the way
+   * the legacy scale did. `bounds` is null when the candidate went
+   * unexplained (past the telemetry budget — effectively never for a snake's
+   * four-way choice, `MAX_CANDIDATES_PER_UNIT` is 6); absence is not evidence
+   * of safety, so it does not veto.
+   */
+  private static isCertainFatal(evaluation: MoveEvaluation): boolean {
+    return evaluation.bounds != null && evaluation.bounds.lo === Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * The winner among re-scored candidate rows: never one that is certain
+   * fatal, then the highest score. The veto degrades to the full pool rather
+   * than to nothing, so a position in which every move is fatal still stages
+   * the least-bad one.
+   *
+   * This is the snake counterpart of `bestPieceCandidate`'s veto ladder, and
+   * it lives here because the waypoint re-bias is now its only caller — it
+   * used to be exported from the legacy decision engine so that engine and
+   * this re-bias could not disagree, and that engine is gone.
+   */
+  private static argmaxSurvivingMove(
+    candidates: Array<{ move: Direction; score: number; fatal: boolean }>
+  ): Direction | null {
+    if (candidates.length === 0) return null;
+    const nonFatal = candidates.filter(c => !c.fatal);
+    const pool = nonFatal.length > 0 ? nonFatal : candidates;
+    let best = pool[0];
+    for (const c of pool) {
+      if (c.score > best.score) best = c;
+    }
+    return best.move;
+  }
+
   private static destinationOf(head: Coord, move: Direction): Coord {
     switch (move) {
       case 'up':    return { x: head.x,     y: head.y + 1 };
@@ -1916,14 +2085,22 @@ export class ActiveGameManager {
   }
 
   // Non-mutating safety probe. Reports whether `move` would put THIS snake's
-  // head on an impassable cell next turn — off-board, wall/hazard, our own
-  // body, a non-severable enemy body, or a stationary chess-piece square
-  // whose contest we would lose or tie (tier first, weight second; a WINNABLE
-  // piece square is a legal kill, not fatal) — evaluated from the committing
-  // snake's OWN perspective via passabilityIdxFor(snakeId), so an invulnerable
-  // snake attacking a weaker enemy is correctly NOT fatal. Uses optimistic turn-1
-  // semantics, the same the goto-route and space BFS use, so a step onto a tail
-  // that vacates this turn is not flagged.
+  // head somewhere it cannot survive — off-board, a wall, its own body, a
+  // body or piece square whose contest it loses or ties, or a hazard dose its
+  // health cannot pay.
+  //
+  // ASKED OF THE ENGINE, NOT OF A MODEL OF IT. The candidate's one-cell path
+  // is staged into the vendored rules with every other unit frozen where it
+  // stands (`turn-oracle.ts`'s baseline contract) and the answer is read off
+  // the death registry. That is the same call the piece candidate scorer
+  // makes, so the red marker a human sees and the fatality a piece's move is
+  // vetoed on are the same judgement — and neither is a passability table
+  // that re-derives severability, the stationary contest and hazard health
+  // arithmetic three more times.
+  //
+  // Only the frozen baseline is asked: whether an ADJACENT enemy could kill
+  // us by choosing to step into us is a risk, not a certainty, and this marks
+  // certain death. The consent gate (`stageMove`) is built on that meaning.
   //
   // This NEVER changes the committed move. The staged move is sacrosanct and
   // commits verbatim; this exists solely so the UI can warn a human that the
@@ -1933,50 +2110,22 @@ export class ActiveGameManager {
     // After /end the stored boardState can be a final payload with no `board`
     // (scores/winners only), so a UI staged-move hint has nothing to evaluate.
     if (!game?.boardState?.board?.snakes) return false;
-    const snake = game.boardState.board.snakes.find(s => s.id === snakeId);
+    const board = game.boardState.board;
+    const snake = board.snakes.find(s => s.id === snakeId);
     const head = snake?.head || snake?.body?.[0];
-    if (!head) return false;
+    if (!snake || !head) return false;
     try {
       const dest = ActiveGameManager.destinationOf(head, move);
+      // Off the board entirely: the engine would be handed a cell that is not
+      // on the grid, so answer from the geometry rather than from a settlement.
+      if (dest.x < 0 || dest.x >= board.width || dest.y < 0 || dest.y >= board.height) return true;
 
-      // Own-tail refinement: if the staged move steps onto our OWN tail and
-      // that cell has no food, then by definition we are NOT eating this turn,
-      // so no speculative "could eat" may keep the tail in place. The tail
-      // vacates unless the snake just ate (head already on food) — or, under
-      // grow-next-turn, the body is too short for the tail to move. The tail
-      // cell must be uniquely the tail (not stacked under an interior segment
-      // from a just-completed growth) for this shortcut to apply.
-      const body = snake?.body || [];
-      const tail = body[body.length - 1];
-      const isOwnTail = !!tail && dest.x === tail.x && dest.y === tail.y && body.length > 2;
-      const tailStacked = isOwnTail &&
-        body.slice(1, -1).some(seg => seg.x === tail.x && seg.y === tail.y);
-      const food = game.boardState.board.food || [];
-      const destHasFood = food.some(f => f.x === dest.x && f.y === dest.y);
-      if (isOwnTail && !tailStacked && !destHasFood) {
-        const justAte = food.some(f => f.x === head.x && f.y === head.y);
-        return justAte;
-      }
-
-      const graph = new BoardGraph(game.boardState);
-      if (!graph.isInBounds(dest)) return true;
-
-      // Hazards are damage-based (board.hazardDamage on entry, default 100;
-      // death only at health <= 0), so a hazard step is only CERTAIN death
-      // when the simulator's exact entry rule says the health won't survive
-      // it — same health-aware classification MoveAnalyzer applies, and the
-      // same charge-then-eat order, so food on the cell is not a way out of a
-      // step whose own cost kills. A survivable hazard step still checks
-      // hazard-blind wall/body fatality.
-      const boardHazards = game.boardState.board.hazards ?? [];
-      if (snake && boardHazards.some(h => h.x === dest.x && h.y === dest.y)) {
-        if (healthAfterEntering(game.boardState.board, game.boardState.turn, snake, dest) <= 0) return true;
-        return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic', ignoreHazards: true })
-          .passableIdx(graph.cellIndexOf(dest), 1);
-      }
-
-      return !graph.passabilityIdxFor(snakeId, { clearance: 'optimistic' })
-        .passableIdx(graph.cellIndexOf(dest), 1);
+      const marshalled = marshalBoard(board, game.boardState.turn);
+      const settled = resolvePartialTurn(
+        marshalled,
+        new Map([[snakeId, { path: [marshalled.toIndex(dest)] }]])
+      );
+      return settled.deaths[snakeId] !== undefined;
     } catch (e) {
       // A UI hint must never throw on the broadcast path — treat as not-fatal.
       console.error(`[ActiveGameManager] isMoveFatal failed for ${gameId}:${snakeId}:`, e);
@@ -2095,8 +2244,407 @@ export class ActiveGameManager {
     return { userId, name: 'Operator', color: '#4CAF50' };
   }
 
-  // Append one row to the command-event log. Never throws into the game path
-  // (the CommandLogger enqueue is synchronous and exception-free).
+  // ── THE LENS EVENT LOG ────────────────────────────────────────────────
+  //
+  // ONE WRITER PER (gameId, turn), AND IT IS THIS CLASS. `seq` is the total
+  // order within a turn and the only thing the UI sorts on, so it has exactly
+  // one author. The manager is that author not because the log is a UI concern
+  // but because it is the one component every producer already passes through:
+  // the kernel's lens sink, the operator's commands, Firebase's confirmations
+  // and the turn resolution all arrive here, and this class already serialises
+  // per game. Two writers is the failure the design names by name, and the
+  // out-of-process case that would have caused it is deleted.
+  //
+  // Nothing below changes any operator command's SEMANTICS. `logCommandEvent`
+  // keeps its signature, its call sites and its payloads; what changed is that
+  // the row it writes now carries a `seq`, an actor and a causal slot instead
+  // of sitting in a table beside a denormalised snapshot of the state it
+  // produced.
+
+  /** The writer for a game's CURRENT board turn, rolling on a turn change and
+   *  opening each turn with its `board.arrived` anchor at `seq` 0. Lazy rather
+   *  than hooked to the four places `boardStateTurn` is assigned: one place
+   *  that notices is more robust than four that must all remember. */
+  private lensWriterFor(gameId: string): SeqWriter | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn < 0) return null;
+    const held = this.lensWriters.get(gameId);
+    if (held && held.turn === game.boardStateTurn) return held;
+
+    const writer = makeSeqWriter(gameId, game.boardStateTurn);
+    this.lensWriters.set(gameId, writer);
+
+    const board = game.boardState?.board;
+    const roster = (board?.snakes ?? []).map(s => s.id);
+    // The board's identity, computed ONCE per turn. Everything that names this
+    // board later — the `decisions` row's re-run seed, a re-derivation
+    // checking it is deriving from what the decision saw — reads this string
+    // rather than hashing the settlement again.
+    const boardHash = game.boardState ? boardHashOf(game.boardState) : '';
+    this.lensBoardHashes.set(gameId, boardHash);
+    // The anchor carries the settlement in memory so a live fold has a board
+    // to draw; the STORED row does not — `turn_boards` holds the settlement
+    // under its own key, and a board stored twice is two boards waiting to
+    // disagree. `logStoredEvent` is what drops it on the way to Postgres.
+    this.emitTurnEvent(gameId, {
+      kind: 'board.arrived',
+      actor: { kind: 'server', id: null, name: null, color: null },
+      payload: {
+        boardHash,
+        deadlineMs: game.gameTimeout,
+        turnExpiryTime: game.turnExpiryTime ?? 0,
+        roster,
+        alive: roster,
+        settlement: game.boardState,
+      },
+    });
+    return writer;
+  }
+
+  /** The one place an event enters the log. Stamps `seq`, hands the row to the
+   *  persister, and never throws into the game path — a lens that cannot
+   *  record must not be able to stop a turn. */
+  private emitTurnEvent(
+    gameId: string,
+    draft: {
+      kind: TurnEvent['kind'];
+      actor: Actor;
+      unit?: UnitKey | null;
+      atWorkMs?: number | null;
+      causedBy?: string | null;
+      answers?: string | null;
+      payload: unknown;
+    }
+  ): TurnEvent | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn < 0) return null;
+    const writer =
+      draft.kind === 'board.arrived'
+        ? this.lensWriters.get(gameId)
+        : this.lensWriterFor(gameId);
+    if (!writer) return null;
+    try {
+      const event = writer.write({
+        gameId,
+        turn: writer.turn,
+        atWall: Date.now(),
+        atWorkMs: draft.atWorkMs ?? null,
+        kind: draft.kind,
+        actor: draft.actor,
+        unit: draft.unit ?? null,
+        causedBy: draft.causedBy ?? null,
+        answers: draft.answers ?? null,
+        payload: draft.payload,
+      });
+      this.logStoredEvent(event);
+      return event;
+    } catch (e) {
+      console.error(`[ActiveGameManager] Lens event refused for ${gameId} (${draft.kind}):`, e);
+      return null;
+    }
+  }
+
+  /**
+   * The wire's copy of a written event. Queued rather than sent: `lens-frames`
+   * is a BATCH envelope, and a barrier that produces a partition, an emission
+   * and four moveset frames should reach the client as one message and one
+   * fold, not six of each.
+   */
+  private queueLensBroadcast(gameId: string, event: TurnEvent): void {
+    let pending = this.lensOutbox.get(gameId);
+    if (!pending) {
+      pending = [];
+      this.lensOutbox.set(gameId, pending);
+    }
+    pending.push(event);
+    if (this.lensFlushScheduled) return;
+    this.lensFlushScheduled = true;
+    queueMicrotask(() => this.flushLensBroadcast());
+  }
+
+  private flushLensBroadcast(): void {
+    this.lensFlushScheduled = false;
+    const batches = [...this.lensOutbox.entries()];
+    this.lensOutbox.clear();
+    for (const [gameId, events] of batches) {
+      if (events.length === 0) continue;
+      const turn = (events[0] as TurnEvent).turn;
+      // OFF THE HEAD IS NOT A REFUSAL, it is a badge: a late-landing event for
+      // a turn the board has already moved past is still recorded and still
+      // shown, with `head` false so no determination is offered on it.
+      const head = this.games.get(gameId)?.boardStateTurn === turn;
+      for (const cb of this.lensEventCallbacks) {
+        try {
+          cb(gameId, turn, events, head);
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens broadcast callback failed for ${gameId}:`, e);
+        }
+      }
+    }
+  }
+
+  /** Persist an event, less the anchor's in-memory settlement. */
+  private logStoredEvent(event: TurnEvent): void {
+    this.queueLensBroadcast(event.gameId, event);
+    if (event.kind !== 'board.arrived') {
+      CommandLogger.getInstance().logEvent(event);
+      return;
+    }
+    const payload = { ...(event.payload as Record<string, unknown>) };
+    delete payload.settlement;
+    CommandLogger.getInstance().logEvent({ ...event, payload });
+  }
+
+  /** The board a game is CURRENTLY on, when that is the turn being asked
+   *  about. A turn still in play has not been flushed to `turn_boards`, and an
+   *  on-demand derivation about the board in front of an operator must not be
+   *  told the square does not exist yet. */
+  public settlementFor(gameId: string, turn: number): BoardSnapshot | null {
+    const game = this.games.get(gameId);
+    if (!game || game.boardStateTurn !== turn) return null;
+    return game.boardState;
+  }
+
+  /**
+   * WHERE THE LOG IS, for a game: the turn under the writer and the newest
+   * `seq` it has stamped. It is what a served inspection stamps its
+   * provenance with — a number without the coordinate it was read at is a
+   * number a reader cannot place.
+   */
+  public lensCursorFor(gameId: string): { gameId: string; turn: number; seq: number } | null {
+    const writer = this.lensWriters.get(gameId);
+    if (!writer) return null;
+    return { gameId, turn: writer.turn, seq: Math.max(0, writer.written.length - 1) };
+  }
+
+  /**
+   * THE LENS, OPENED ON ONE DECISION — the seam between the kernel that
+   * produces frames and the writer that orders them.
+   *
+   * Asked once per decision, by the decision layer, at the moment it has
+   * finished building its basis. Three things happen here and each of them is
+   * a thing only this end can do:
+   *
+   *   1. `decision.begin` is written, carrying the real `DecisionInput`. The
+   *      storage track left `logDecisionRecord` with no caller rather than
+   *      assemble a basis out of whatever it could reach — a re-run seed
+   *      guessed by the module that stores it re-runs a different decision —
+   *      so the producer is here, where the decision declares it.
+   *   2. The `decisions` row is queued with that basis. Its `boardHash` is the
+   *      LOG's, taken from the anchor this turn opened on rather than hashed a
+   *      second time in the decision layer.
+   *   3. Every frame the kernel emits is stamped by the SAME writer the
+   *      operator's commands are, which is what makes `seq` a single order
+   *      over both producers rather than two sequences that would have to be
+   *      merged later and cannot be.
+   *
+   * Returns null when there is no board to anchor a turn on — an unwatched or
+   * not-yet-started game, where the decision must cost exactly what it cost
+   * before the lens existed (05 §(d) gate 7(ii)).
+   *
+   * Every path below is wrapped: a lens consumer that throws must not be able
+   * to take a decision down.
+   */
+  public lensDecision(gameId: string, turn: number, decision: LensDecision): LensDecisionPort | null {
+    const writer = this.lensWriterFor(gameId);
+    if (!writer || writer.turn !== turn) return null;
+    const decisionId = `${gameId}:${turn}`;
+    const startedAt = Date.now();
+    const input = { ...decision.input, boardHash: this.lensBoardHashes.get(gameId) ?? '' };
+
+    this.emitTurnEvent(gameId, {
+      kind: 'decision.begin',
+      actor: { kind: 'bot', id: null, name: decision.input.botId, color: null },
+      payload: { decisionId, input },
+    });
+    DecisionLogger.getInstance().logDecisionRecord({
+      id: decisionId,
+      gameId,
+      turn,
+      botId: decision.input.botId,
+      behaviourId: decision.input.behaviourId,
+      engine: decision.engine,
+      profile: decision.profile,
+      input,
+      summary: {},
+      startedAt,
+      endedAt: null,
+    });
+
+    const unitKeyOf = (unitId: number): UnitKey | null => {
+      try {
+        return decision.unitKeyOf(unitId);
+      } catch {
+        return null;
+      }
+    };
+
+    return {
+      frame: (event: LensEvent): void => {
+        const live = this.lensWriterFor(gameId);
+        if (!live || live.turn !== turn) return;
+        try {
+          const written = ingestLensEvents(live, [event], { unitKeyOf });
+          for (const row of written) this.logStoredEvent(row);
+          // A reservoir frame moves the projection. Re-project the WHOLE turn
+          // rather than appending the frame's rows: the projection is a fold,
+          // and a fold recomputed is a fold that cannot have drifted. It is
+          // ≤24 rows per decision, and it is the same call
+          // `scripts/lens-rebuild.js` makes, so the live table and a rebuilt
+          // one are the same bytes by construction rather than by agreement.
+          if (written.some(row => row.kind === 'movesets')) {
+            DecisionLogger.getInstance().logMovesets(
+              decisionId,
+              projectMovesets(decisionId, live.written)
+            );
+          }
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens sink refused a ${event.kind} for ${gameId}:`, e);
+        }
+      },
+      /**
+       * THE OPERATOR'S GESTURE, AS A ROW. `pin` / `unpin` / `commit` have been
+       * in `TurnEventKind` since the model was written and nothing ever wrote
+       * one, so the fold's fixity map was permanently empty and every fact
+       * derived from it — a unit's fixity, its owner, the operator on a lane
+       * tick, the author on a widen banner, an emission's `answers` — was the
+       * same null.
+       *
+       * WRITTEN BEFORE THE KERNEL IS TOLD, and the id handed back, because the
+       * writer refuses an answer whose question it has not written. The actor
+       * is the operator holding the unit: a pin is a determination and a
+       * determination has an author, and where nobody holds the unit (a
+       * waypoint's own step, the wire's own observation) the row says server
+       * rather than inventing one.
+       */
+      command: (event: PinEvent, atWorkMs?: number | null): EventId | null => {
+        const live = this.lensWriterFor(gameId);
+        if (!live || live.turn !== turn) return null;
+        const unitId = event.kind === 'pin' ? event.pin.unitId : event.unitId;
+        const unit = unitKeyOf(unitId);
+        if (unit === null) return null;
+        const game = this.games.get(gameId);
+        const holder = game?.controlledSnakes.get(unit)?.selectedBy ?? null;
+        const actor = ActiveGameManager.actorOf(
+          game === undefined ? null : this.operatorFor(game, holder)
+        );
+        const written = this.emitTurnEvent(gameId, {
+          kind: event.kind,
+          actor,
+          unit,
+          atWorkMs: atWorkMs ?? null,
+          payload: {
+            unit,
+            // An `unpin` and a `commit` name a unit and not a cell; the cell
+            // the unit is staged at is what the strip draws, and `-1` is the
+            // established "not reported" reading everywhere else in this file.
+            to: event.kind === 'pin' ? event.pin.to : -1,
+            tentative: event.kind === 'pin' && event.pin.tentative,
+          },
+        });
+        return written?.id ?? null;
+      },
+
+      end: (summary: LensDecisionSummary): void => {
+        try {
+          this.emitTurnEvent(gameId, {
+            kind: 'decision.end',
+            actor: { kind: 'bot', id: null, name: decision.input.botId, color: null },
+            payload: {
+              decisionId,
+              abandoned: summary.abandoned,
+              stagedNothing: summary.stagedNothing,
+              summary: summary.counters,
+            },
+          });
+          DecisionLogger.getInstance().logDecisionRecord({
+            id: decisionId,
+            gameId,
+            turn,
+            botId: decision.input.botId,
+            behaviourId: decision.input.behaviourId,
+            engine: decision.engine,
+            profile: decision.profile,
+            input,
+            summary: summary.counters,
+            startedAt,
+            endedAt: Date.now(),
+          });
+        } catch (e) {
+          console.error(`[ActiveGameManager] Lens close failed for ${gameId}:`, e);
+        }
+      },
+    };
+  }
+
+  /**
+   * A staging request, as an event. `fallback` is the FAST PASS — the stage
+   * the manager makes before any decision has spoken — and it gets its own
+   * kind so a reader can tell "nothing had been decided yet" from "the
+   * decision decided this", which is exactly the distinction a panel reading
+   * *"fast-pass only — no kernel emission yet"* needs.
+   */
+  private emitStageEvent(
+    gameId: string,
+    snakeId: string,
+    turn: number,
+    move: CentaurMove,
+    source: IntendedMoveSource
+  ): void {
+    const to = this.cellOfMove(gameId, snakeId, move);
+    this.emitTurnEvent(gameId, {
+      kind: source === 'fallback' ? 'stage.fastpass' : 'stage.requested',
+      actor: { kind: 'bot', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: { unit: snakeId, to: to ?? -1, source },
+    });
+    if (to !== null) {
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn,
+        unitKey: snakeId,
+        stagedMove: to,
+        stagedSource: source,
+      });
+    }
+  }
+
+  /** The operator identity, as an event actor. */
+  private static actorOf(operator: OperatorRef | null): Actor {
+    if (!operator) return { kind: 'server', id: null, name: null, color: null };
+    return { kind: 'operator', id: operator.userId, name: operator.name, color: operator.color };
+  }
+
+  /**
+   * A wire move as a CELL, which is the vocabulary every other number in the
+   * lens is in. A piece's move is already a full-board destination index; a
+   * snake's is a direction, and the head it is a direction FROM is on the
+   * board this manager holds. Doing the translation here is what keeps
+   * `unit_outcomes` and `turn.resolved` in one numbering instead of storing
+   * two and asking every reader which it has.
+   */
+  private cellOfMove(gameId: string, snakeId: string, move: CentaurMove): CellIndex | null {
+    if (typeof move === 'number') return move;
+    const board = this.games.get(gameId)?.boardState?.board;
+    const snake = board?.snakes?.find(s => s.id === snakeId);
+    const head = snake?.head || snake?.body?.[0];
+    if (!board || !head) return null;
+    return apiCoordToIndex(
+      ActiveGameManager.destinationOf(head, move),
+      board.width + 2,
+      board.height + 2
+    );
+  }
+
+  /**
+   * Append one operator command to the event log.
+   *
+   * SEMANTICS UNCHANGED. Same verbs, same payloads, same call sites, same
+   * "system events carry no operator" rule. A pin, an unpin and a commit get
+   * their own kinds because the reducer and the kernel both key on them; every
+   * other verb rides `operator.command` with its verb named, exactly as the
+   * command log carried it. Never throws into the game path.
+   */
   private logCommandEvent(
     gameId: string,
     snakeId: string | null,
@@ -2104,17 +2652,29 @@ export class ActiveGameManager {
     operator: OperatorRef | null,
     payload: unknown
   ): void {
-    const game = this.games.get(gameId);
-    CommandLogger.getInstance().logEvent({
-      gameId,
-      snakeId,
-      // -1 marks "turn unknown" when the game is already gone at log time
-      // (e.g. a command racing teardown). Never default to 0: that would
-      // misattribute the event to the real first turn in the audit log.
-      turn: game?.boardStateTurn ?? -1,
-      eventType,
-      operator,
-      payload,
+    const actor = ActiveGameManager.actorOf(operator);
+    const detail = (payload ?? {}) as Record<string, unknown>;
+
+    if (eventType === 'commit' && snakeId) {
+      const move = detail.move as CentaurMove | undefined;
+      this.emitTurnEvent(gameId, {
+        kind: 'commit',
+        actor,
+        unit: snakeId,
+        payload: {
+          unit: snakeId,
+          to: move === undefined ? -1 : (this.cellOfMove(gameId, snakeId, move) ?? -1),
+          tentative: false,
+        },
+      });
+      return;
+    }
+
+    this.emitTurnEvent(gameId, {
+      kind: 'operator.command',
+      actor,
+      unit: snakeId,
+      payload: { verb: eventType, target: snakeId, detail },
     });
   }
 
@@ -2234,10 +2794,11 @@ export class ActiveGameManager {
   // ── Chess pieces ─────────────────────────────────────────────────────────
   // A piece's staged move is the FULL-BOARD index of its destination square
   // (the TacticToes wire format), not a Direction. Commanding is goto-based:
-  // the head of the goto queue IS the destination. Legality mirrors the
-  // server's pieceMoves.ts via src/logic/piece-moves.ts, so the centaur never
-  // stages a move the server would reject; an illegal target stages the
-  // piece's own square, which the server treats as stay.
+  // the head of the goto queue IS the destination. Legality is the SERVER'S,
+  // asked through src/logic/staging-legality.ts — the api-coordinate adapter
+  // over the vendored grammar queries — so the centaur never stages a move the
+  // server would reject; an illegal target stages the piece's own square,
+  // which the server treats as stay.
 
   private isPieceUnit(controlled: ControlledSnake): boolean {
     return (controlled.unitType ?? 'snake') !== 'snake';
@@ -2252,18 +2813,12 @@ export class ActiveGameManager {
     return apiCoordToIndex(head, board.width + 2, board.height + 2);
   }
 
-  // Every square holding food or ANY unit at the start of the turn, as
-  // full-board indices — the target set a pawn's diagonal-forward step is
-  // legal into (attack or eat; no friendly exemption, matching the engine).
-  private pawnTargetSquares(board: NonNullable<BoardSnapshot['board']>): Set<number> {
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
-    const targets = new Set<number>();
-    for (const f of board.food || []) targets.add(apiCoordToIndex(f, fullW, fullH));
-    for (const s of board.snakes || []) {
-      for (const seg of s.body || []) targets.add(apiCoordToIndex(seg, fullW, fullH));
-    }
-    return targets;
+  // The board a staging question is asked against, marshalled once per call
+  // site. A pawn's diagonal targets — every square holding food or ANY body at
+  // the start of the turn, no friendly exemption — are derived from it INSIDE
+  // the grammar queries, so this layer never states that rule at all.
+  private stagingBoardFor(board: NonNullable<BoardSnapshot['board']>): BoardShape {
+    return stagingBoard(board);
   }
 
   // The SINGLE resolver for a piece's commanded destination this turn —
@@ -2271,7 +2826,7 @@ export class ActiveGameManager {
   // candidate UI) both funnel through here.
   //
   //  - manual is an explicit human destination, decided by exactly one
-  //    planPieceAction call: a legal single move (ray/jump/step, pawn
+  //    grammar call: a legal single move (ray/jump/step, pawn
   //    orientation and diagonal-only-onto-target rules included; a pawn's side
   //    square is the rotate encoding) stages that square's index, anything
   //    else stages the piece's own square (= stay; the wire accepts any int and
@@ -2299,8 +2854,7 @@ export class ActiveGameManager {
     const head = you?.head || you?.body?.[0];
     if (!board || !you || !head) return null;
 
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
+    const { fullW, fullH } = fullDims(board);
     const originIdx = apiCoordToIndex(head, fullW, fullH);
     const intent = controlled.intent;
 
@@ -2324,8 +2878,8 @@ export class ActiveGameManager {
         action: best?.action ?? { kind: 'stay' },
       };
     }
-    const pawnTargets =
-      controlled.unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
+    const shape = this.stagingBoardFor(board);
+    const grammarUnit = grammarUnitAt(controlled.unitType, originIdx, you.orientation);
 
     if (intent.kind !== 'manual' || typeof intent.move !== 'number') {
       // THE BOT RUNG, third and last — reached only when no operator command
@@ -2334,20 +2888,12 @@ export class ActiveGameManager {
       // every piece and an uncommanded piece stages nothing at all, which is
       // still what happens when the bot has nothing to say.
       //
-      // The recommendation is validated through the SAME planPieceAction the
-      // manual rung uses, so a destination the server would reject stages the
-      // piece's own square (= stay) instead of a write the engine discards.
+      // The recommendation is validated through the SAME grammar the manual
+      // rung uses, so a destination the server would reject stages the piece's
+      // own square (= stay) instead of a write the engine discards.
       const recommended = controlled.botRecommendation;
       if (typeof recommended !== 'number') return null;
-      const botAction = planPieceAction(
-        controlled.unitType,
-        originIdx,
-        recommended,
-        fullW,
-        fullH,
-        you.orientation,
-        pawnTargets
-      );
+      const botAction = stagingActionFor(grammarUnit, recommended, shape);
       if (!botAction) {
         console.warn(
           `[ActiveGameManager] Bot recommended illegal destination ${recommended} for ` +
@@ -2361,15 +2907,7 @@ export class ActiveGameManager {
       };
     }
 
-    const action = planPieceAction(
-      controlled.unitType,
-      originIdx,
-      intent.move,
-      fullW,
-      fullH,
-      you.orientation,
-      pawnTargets
-    );
+    const action = stagingActionFor(grammarUnit, intent.move, shape);
     return {
       move: action ? intent.move : originIdx,
       source: 'manual',
@@ -2383,8 +2921,8 @@ export class ActiveGameManager {
   // candidate carries a positive score — an unreachable target pulls nowhere
   // and the piece stays put.
   private bestPieceCandidate(gameId: string, snakeId: string): PieceCandidateScore | null {
-    // Candidate-level FATAL veto, the piece counterpart of pickBestMove's
-    // fatal-pocket veto for snakes: a candidate whose projected traversal
+    // Candidate-level FATAL veto, the piece counterpart of the snake
+    // argmax's fatal-pocket veto: a candidate whose projected traversal
     // kills the piece (projected health 0) is never chosen while a survivable
     // candidate exists — the hard guarantee on top of the strongly-negative
     // deaths weight already inside `score`, which a large enough waypoint
@@ -2393,7 +2931,7 @@ export class ActiveGameManager {
     // untouched: fatal candidates still reach the UI, so a human commander can
     // still stage a sacrifice.
     //
-    // REGICIDE outranks it, exactly as it does in pickBestMove for snakes: a
+    // REGICIDE outranks it, exactly as it does for snakes: a
     // candidate that takes our team's LAST king ends the whole team that turn,
     // which is strictly worse than losing this one piece — so it is filtered
     // FIRST and only ignored if literally every candidate commits it. (Staying
@@ -2463,10 +3001,10 @@ export class ActiveGameManager {
    * so a fatal-but-winning king trade carries the enemyRegicide reward and is
    * scored rather than discarded.
    *
-   * The stat comes from the shared waypoint pathfinder walking the graph's
-   * per-unit adjacency, so a knight is ordered by knight moves and a rook by
-   * rays — there is nothing type-aware in this layer, and the piece's own
-   * shortest path is what the goto route draws.
+   * The stat comes from the shared waypoint pathfinder walking the unit's own
+   * search space, so a knight is ordered by knight moves and a rook by rays —
+   * there is nothing type-aware in this layer, and the piece's own shortest
+   * path is what the goto route draws.
    */
   private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
     const game = this.games.get(gameId);
@@ -2478,17 +3016,11 @@ export class ActiveGameManager {
     if (!gs || !head) return [];
 
     const board = gs.board;
-    const fullW = board.width + 2;
-    const fullH = board.height + 2;
+    const { fullW, fullH } = fullDims(board);
     const unitType = controlled.unitType ?? 'snake';
-    const pawnTargets = unitType === 'pawn' ? this.pawnTargetSquares(board) : undefined;
-    const legal = legalPieceDestinations(
-      unitType,
-      apiCoordToIndex(head, fullW, fullH),
-      fullW,
-      fullH,
-      gs.you.orientation,
-      pawnTargets
+    const legal = legalStagingCandidates(
+      grammarUnitAt(unitType, apiCoordToIndex(head, fullW, fullH), gs.you.orientation),
+      this.stagingBoardFor(board)
     );
     const dests = legal.map(c => toApiCoord(c.dest, fullW, fullH));
     // Progress is measured in the STATE the candidate leaves the piece in: a
@@ -2511,7 +3043,7 @@ export class ActiveGameManager {
     if (waypoint) {
       try {
         progress = waypointProgressByDestination(gs, snakeId, waypoint, probes, {
-          graph: new BoardGraph(gs),
+          board: new RouteBoard(gs),
         });
       } catch (e) {
         // Waypoint math must never break staging or the candidate broadcast:
@@ -2544,6 +3076,12 @@ export class ActiveGameManager {
       const healthCost = outcome?.cost ?? 0;
       const fatal = outcome?.fatal ?? false;
       const casualties = outcome?.casualties ?? emptyCasualtyContext();
+      // Same left-to-right accumulation the six terms used to spell out by
+      // hand: weight × stat, then each PIECE_TERMS entry in table order.
+      const score = PIECE_TERMS.reduce(
+        (sum, term) => sum + term.weight * term.of({ healthCost, fatal, casualties }),
+        weight * stat
+      );
       return {
         move: dest,
         action,
@@ -2555,13 +3093,7 @@ export class ActiveGameManager {
         healthCost,
         fatal,
         casualties,
-        score: weight * stat
-          + DEFAULT_CONFIG.healthLoss * healthCost
-          + DEFAULT_CONFIG.deaths * (fatal ? 1 : 0)
-          + DEFAULT_CONFIG.kills * casualties.kills
-          + DEFAULT_CONFIG.allyCasualty * casualties.allyCasualty
-          + DEFAULT_CONFIG.regicide * casualties.regicide
-          + DEFAULT_CONFIG.enemyRegicide * casualties.enemyRegicide,
+        score,
       };
     });
   }
@@ -2645,38 +3177,23 @@ export class ActiveGameManager {
   private computePieceMoveEvaluations(gameId: string, snakeId: string): MoveEvaluation[] {
     return this.computePieceCandidates(gameId, snakeId).map(candidate => {
       const progressScore = candidate.weight * candidate.stat;
-      const healthLossScore = DEFAULT_CONFIG.healthLoss * candidate.healthCost;
-      const deaths = candidate.fatal ? 1 : 0;
-      const { allyCasualty, regicide, kills, enemyRegicide } = candidate.casualties;
+      const values = PIECE_TERMS.map(term => ({ term, value: term.of(candidate) }));
       return {
         move: candidate.move,
         score: candidate.score,
-        numStates: 0,
         breakdown: {
-          healthLoss: candidate.healthCost,
-          deaths,
           // The casualty terms report on EVERY candidate, zero included, so a
           // ray that kills nothing is visibly a ray that kills nothing.
-          kills,
-          allyCasualty,
-          regicide,
-          enemyRegicide,
+          ...Object.fromEntries(values.map(({ term, value }) => [term.key, value])),
           weights: {
-            healthLoss: DEFAULT_CONFIG.healthLoss,
-            deaths: DEFAULT_CONFIG.deaths,
-            kills: DEFAULT_CONFIG.kills,
-            allyCasualty: DEFAULT_CONFIG.allyCasualty,
-            regicide: DEFAULT_CONFIG.regicide,
-            enemyRegicide: DEFAULT_CONFIG.enemyRegicide,
+            ...Object.fromEntries(PIECE_TERMS.map(term => [term.key, term.weight])),
             ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.weight } : {}),
           },
           weighted: {
-            healthLossScore,
-            deathsScore: deaths === 1 ? DEFAULT_CONFIG.deaths : 0,
-            killsScore: DEFAULT_CONFIG.kills * kills,
-            allyCasualtyScore: DEFAULT_CONFIG.allyCasualty * allyCasualty,
-            regicideScore: DEFAULT_CONFIG.regicide * regicide,
-            enemyRegicideScore: DEFAULT_CONFIG.enemyRegicide * enemyRegicide,
+            // `|| 0` only ever fires on -0 (a negative weight times a zero
+            // stat) — the original hand-written table avoided that sign for
+            // `deathsScore` alone; here every term gets the same treatment.
+            ...Object.fromEntries(values.map(({ term, value }) => [`${term.key}Score`, term.weight * value || 0])),
             ...(candidate.kind ? { [`${candidate.kind}ProgressScore`]: progressScore } : {}),
           },
           ...(candidate.kind ? { [`${candidate.kind}Progress`]: candidate.stat } : {}),
@@ -2727,23 +3244,7 @@ export class ActiveGameManager {
 
     let boardUpdated = false;
     if (incomingTurn > game.boardStateTurn) {
-      // Defensive only: updateBoard should have advanced the board already.
-      console.warn(
-        `[ActiveGameManager] updatePieceTurn advanced the board for ${gameId} ` +
-        `(turn ${game.boardStateTurn} -> ${incomingTurn}) — updateBoard should have run first`,
-      );
-      game.boardState = gameState;
-      game.boardStateTurn = incomingTurn;
-      for (const snake of gameState.board.snakes) {
-        if (!game.snakes.has(snake.id)) {
-          game.snakes.set(snake.id, {
-            id: snake.id,
-            name: snake.name,
-            letter: snake.letter || '',
-          });
-        }
-      }
-      boardUpdated = true;
+      boardUpdated = this.advanceDefensively(gameId, game, 'updatePieceTurn', gameState);
     }
 
     // Promotion changes the unit type mid-game (pawn → queen).
@@ -2759,7 +3260,6 @@ export class ActiveGameManager {
       gameState,
       moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
-      safeMoves: [],
       botRecommendation,
       timestamp: Date.now(),
     };
@@ -2857,6 +3357,10 @@ export class ActiveGameManager {
     if (!alreadySubmitted) {
       controlled.lastSubmittedTurn = requested.turn;
       controlled.lastSubmittedMove = requested.move;
+      // The request leaves here; its confirmation and its commit are separate
+      // events with their own `seq`, so the lifecycle is three linked rows
+      // rather than three independent log lines nobody can pair up.
+      this.emitStageEvent(gameId, snakeId, requested.turn, requested.move, requested.source);
       if (this.moveSubmitter) {
         this.moveSubmitter(gameId, snakeId, requested.turn, requested.move, requested.source).catch((err) => {
           console.error(`[ActiveGameManager] Failed to publish staged move for ${gameId}:${snakeId} turn ${requested.turn}:`, err);
@@ -2885,6 +3389,18 @@ export class ActiveGameManager {
       if (!req) return;
       if (cs.confirmedStaged?.turn === req.turn && cs.confirmedStaged.move === req.move) return;
       console.warn(`[ActiveGameManager] Staged move for ${gameId}:${snakeId} turn ${req.turn} (${req.move}) still unconfirmed — republishing`);
+      const retryTo = this.cellOfMove(gameId, snakeId, req.move);
+      this.emitTurnEvent(gameId, {
+        kind: 'stage.retry',
+        actor: { kind: 'server', id: null, name: null, color: null },
+        unit: snakeId,
+        payload: {
+          unit: snakeId,
+          to: retryTo ?? -1,
+          source: req.source,
+          why: 'unconfirmed-at-backstop',
+        },
+      });
       cs.lastSubmittedTurn = null;
       cs.lastSubmittedMove = null;
       this.ensureStagedPublished(gameId, snakeId);
@@ -2915,6 +3431,26 @@ export class ActiveGameManager {
     if (!controlled) return;
     if (controlled.confirmedStaged?.turn === turn && controlled.confirmedStaged.move === move) return;
     controlled.confirmedStaged = { turn, move };
+    const confirmedTo = this.cellOfMove(gameId, snakeId, move);
+    this.emitTurnEvent(gameId, {
+      kind: 'stage.confirmed',
+      actor: { kind: 'wire', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: {
+        unit: snakeId,
+        to: confirmedTo ?? -1,
+        source: controlled.staged?.source ?? 'unknown',
+        serverTs: Date.now(),
+      },
+    });
+    if (confirmedTo !== null) {
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn,
+        unitKey: snakeId,
+        confirmedMove: confirmedTo,
+      });
+    }
     this.ensureStagedPublished(gameId, snakeId);
 
     // A deferred Submit All fires the moment the requested move is the
@@ -2946,6 +3482,21 @@ export class ActiveGameManager {
       controlled.stagingRetryTimer = null;
     }
     controlled.finalMove = { turn, move };
+    // A REPORT OF OBSERVED FIREBASE STATE, nothing else — never inferred from
+    // a timer or the turn expiry, which is why it is its own event kind and
+    // not a flag on the request.
+    this.emitTurnEvent(gameId, {
+      kind: 'commit.observed',
+      actor: { kind: 'wire', id: null, name: null, color: null },
+      unit: snakeId,
+      payload: { unit: snakeId },
+    });
+    DecisionLogger.getInstance().recordUnitOutcome({
+      gameId,
+      turn,
+      unitKey: snakeId,
+      committed: true,
+    });
     this.notifyMoveCommitted(gameId, snakeId, move, 'firebase-final');
     this.notifyStagedChange(gameId);
   }
@@ -3053,7 +3604,11 @@ export class ActiveGameManager {
   }
 
   // The command-state snapshot for a game, in exactly the live broadcast
-  // shape (see CommandTurnState). Persisted per turn by applyResolvedMoves.
+  // shape (see CommandTurnState). NO LONGER PERSISTED: the per-turn snapshot
+  // it used to be written into was a second representation of state the event
+  // log already determines, and a reader that wants the state at a moment
+  // folds `turn_events` to that `seq` through the same reducer the live client
+  // runs. This is the LIVE broadcast builder and nothing else.
   getCommandStateForGame(gameId: string): CommandTurnState | null {
     const game = this.games.get(gameId);
     if (!game) return null;
@@ -3209,28 +3764,10 @@ export class ActiveGameManager {
 
     let boardUpdated = false;
     if (incomingTurn > game.boardStateTurn) {
-      // Defensive only: the canonical pipeline advances the board via
-      // updateBoard BEFORE any per-snake turn data lands, so this path firing
-      // means a transport fed decisions without feeding the board first. Keep
-      // the old advance behavior so the game stays live, but flag it.
-      console.warn(
-        `[ActiveGameManager] setBotRecommendation advanced the board for ${gameId} ` +
-        `(turn ${game.boardStateTurn} -> ${incomingTurn}) — updateBoard should have run first`,
-      );
-      game.boardState = turnData.gameState;
-      game.boardStateTurn = incomingTurn;
-
-      for (const snake of turnData.gameState.board.snakes) {
-        if (!game.snakes.has(snake.id)) {
-          game.snakes.set(snake.id, {
-            id: snake.id,
-            name: snake.name,
-            letter: snake.letter || '',
-          });
-        }
-      }
-
-      boardUpdated = true;
+      // The canonical pipeline advances the board via updateBoard BEFORE any
+      // per-snake turn data lands, so this path firing means a transport fed
+      // decisions without feeding the board first — see advanceDefensively.
+      boardUpdated = this.advanceDefensively(gameId, game, 'setBotRecommendation', turnData.gameState);
     } else if (incomingTurn === game.boardStateTurn) {
       const existingSnakeCount = game.boardState?.board.snakes.length || 0;
       const incomingSnakeCount = turnData.gameState.board.snakes.length;
@@ -3247,7 +3784,6 @@ export class ActiveGameManager {
       ? {
           ...turnData,
           moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
-          safeMoves: [],
           botRecommendation: move,
         }
       : turnData;
@@ -3384,15 +3920,7 @@ export class ActiveGameManager {
     game.gameTimeout = canonical.game.timeout || game.gameTimeout;
     game.lastActivityAt = Date.now();
 
-    for (const snake of canonical.board.snakes) {
-      if (!game.snakes.has(snake.id)) {
-        game.snakes.set(snake.id, {
-          id: snake.id,
-          name: snake.name,
-          letter: snake.letter || '',
-        });
-      }
-    }
+    this.rememberSnakes(game, canonical.board.snakes);
 
     for (const [snakeId, controlled] of game.controlledSnakes) {
       const ourSnake = canonical.board.snakes.find(s => s.id === snakeId);
@@ -3413,7 +3941,33 @@ export class ActiveGameManager {
       game.boardState = canonical;
       game.boardStateTurn = incomingTurn;
       game.currentTurn = Math.max(game.currentTurn, incomingTurn);
+      this.recomputeBoardTerritory(game, canonical);
       this.notifyBoardUpdate(gameId, canonical);
+    }
+  }
+
+  // The board-wide partition, recomputed for the turn that just arrived.
+  //
+  // IT IS A PROPERTY OF THE BOARD, so it is computed here, once, for every
+  // viewer — not lifted out of whichever unit's decision happened to produce
+  // one on the way past. That is how it used to arrive: the legacy per-snake
+  // decision path handed the UI its own Voronoi by-product, so the moment the
+  // shipped decision path stopped being that one the overlay and the cell
+  // inspector went quietly dark. Nothing about a map needs a decision to have
+  // been made.
+  //
+  // Never throws: a display grid must not be able to stall a turn's board
+  // update, and a game with no partition simply draws none.
+  private recomputeBoardTerritory(game: ActiveGame, canonical: BoardSnapshot): void {
+    try {
+      const ownership = computeTerritoryView(canonical);
+      game.boardTerritory = {
+        turn: canonical.turn ?? 0,
+        territoryCells: territoryCellsOf(ownership),
+        cellOwnership: ownership,
+      };
+    } catch (e) {
+      console.error(`[ActiveGameManager] territory view failed for turn ${canonical.turn}:`, e);
     }
   }
 
@@ -3515,32 +4069,51 @@ export class ActiveGameManager {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    // Snapshot every snake's command state AS IT STOOD WHEN THIS TURN ENDED.
-    // We run before the new board is fed in, so goto queues are un-shifted,
-    // staged records still bind to resolvedTurn, and operator attribution is
-    // exactly what was in force at the deadline. The history viewer replays
-    // this snapshot through the same render paths the live client uses.
+    // ONE EVENT, NOT A SNAPSHOT. The turn ending used to be recorded as a
+    // per-turn copy of the live broadcast shape, so the history viewer could
+    // feed it straight into the live render paths. The intent was right and it
+    // survives; the mechanism was a second representation of state the event
+    // log already determines, and two representations of one state disagree —
+    // that is not a risk, it is a schedule. A reader that wants the state at
+    // the deadline folds the events to that `seq`, through the same reducer
+    // the live client runs, so the two paths cannot drift.
+    const resolved: Array<{ unit: UnitKey; to: CellIndex }> = [];
+    for (const [snakeId, move] of Object.entries(moves)) {
+      if (!game.controlledSnakes.has(snakeId)) continue;
+      const to = this.cellOfMove(gameId, snakeId, move);
+      if (to !== null) resolved.push({ unit: snakeId, to });
+    }
     if (game.boardStateTurn === resolvedTurn) {
-      const state = this.getCommandStateForGame(gameId);
-      if (state) {
-        CommandLogger.getInstance().logTurnState(gameId, resolvedTurn, state);
-      }
+      this.emitTurnEvent(gameId, {
+        kind: 'turn.resolved',
+        actor: { kind: 'server', id: null, name: null, color: null },
+        payload: { moves: resolved, deaths: [], winners: [] },
+      });
     }
 
     for (const [snakeId, move] of Object.entries(moves)) {
       const controlled = game.controlledSnakes.get(snakeId);
       if (!controlled) continue;
 
-      // Persist the move the server applied onto this turn's decision row.
-      // The move resolved board turn `resolvedTurn`, whose decision was logged
-      // with decision_logs.turn = resolvedTurn + 1 (the logger records the turn
-      // the move executes INTO), so that +1 is the update key. The consent flag
-      // counts only when the staged record is bound to this exact turn and the
-      // applied move matches it (otherwise it's a bot/fallback move).
+      // The unit's outcome for the BOARD turn it resolved — one turn domain,
+      // so the row's key is `resolvedTurn` and not an offset from it. The
+      // consent flag counts only when the staged record is bound to this exact
+      // turn and the applied move matches it (otherwise it is a bot/fallback
+      // move, and consent was never asked for).
       const staged = controlled.staged;
       const fatalConsented = !!staged && staged.snakeId === snakeId &&
         staged.turn === resolvedTurn && staged.move === move && staged.fatalConsented;
-      DecisionLogger.getInstance().recordSubmittedMove(gameId, snakeId, resolvedTurn + 1, move, fatalConsented);
+      const to = this.cellOfMove(gameId, snakeId, move);
+      DecisionLogger.getInstance().recordUnitOutcome({
+        gameId,
+        turn: resolvedTurn,
+        unitKey: snakeId,
+        unitName: controlled.name ?? null,
+        resolvedMove: to,
+        confirmedMove: to,
+        committed: true,
+        fatalConsent: fatalConsented,
+      });
 
       // No move-committed notification here: the UI's double arrow is driven
       // by finalizeTurnMove, which fires when Firebase finalizes the turn —
@@ -3588,6 +4161,7 @@ export class ActiveGameManager {
             this.notifyGameListChange('removed', gameId, snakeId);
           }
           this.games.delete(gameId);
+          this.lensWriters.delete(gameId);
           this.enableTeamStaging(gameId, false);
           this.logIfFullyIdle();
           removedAny = true;

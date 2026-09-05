@@ -33,12 +33,18 @@
 import type {
   Candidate,
   CandidateSet,
+  CandidateView,
   JointPlan,
+  Lever,
+  LeverView,
   PlanScore,
+  ScoreBounds,
   SearchContext,
   SearchCore,
+  TrialSink,
   UnitId,
 } from "../contracts";
+import type { MovesetRung, Verdict } from "../../lens/types";
 import {
   BoundBank,
   DEFAULT_BANK_CONFIG,
@@ -60,6 +66,12 @@ import {
 } from "./order";
 import { basisOf, referenceActionsOf } from "./basis";
 import { resolveStagingSafety, stagingSafety } from "../staging-safety";
+import { DEFAULT_DEAD_BELOW, detectVacuity } from "../postures";
+// The KERNEL's plan key, not the bank's. The two spell a plan differently
+// (`to#path` against `to:path`) and the view's rows are handed to the kernel,
+// which compares them against `run.plans`; a key that is nearly the same is
+// worse than one that is obviously different.
+import { planKey as viewPlanKey } from "../voc";
 
 export interface SearchTuning {
   readonly bank: Partial<BankConfig>;
@@ -153,13 +165,160 @@ interface Session {
    * reference must stay fixed on the emission path too). Never swept,
    * repaired, polished or perturbed. */
   readonly references: ReadonlyMap<UnitId, Candidate>;
+  /**
+   * THE RIVAL SET THE LEVER VIEW IS ABOUT — the handful of priced plans that
+   * define this decision, kept across slices because the session is.
+   *
+   * Not every trial: a decision prices tens of thousands and the view needs
+   * the ones that could still be the answer. What is remembered is what the
+   * search itself KEEPS — the seed, each phase's winner, each restart's local
+   * optimum — which is exactly the set whose ceilings bound how open the
+   * decision still is.
+   */
+  readonly rivals: Map<string, Rival>;
+  /** Views built for this session. `LeverView.round` — the orchestrator's own
+   * sense of how long it has been looking at this decision. */
+  round: number;
 }
+
+/** One priced plan, as the lever view shows it. */
+interface Rival {
+  readonly key: string;
+  readonly plan: JointPlan;
+  bounds: ScoreBounds;
+  est: number;
+  /** The horizon THIS plan's reading was proved at (06 F-2). */
+  horizon: number;
+}
+
+/**
+ * Rivals kept per session. Small on purpose: the view exists to name the
+ * leader and the un-refuted rival with the highest ceiling, and a longer list
+ * buys the orchestrator nothing while costing every slice a walk.
+ */
+const LEVER_ROWS = 8;
+
+/**
+ * WHAT THE ACCEPTANCE LADDER READS. `Rival` is one of these; so is a priced
+ * trial, minus the witnesses and the reason.
+ */
+export interface RankedRow {
+  readonly bounds: ScoreBounds;
+  readonly est: number;
+  /** The horizon THIS row's reading was proved at (06 F-2). */
+  readonly horizon: number;
+  readonly plan: JointPlan;
+}
+
+/**
+ * THE ACCEPTANCE ORDER OVER TWO PRICED ROWS: does `a` displace `b`?
+ *
+ * Floor first, under basis comparability, then `est`, then the ceiling, then
+ * the salted tie — the ladder `better()` climbs, restricted to what a row
+ * carries. A basis mismatch is a REFUSAL, not a tie: two plans priced under
+ * different assumption sets are not two answers to one question, so `b` keeps
+ * its place.
+ *
+ * BOTH MIDDLE RUNGS ARE HORIZON-LOCAL, and this function is where that is
+ * said once for the two callers that must not disagree about a plan — the
+ * search's incumbent and the lever view's leader.
+ *
+ * `est` (06 F-4) is the evaluator's advisory scalar taken from B0 alone, with
+ * no basis, no ledger and no soundness claim: two ests at two horizons are two
+ * evaluations of two different boards with no declared discount between them,
+ * and comparing them is Law H's forbidden fold. It is the same coordinate
+ * `RatchetBasis.horizon` carries for exactly this reason — a basis ENDS where
+ * its horizon changes, because the quantity being ratcheted stopped being the
+ * same quantity.
+ *
+ * `hi` (08 F-10) does cross a horizon AS A BOUND, but this rung does not use
+ * it as one — it uses it as a ranking key preferring the LARGER, and a deeper
+ * reading has a lower ceiling, so an unguarded rung refuses a plan for having
+ * been measured, at an equal floor, where no rung above it is watching.
+ *
+ * Across horizons the salted tie decides: an indifferent order, reproducibly,
+ * which is the honest answer when two readings disagree about depth and no
+ * rung that can speak separated them.
+ */
+export function ranksAbove(a: RankedRow, b: RankedRow, seed: number): boolean {
+  const cmp = compareFloors(a.bounds, b.bounds);
+  if (!cmp.comparable) return false;
+  if (cmp.order !== 0) return cmp.order > 0;
+  const acrossHorizons = a.horizon !== b.horizon;
+  if (!acrossHorizons && a.est !== b.est) return a.est > b.est;
+  if (!acrossHorizons && a.bounds.best !== b.bounds.best) return a.bounds.best > b.bounds.best;
+  return planTieKey(a.plan, seed) > planTieKey(b.plan, seed);
+}
+
+/** The two shapes `better()` returns, allocated once: a comparison in the
+ *  hottest function in the search must not allocate to say "no". */
+const ACCEPT: Verdict = { accept: true };
+const REFUSED = {
+  witness: { accept: false, because: "witness" },
+  basis: { accept: false, because: "basis" },
+  floor: { accept: false, because: "floor" },
+  est: { accept: false, because: "est" },
+  hi: { accept: false, because: "hi" },
+  tie: { accept: false, because: "tie" },
+} as const satisfies Readonly<Record<string, Verdict>>;
 
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
   /** Bounds inversions this core absorbed rather than letting them end a
    * decision. Drained by the kernel, which owns the refusal counters. */
   let absorbedInversions = 0;
+
+  /**
+   * THE HORIZON OF ONE PLAN'S READING, keyed on the plan itself (06 F-2).
+   *
+   * A depth is a property of a proof about a particular joint assignment, so it
+   * is stored against that assignment and nothing else — not against the slice,
+   * not against the session, not against the leader. One ply unless something
+   * deepened it, and the only thing that ever does is `refine`. Weak, because a
+   * plan the search dropped takes its reading with it, and O(1), because it is
+   * read on the retention path once per observed trial.
+   */
+  const deepHorizon = new WeakMap<object, number>();
+  /**
+   * THE SAME READING, KEYED BY THE ASSIGNMENT RATHER THAN BY THE `Map` OBJECT
+   * THAT HAPPENS TO HOLD IT.
+   *
+   * The `WeakMap` above is keyed on object identity, and the search rebuilds a
+   * plan object constantly: `withMove`/`withMoves` return a fresh `Map` on
+   * every trial, so an ascent that wanders off the seeded assignment and comes
+   * back to it arrives holding a DIFFERENT OBJECT for the SAME assignment. The
+   * `WeakMap` then misses, `horizonOfPlan` reads 1, and `better()`'s rungs 4
+   * and 5 — which exist precisely to decline a comparison across a horizon —
+   * fire against a reading proved two plies out. Reproduced on
+   * `seededBoard(1, 6, 2)`: trial 0 is the seed at horizon 2 and declines
+   * correctly, three trials later the ascent takes a rival, and by trial 12 the
+   * incumbent is the seed's assignment again in a new object at horizon 1, with
+   * `hi` deciding at an equal floor. That is the bias against evidence 08 F-10
+   * names, arriving through the door F-10's own guard was meant to shut.
+   *
+   * A depth is a property of a proof about a particular joint ASSIGNMENT — this
+   * file's own words — so the fallback is keyed on `viewPlanKey`, which is that
+   * assignment's identity. Over-attributing a depth is the safe direction and
+   * the only one available here: a horizon that reads deeper only makes the
+   * ladder DECLINE a rung and fall through to the salted tie, which is an
+   * indifferent order, never a preference for the looser bound.
+   *
+   * COSTS NOTHING WHERE NOTHING IS DEEP. The table is written only when an
+   * incumbent arrives claiming a horizon above one, so on a build where
+   * `depthMax` is 1 it stays empty and the `size === 0` line makes
+   * `horizonOfPlan` exactly the `WeakMap` probe it was.
+   */
+  const deepHorizonByPlan = new Map<string, number>();
+  const rememberHorizon = (plan: JointPlan, horizon: number): void => {
+    deepHorizon.set(plan as object, horizon);
+    deepHorizonByPlan.set(viewPlanKey(plan), horizon);
+  };
+  const horizonOfPlan = (plan: JointPlan): number => {
+    const direct = deepHorizon.get(plan as object);
+    if (direct !== undefined) return direct;
+    if (deepHorizonByPlan.size === 0) return 1;
+    return deepHorizonByPlan.get(viewPlanKey(plan)) ?? 1;
+  };
 
   /**
    * LIVE SESSIONS, KEYED BY BASIS.
@@ -257,6 +416,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   /** Drop every live session and return every slab they cached. */
   const release = (): void => {
     for (const key of [...sessions.keys()]) closeSession(key);
+    // Per-DECISION, like everything else this core caches: a depth table that
+    // outlived the decision would answer about an assignment on another board.
+    deepHorizonByPlan.clear();
   };
 
   const open = (ctx: SearchContext): Session => {
@@ -292,7 +454,43 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       sets,
       pins,
       references,
+      rivals: new Map<string, Rival>(),
+      round: 0,
     };
+  };
+
+  /**
+   * Keep a priced plan as a rival. Idempotent on the key, so a plan re-priced
+   * at a deeper horizon UPDATES its reading rather than arriving twice.
+   *
+   * Eviction drops the lowest ceiling, ties by key — deterministic, and the
+   * right endpoint to drop on: a rival is interesting because its optimism has
+   * not been confronted yet, and the least optimistic one is the one whose
+   * confrontation would tell us least.
+   */
+  const remember = (s: Session, result: BankResult): void => {
+    const horizon = horizonOfPlan(result.plan);
+    const key = viewPlanKey(result.plan);
+    const hit = s.rivals.get(key);
+    if (hit !== undefined) {
+      hit.bounds = result.bounds;
+      hit.est = result.est;
+      hit.horizon = Math.max(hit.horizon, horizon);
+      return;
+    }
+    s.rivals.set(key, { key, plan: result.plan, bounds: result.bounds, est: result.est, horizon });
+    if (s.rivals.size <= LEVER_ROWS) return;
+    let worst: Rival | null = null;
+    for (const r of s.rivals.values()) {
+      if (
+        worst === null ||
+        r.bounds.best < worst.bounds.best ||
+        (r.bounds.best === worst.bounds.best && r.key > worst.key)
+      ) {
+        worst = r;
+      }
+    }
+    if (worst !== null) s.rivals.delete(worst.key);
   };
 
   /**
@@ -407,35 +605,180 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * number is exactly the laundering the whole bounds layer exists to prevent.
    * The incumbent keeps its place.
    */
-  const better = (trial: BankResult, incumbent: BankResult): boolean => {
+  /**
+   * THE RETENTION SEAM (03 §2.2).
+   *
+   * `better()` is the collapse point: it takes two priced results and returns
+   * a boolean, and the loser is dropped on the floor. Everything the lens
+   * shows about a decision is a trial that reached here. So the trials are
+   * OFFERED, at the one call site that already sees every priced one, and the
+   * cost when nobody is watching is the null check on the next line.
+   *
+   * The rung is ambient rather than a parameter because `better` is called
+   * from five places and the rung is a property of WHERE the search is, not
+   * of the comparison. It is set on entry to each move and restored after,
+   * which is the only discipline a single-threaded recursion needs.
+   */
+  let trials: TrialSink | null = null;
+  let rung: MovesetRung = "seed";
+  const observe = (trial: BankResult, incumbent: BankResult, verdict: Verdict): void => {
+    if (trials === null) return;
+    trials({
+      plan: trial.plan,
+      incumbentPlan: incumbent.plan,
+      bounds: trial.bounds,
+      est: trial.est,
+      tie: planTieKey(trial.plan, cfg.seed),
+      rung,
+      accepted: verdict.accept,
+      because: verdict.accept ? null : verdict.because,
+      // THE READING'S HORIZON, on the reading (06 F-2). The lens's depth column
+      // is sourced from here and never from `EmitRecord.horizon`.
+      horizon: horizonOfPlan(trial.plan),
+      // THE CERTIFICATE, or nothing. `refutedAt` is a numeric test — this
+      // plan's ceiling sits below the incumbent's proved floor — and the
+      // concrete reply that put it there is in the bank's own witness set. A
+      // trial with no witness banked yet is still refuted, but it is refuted
+      // by ARITHMETIC, and the reservoir says `dominated` rather than
+      // fabricating a certificate nobody holds.
+      witness: trial.witnesses[0] ?? null,
+      // THE INSTRUMENT RIDES ALONG (08 §5 step 1). `Q` is measured in the
+      // bank's own B3 preamble; this is the seam it travels to the lens on,
+      // and no comparison below reads it.
+      loud: trial.loud,
+    });
+  };
+
+  /**
+   * [CHANGE 1] — THE COMPARISON RETURNS ITS REASON.
+   *
+   * The refusal branch is the whole content of the set-valued reduction: every
+   * one of these six lines already knows WHY it refused, and until now none of
+   * it reached anything. `{accept}` is the same boolean it always was — every
+   * caller reads `.accept` and nothing else — and the reason rides beside it
+   * for the reservoir to turn into a `DominanceCondition` at the barrier.
+   *
+   * THIS MUST CHANGE NO DECISION. The reason is derived from comparisons this
+   * function already performs, in the order it already performs them, and the
+   * order is the invariant: `(floor, est, ceiling, salted tie key)`, strictly,
+   * with a basis mismatch a refusal. It is a refactor of the hottest function
+   * in the search, which is exactly where an accidental reordering hides — so
+   * it is gated on G2 (`lens-determinism.test.ts`), which was green two
+   * commits before this one and has to stay green after it.
+   */
+  const better = (trial: BankResult, incumbent: BankResult): Verdict => {
     // The witness veto, stated explicitly even though the floor comparison
     // already implies it: a plan some banked reply holds below the incumbent's
     // PROVED floor cannot be an improvement, however good its own floor looks.
-    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return false;
+    if (refutedAt(trial.bounds.best, incumbent.bounds.worst)) return REFUSED.witness;
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
-    if (!cmp.comparable) return false;
-    if (cmp.order !== 0) return cmp.order > 0;
-    if (trial.est !== incumbent.est) return trial.est > incumbent.est;
-    if (trial.bounds.best !== incumbent.bounds.best) return trial.bounds.best > incumbent.bounds.best;
-    return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed);
+    if (!cmp.comparable) return REFUSED.basis;
+    if (cmp.order !== 0) return cmp.order > 0 ? ACCEPT : REFUSED.floor;
+    // RUNG 4 IS HORIZON-LOCAL (06 F-4, Q-L7).
+    //
+    // `lo` and `hi` cross a horizon boundary because they are claims about a
+    // horizon-INDEPENDENT quantity, proved to different depths. `est` does not:
+    // it is the evaluator's advisory scalar taken from B0 alone, with no basis,
+    // no ledger and no soundness claim, and two ests at two horizons are two
+    // evaluations of two different boards with no declared discount between
+    // them. Comparing them is Law H's forbidden fold, and the shape of the trap
+    // is on record — an arena depth layer that published a proved floor into a
+    // mean slot composed a downward bias with an upward one and nobody could
+    // see it. So the rung is skipped where it cannot speak, and the ceiling,
+    // which is a bound, decides instead. One line, and it is why depth needs no
+    // fourth fiber coordinate.
+    const acrossHorizons = horizonOfPlan(trial.plan) !== horizonOfPlan(incumbent.plan);
+    if (!acrossHorizons && trial.est !== incumbent.est) {
+      return trial.est > incumbent.est ? ACCEPT : REFUSED.est;
+    }
+    // RUNG 5 IS HORIZON-LOCAL TOO (08 F-10), and for the mirror of F-4's
+    // reason rather than the same one.
+    //
+    // `hi` genuinely crosses a horizon boundary AS A BOUND: it is an upper
+    // bound on one horizon-independent quantity, proved to different depths,
+    // and the comment above is right that this is what lets a deep reading be
+    // compared with a shallow one at all. What it does not notice is that this
+    // rung does not use `hi` as a bound — it uses it AS A RANKING KEY
+    // PREFERRING THE LARGER. A deeper reading has a LOWER ceiling (that is the
+    // only thing depth can afford to move here), so a plan that was measured
+    // loses this rung to one that was not, purely for having been measured.
+    // That is a bias against evidence, and it would be invisible: the rung
+    // fires at an equal floor, where nothing else is watching.
+    //
+    // The guard DECLINES TO COMPARE rather than inventing an exchange rate,
+    // exactly as F-4's did. Across horizons the salted tie decides — an
+    // indifferent order, reproducibly — which is the honest answer when the
+    // two readings disagree about depth and no rung above them separated them.
+    // Byte-identical on this build, where every horizon is 1 and the guard is
+    // inert; installed now, while its installation can be proved harmless.
+    if (!acrossHorizons && trial.bounds.best !== incumbent.bounds.best) {
+      return trial.bounds.best > incumbent.bounds.best ? ACCEPT : REFUSED.hi;
+    }
+    return planTieKey(trial.plan, cfg.seed) > planTieKey(incumbent.plan, cfg.seed)
+      ? ACCEPT
+      : REFUSED.tie;
   };
 
   // ------------------------------------------------------------------ moves
 
-  const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
+  /** Price one proposal against the incumbent and take it iff `better()` says so.
+   *  ACCEPTANCE IS `better()` AND NOTHING ELSE — every rung inherits it here. */
+  const consider = (s: Session, best: BankResult, moves: ReadonlyArray<Candidate>): BankResult => {
+    const trial = s.bank.price(withMoves(best.plan, moves));
+    const verdict = better(trial, best);
+    observe(trial, best, verdict);
+    return verdict.accept ? trial : best;
+  };
+
+  /**
+   * ONE COORDINATE-ASCENT PASS — for each unit in `units`, price its top
+   * `perUnit` candidates against the incumbent, judge each with `better()`,
+   * observe it, take it if it wins. `sweep`, `conform`'s legality repair and
+   * `repairSelfHarm` are this loop at three different unit lists and caps;
+   * `skipIncumbent` is `sweep`'s only real difference — it skips the trial
+   * that would just be `withMove(plan, plan's own candidate)`.
+   */
+  const climb = (
+    s: Session,
+    budget: SearchContext["budget"],
+    start: BankResult,
+    units: Iterable<UnitId>,
+    perUnit: number,
+    skipIncumbent: boolean,
+  ): BankResult => {
     let best = start;
-    for (const unitId of dangerOrder(s.ours, best.worstResolution, s.pinned)) {
+    for (const unitId of units) {
       if (budget.shouldStop()) break;
-      const set = s.sets.get(unitId) as CandidateSet;
-      const current = best.plan.get(unitId) as Candidate;
-      for (const candidate of topCandidates(set.candidates, cfg.candidateCap)) {
+      const set = s.sets.get(unitId);
+      if (set === undefined) continue;
+      const current = skipIncumbent ? (best.plan.get(unitId) as Candidate) : undefined;
+      for (const candidate of topCandidates(set.candidates, perUnit)) {
         if (budget.shouldStop()) break;
-        if (candidate.to === current.to && samePath(candidate, current)) continue;
-        const trial = s.bank.price(withMove(best.plan, candidate));
-        if (better(trial, best)) best = trial;
+        if (current !== undefined && candidate.to === current.to && samePath(candidate, current)) continue;
+        best = consider(s, best, [candidate]);
       }
     }
     return best;
+  };
+
+  /** Price a plan, count it as an ACCEPTed observation, and enter it in the witness set. */
+  const seat = (s: Session, plan: JointPlan): BankResult => {
+    const scored = s.bank.price(plan);
+    observe(scored, scored, ACCEPT);
+    remember(s, scored);
+    return scored;
+  };
+
+  const sweep = (s: Session, budget: SearchContext["budget"], start: BankResult): BankResult => {
+    rung = "sweep";
+    return climb(
+      s,
+      budget,
+      start,
+      dangerOrder(s.sub, s.ours, start.worstResolution, s.pinned),
+      cfg.candidateCap,
+      true,
+    );
   };
 
   /**
@@ -450,8 +793,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     budget: SearchContext["budget"],
     start: BankResult,
   ): BankResult => {
+    rung = "pair";
     let best = start;
-    const pairs = selfInflictedPairs(best.worstResolution, s.ourSet, best.plan);
+    const pairs = selfInflictedPairs(s.sub, best.worstResolution, s.ourSet, best.plan);
     for (const [a, b] of pairs) {
       if (budget.shouldStop()) break;
       if (s.pinned.has(a) && s.pinned.has(b)) continue;
@@ -465,8 +809,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         if (budget.shouldStop()) break;
         for (const cb of optionsB) {
           if (budget.shouldStop()) break;
-          const trial = s.bank.price(withMoves(best.plan, [ca, cb]));
-          if (better(trial, best)) best = trial;
+          best = consider(s, best, [ca, cb]);
         }
       }
     }
@@ -484,8 +827,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     budget: SearchContext["budget"],
     start: BankResult,
   ): BankResult => {
+    rung = "polish";
     let best = start;
-    const units = contestedUnits(s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
+    const units = contestedUnits(s.sub, s.ours, best.worstResolution, s.pinned, cfg.polishUnits);
     if (units.length === 0) return best;
     const lists = units.map((id) =>
       topCandidates((s.sets.get(id) as CandidateSet).candidates, cfg.polishPerUnit),
@@ -494,8 +838,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       if (budget.shouldStop()) return;
       const list = lists[i];
       if (list === undefined) {
-        const trial = s.bank.price(withMoves(best.plan, acc));
-        if (better(trial, best)) best = trial;
+        best = consider(s, best, acc);
         return;
       }
       for (const candidate of list) {
@@ -525,13 +868,35 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
 
   const improve = (ctx: SearchContext): PlanScore => {
     const s = sessionFor(ctx);
-    {
-      let best = s.bank.price(seedPlan(s, ctx.incumbent?.plan ?? null));
+    trials = ctx.trials ?? null;
+    try {
+      rung = "seed";
+      const seeded = seedPlan(s, ctx.incumbent?.plan ?? null);
+      // A DEEP READING SURVIVES THE SLICE BOUNDARY. The kernel resumes a
+      // decision by handing back the incumbent it emitted, so a horizon proved
+      // in an earlier slice has to arrive with it or every slice would start
+      // over at one ply — and `better()`'s rung-4 guard would then never see
+      // the boundary it exists to refuse to cross. Two plan keys per call, and
+      // only when the incumbent claims a depth at all.
+      const carried = ctx.incumbent;
+      if (
+        carried !== null &&
+        carried.horizon !== undefined &&
+        carried.horizon > 1 &&
+        viewPlanKey(seeded) === viewPlanKey(carried.plan)
+      ) {
+        rememberHorizon(seeded, carried.horizon);
+      }
+      // THE SEED IS A TRIAL TOO. Without it a cluster whose assignment the
+      // whole slice never touched would have no row at all, and the operator
+      // would read an empty table for the units the search is happiest about.
+      let best = seat(s, seeded);
       for (let n = 0; n < cfg.maxSweeps; n++) {
         if (ctx.budget.shouldStop()) break;
         const before = best;
         best = sweep(s, ctx.budget, best);
         best = pairRepair(s, ctx.budget, best);
+        remember(s, best);
         if (best === before) {
           // Converged unit-wise. Polish first — it is cheap and it is the
           // escape a sweep cannot make — then spend what is left on perturbed
@@ -540,6 +905,7 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           const polished = jointPolish(s, ctx.budget, best);
           if (polished !== best) {
             best = polished;
+            remember(s, best);
             continue;
           }
           let restarted = false;
@@ -549,7 +915,14 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
             let local = s.bank.price(seed);
             local = sweep(s, ctx.budget, local);
             local = pairRepair(s, ctx.budget, local);
-            if (better(local, best)) {
+            // A LOSING RESTART IS STILL A RIVAL. Its ceiling is what root slack
+            // is a maximum over, so throwing it away is throwing away the one
+            // number that says the decision is still open.
+            remember(s, local);
+            rung = "restart";
+            const verdict = better(local, best);
+            observe(local, best, verdict);
+            if (verdict.accept) {
               best = local;
               restarted = true;
               break;
@@ -558,7 +931,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
           if (!restarted) break;
         }
       }
-      return { plan: best.plan, bounds: best.bounds, witnesses: s.bank.witnesses };
+      return {
+        plan: best.plan,
+        bounds: best.bounds,
+        witnesses: s.bank.witnesses,
+        // THE READING'S OWN HORIZON (06 F-2), so the kernel stamps the plan's
+        // depth on the plan rather than the slice's depth on everything.
+        horizon: horizonOfPlan(best.plan),
+      };
+    } finally {
+      trials = null;
     }
   };
 
@@ -593,7 +975,9 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const conform = (ctx: SearchContext, incumbent: JointPlan): JointPlan => {
     const s = sessionFor(ctx);
-    {
+    trials = ctx.trials ?? null;
+    rung = "conform";
+    try {
       if (incumbent.size === 0) {
         const seed = seedPlan(s, null);
         // One resolution set — and the SEED IS RETURNED WHATEVER IT SAYS.
@@ -618,6 +1002,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
         const repairing =
           cfg.rungZeroRepair ?? resolveStagingSafety(stagingSafety(), false) === "full";
         if (scored === null || !repairing) return seed;
+        observe(scored, scored, ACCEPT);
+        remember(s, scored);
         return repairSelfHarm(s, ctx, scored).plan;
       }
 
@@ -627,24 +1013,18 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       // 2. repair legality — only the units the splice actually disturbed.
       const disturbed = disturbedBy(s, plan, incumbent);
       if (disturbed.length > 0) {
-        let scored = s.bank.price(plan);
-        for (const unitId of disturbed) {
-          if (ctx.budget.shouldStop()) break;
-          const set = s.sets.get(unitId) as CandidateSet;
-          for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
-            if (ctx.budget.shouldStop()) break;
-            const trial = s.bank.price(withMove(scored.plan, candidate));
-            if (better(trial, scored)) scored = trial;
-          }
-        }
+        const scored = climb(s, ctx.budget, seat(s, plan), disturbed, cfg.conformRepairPerUnit, false);
         plan = scored.plan;
       }
 
       // 3. one pair-repair pass.
       if (!ctx.budget.shouldStop()) {
-        plan = pairRepair(s, ctx.budget, s.bank.price(plan)).plan;
+        plan = pairRepair(s, ctx.budget, seat(s, plan)).plan;
       }
       return plan;
+    } finally {
+      trials = null;
+      rung = "seed";
     }
   };
 
@@ -672,19 +1052,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    * an operator who pinned a unit into a fatal cell has said so on purpose.
    */
   const repairSelfHarm = (s: Session, ctx: SearchContext, seed: BankResult): BankResult => {
+    rung = "conform";
     const victims = ourCasualties(s, seed);
     if (victims.length === 0) return seed;
-    let best = seed;
-    for (const unitId of victims.slice(0, Math.max(0, cfg.rungZeroRepairVictims))) {
-      if (ctx.budget.shouldStop()) break;
-      const set = s.sets.get(unitId);
-      if (set === undefined) continue;
-      for (const candidate of topCandidates(set.candidates, cfg.conformRepairPerUnit)) {
-        if (ctx.budget.shouldStop()) break;
-        const trial = s.bank.price(withMove(best.plan, candidate));
-        if (better(trial, best)) best = trial;
-      }
-    }
+    let best = climb(
+      s,
+      ctx.budget,
+      seed,
+      victims.slice(0, Math.max(0, cfg.rungZeroRepairVictims)),
+      cfg.conformRepairPerUnit,
+      false,
+    );
     // The 2-opt the coordinate step above structurally cannot make: a pair
     // where moving either unit alone is no improvement while moving both is.
     // Skipped when the single-unit pass already cleared the board.
@@ -703,7 +1081,8 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
    */
   const ourCasualties = (s: Session, result: BankResult): ReadonlyArray<UnitId> => {
     const resolution = result.worstResolution;
-    const dead = deadIn(resolution);
+    const dead = deadIn(s.sub, resolution);
+    const idOf = (wireId: string): UnitId | undefined => s.sub.unitIdOf(wireId);
     const out: UnitId[] = [];
     const seen = new Set<UnitId>();
     const push = (id: UnitId): void => {
@@ -712,8 +1091,12 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       out.push(id);
     };
     for (const clash of resolution.clashes) {
-      if (!clash.victimIDs.some((id) => s.ourSet.has(id))) continue;
-      for (const id of clash.playerIDs) push(id);
+      const victims = clash.victimIDs.map(idOf);
+      if (!victims.some((id) => id !== undefined && s.ourSet.has(id))) continue;
+      for (const wireId of clash.playerIDs) {
+        const id = idOf(wireId);
+        if (id !== undefined) push(id);
+      }
     }
     for (const id of dead) push(id);
     return out;
@@ -758,5 +1141,118 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     return out;
   };
 
-  return { improve, conform, drainRefusals, release };
+  // ------------------------------------------------------- the lever surface
+
+  /**
+   * THE REFINER SEAM GETS A PRODUCER (06 F-1).
+   *
+   * `asRefiner` narrows a core that implements BOTH `refinementView` and
+   * `refine`, and this one implemented neither — so `run.lastView` was never
+   * assigned, `absorb` stamped `run.lastView?.horizon ?? 1` onto every plan, and
+   * `EmitRecord.horizon` read 1 on all 125 956 decisions ever measured. A
+   * constant column that looks like a measurement is worse than an absent one,
+   * because three of this program's instrument artifacts came from reading one.
+   *
+   * WHAT THE VIEW CLAIMS. Real rivals (the plans the search kept), a real
+   * leader on the same ladder `better()` uses, a real root slack, and a
+   * per-plan horizon that is the plan's own.
+   *
+   * WHAT IT DOES NOT. Three of the orchestrator's four levers — `catchup`,
+   * `narrow`, `advance` — refine a HELD unit's claim, and this build has a
+   * producer for none of them: a narrowing is a marshalling-time input to the
+   * substrate, staleness is a fact about an observation a decision cannot go
+   * back and take, and `advanced` is decided by the bank's own entanglement
+   * gating rather than by a caller asking. So `units` is EMPTY, deliberately.
+   * Reporting units no lever can move would make `leverOrderBinding: true` a
+   * claim about an order that does not bind, which is the same defect as the
+   * constant horizon column wearing a different hat.
+   */
+  const leaderOf = (rows: ReadonlyArray<Rival>): number => {
+    let best = 0;
+    for (let i = 1; i < rows.length; i++) {
+      if (ranksAbove(rows[i] as Rival, rows[best] as Rival, cfg.seed)) best = i;
+    }
+    return best;
+  };
+
+  const refinementView = (ctx: SearchContext): LeverView => {
+    const s = sessionFor(ctx);
+    s.round++;
+    // Sorted by key: the view is read by an orchestrator whose choices must
+    // replay identically, and a Map's insertion order is a function of which
+    // trials happened to win.
+    const rows = [...s.rivals.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    if (rows.length === 0) {
+      return {
+        candidates: [],
+        leaderIdx: -1,
+        slack: 0,
+        horizon: 1,
+        depthMax: 1,
+        units: [],
+        interiorCells: 0,
+        epsilon: 0,
+        round: s.round,
+      };
+    }
+    const leaderIdx = leaderOf(rows);
+    const leader = rows[leaderIdx] as Rival;
+    let slack = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (i === leaderIdx) continue;
+      slack = Math.max(slack, (rows[i] as Rival).bounds.best - leader.bounds.worst);
+    }
+    const candidates: CandidateView[] = rows.map((r, i) => {
+      const loCite = new Set<UnitId>();
+      const hiCite = new Set<UnitId>();
+      for (const e of r.bounds.ledger) {
+        (e.polarity === "if_present" ? loCite : hiCite).add(e.unitId);
+      }
+      return {
+        key: r.key,
+        plan: r.plan,
+        lo: r.bounds.worst,
+        est: r.est,
+        hi: r.bounds.best,
+        horizon: r.horizon,
+        vacuity: detectVacuity(r.bounds, DEFAULT_DEAD_BELOW).cause,
+        loCite,
+        hiCite,
+        // The witness veto, as a certificate rather than as an opinion: this
+        // plan's SOUND ceiling sits at or below the leader's PROVED floor.
+        refuted: i !== leaderIdx && refutedAt(r.bounds.best, leader.bounds.worst),
+      };
+    });
+    return {
+      candidates,
+      leaderIdx,
+      slack,
+      horizon: leader.horizon,
+      // HOW DEEP THIS CORE CAN GO. One ply: there is no continuation layer,
+      // so the orchestrator's depth ration finds every target already at its
+      // maximum, falls through, and returns `stop` — which is the kernel's
+      // plain `improve()` slice. The seam is real and the answer through it is
+      // an honest no.
+      depthMax: 1,
+      units: [],
+      interiorCells: 0,
+      epsilon: 0,
+      round: s.round,
+    };
+  };
+
+  /**
+   * Apply one lever.
+   *
+   * The only lever with a producer here is depth, and `refinementView` offers
+   * it only where it can be paid for — so anything that arrives is a lever this
+   * core has no way to pull, and the honest response is the work the slice
+   * would have done anyway rather than a no-op that burns it.
+   */
+  const refine = (ctx: SearchContext, lever: Lever): PlanScore => {
+    void lever;
+    return improve(ctx);
+  };
+
+  return { improve, conform, refinementView, refine, drainRefusals, release };
 }

@@ -21,9 +21,10 @@
  *   - pawn keys resolve through one table: forward, rotations, diagonal
  *     chords, retract-to-hold;
  *   - the axis rings derive from the same per-type legal orientation sets as the
- *     engine (legalOrientations in src/logic/piece-moves.ts).
+ *     engine (legalOrientations in src/logic/staging-legality.ts).
  */
-import { legalOrientations } from '../logic/piece-moves';
+import { legalOrientations } from '../logic/staging-legality';
+import type { UnitType } from '@shared/types/Game';
 
 const {
   ORTHO_AXES,
@@ -92,7 +93,7 @@ describe('axis rings derive from the engine orientation sets', () => {
     ['king', ALL_AXES],
     ['knight', KNIGHT_AXES],
   ])('%s ring = legalOrientations y-flipped, sorted clockwise from up', (type, ring) => {
-    const derived = legalOrientations(type as string)
+    const derived = legalOrientations(type as UnitType)
       .map((f) => ({ dx: f.dx, dy: -f.dy || 0 }))
       .sort((a, b) => cwFromUp(a) - cwFromUp(b));
     expect(ring).toEqual(derived);

@@ -10,52 +10,9 @@
  *     guaranteed 180° self-collision and must log full state.
  */
 
-import { ActiveGameManager, TurnData, MoveEvaluation } from '../server/active-game-manager';
-import { GameState, Snake, Coord, Direction, CentaurMove } from '../types/battlesnake';
-
-// Body extends straight DOWN from the head: body[1] (the neck) is at
-// (head.x, head.y - 1), so 'down' is always a 180° reversal / certain death.
-function makeSnake(id: string, head: Coord, length = 3): Snake {
-  const body: Coord[] = [];
-  for (let i = 0; i < length; i++) {
-    body.push({ x: head.x, y: head.y - i });
-  }
-  return {
-    orientation: { dx: 0, dy: -1 },
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head,
-    length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-  };
-}
-
-function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
-  const you = snakes.find((s) => s.id === youId)!;
-  return {
-    game: { id: gameId, ruleset: { name: 'standard', version: '1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
-    board: { width: 11, height: 11, food: [], hazards: [], snakes },
-    you,
-  };
-}
-
-
-function makeTurnData(gs: GameState, botMove: Direction): TurnData {
-  return {
-    gameState: gs,
-    moveEvaluations: [],
-    territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
-    botRecommendation: botMove,
-    timestamp: Date.now(),
-  };
-}
+import { ActiveGameManager, MoveEvaluation } from '../server/active-game-manager';
+import { Snake, Direction, CentaurMove } from '../types/battlesnake';
+import { makeSnakeAt as makeSnake, makeGameState, makeTurnData } from './board-fixtures';
 
 describe('Fatal-move consent gate + neck-reversal guards', () => {
   let mgr: ActiveGameManager;
@@ -197,7 +154,6 @@ describe('Fatal-move consent gate + neck-reversal guards', () => {
     const evaluations: MoveEvaluation[] = (['down', 'up', 'left'] as Direction[]).map((move) => ({
       move,
       score: move === 'down' ? 500 : 10,
-      numStates: 1,
       breakdown: {
         trapped: 0,
         weights: { gotoProgress: 300, nearProgress: 250 },

@@ -17,6 +17,7 @@ import type {
   UnitId,
 } from '../lobster/contracts';
 import type { Board as ApiBoard, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import { piece as sharedPiece } from './board-fixtures';
 import { LobsterKernel, type KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { GrammarCandidateGenerator } from '../lobster/candidates';
@@ -43,25 +44,10 @@ class StepClock {
   readonly peek = (): number => this.t;
 }
 
-function makeSnakeUnit(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
+// Local adapter: this file's `piece` takes `teamID` as a fifth positional,
+// not in `extra` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>
-  makeSnakeUnit(id, [at], { unitType, length: weight, teamID } as Partial<Snake>);
+  sharedPiece(id, at, unitType, weight, { teamID });
 
 const boardOf = (snakes: Snake[], size: number): ApiBoard =>
   ({ width: size, height: size, food: [], hazards: [], snakes }) as ApiBoard;
@@ -576,7 +562,6 @@ describe('when pin advice reaches the operator', () => {
         };
       },
       pinSnakeIdOf: (_g, unitId) => registry[unitId] ?? null,
-      logDecision: () => undefined,
       now: () => 10_000,
       monotonic: clock.now,
       log: () => undefined,

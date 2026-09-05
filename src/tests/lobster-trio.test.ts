@@ -5,21 +5,21 @@
  * Every builder shipped against stubs of its neighbours; these tests pin the
  * guarantees each stub ASSUMED, against the real implementations:
  *
- *  - the sentinels agree across modules (NO_ORDER, DEAD);
+ *  - the sentinels agree across modules (the no-order destination, DEAD);
  *  - conform(∅) is rung 0: a complete legal joint plan, cheaply;
  *  - improve honours pins, honours the clock, and RESUMES from the incumbent
  *    and witness set rather than restarting (B3's stubs could not catch a
  *    restarting core — this suite can);
  *  - the ledger under fog names the responsible held units;
  *  - lo ≤ est ≤ hi from the real evaluator, on every plan tried;
- *  - the slab discipline holds: outstanding() === 1 between search calls and
- *    0 after release — a leak here presents as "the engine is slow";
+ *  - the resolution memo is warm between search calls and empty after
+ *    release — a cold memo here presents as "the engine is slow";
  *  - the kernel threads witnesses back into the context, contains a bounds
  *    inversion, and refuses an unreachable pin on a named channel.
  */
 
-import type { Board, Coord, Snake } from '../types/battlesnake';
-import { DEAD as ENGINE_DEAD, NO_ORDER } from '../partial-engine/index';
+import type { Board, Snake } from '../types/battlesnake';
+import { piece } from './board-fixtures';
 import type {
   Assumption,
   BudgetHandle,
@@ -48,31 +48,9 @@ import { LobsterKernel, deadlineFromWallClock } from '../lobster/kernel';
 
 // ------------------------------------------------------------------ fixtures
 
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
+// NOT converted to the shared `boardOf`: five of this file's six call sites
+// rely on the 7×7 default, unlike the shared factory's 9×9 — see
+// SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({ width: 7, height: 7, food: [], hazards: [], snakes, ...extra }) as Board;
 
@@ -157,14 +135,19 @@ afterEach(() => clearGeometryCache());
 // ---------------------------------------------------------------- sentinels
 
 describe('one sentinel per concept, everywhere', () => {
-  test('NO_ORDER_MOVE is the engine NO_ORDER', () => {
-    expect(NO_ORDER_MOVE).toBe(NO_ORDER);
+  test('NO_ORDER_MOVE is not a cell, so it can never be mistaken for one', () => {
+    // The engine has no no-order sentinel to agree with any more: a unit with
+    // no staged move simply has no `stagedMove`, and settlement gives it the
+    // kind's own default. So the contract's sentinel has one job left — to be
+    // outside the board — and the substrate turns it into the absence the
+    // engine wants.
+    expect(NO_ORDER_MOVE).toBeLessThan(0);
   });
 
-  test('DEAD agrees across engine, evaluate, bounds, and the posture default', () => {
-    expect(EVALUATE_DEAD).toBe(ENGINE_DEAD);
-    expect(BOUNDS_DEAD).toBe(ENGINE_DEAD);
+  test('DEAD agrees across evaluate, bounds, and the posture default', () => {
+    expect(BOUNDS_DEAD).toBe(EVALUATE_DEAD);
     expect(DEFAULT_DEAD_BELOW).toBe(EVALUATE_DEAD);
+    expect(EVALUATE_DEAD).toBe(Number.NEGATIVE_INFINITY);
   });
 });
 
@@ -224,7 +207,7 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
     let conformCost = 0;
     try {
       makeSearchCore().conform(a.ctx(), new Map());
-      conformCost = a.sub.resolutions();
+      conformCost = a.sub.settlements();
     } finally {
       a.close();
     }
@@ -232,7 +215,7 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
     let improveCost = 0;
     try {
       makeSearchCore().improve(b.ctx());
-      improveCost = b.sub.resolutions();
+      improveCost = b.sub.settlements();
     } finally {
       b.close();
     }
@@ -254,7 +237,7 @@ describe('conform(ctx, ∅) is rung 0 against the real trio', () => {
         const plan = makeSearchCore().conform(t.ctx(), new Map());
         // Still rung 0's contract: a complete legal plan for every unit.
         expect(plan.size).toBeGreaterThanOrEqual(t.sub.commandable(0).length);
-        return t.sub.resolutions();
+        return t.sub.settlements();
       } finally {
         t.close();
       }
@@ -312,7 +295,7 @@ describe('improve against the real trio', () => {
     let openCost = 0;
     try {
       makeSearchCore().improve(open.ctx());
-      openCost = open.sub.resolutions();
+      openCost = open.sub.settlements();
     } finally {
       open.close();
     }
@@ -332,7 +315,7 @@ describe('improve against the real trio', () => {
       // Cut short, it still holds a complete plan — and it spent real work
       // only until the clock tripped.
       expect(out.plan.size).toBe(cut.sub.commandable(0).length);
-      expect(cut.sub.resolutions()).toBeLessThan(openCost);
+      expect(cut.sub.settlements()).toBeLessThan(openCost);
     } finally {
       cut.close();
     }
@@ -471,9 +454,9 @@ describe('withModelled on the real substrate lights the bank ladder (B2 open ite
       expect(full.members.some((m) => m.rung !== 'B0')).toBe(true);
       expect(full.bounds.worst).toBeGreaterThanOrEqual(b0.bounds.worst);
       expect(full.bounds.best).toBeLessThanOrEqual(b0.bounds.best);
-      // Slabs come home from both banks.
-      expect(loose.sub.outstanding()).toBe(1);
-      expect(tight.sub.outstanding()).toBe(1);
+      // Both banks really settled something, on the same board.
+      expect(loose.sub.settlements()).toBeGreaterThan(0);
+      expect(tight.sub.settlements()).toBeGreaterThan(0);
     } finally {
       loose.close();
       tight.close();
@@ -481,54 +464,24 @@ describe('withModelled on the real substrate lights the bank ladder (B2 open ite
   });
 });
 
-// ------------------------------------------------------------ slab discipline
+// ------------------------------------------------------- the resolution memo
 
-describe('slab discipline across the search (B1 integration invariant)', () => {
-  test('the memo holds slabs BETWEEN calls, and release() hands every one back', () => {
-    // THE INVARIANT MOVED, DELIBERATELY. It used to be `outstanding() === 1
-    // between search calls`, which held because every `improve` built a bank
-    // and dropped it — and dropping it is what made the anytime loop idle at
-    // production team sizes: each slice re-generated the grammar, started from
-    // a cold memo, and spent its first `price()` on the seed the previous
-    // slice had already priced. The core keeps its session alive between calls
-    // now, so between calls the count is `1 + what the memo caches`, bounded
-    // by the memo's capacity; `release()` is where it comes back to 1, and the
-    // substrate's own `release()` takes the base state with it.
-    const t = trio();
-    const CAP = 256;
-    try {
-      expect(t.sub.outstanding()).toBe(1);
-      const core = makeSearchCore({ bank: { memoCapacity: CAP } });
-      core.improve(t.ctx());
-      const held = t.sub.outstanding();
-      expect(held).toBeGreaterThan(1); // the memo really is warm
-      expect(held).toBeLessThanOrEqual(1 + CAP);
-      core.conform(t.ctx(), new Map());
-      expect(t.sub.outstanding()).toBeLessThanOrEqual(1 + CAP);
-      core.improve(t.ctx());
-      expect(t.sub.outstanding()).toBeLessThanOrEqual(1 + CAP);
-      // Closing the session returns every cached slab, and only those.
-      core.release?.();
-      expect(t.sub.outstanding()).toBe(1);
-    } finally {
-      t.close();
-    }
-    // After release the base state itself is returned.
-  });
-
+describe('the memo stays warm across search calls (B1 integration invariant)', () => {
   test('a warm session re-prices nothing: the second improve is far cheaper', () => {
     // The whole point of keeping the session: at 26 units one `price()` is
-    // most of a slice, and the first price of every slice used to be the seed
-    // the previous slice had just priced.
-    const t = trio(ROSTER(6));
+    // most of a slice, and the first one is always the seed the previous slice
+    // already priced. There is no arena to leak any more, so the only thing
+    // left to measure is the SETTLEMENT COUNT — which is what the budget is
+    // denominated in and what a cold rebuild would double.
+    const t = trio();
     try {
       const core = makeSearchCore();
       core.improve(t.ctx());
-      const afterFirst = t.sub.resolutions();
+      const afterFirst = t.sub.settlements();
       const incumbent = core.improve(t.ctx());
-      const afterSecond = t.sub.resolutions();
+      const afterSecond = t.sub.settlements();
       expect(incumbent.plan.size).toBeGreaterThan(0);
-      // A cold rebuild would re-run every resolution the first call ran.
+      // A cold rebuild would re-run every settlement the first call ran.
       expect(afterSecond - afterFirst).toBeLessThan(afterFirst / 2);
       core.release?.();
     } finally {
@@ -536,12 +489,17 @@ describe('slab discipline across the search (B1 integration invariant)', () => {
     }
   });
 
-  test('release() returns the base state too', () => {
+  test('release() closes the session and the substrate together', () => {
     const t = trio();
+    const core = makeSearchCore();
+    core.improve(t.ctx());
+    core.release?.();
     t.close();
-    expect(t.sub.outstanding()).toBe(0);
+    // The substrate refuses further work rather than serving a stale cache.
+    expect(() => t.sub.resolveBoundedFor(new Map(), 0)).toThrow(/after release/);
   });
 });
+
 
 // -------------------------------------------------------- kernel over the trio
 
@@ -577,7 +535,6 @@ describe('the kernel over the real trio (wall clock, structural assertions)', ()
         expect(rec.plan.get(rook)?.to).toBe(target.to);
       }
       expect(report?.refusals['pin-unreachable']).toBe(0);
-      expect(t.sub.outstanding()).toBe(1);
     } finally {
       t.close();
     }
@@ -844,27 +801,12 @@ describe('EngineSubstrate + BoundEvaluator bracket the exhaustive truth', () => 
   }, 60_000);
 });
 
-// ------------------------------- per-kind maxHealth, threaded (V4 S1 retired)
+// ------------------------------- per-kind max ENERGY, threaded (V4 S1 retired)
 
-describe('per-kind maxHealth reaches the engine, so reach is bounded by it', () => {
-  /**
-   * RETIRED TRIPWIRE, INVERTED.
-   *
-   * The substrate used to collapse a board's per-kind `maxHealthPerUnit` to
-   * one ceiling — the maximum — because the engine carried one. That kept
-   * ceilings sound and LOST FLOORS: our own low-maximum units were credited
-   * with a refuel budget, and so a reach, they do not have, and `reachFeature`
-   * reads reach on its LO side. It was invisible to the soundness harness by
-   * construction, because `checkSoundness` brackets against completion worlds
-   * computed by the same engine under the same flattened premise.
-   *
-   * The engine takes the table now (`EngineConfig.maxHealthPerKind`), so the
-   * test is the positive one: a low-maximum unit's reach really is bounded by
-   * ITS maximum and not by the board's largest.
-   */
+describe('a board that configures per-kind ceilings is settled against them', () => {
   const withCeilings = (pawnMax: number): Board => {
     const board = boardOf([
-      piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red', health: 4 }),
+      piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red' }),
       piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
     ]);
     (board as { maxHealthPerUnit?: Record<string, number> }).maxHealthPerUnit = {
@@ -874,37 +816,21 @@ describe('per-kind maxHealth reaches the engine, so reach is bounded by it', () 
     return board;
   };
 
-  test('the engine is handed the table, not its maximum', () => {
+  test('the substrate is handed the table, not its maximum', () => {
+    // It used to be flattened to the maximum of the configured values, which
+    // kept ceilings sound and LOST FLOORS: our own low-maximum units were
+    // credited with a refuel budget, and so a reach, they do not have.
     const sub = makeSubstrate({ board: withCeilings(30), turn: TURN, asTeam: 'red' });
     try {
-      const perKind = sub.engine.config.maxHealthPerKind;
-      expect(perKind).not.toBeNull();
-      // Kind indices are the grammar registry's order; the pawn's own ceiling
-      // is 30 and the flat default stays 100 for everything else.
-      expect(perKind).toContain(30);
-      expect(sub.engine.config.maxHealth).toBe(100);
+      expect(sub.maxEnergyOf('pawn')).toBe(30);
+      expect(sub.maxEnergyOf('king')).toBe(100);
+      expect(sub.maxEnergyOf('queen')).toBe(sub.defaultMaxEnergy);
     } finally {
       sub.release();
     }
   });
 
-  test('a LOW ceiling is a real premise: the two boards are different engines', () => {
-    // The table is part of the engine's premise, so a board that configures a
-    // different ceiling may not reuse an engine built around the old one.
-    const low = makeSubstrate({ gameId: 'g', board: withCeilings(30), turn: TURN, asTeam: 'red' });
-    const high = makeSubstrate({ gameId: 'g', board: withCeilings(90), turn: TURN, asTeam: 'red' });
-    try {
-      expect(low.engine).not.toBe(high.engine);
-      expect(low.engine.config.maxHealthPerKind).not.toEqual(
-        high.engine.config.maxHealthPerKind
-      );
-    } finally {
-      low.release();
-      high.release();
-    }
-  });
-
-  test('a flat board still builds a flat engine — nothing changes where nothing was configured', () => {
+  test('a flat board reads flat — nothing changes where nothing was configured', () => {
     const sub = makeSubstrate({
       board: boardOf([
         piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red' }),
@@ -914,13 +840,14 @@ describe('per-kind maxHealth reaches the engine, so reach is bounded by it', () 
       asTeam: 'red',
     });
     try {
-      expect(sub.engine.config.maxHealthPerKind).toBeNull();
-      expect(sub.engine.config.maxHealth).toBe(100);
+      expect(sub.maxEnergyOf('pawn')).toBe(100);
+      expect(sub.defaultMaxEnergy).toBe(100);
     } finally {
       sub.release();
     }
   });
 });
+
 
 // ------------------------------------------- rung 0 survives an unsound bank
 

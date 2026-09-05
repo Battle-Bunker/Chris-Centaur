@@ -33,17 +33,25 @@
  * per-game state on this engine, never module scope.
  */
 
-import type { Board as ApiBoard, CentaurMove, Direction, GameState } from '../types/battlesnake';
+import type { Board as ApiBoard, CentaurMove, GameState } from '../types/battlesnake';
 import type { TurnData } from '../server/active-game-manager';
 import type { BotIdentity, BotSpec } from '../config/bot-identity';
 import { botIdentityOf } from '../config/bot-identity';
 import { behaviourId } from '../config/build-identity';
 import type { BotBinding } from '../config/bot-binding';
+import type {
+  KernelLensPort,
+  KernelOptionsDigest,
+  LensDecision,
+  LensDecisionPort,
+  StoredAssumption,
+  StoredPin,
+} from '../lens/types';
+import { unitKeyOf as wireKeyOf } from '../lens/kernel/keys';
 import { defaultBotSpecFrom } from '../config/bot-binding';
 import { moveIndexToDirection } from '../firebase/translate';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
 import { MAX_BATCH_DOCS } from '../wire/team-submitter';
-import { MAX_FROZEN, NEVER } from '../partial-engine/index';
 import type {
   Assumption,
   Candidate,
@@ -67,7 +75,11 @@ import { GrammarCandidateGenerator, knobsForSafety } from './candidates';
 import type { CandidateKnobs } from './candidates';
 import { boardBearsPiece, resolveStagingSafety, stagingSafety } from './staging-safety';
 import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
-import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, earliestShells, standingOf } from './evaluate';
+import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator, standingOf } from './evaluate';
+// The bank's own reader of an evaluator's declared identity. The frame's
+// `evalVersion` must be the SAME quantity the evaluation memo keys on, or a
+// provenance line would agree where the numbers do not.
+import { evaluatorIdentity } from './bounds';
 import type { CriterionProfile } from './evaluate';
 import { makeSearchCore } from './search';
 import type { SearchTuning } from './search/core';
@@ -110,24 +122,6 @@ export interface TeamDecisionPorts {
   /** The transport registry's reverse lookup for pin-event unit numbers. */
   pinSnakeIdOf(gameId: string, unitId: UnitId): string | null;
   /**
-   * REPLAY TELEMETRY OUT. One completed row per unit per turn, handed over
-   * after the decision has settled — see `./telemetry.ts` for what a row says
-   * and why it costs nothing inside the budget.
-   *
-   * A PORT AND NOT AN IMPORT. The logger is a process-wide singleton with a
-   * database queue behind it; reaching for it from in here would put a
-   * Postgres dependency inside the decision layer, and every lobster test
-   * would then be one import away from a live connection attempt. The wire
-   * layer owns persistence, so the wire layer supplies the sink and a test
-   * supplies a list.
-   *
-   * Required rather than optional, deliberately: an optional telemetry port is
-   * an unwired one, and an unwired one is exactly the silence this exists to
-   * end. A caller with nowhere to put rows passes `() => undefined` and has
-   * said so.
-   */
-  logDecision(row: UnitDecisionRow): void;
-  /**
    * WHICH BOT THIS GAME PLAYS — the production binding site.
    *
    * Before this port existed there was none. The engine reached for its own
@@ -149,6 +143,21 @@ export interface TeamDecisionPorts {
    * correct stamp, rather than an unstamped decision.
    */
   botBinding?(gameId: string, centaurId: string): BotBinding;
+  /**
+   * THE LENS SINK, per decision [CHANGE 3].
+   *
+   * A PORT AND NOT AN IMPORT, for the third time and the same reason: the
+   * frames are written to Postgres and broadcast on a websocket, and a
+   * decision layer that imported either would put both inside every lobster
+   * test. The port is asked once per decision and may say no — returning null
+   * is what an unwatched game looks like, and an unwatched game must cost
+   * exactly what it cost before the lens existed (05 §(d) gate 7(ii)).
+   *
+   * OPTIONAL, and its absence is not silence in the way `logDecision`'s would
+   * be: nobody is looking. The frames a nobody would have read are not worth
+   * the null checks it takes to build them.
+   */
+  lensSink?(gameId: string, turn: number, decision: LensDecision): LensDecisionPort | null;
   /** Wall clock (Date.now scale). Injectable for tests. */
   now?(): number;
   /** The kernel's monotonic clock. Injectable for tests. */
@@ -211,6 +220,57 @@ export interface TeamDecisionOptions {
    * measures nothing.
    */
   readonly stagingSafety?: StagingSafety;
+}
+
+/**
+ * The kernel's options as PLAIN VALUES — every number, string and boolean it
+ * was configured with, and nothing else. The two function-valued options (the
+ * crossfade certificate and the wire's chunk partition) are bound to one
+ * decision's substrate and cannot be stored, re-read or compared; a digest
+ * that carried "[Function]" for them would be a field that looks like a fact
+ * and is not one.
+ */
+export function digestOf(options: KernelOptions, evaluate?: Evaluator): KernelOptionsDigest {
+  const out: Record<string, number | string | boolean> = {};
+  for (const [key, value] of Object.entries(options)) {
+    const t = typeof value;
+    if (t === 'number' || t === 'string' || t === 'boolean') {
+      out[key] = value as number | string | boolean;
+    }
+  }
+  // THE EVALUATOR'S VERSION, which 02 §2.3 calls mandatory on every frame — *"a
+  // number without its `evalVersion` … is a cross-fiber comparison waiting to
+  // happen"* — and which no shipped frame has ever carried, because
+  // `lens/store::provenanceOf` reads it out of THIS digest and nothing put one
+  // in. `KernelOptions` has no such field and should not grow one: the version
+  // is a property of the EVALUATOR, not of the kernel's configuration. It is
+  // declared already — `BoundEvaluator.evaluationIdentity`, derived
+  // structurally from the whole profile, which is exactly the quantity two
+  // numbers must agree on before they may be compared — and the bank's own
+  // `evaluatorIdentity` is the one reader of it, so the frame reads it through
+  // the same function rather than through a second opinion about what an
+  // evaluator's identity is.
+  if (evaluate !== undefined) out.evalVersion = evalVersionOf(evaluate);
+  return out;
+}
+
+/**
+ * The declared evaluation identity, as a field narrow enough to sit on the
+ * rail. The identity itself is the profile spelled out — every weight and
+ * horizon in it — so it is hashed rather than printed: this is an equality
+ * check between two readings, and FNV-1a in hex is what `boardHashOf` already
+ * uses for exactly that job. `unknown` is drawn as an absence, never as a
+ * version nobody can check.
+ */
+function evalVersionOf(evaluate: Evaluator): string {
+  const identity = evaluatorIdentity(evaluate);
+  if (identity.startsWith('obj:')) return 'eval:unknown';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < identity.length; i++) {
+    hash ^= identity.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `eval:${hash.toString(16).padStart(8, '0')}`;
 }
 
 export interface TeamTurnInput {
@@ -297,6 +357,11 @@ interface GameState_ {
     turn: number;
     kernel: LobsterKernel;
     sub: EngineSubstrate;
+    /** This decision's log port. The operator's `pin` / `unpin` is written
+     *  through it and its id handed to the kernel, so the record that conforms
+     *  to the pin can name the question it answers (01 §5.3). Null when the
+     *  game is unwatched and there is no turn to write into. */
+    lens: LensDecisionPort | null;
   } | null;
 }
 
@@ -498,22 +563,66 @@ export class TeamDecisionEngine {
     // TURN-KEYED (V4 B1). A decision that started earlier must never take this
     // handle away from a later one, and only the owner clears it below.
     if (game.live === null || game.live.turn <= input.turn) {
-      game.live = { turn: input.turn, kernel, sub };
+      game.live = { turn: input.turn, kernel, sub, lens: null };
     }
+    const initialPins = game.ledger.pinsFor(sub);
+    // Asked ONCE per decision, and asked with the BASIS: everything the
+    // decision knows about itself that a re-run would need, declared at the
+    // moment it was built rather than reconstructed later by the module that
+    // stores it. A port that says null leaves `KernelInput.lens` undefined,
+    // which is the state the cost gate measures.
+    const lens =
+      this.ports.lensSink?.(input.gameId, input.turn, {
+        input: {
+          asTeam,
+          seed: this.options.search?.seed ?? 0,
+          assumptions: assumptions.map((a) => this.storedAssumption(sub, a)),
+          initialPins: initialPins.map(
+            (p): StoredPin => ({ unit: wireKeyOf(sub, p.unitId), to: p.to })
+          ),
+          modelled: chosen,
+          botId: bot.botId,
+          behaviourId: bot.behaviourId,
+          // NO NODE BUDGET IN PRODUCTION. A live decision stops on the wall
+          // clock, and a re-run under the node clock picks its own budget —
+          // saying 0 says that, where any other number would be a budget
+          // nobody ran.
+          nodeBudget: 0,
+          liveBudgetMs: Math.max(0, input.deadlineMs - this.now()),
+          kernelOptions: digestOf(this.kernelOptions(), evaluate),
+        },
+        engine: 'lobster',
+        // The profile's NAME, which is what a reader can compare. The
+        // evaluator carries the profile itself — name, weights and horizons —
+        // and the weights are already inside `botId`'s digest, so putting the
+        // object here would store the same fact twice in two shapes.
+        profile: (evaluate as { profile?: CriterionProfile }).profile?.name ?? '',
+        unitKeyOf: (unitId) => sub.unitOf(unitId as UnitId)?.wireId ?? null,
+      }) ?? null;
+    // The live handle carries the log port from here on, so `routeToKernel` —
+    // which runs OUTSIDE this scope, off the wire's pin stream — can write the
+    // operator's command before it hands it to the kernel.
+    const live = game.live;
+    if (live !== null && live.turn === input.turn) live.lens = lens;
+
     // The turn-boundary buffer is already folded into the ledger (beginTurn
-    // replayed it), so its pins and unpins arrive below as `initialPins`. A
+    // replayed it), so its pins and unpins arrive above as `initialPins`. A
     // COMMIT carries something the pin set cannot: the unit is frozen for the
     // turn, and only the kernel's own committedUnits gate can refuse a later
     // change to it. The two humans-always-win gates must agree, so a buffered
     // commit is handed to the kernel as an event.
-    const live = game.live;
+    //
+    // DRAINED AFTER THE LOG PORT IS BOUND, and before `decide` runs: a commit
+    // is an operator determination like any other and it is owed a row. It
+    // reaches the kernel at exactly the same point in the same slice either
+    // way — nothing between the two positions touches the ledger or the pin
+    // set — and on this side of the port it is written rather than silent.
     if (live !== null && live.turn === input.turn) {
       for (const ev of buffered) {
         if (ev.kind === 'commit') this.routeToKernel(input.gameId, game, live, ev);
       }
     }
 
-    const initialPins = game.ledger.pinsFor(sub);
     const kin: KernelInput = {
       sub,
       gen,
@@ -526,6 +635,7 @@ export class TeamDecisionEngine {
       now: this.monotonic,
       initialStepCostMs: game.stepCostMs,
       abandoned: () => game.latestTurn > input.turn,
+      ...(lens === null ? {} : { lens: lens.frame }),
     };
 
     const views = new Map(input.units.map((u) => [u.snakeId, u.view]));
@@ -570,18 +680,38 @@ export class TeamDecisionEngine {
         game.stepCostMs = report.finalStepCostMs;
         game.stepCostTurn = input.turn;
       }
-      // TELEMETRY, IN THE FINALLY AND BEFORE THE RELEASE.
+      // THE LENS CLOSES IN THE FINALLY AND BEFORE THE RELEASE.
       //
       // In the `finally` because the two paths that most need explaining are
       // the ones that do not reach the end of the loop: a decision ABANDONED
-      // because the turn resolved early, and one that threw. Both of those are
-      // turns a replay currently has nothing at all to say about, and a row
-      // written only on the happy path would leave exactly those holes.
+      // because the turn resolved early, and one that threw. Both are turns a
+      // replay would otherwise have nothing at all to say about, and a record
+      // closed only on the happy path would leave exactly those holes.
+      // `emitted === 0` is `stagedNothing` — an outcome a reader must never
+      // have to infer from an absence, because an absence is also what a lost
+      // log looks like.
       //
-      // Before `sub.release()` because every candidate assessment and every
-      // counterfactual evaluation reads the substrate; after it there is
-      // nothing left to read. Its own try/catch, because a decision must never
-      // be able to fail on account of its own logging.
+      // Before `sub.release()` because the candidate republish below reads the
+      // substrate; after it there is nothing left to read. Its own try/catch,
+      // because a decision must never be able to fail on account of its own
+      // record.
+      try {
+        lens?.end({
+          abandoned: game.latestTurn > input.turn,
+          stagedNothing: emitted === 0,
+          counters: {
+            emissions: emitted,
+            forwarded,
+            slices: report?.slices ?? 0,
+            ...refusals,
+          },
+        });
+      } catch (err) {
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: lens close threw — ` +
+            `${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       this.emitTelemetry({
         input,
         sub,
@@ -743,6 +873,35 @@ export class TeamDecisionEngine {
     return botIdentityOf(spec, binding.identity.behaviourId);
   }
 
+  /**
+   * THE RUNNING DECISION'S INSPECTION PORT for one game, or null when nothing
+   * is running there.
+   *
+   * The port reads the LIVE kernel — `lastReport` only exists once a decision
+   * has ended, which is when the turn is about to resolve and the operator has
+   * stopped looking. Null is not a switch: it is the state "no decision is
+   * answering questions right now", and the wire turns it into a typed
+   * refusal rather than a silence.
+   */
+  lensPortFor(gameId: string): KernelLensPort | null {
+    const live = this.games.get(gameId)?.live ?? null;
+    return live === null ? null : live.kernel.lensPort();
+  }
+
+  /**
+   * An assumption in the WIRE's numbering. The stored basis must be readable
+   * one turn later, and a substrate unit number is not — it is private to the
+   * decision that minted it (04 §2.2). A unit the substrate cannot name is
+   * carried as `#<id>`, which is visibly not a wire id.
+   */
+  private storedAssumption(sub: EngineSubstrate, a: Assumption): StoredAssumption {
+    if (a.kind === 'posture') return { kind: 'posture', posture: a.posture };
+    if (a.kind === 'narrowing') {
+      return { kind: 'narrowing', unit: wireKeyOf(sub, a.unitId), note: a.note };
+    }
+    return { kind: a.kind, unit: wireKeyOf(sub, a.unitId), to: a.to };
+  }
+
   // ---------------------------------------------------------------- internals
 
   private gameFor(gameId: string): GameState_ {
@@ -812,7 +971,17 @@ export class TeamDecisionEngine {
       (unitId) => this.ports.pinSnakeIdOf(gameId, unitId),
       live.sub
     );
-    if (translated !== null) live.kernel.onPinEvent(translated);
+    if (translated === null) return;
+    // THE COMMAND IS WRITTEN FIRST, AND THE KERNEL IS TOLD WITH ITS ID.
+    // `kernel.onPinEvent` has taken an `EventId` since the model was written
+    // and every caller passed nothing, so no `pin` / `unpin` turn event existed
+    // anywhere in the repository: the fold's fixity map was permanently empty,
+    // the lane's operator ticks had no verb and no colour, the widen banner had
+    // no author, and every emission's `answers` was null. The order is causal —
+    // an answer cannot precede its question in a total order, and the writer
+    // refuses one that tries.
+    const id = live.lens?.command(translated) ?? null;
+    live.kernel.onPinEvent(translated, id);
   }
 
   /** Price the hovered pins against the record just emitted, and surface any
@@ -896,82 +1065,27 @@ export class TeamDecisionEngine {
     });
   }
 
-  private planCapacity(input: TeamTurnInput): {
+  /**
+   * WHO MUST BE MODELLED FOR THE HELD SET TO FIT — which is now nobody.
+   *
+   * The engine used to carry claims in a fixed field of 32 slots, so a board
+   * with more uncontrolled units than that forced the decision to MODEL the
+   * nearest of them at their defaults and declare the narrowing. Claims are
+   * keyed by unit id now and there is no field and no capacity: every
+   * uncontrolled unit carries its own claim however many there are, so the
+   * whole overflow path — the arrival-ranked probe that chose whom to model,
+   * and the declared narrowing that paid for it — has no subject left.
+   *
+   * The seam stays as one function returning nothing so the caller's
+   * replacement-and-declaration machinery keeps its shape for the one case it
+   * still handles: a modelling choice that names a unit the substrate does not
+   * have.
+   */
+  private planCapacity(_input: TeamTurnInput): {
     wireIds: ReadonlyArray<string>;
-    /** The whole arrival-ranked candidate list, nearest first — the pool a
-     * replacement is drawn from when a choice cannot be named. */
     ranked: ReadonlyArray<string>;
   } {
-    const ourIds = new Set(input.units.map((u) => u.snakeId));
-    const others = (input.board.snakes ?? []).filter(
-      (s) => !ourIds.has(s.id) && s.health > 0 && s.body.length > 0
-    );
-    const overflow = others.length - MAX_FROZEN;
-    if (overflow <= 0) return { wireIds: [], ranked: [] };
-
-    const allIds = (input.board.snakes ?? []).map((s) => s.id);
-    const probe = makeSubstrate({
-      gameId: input.gameId,
-      board: input.board,
-      turn: input.turn,
-      asTeam: input.ourTeamId,
-      modeled: allIds,
-    });
-    try {
-      const engine = probe.engine;
-      const horizon = input.turn + (this.options.arrivalHorizonTurns ?? 8);
-      const ourCells: number[] = [];
-      for (const u of probe.roster()) {
-        if (ourIds.has(u.wireId)) ourCells.push(u.cells[0] as number);
-      }
-      const distance = new Map<string, number>();
-      const candidates = probe.roster().filter((u) => !ourIds.has(u.wireId));
-      for (let i = 0; i < candidates.length; i += MAX_FROZEN) {
-        const group = candidates.slice(i, i + MAX_FROZEN);
-        const fork = engine.fork(probe.state);
-        try {
-          const slots = group
-            .map((u) => engine.slotOfUnit(fork, u.unitId))
-            .filter((slot) => slot >= 0);
-          const held = engine.holdMany(fork, slots, input.turn);
-          for (const slot of held.field.slots) {
-            const wireId = probe.unitOf(slot.record.unitId)?.wireId;
-            if (wireId === undefined) continue;
-            // The SHELLS, not `arrival()`: the grid is read at a handful of
-            // cells and the eager whole-board Dijkstra behind that call is
-            // read by nothing. This is the last consumer in the lobster layer
-            // that used to trigger it.
-            const earliest = earliestShells(
-              slot.timeline,
-              slot.record.heldAtTurn,
-              horizon,
-              probe.grid
-            );
-            let d = NEVER;
-            for (const cell of ourCells) {
-              const at = earliest[cell] as number;
-              if (at >= 0 && at < d) d = at;
-            }
-            distance.set(wireId, d);
-          }
-        } finally {
-          engine.release(fork);
-        }
-      }
-      const ranked = [...distance.entries()].sort(
-        (a, b) => a[1] - b[1] || a[0].localeCompare(b[0])
-      );
-      const order = ranked.map(([wireId]) => wireId);
-      const chosen = order.slice(0, overflow);
-      this.log(
-        `[team-engine] ${input.gameId} turn ${input.turn}: ${others.length} uncontrolled units ` +
-          `exceed the held capacity of ${MAX_FROZEN} — modelling the ${chosen.length} nearest ` +
-          `at their defaults (declared): ${chosen.join(', ')}`
-      );
-      return { wireIds: chosen, ranked: order };
-    } finally {
-      probe.release();
-    }
+    return { wireIds: [], ranked: [] };
   }
 
   /**
@@ -1077,7 +1191,6 @@ export class TeamDecisionEngine {
         gameState: view,
         moveEvaluations: [],
         territoryCells: {},
-        safeMoves: [],
         botRecommendation: move,
         timestamp: this.now(),
         bot,
@@ -1122,25 +1235,17 @@ export class TeamDecisionEngine {
     pins: PinSet;
     bot: BotIdentity;
   }): void {
-    const { input, sub, asTeam, gen, evaluate, report, finalPlan, views, lastForwarded } = args;
+    const { input, sub, asTeam, gen, evaluate, finalPlan, views, lastForwarded } = args;
     let rows: UnitDecisionRow[];
     try {
       rows = buildDecisionRows({
         gameId: input.gameId,
-        turn: input.turn,
         sub,
         asTeam,
         gen,
         evaluate,
-        report,
         finalPlan,
         views,
-        forwarded: lastForwarded,
-        assumptions: args.assumptions,
-        modelled: args.modelled,
-        pins: args.pins,
-        engineName: 'lobster',
-        bot: args.bot,
         moveOf: (unit, candidate) => this.moveOf(sub, unit, candidate),
       });
     } catch (err) {
@@ -1152,14 +1257,6 @@ export class TeamDecisionEngine {
     }
 
     for (const row of rows) {
-      try {
-        this.ports.logDecision(row);
-      } catch (err) {
-        this.log(
-          `[team-engine] ${input.gameId} turn ${input.turn}: logDecision port threw for ` +
-            `${row.snakeId} — ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
       const unit = sub.unitOfWireId(row.snakeId);
       const move = lastForwarded.get(row.snakeId);
       if (unit === undefined || unit.type !== 'snake' || move === undefined) continue;
@@ -1170,9 +1267,6 @@ export class TeamDecisionEngine {
           gameState: view,
           moveEvaluations: row.moveEvaluations,
           territoryCells: {},
-          // Sound only because this branch is snakes-only: a snake's offerable
-          // set IS its direction words. A piece's would be destination ids.
-          safeMoves: row.safeMoves as Direction[],
           botRecommendation: move,
           timestamp: this.now(),
           bot: args.bot,
