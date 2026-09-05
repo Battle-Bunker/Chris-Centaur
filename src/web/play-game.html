@@ -3724,8 +3724,19 @@
     }
 
     function stageSelectedMove() {
-      if (moveSubmitted || !selectedSnakeId) return;
-      if (!userSelectedMove) return;
+      // A REFUSAL IS AN ANSWER, AND IT HAS TO BE GIVEN (05 H-3 / P-3). These
+      // four preconditions used to be four bare early returns: with the cursor
+      // visibly on a candidate and the bar reading `⦿ lock Space`, the press
+      // was a no-op with no notice, no chip change and no reason — the same
+      // class of defect as H-2, and the one that would have hidden the next
+      // one. They are read once, in `stageRefusalReason`, so the affordance
+      // that says whether the press will do anything and the sentence the
+      // operator gets when it does not cannot disagree about why.
+      const refusal = stageRefusalReason();
+      if (refusal !== null) {
+        showBannerNotice(`nothing staged — ${refusal.why}`);
+        return false;
+      }
       // The wire move is the candidate's own id: a Direction for snakes, a
       // numeric full-board destination index for pieces (a pawn's side-square
       // candidate stages the 90° rotation — same id, the server's planner
@@ -3733,7 +3744,6 @@
       // off the entry.
       const entry = moveState?.moves?.[userSelectedMove];
       const move = entry ? entry.move : userSelectedMove;
-      if (move == null) return;
 
       // Optimistic rotation flag for the echo: a pawn side-square candidate is
       // a rotation, whose NEW orientation (wire convention, y down) points from the
@@ -3772,6 +3782,7 @@
 
       updateMoveControls();
       scheduleRender();
+      return true;
     }
 
     // ── Fatal-move confirmation dialog ──────────────────────────────────

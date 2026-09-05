@@ -621,6 +621,32 @@ async function main() {
       (!unstaged.staged || unstaged.staged.source !== 'manual'),
     unstaged
   );
+  // 1c — AND THE REFUSAL SPEAKS. Undo clears the cursor's candidate, so the
+  // very next `Space` has nothing to stage — which is one of the four
+  // preconditions `stageSelectedMove` used to refuse on in silence (05 H-3).
+  // The property is that the press is answered: a line in the notice region
+  // naming the missing precondition, and a chip that already said the same
+  // thing before the press.
+  at = 'drill/pin-refused';
+  await page.keyboard.press(' ');
+  await sleep(500);
+  const refused = await page.evaluate(() => {
+    const el = document.getElementById('transientNotice');
+    const chip = document.querySelector('[data-lens-action="lock"]');
+    return {
+      notice: el && el.style.display !== 'none' ? el.textContent : null,
+      chip: chip ? chip.innerText : null,
+      chipOff: chip ? chip.getAttribute('aria-disabled') : null,
+      selected: typeof userSelectedMove === 'undefined' ? null : userSelectedMove,
+    };
+  });
+  check(
+    'stage — a refused press says which precondition is missing',
+    !!refused.notice && /nothing staged — /.test(refused.notice),
+    refused
+  );
+  await drillShot('d1b-refused', 'the drill: `Space` with nothing to stage — the refusal, named');
+
   // Re-taken, so the rest of the drill runs over the surface an operator who
   // meant it would be looking at.
   await armCursor();
