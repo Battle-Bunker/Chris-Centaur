@@ -15,8 +15,27 @@ const BoardRenderer = (function () {
     img.src = "/invulnerability-potion.png";
   }
 
+  // 912 KB, AND IT USED TO BE FETCHED ON EVERY COLD LOAD OF EVERY PAGE THAT
+  // INCLUDES THIS FILE — six times the whole script payload on the wire, in
+  // parallel with the fifteen scripts and the first board, for an icon most
+  // boards never draw. `docs/design/ux/03-LATENCY.md` §1.4 recorded that the
+  // DECODE is lazy; the FETCH was not.
+  //
+  // So it is asked for at the first of two moments instead:
+  //   · when the page goes idle after load — the cache is warm long before a
+  //     potion can appear, and nothing on the critical path waited for it;
+  //   · immediately, the first time a board that actually carries potions is
+  //     rendered, in case that happens before the page ever idles.
+  // Either way the draw path is unchanged: it already draws the 🧪 fallback
+  // whenever `_potionImage` is null, which is what it did for the first
+  // hundred milliseconds of every session before this change too.
   if (typeof window !== "undefined") {
-    loadPotionImage();
+    const idle =
+      typeof window.requestIdleCallback === "function"
+        ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
+        : (fn) => setTimeout(fn, 1200);
+    if (document.readyState === "complete") idle(loadPotionImage);
+    else window.addEventListener("load", () => idle(loadPotionImage), { once: true });
   }
 
   // ── Canvas resolution ─────────────────────────────────────────────────────
@@ -2591,6 +2610,8 @@ const BoardRenderer = (function () {
       board.invulnerabilityPotions &&
       board.invulnerabilityPotions.length > 0
     ) {
+      // The first potion board is the last moment this can still be lazy.
+      loadPotionImage();
       board.invulnerabilityPotions.forEach((potion) => {
         const x = potion.x * cellSize;
         const y = (board.height - 1 - potion.y) * cellSize;
@@ -4413,6 +4434,8 @@ const BoardRenderer = (function () {
       board.invulnerabilityPotions &&
       board.invulnerabilityPotions.length > 0
     ) {
+      // The first potion board is the last moment this can still be lazy.
+      loadPotionImage();
       board.invulnerabilityPotions.forEach((potion) => {
         const x = potion.x * cellSize;
         const y = (board.height - 1 - potion.y) * cellSize;
