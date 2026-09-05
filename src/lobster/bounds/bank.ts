@@ -429,9 +429,10 @@ export class BoundBank {
    * entry this call filled, so a branch costs one engine resolution — and the
    * eval memo makes a REPEATED branch cost neither (see evalmemo.ts).
    *
-   * `evalNs` is the namespace `price` computed for this call: evaluator
-   * identity, basis, frame. It is a parameter rather than a field so there is
-   * no captured-identity twin of the captured-clock defect above.
+   * `evalScope` is the namespace `price` computed for this call — evaluator
+   * identity, basis, frame — joined to the view, which `sweepLists` fixes for
+   * the whole sweep. It is a parameter rather than a field so there is no
+   * captured-identity twin of the captured-clock defect above.
    *
    * `planKey` is computed ONCE here and used twice — as the memo key and as
    * the bound's provenance note. It used to be computed twice per branch, at
@@ -442,12 +443,15 @@ export class BoundBank {
     plan: JointPlan,
     rung: Rung,
     replies: ReadonlyMap<UnitId, Candidate> | null,
-    evalNs: string,
+    evalScope: string,
   ): Branch {
     const pk = planKey(plan);
     const bounded = view.sub.resolveBoundedFor(plan, this.input.asTeam);
     const resolution = bounded.resolution;
-    const bound: Bound = this.evalMemo.score(`${evalNs}|${view.key}|${pk}`, () =>
+    // `evalScope` is `${evalNs}|${view.key}` — built ONCE per sweep by the
+    // caller, because it is constant across every branch of one. The memo
+    // splits on exactly that seam and reassembles nothing: see evalmemo.ts.
+    const bound: Bound = this.evalMemo.scoreIn(evalScope, pk, () =>
       this.input.evaluate.scorePlan(view.sub, plan, this.input.asTeam),
     );
     let ledger: ReadonlyArray<LedgerEntry> = bounded.ledger;
@@ -511,6 +515,11 @@ export class BoundBank {
     // leaf each and may not be cut at all: B0 is the floor of last resort and
     // the only source of a ceiling, and half a witness certifies nothing.
     const cuttable = rung === "B1" || rung === "B3";
+    // THE EVALUATION MEMO'S SCOPE, ONCE PER SWEEP. Both halves are fixed here
+    // — the namespace `price` computed and the view this sweep prices under —
+    // so every branch below shares one string OBJECT, and V8 hashes it once
+    // for the whole sweep instead of once per branch.
+    const evalScope = `${evalNs}|${view.key}`;
     const leaves: Branch[] = [];
     let swept = true;
     const walk = (i: number, acc: Candidate[]): void => {
@@ -519,7 +528,7 @@ export class BoundBank {
         // NO REPLY FIXED is not the same as an empty set of replies: B0 speaks
         // about the held cloud as it stands, and `null` is what says so.
         const replies = acc.length === 0 ? null : new Map(acc.map((c) => [c.unitId, c]));
-        leaves.push(this.priceBranch(view, withMoves(base, acc), rung, replies, evalNs));
+        leaves.push(this.priceBranch(view, withMoves(base, acc), rung, replies, evalScope));
         return;
       }
       for (const option of list.options) {

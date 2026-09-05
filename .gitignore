@@ -27,3 +27,5 @@ npm-debug.log*
 
 # Local git worktrees for parallel branches — never part of the tree.
 worktrees/
+distA/
+distB/
