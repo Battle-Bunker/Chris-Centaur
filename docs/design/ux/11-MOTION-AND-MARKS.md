@@ -535,8 +535,18 @@ The drill is `scripts/lens-walkthrough.js`, section `drill/motion`, and it fails
 the run like the other four.
 
 1. **The rest state is unchanged.** `#lensPulseLayer` does not exist until a
-   widen is accepted, and does not exist after the animation ends. The whole
-   walkthrough's PNGs are diffed against the run before this work: **identical**.
+   widen is accepted, and does not exist after the animation ends — the drill
+   asserts both ends of that, before the pulse and 1.4 s after it.
+
+   **Measured.** The walkthrough's 50 PNGs plus the review drill's 7, taken
+   before this work and again after it: **40 of 50, and 7 of 7, byte-identical**.
+   The ten that differ are `01-idle`, `02-hover-unit`, `03-focus-unit`,
+   `11-scrub-anchor`, `15-back-to-now`, `17-locked`, `20-replay-scrub`,
+   `d8-clock-notch`, `d8-tour`, `d9-tour-last` — and they are the **same ten**
+   that differ between two runs of *identical* code, because each of them has
+   the latency strip's live numbers or the clock's fill in frame. So the
+   pixel-identity claim is exact: every shot that is stable run to run is
+   unchanged, and no shot became unstable.
 2. **The pulse exists and is one-shot.** A widen is accepted; the layer appears,
    carries one `.lens-arrival-pulse` per gained unit, computed
    `animation-duration` is `0.6s`, `animation-iteration-count` is `1`, and the
@@ -554,9 +564,14 @@ the run like the other four.
    fixed strip is the mark drawn in that operator's lane tick; and the roster
    badge carries a mark beside every dot.
 6. **The flash budget** is still `scripts/alerts-drill.js`'s to prove, unchanged
-   — 12 raisings in 2,895 ms → 4 onsets — and §4a's second floor is a property of
-   the reactive policy's timer rather than of a counter, so there is nothing new
-   to count.
+   — 12 raisings in 2,895 ms → 4 onsets, 46/46 checks — and §4a's second floor
+   is a property of the reactive policy's timer rather than of a counter, so
+   there is nothing new to count. `lensPulseArrival` removes any layer already
+   up before it makes a new one, so two onsets cannot overlap on the board
+   whatever the timer does.
+
+The motion drill is **26 checks**, all green, and the gate names the step that
+failed the way the other four drills do.
 
 The gates over the whole series: `npx tsc --noEmit -p .`,
 `npx eslint "src/**/*.ts"`, `node --check` on every changed `.js`,

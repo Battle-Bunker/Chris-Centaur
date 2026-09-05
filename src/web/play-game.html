@@ -91,6 +91,35 @@
       position: absolute; top: 0; left: 0; pointer-events: none;
       z-index: var(--z-board-overlay);
     }
+    /* THE ARRIVAL PULSE'S LAYER (11-MOTION-AND-MARKS.md §3.3).
+       ITS OWN LAYER, and not `#boardOverlay`, for one mundane reason:
+       `createBoardOverlay` does `innerHTML = ""` on every render and a render
+       lands mid-pulse on most turns.
+       It is pinned to the canvas's CONTENT box with exactly the arithmetic
+       the candidate overlay already uses, so the pulse sits on the drawn
+       cells at every size the resize grip can produce and reads no geometry
+       the board does not already read.
+       Out of flow, `pointer-events: none`, NO TEXT — the three conditions
+       §1.1 names, and the only three that license a `transform` on this
+       surface: it displaces nothing, intercepts nothing, and there is no word
+       inside it for a scale to blur. */
+    #lensPulseLayer {
+      position: absolute; top: 0; left: 0; pointer-events: none;
+      z-index: var(--z-board-overlay);
+    }
+    /* EMPHASIS. Violet, because 02-INSPECTION-UI §5 says violet ring and
+       violet is the lens's own ink on this board — the pulse is the LENS
+       speaking, and it must not be mistaken for the alert channel's ring at
+       the board's edge. A RING and not a fill: 06 §3.1's reasoning transfers
+       exactly, the general-flash threshold is about area and luminance and a
+       2 px expanding outline changes neither by much. ONE SHOT, never a loop
+       (02-INSPECTION-UI §5: the point is to move the eye once, not to nag). */
+    .lens-arrival-pulse {
+      position: absolute; pointer-events: none; box-sizing: border-box;
+      border: 2px solid var(--lens-ink); border-radius: var(--radius-round);
+      opacity: 0;
+      animation: motion-arrival var(--motion-emphasis) var(--ease-emphasis) 1 both;
+    }
     .cell-button {
       position: absolute; background: transparent; border: none;
       cursor: pointer; pointer-events: auto; transition: all var(--dur-cell);
@@ -342,8 +371,17 @@
       position: absolute; top: 0; transform: translateX(-50%);
       background: none; border: none; padding: 0; cursor: pointer;
       font-size: calc(var(--lens-size) - 1px); color: inherit;
+      /* STATE CHANGE, foveal register again (11 §2.3): a tick under the
+         pointer is a control saying it is the one that would be scrubbed to.
+         OPACITY ONLY. The `transform: translateX(-50%)` above is this tick's
+         POSITION IN THE TURN — the whole lane is placed by percentage — so a
+         transform in the transition list would animate the seq the tick
+         claims to be at, which is a lie about the timeline and exactly the
+         class of thing §1.1's whitelist exists to forbid. */
+      transition: opacity var(--motion-state-near) var(--ease-state);
     }
     .lens-tick-hollow { opacity: .55; }
+    .lens-tick:hover { opacity: 1; }
     .lens-lane-foot { font-size: calc(var(--lens-size) - 1px); color: var(--ink-dim); margin-top: var(--space-4); }
 
     /* ── THE IA LAYERS (docs/design/ux/02-IA-AND-CONTROLS.md §1.4) ────────
@@ -508,6 +546,17 @@
       display: inline-flex; align-items: center; gap: var(--space-5);
       font-size: calc(var(--lens-size) - 1px); border: 1px solid var(--grey-4a4a4a); border-radius: var(--radius-4);
       padding: var(--space-2) var(--space-7); color: var(--grey-bbbbbb); cursor: default;
+      /* STATE CHANGE, foveal register (11 §2.3). A chip is the one control
+         whose whole job is to say what the next press will do, so when it
+         changes — off to primary, primary to armed — the change is the
+         message. 150 ms and not the strip's 900: this is read at arm's length
+         with the eye already on it, and a control that finishes after the
+         turn has lied about when it changed. ONLY COLOURS TRANSITION: §1.1's
+         property whitelist, and a chip whose border-WIDTH or padding eased
+         would reflow the bar it sits in, under the hand that is pressing it. */
+      transition: border-color var(--motion-state-near) var(--ease-state),
+                  color var(--motion-state-near) var(--ease-state),
+                  background-color var(--motion-state-near) var(--ease-state);
     }
     .lens-aff kbd { margin-left: var(--space-1); }
     .lens-aff-glyph { font-size: calc(var(--lens-size) + 1px); line-height: 1; }
@@ -547,7 +596,20 @@
     }
     @media (prefers-reduced-motion: reduce) {
       .turn-clock-fill { transition: none; }
-      .lens-arrival-pulse { animation: none !important; }
+      /* THE GUARD THAT GUARDED NOTHING, replaced (05 H-13, P-7; 11 §4).
+         `animation: none !important` was correct and cheap and pointed at a
+         selector with no users; the animation now exists, and the preference
+         does NOT delete it. EMPHASIS is the one verb group E does not zero,
+         because it is the only thing on this surface that says the board
+         under your eye changed while you were reading the rail — and an
+         operator who asked for less motion did not ask to be told less.
+         What the preference removes is MOVEMENT: no scale at any offset, one
+         iteration, opacity alone, over the exit verb's own 620 ms. */
+      .lens-arrival-pulse {
+        animation-name: motion-arrival-reduced;
+        animation-duration: var(--motion-emphasis-fade);
+        animation-iteration-count: 1;
+      }
     }
     .stats-table tr:last-child td { border-bottom: none; }
     .stats-table .total-row { font-weight: var(--weight-semi); background: var(--grey-333333); }
@@ -1987,12 +2049,87 @@
       lensPrevFrame = next;
     }
 
+    /**
+     * THE ARRIVAL PULSE (11-MOTION-AND-MARKS.md §3).
+     *
+     * ONE SHOT at the eye, at a change it would otherwise miss. 01-RESEARCH P3:
+     * *a swap the eye does not see is a swap that did not happen — change
+     * blindness is defeated by MOTION AT THE CHANGE*. The cells that arrived
+     * are the change; nothing else on the board moved.
+     *
+     * NOT A CANVAS ANIMATION, and that is the sentence P-7 was waiting for.
+     * `board-renderer.js` gets no animation loop: board pixels that are a
+     * function of TIME mean two screenshots of one state differ, which costs
+     * every pixel gate on this surface and buys nothing this layer does not.
+     * The layer is pinned to the canvas's content box with the arithmetic
+     * `createBoardOverlay` already uses, and deletes itself when the last
+     * animation ends — so the RESTING page has no extra element in it at all.
+     */
+    function lensPulseArrival(units) {
+      const list = Array.isArray(units) ? units : [];
+      if (list.length === 0) return null;
+      const board = activeBoard();
+      const canvas = document.getElementById('gameCanvas');
+      const host = canvas && canvas.parentElement;
+      if (!board || !canvas || !host) return null;
+
+      const { width: displayWidth, height: displayHeight } = BoardRenderer.canvasCssSize(canvas);
+      if (!(displayWidth > 0) || !(displayHeight > 0)) return null;
+      const cellSize = BoardRenderer.boardCellSize(canvas, board);
+      if (!(cellSize > 0)) return null;
+
+      // One layer at a time: a second widen inside 600 ms replaces the first
+      // rather than stacking two rings on one board. This is also the flash
+      // floor arriving by construction (§4a) — two onsets cannot overlap.
+      const old = document.getElementById('lensPulseLayer');
+      if (old) old.remove();
+
+      const layer = document.createElement('div');
+      layer.id = 'lensPulseLayer';
+      layer.style.width = displayWidth + 'px';
+      layer.style.height = displayHeight + 'px';
+      layer.style.left = canvas.offsetLeft + (canvas.clientLeft || 0) + 'px';
+      layer.style.top = canvas.offsetTop + (canvas.clientTop || 0) + 'px';
+
+      let drawn = 0;
+      for (const unit of list) {
+        const snake = (board.snakes || []).find((s) => s.id === unit);
+        const head = snake && snake.body && snake.body[0];
+        if (!head) continue;
+        const ring = document.createElement('div');
+        ring.className = 'lens-arrival-pulse';
+        ring.setAttribute('data-unit', String(unit));
+        ring.style.left = (head.x * cellSize) + 'px';
+        ring.style.top = ((board.height - 1 - head.y) * cellSize) + 'px';
+        ring.style.width = cellSize + 'px';
+        ring.style.height = cellSize + 'px';
+        layer.appendChild(ring);
+        drawn += 1;
+      }
+      if (drawn === 0) return null;
+
+      host.appendChild(layer);
+      // Torn down by the animation's own end, with a timer as the backstop for
+      // a context that never fires one (a hidden tab, a zeroed duration).
+      let left = drawn;
+      const done = () => { if (--left <= 0 && layer.isConnected) layer.remove(); };
+      for (const ring of layer.children) ring.addEventListener('animationend', done, { once: true });
+      setTimeout(() => { if (layer.isConnected) layer.remove(); }, 2000);
+      return layer;
+    }
+
     /** Accept the widen: the new list lands, and the cursor re-resolves against
      *  the old assignment restricted to the members present in both. */
     function lensAcceptWiden() {
       if (lensBannerTimer) { clearTimeout(lensBannerTimer); lensBannerTimer = null; }
       const view = lensView();
       const next = lensFrame();
+      // WHAT ARRIVED, read before the hold is dropped. The pulse fires on the
+      // widen being ACCEPTED and never while it is HELD: while it is held the
+      // banner is the cue and the rail under it is struck through, and pulsing
+      // cells whose change has not been applied yet would be a lie about the
+      // board (11 §3.2).
+      const gained = lensHeld && lensHeld.notice ? lensHeld.notice.gained : null;
       if (view && next && lensHeld) {
         if (lensCursor) lensCursor = view.resolveCursor(lensCursor, lensHeld.prev, next);
         lensTrails = lensCursor ? view.rowTrails(lensHeld.prev, next, lensCursor) : [];
@@ -2001,6 +2138,7 @@
       lensHeld = null;
       lensRender();
       repaintBoard();
+      lensPulseArrival(gained);
     }
 
     function lensSend(message) {

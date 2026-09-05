@@ -496,14 +496,17 @@
 .lat-cmd[data-cmd="ack"] { color: var(--lat-cmd-ack-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-ack-line); }
 .lat-cmd[data-cmd="applied"] { color: var(--lat-cmd-applied-ink); }
 .lat-cmd[data-cmd="refused"] { color: var(--lat-cmd-refused-ink); box-shadow: inset 0 0 0 1px var(--lat-cmd-refused-line); }
-/* One transient per state change — never a loop, never above 3 Hz, and gone
-   entirely for a reader who asked for less motion. The @media block that used
-   to be here is tokens.css group E: it zeroes --dur-lat-arrive, and an
-   animation of zero duration leaves the element at its own resting opacity,
-   which is exactly what "animation: none" did. One rule, one place, for every
-   sheet on the page. */
-@keyframes lat-arrive { from { opacity: 0.25; } to { opacity: 1; } }
-.lat-pulse { animation: lat-arrive var(--dur-lat-arrive) ease-out 1; }
+/* STATE CHANGE, in the motion vocabulary (11 §2), and the PERIPHERAL register
+   of it: 900 ms, because this strip is read WITHOUT a saccade and a 150 ms
+   flick is exactly what peripheral vision misses. One transient per rung
+   change — never a loop, never above 3 Hz, and gone entirely for a reader who
+   asked for less motion. The keyframe is shared now (tokens.css group F), so
+   the strip and anything else that marks "this readout now says something
+   else" are one definition rather than two. The @media block that used to be
+   here is tokens.css group E: it zeroes --motion-state, and an animation of
+   zero duration leaves the element at its own resting opacity, which is
+   exactly what "animation: none" did. */
+.lat-pulse { animation: motion-state-arrive var(--motion-state) var(--ease-state) 1; }
 `;
 
   let root = null;

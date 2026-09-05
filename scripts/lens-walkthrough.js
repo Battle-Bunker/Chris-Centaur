@@ -813,6 +813,248 @@ async function main() {
     ...(await diffPngs(page, path.join(OUT, '21a-live-frame.png'), path.join(OUT, '21b-replay-frame.png'))),
   };
 
+  // ── THE MOTION DRILL ────────────────────────────────────────────────────
+  //
+  // `docs/design/ux/11-MOTION-AND-MARKS.md` §8. Motion is not screenshot-
+  // testable — a PNG of a transition is a PNG of one moment — so it is
+  // asserted the way `06-ALERTS.md` asserts its ring: on the CLASS, on the
+  // COMPUTED duration, and on the TOKEN the duration came from. The third is
+  // the one that matters: a hard-coded `0.6s` that happens to match the spec
+  // today passes a bare duration check and fails the day the token moves, so
+  // every assertion here compares the element against `:root`, never against
+  // a number written in this file.
+  //
+  // A failed assertion fails the run, like the other drills.
+  at = 'motion';
+  // THE WALK'S OWN PAGE, BACK IN FRONT. The replay page above was opened in
+  // the same context, which puts this one in the background — and a
+  // background tab in Chromium throttles the timers and events a one-shot
+  // animation's teardown rides on. Nothing about the surface depends on
+  // being foreground; the drill's stopwatch does.
+  await page.bringToFront();
+  const motion = [];
+  const mCheck = (name, ok, saw) => {
+    motion.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} motion/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  /** Durations are written as `140ms` in the token and read back as `0.14s`
+   *  from `getComputedStyle`. Both go to milliseconds before they meet. */
+  const ms = (v) => {
+    const t = String(v || '').trim().split(',')[0].trim();
+    if (t.endsWith('ms')) return Math.round(parseFloat(t) * 1000) / 1000;
+    if (t.endsWith('s')) return Math.round(parseFloat(t) * 1000000) / 1000;
+    return NaN;
+  };
+
+  /** The five verbs, off `:root`, exactly as the sheet declares them. */
+  const verbs = () =>
+    page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const g = (n) => cs.getPropertyValue(n).trim();
+      return {
+        enter: g('--motion-enter'),
+        exit: g('--motion-exit'),
+        emphasis: g('--motion-emphasis'),
+        emphasisFade: g('--motion-emphasis-fade'),
+        state: g('--motion-state'),
+        stateNear: g('--motion-state-near'),
+        progress: g('--motion-progress'),
+        easeEmphasis: g('--ease-emphasis'),
+      };
+    });
+
+  const v0 = await verbs();
+  mCheck('the vocabulary is declared on :root — five verbs and the fade', [
+    v0.enter, v0.exit, v0.emphasis, v0.state, v0.stateNear, v0.progress, v0.emphasisFade,
+  ].every((x) => Number.isFinite(ms(x)) && ms(x) > 0), v0);
+
+  // THE REST STATE FIRST, and it is the whole of §8's first claim: the pulse
+  // layer does not exist until a widen is accepted, so the resting page is the
+  // page it was before this work and the walkthrough's own PNGs still diff
+  // clean against the run before it.
+  mCheck(
+    'rest: no pulse layer on the page',
+    (await page.evaluate(() => !document.getElementById('lensPulseLayer'))),
+    null
+  );
+
+  // EMPHASIS. The pulse is fired on the units the board actually has, which is
+  // what `lensAcceptWiden` hands it, and the layer is measured while it is up.
+  const pulse = await page.evaluate(() => {
+    const board = window.activeBoard ? window.activeBoard() : null;
+    const units = board && board.snakes ? board.snakes.slice(0, 2).map((s) => s.id) : [];
+    const layer = window.lensPulseArrival(units);
+    if (!layer) return { made: false, units };
+    const rings = [...layer.querySelectorAll('.lens-arrival-pulse')];
+    const cs = rings[0] ? getComputedStyle(rings[0]) : null;
+    const layerCs = getComputedStyle(layer);
+    return {
+      made: true,
+      units,
+      rings: rings.length,
+      name: cs && cs.animationName,
+      duration: cs && cs.animationDuration,
+      iterations: cs && cs.animationIterationCount,
+      timing: cs && cs.animationTimingFunction,
+      pointerEvents: layerCs && layerCs.pointerEvents,
+      // §1.1's three conditions, asserted rather than asserted-in-a-comment.
+      outOfFlow: layerCs && layerCs.position,
+      text: layer.textContent,
+    };
+  });
+  mCheck('emphasis: the pulse draws one ring per arrived unit', pulse.made && pulse.rings === pulse.units.length, pulse);
+  mCheck('emphasis: it is the shared keyframe, not a local one', pulse.name === 'motion-arrival', pulse.name);
+  mCheck(
+    'emphasis: its duration IS --motion-emphasis, read off :root',
+    ms(pulse.duration) === ms(v0.emphasis),
+    { computed: pulse.duration, token: v0.emphasis }
+  );
+  mCheck('emphasis: one shot, never a loop', pulse.iterations === '1', pulse.iterations);
+  mCheck(
+    'emphasis: the layer takes no input and carries no text — what licenses the transform',
+    pulse.pointerEvents === 'none' && pulse.outOfFlow === 'absolute' && pulse.text === '',
+    pulse
+  );
+  mCheck(
+    'emphasis: the accept path is what fires it',
+    (await page.evaluate(() => String(window.lensAcceptWiden).includes('lensPulseArrival'))),
+    null
+  );
+  await sleep(1400);
+  mCheck(
+    'emphasis: the layer removes itself, so the rest state is unchanged',
+    (await page.evaluate(() => !document.getElementById('lensPulseLayer'))),
+    (await page.evaluate(() => document.visibilityState))
+  );
+
+  // STATE CHANGE, both registers. The ladder's strip is the peripheral one and
+  // the chip is the foveal one; §2.3 is the reason they are two numbers.
+  const states = await page.evaluate(() => {
+    const strip = document.querySelector('#latency-mount .lat');
+    const probe = document.createElement('div');
+    probe.className = 'lat-pulse';
+    (strip || document.body).appendChild(probe);
+    const p = getComputedStyle(probe);
+    const out = { pulseName: p.animationName, pulseDuration: p.animationDuration };
+    probe.remove();
+    const chip = document.querySelector('.lens-aff');
+    const tick = document.querySelector('.lens-tick');
+    out.chip = chip ? getComputedStyle(chip).transitionDuration : null;
+    out.chipProps = chip ? getComputedStyle(chip).transitionProperty : null;
+    out.tick = tick ? getComputedStyle(tick).transitionDuration : null;
+    out.tickProps = tick ? getComputedStyle(tick).transitionProperty : null;
+    const fill = document.getElementById('turnClockFill');
+    out.progress = fill ? getComputedStyle(fill).transitionDuration : null;
+    return out;
+  });
+  mCheck('state change: the ladder names the shared keyframe', states.pulseName === 'motion-state-arrive', states.pulseName);
+  mCheck(
+    'state change (peripheral): the ladder IS --motion-state',
+    ms(states.pulseDuration) === ms(v0.state),
+    { computed: states.pulseDuration, token: v0.state }
+  );
+  mCheck(
+    'state change (foveal): the chip IS --motion-state-near',
+    ms(states.chip) === ms(v0.stateNear),
+    { computed: states.chip, token: v0.stateNear }
+  );
+  mCheck(
+    'the rail’s rule: the chip transitions COLOURS ONLY — nothing that reflows',
+    !!states.chipProps && !/transform|width|height|padding|margin|font-size|border-width/.test(states.chipProps),
+    states.chipProps
+  );
+  mCheck(
+    'state change (foveal): the moments strip’s hover IS --motion-state-near',
+    ms(states.tick) === ms(v0.stateNear),
+    { computed: states.tick, token: v0.stateNear }
+  );
+  mCheck(
+    'the rail’s rule: the tick transitions opacity only — its transform is its seq',
+    states.tickProps === 'opacity',
+    states.tickProps
+  );
+
+  // ENTER and EXIT, on the one element they were measured on: the alert ring,
+  // which `Alerts.install()` puts on `document.body` at load. It is opacity 0
+  // and `pointer-events: none`, so toggling its class to read the other half
+  // of the pair moves no pixel anyone can see.
+  const ring = await page.evaluate(() => {
+    const el = document.querySelector('body > .al-pulse');
+    if (!el) return null;
+    // The ring keeps whatever class its last real alert left on it — by this
+    // point in the walk that is usually `off` — so both halves of the pair are
+    // read from a KNOWN class list and the original is put back afterwards.
+    const was = el.className;
+    el.className = 'al-pulse';
+    const on = getComputedStyle(el).transitionDuration;
+    el.className = 'al-pulse off';
+    const off = getComputedStyle(el).transitionDuration;
+    el.className = was;
+    return { on, off, was };
+  });
+  mCheck('enter: the alert ring’s onset IS --motion-enter', !!ring && ms(ring.on) === ms(v0.enter), { ring, token: v0.enter });
+  mCheck('exit: the alert ring’s decay IS --motion-exit', !!ring && ms(ring.off) === ms(v0.exit), { ring, token: v0.exit });
+  mCheck(
+    'enter and exit are not the same number — an onset is detected, a decay is landed on',
+    !!ring && ms(ring.off) > ms(ring.on) * 3,
+    ring
+  );
+
+  // REDUCED MOTION. §4's semantics, and the asymmetry is the assertion: four
+  // verbs go instant and the fifth STAYS, as a single fade with no transform
+  // at all. A blanket "everything is 0s" check would pass a page that had
+  // quietly deleted the arrival pulse, which is the outcome §4 argues against.
+  at = 'motion/reduced';
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await sleep(200);
+  const vR = await verbs();
+  mCheck(
+    'reduced motion: enter, exit, state, state-near and progress are all instant',
+    [vR.enter, vR.exit, vR.state, vR.stateNear, vR.progress].every((x) => ms(x) === 0),
+    vR
+  );
+  mCheck('reduced motion: the fade duration is untouched', ms(vR.emphasisFade) === ms(v0.emphasisFade), vR.emphasisFade);
+  const rPulse = await page.evaluate(() => {
+    const board = window.activeBoard ? window.activeBoard() : null;
+    const units = board && board.snakes ? board.snakes.slice(0, 1).map((s) => s.id) : [];
+    const layer = window.lensPulseArrival(units);
+    if (!layer) return null;
+    const el = layer.querySelector('.lens-arrival-pulse');
+    const cs = getComputedStyle(el);
+    return {
+      name: cs.animationName,
+      duration: cs.animationDuration,
+      iterations: cs.animationIterationCount,
+      transform: cs.transform,
+    };
+  });
+  mCheck('reduced motion: the pulse is NOT deleted — it is still there', !!rPulse, rPulse);
+  mCheck('reduced motion: it becomes the fade keyframe', !!rPulse && rPulse.name === 'motion-arrival-reduced', rPulse);
+  mCheck(
+    'reduced motion: over --motion-emphasis-fade',
+    !!rPulse && ms(rPulse.duration) === ms(vR.emphasisFade),
+    { computed: rPulse && rPulse.duration, token: vR.emphasisFade }
+  );
+  mCheck('reduced motion: one iteration', !!rPulse && rPulse.iterations === '1', rPulse);
+  mCheck(
+    'reduced motion: and no MOVEMENT at all — the preference is about movement',
+    !!rPulse && (rPulse.transform === 'none' || rPulse.transform === 'matrix(1, 0, 0, 1, 0, 0)'),
+    rPulse && rPulse.transform
+  );
+  const rRing = await page.evaluate(() => {
+    const el = document.querySelector('body > .al-pulse');
+    return el ? getComputedStyle(el).transitionDuration : null;
+  });
+  mCheck('reduced motion: the alert ring does not animate', ms(rRing) === 0, rRing);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await sleep(200);
+  await page.evaluate(() => {
+    const l = document.getElementById('lensPulseLayer');
+    if (l) l.remove();
+  });
+  report.notes.motion = motion;
+
   // ── THE KEY SCHEME DRILL ────────────────────────────────────────────────
   // Three schemes over one action set (§3.1) is the one deliverable a unit
   // test cannot finish: `lens-ia.test.ts` proves the TABLES are three
@@ -1361,15 +1603,17 @@ async function main() {
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
 
-  // BOTH DRILLS ARE GATES. A walk that photographs a broken determination
+  // EVERY DRILL IS A GATE. A walk that photographs a broken determination
   // surface — or a key scheme that relabels a strip over a keymap nothing
-  // consults — and exits 0 is a slideshow; this exits non-zero and names the
+  // consults, or a motion vocabulary whose durations have drifted off their
+  // own tokens — and exits 0 is a slideshow; this exits non-zero and names the
   // step that failed.
   const failed = [
     ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
     ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
     ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
+    ...(report.notes.motion || []).map((d) => ({ ...d, drill: 'motion' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
     console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);
