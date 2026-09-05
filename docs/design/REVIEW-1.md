@@ -269,6 +269,28 @@ comment or the `true` at the `movesets` call site is wrong; a reader cannot tell
 which from the code. Confirm by folding a turn with `movesets` and no
 `conditional` and reading `frame.candidates`.
 
+**REVIEW-2 verdict: the CODE is right; the COMMENT was wrong. Comment
+corrected, behaviour untouched.** Folded a real `mixed 1 / 550` turn with the
+`conditional` events filtered out and read `frame.candidates`:
+
+    red-A  106:·  118:·  120:~-51.81
+    red-B  120:·  132:~-51.81  133:·  134:·
+    red-C  144:~-51.81
+
+Exactly one destination per unit is filled — the RANK-1 row's, which in the
+plain reservoir is the incumbent's — and it carries its grade, so it draws as
+`~-51.81` and not as a bare number. That is 04 §3 D-c verbatim: *"the
+incumbent's aggregate exact, the hovered candidate's `provisional`, and every
+other candidate `·` unpriced — never a bare number"*. `noteCandidates` fills on
+`best && row.rank === 1`, so the `true` at the `movesets` call site is the
+contract being kept, not leaked past.
+
+So the finding is real as a documentation defect and not as a behaviour one.
+`candidatesOf`'s wording now says "only where a RANK-1 row answered, in either
+reservoir", and a pin beside the reducer's other fold tests asserts rank 1
+filled and rank 2 `null` off one plain-reservoir event, so the two cannot drift
+apart again.
+
 ### F7 — a cluster that has VANISHED is not a generation refusal
 
 `src/lens/store/sources.ts:188` (`askConditional`).

@@ -20,7 +20,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { applyEvent, emptyStore, frameAt } from '../lens/store';
 import type { FrameStore, TurnEvent } from '../lens/types';
-import { anchorEvent, operatorActor, turnEvent } from './lens-fixtures';
+import { anchorEvent, moveset, operatorActor, turnEvent } from './lens-fixtures';
+import type { Moveset, UnitKey } from '../lens/types';
 import { digestOf } from '../lobster/team-decision-engine';
 import { DEFAULT_KERNEL_OPTIONS } from '../lobster/kernel';
 import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator } from '../lobster/evaluate';
@@ -103,6 +104,42 @@ describe('applyEvent never mutates its input', () => {
     expect(store.events.map((e) => e.seq)).toEqual(STREAM.map((e) => e.seq));
     expect(store.anchor).toBe(ANCHOR);
     expect(store.turn).toBe(ANCHOR.turn);
+  });
+});
+
+describe('conditionalBest is the INCUMBENT\'s number, and only rank 1 fills it', () => {
+  /** One reservoir, two ranks, two destinations for the same unit. */
+  function reservoir(): ReadonlyArray<Moveset> {
+    return [
+      { ...moveset({ rank: 1, lo: 12.4 }), moves: [{ unit: 'A-A' as UnitKey, to: 20, path: [20] }] },
+      { ...moveset({ rank: 2, lo: 11.7 }), moves: [{ unit: 'A-A' as UnitKey, to: 21, path: [21] }] },
+    ];
+  }
+
+  it('fills rank 1 from the PLAIN reservoir and leaves every other destination null', () => {
+    // 04 §3 D-c: "the incumbent's aggregate exact, the hovered candidate's
+    // provisional, and every other candidate `·` unpriced — never a bare
+    // number". The plain reservoir's rank 1 IS the incumbent, so the `true` at
+    // the `movesets` call site is the contract rather than a leak from it —
+    // what `candidatesOf`'s wording used to deny.
+    const event = turnEvent({
+      kind: 'movesets',
+      seq: 1,
+      payload: {
+        cluster: 0,
+        generation: 0,
+        emissionSeq: 0,
+        complementKey: 'comp:live',
+        rows: reservoir(),
+      },
+    });
+    const rows = frameAt(applyEvent(emptyStore(ANCHOR), event), 1).candidates['A-A'] ?? [];
+    expect(rows.map((r) => [r.to, r.conditionalBest?.aggregate ?? null])).toEqual([
+      [20, 12.4],
+      [21, null],
+    ]);
+    // And the filled one carries its GRADE, so it never draws as a bare number.
+    expect(rows[0]?.conditionalBest?.grade).toBe('provisional');
   });
 });
 
