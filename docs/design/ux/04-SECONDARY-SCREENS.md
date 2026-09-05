@@ -358,3 +358,153 @@ describes:
 
 Adopts the shared chrome and nav, so it is no longer a page you can only leave
 in one direction.
+
+---
+
+## 3. What landed
+
+Against §2, item by item, with what changed from the plan and why. The
+pictures are `screens/after-*.png` beside the `before-*` ones; the console
+output of the run that took them is `screens/after-report.json` (one 404, for
+`favicon.ico`, which the harness does not serve — no page exception, no failed
+page request, no horizontal overflow on any screen).
+
+### 3.1 Shared chrome — F2, F5, F8, F9, F10 · closed
+
+`page-chrome.js` (new, 385 lines) renders one header on all five screens:
+brand, the page's own name, the same five-item nav with `aria-current="page"`
+and a persistent inset left rule on the current one, and the status chips at
+the right. `chrome.css` grew one delimited `UX-SECONDARY` block at the end —
+203 lines, additive only, so the merge with `ux-ia`'s edits to the same file
+is a concatenation.
+
+The chip contract held: **glyph + word + brightness**, hue only reinforcing —
+`●` live, `◐` degraded, `○` unknown, `✕` down — and the palette moved to
+Okabe–Ito (`--warn` `#E69F00`, `--stop` `#D55E00`, `--cool` `#56B4E9`) so the
+reinforcement survives any colour vision.
+
+One thing the plan did not anticipate and the photographs caught: **a chip
+asked for before the header exists was silently dropped.** A page's inline
+script runs while the document is still parsing, so every `setSocketAbsent()`
+call ran before `buildHeader()`, and the three screens that hold no socket
+were exactly the screens that said nothing about holding no socket — the
+silence F5 exists to end, reintroduced by the fix for it. `page-chrome.js`
+now records every chip reading and replays it into the header when there is
+one. `after-history.png`, `after-config.png`, `after-activity.png` and
+`after-debug.png` all carry `○ No live link`; `after-play.png` carries
+`● Server active`, mirrored from the reading `idle-watcher.js` already
+produces.
+
+No new request and no interval was added for any of it: the Firebase chip is
+a subscriber to the one status object `firebase-status-banner.js` already
+fetches (`subscribe()`, added there), and the socket chip is a mirror of state
+the page already had.
+
+`.game-card:hover` no longer translates; `:focus-visible` is a 2 px `#8ab4f8`
+ring on every interactive element in the chrome; `prefers-reduced-motion`
+kills the badge pulse and every transition. The corner `.server-state-badge`
+is hidden on the five pages that link `chrome.css` — and only there, because
+`play-game.html` does not link it, so the live view's corner status is
+untouched.
+
+### 3.2 `/play` — F6, F7 · closed
+
+A card is an `<a href="/game/<id>">` built through `gameUrl()`; the
+`onclick="openGame('${gameId}')"` seam and its wrong-context escaping are
+gone. The turn number is the headline at 22 px, elapsed time is relative
+(`fmtAgo`), the id is a monospace tail, the minimap is 96 px, and rows are
+roughly half their former height (`before-play.png` → `after-play.png`).
+`/` filter, `↑ ↓ Enter`, `1`…`9` index chips, `Ctrl+/` sheet — the same chord
+the live view uses (`after-play-keys.png`). The status bar carries the age of
+the last `lobby-update` as word and brightness. Each row reads back its bound
+bot once per game id, cached, and marks `observed: false` with `~ not yet
+observed`.
+
+### 3.3 `/config` — F1, F2 · closed
+
+The largest gap on these screens is closed as §2.3 described: identity and
+build reading, the bindable catalog, a readback panel for any game id
+(`botId`, source, key, `observed` drawn as the distinction it is, staging
+safety, candidates), **refusals at the top in full** — `after-config.png`
+shows `bot.centaur.broken-centaur: no bot named "no-such-bot"`, the failure
+`docs/BOT-BINDING.md` says is otherwise invisible — and a composer that
+writes the exact `config_store` upsert *and* the exact `DELETE` that undoes
+it, both copyable, side by side. `Did it take?` re-reads the route and
+answers against what you staged. Both bot routes stay read-only; the page
+adds no write endpoint.
+
+The heuristics half kept its registry rendering and gained a live diff,
+`Revert` with no round trip, and a fixed-height alert line inside the action
+bar, so nothing shifts under the cursor. Alert text is `textContent`.
+
+### 3.4 `/history` — F3, F10, F11 · closed
+
+`replay-deeplink.js` (new, 137 lines) gives the viewer `#turn=<n>`: it waits
+for the page's own turn domain, commits one scrub through the existing
+`commitScrub`, then keeps the fragment in step with the playhead by
+`replaceState` and remembers the last turn per game (bounded at 50) for
+`↩ resume at turn K`.
+
+**Changed from the plan.** §2.4 attached it with one `<script src>` line in
+`play-game.html`. That file belongs to `ux-ia` this cycle, so the line was
+reverted and `dom-utils.js` — already the file that *writes* the deep link
+(`gameUrl`) — attaches the module itself on a `/game/<id>` path. Same
+behaviour, no edit outside this pass's files; when that chrome next changes
+hands the loader collapses back into one `<script>` tag there. Verified under
+Playwright: the module loads and `window.ReplayDeepLink` is defined on the
+viewer with `play-game.html` byte-identical to `5d04675`.
+
+The row is re-ranked as planned — outcome as headline word plus shape
+(`▲ WON`, `▼ LOST TO …`, `= DRAW`, `· UNFINISHED`), then turns, then relative
+time, team label demoted to a chip, id to a monospace tail — with a turn box
+and `Go` per row. `safeColor` moved into `dom-utils.js` and both pages use
+it; the `⚖️` tofu became `len N`.
+
+### 3.5 `/activity` — F4, F10 · closed
+
+The summary strip states what the page previously left to hovering: window,
+process up (with its share of the window), active, up-but-idle with idle's
+share of uptime — the billed waste — and lifetimes by class, `1 clean ·
+1 silent kill · still up`. Markers are five distinct shapes; the legend is
+one compact row with its two formerly-invisible swatches drawn on canvas at a
+size where they read; the tooltip is `position: fixed` and no longer clipped;
+the canvas is focusable with an accessible name and `← → + - Home r`.
+
+**Beyond the plan.** §2.5 said "taller" and the first pass made the canvas
+300 px — which still left ~45 % of a 900 px viewport empty, the finding
+unchanged. The canvas is now `clamp(300px, 100vh - 340px, 620px)` and the
+band fills the canvas instead of sitting as a fixed 168 px strip inside it.
+`bandGeom()` is the single source of that geometry, so `draw()` and
+`segmentAt()` cannot drift — they had already been two hard-coded copies of
+`92 … 260`.
+
+### 3.6 `/connection-debug` — F9 · closed
+
+Shared chrome and nav, so it is no longer a one-way street, plus the same
+`○ No live link` declaration the other socket-less screens make.
+
+Two defects the camera exposed here. The page reads `stats.*` by name and
+rendered the word `undefined` across all seven tiles when the server sent no
+`stats` — an absent count is now an em dash. And the harness had been
+serving `{ events, logFile }` where `routes/connection-debug.ts` serves
+`{ stats, events }`; the fixture now matches the shipped shape and carries a
+short realistic stream, so the screen photographs as the working page it is.
+
+### 3.7 Deletions
+
+None. §1 "Not a finding" holds after the work: every file under `src/web` is
+loaded by at least one page or fetched by a script — including
+`board-test.html`, which is served by `src/index.ts:82`, and the two new
+files, which are loaded by four pages and by `dom-utils.js` respectively.
+Nothing here was provably unreferenced, so nothing was deleted.
+
+### 3.8 Gates
+
+`npx tsc --noEmit -p .` clean · `npx eslint "src/**/*.ts"` clean ·
+`npm run build:lens` writes an unchanged `lens-view.js` · `npx jest
+--maxWorkers=2 src/tests/bot-binding` 25/25 and `src/tests/server-event-logger`
+3/3 (there is no `src/server` suite) · seven Playwright screenshots, every one
+under the 300 KB budget, no page exception and no failed page request.
+`before-config.png` was 345 KB — over budget from the first pass, whose
+camera had no ladder-down — and was retaken through the current script
+against the original page at `5d04675` (223 KB).
