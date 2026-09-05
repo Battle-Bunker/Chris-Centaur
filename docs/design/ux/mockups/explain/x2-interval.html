@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>X-2 — worst / expected / best, at a glance, with the cliff</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .band { position: relative; display: block; height: 8px; margin-top: 3px; background: #1b1b1b; border-radius: 2px; }
+  .span { position: absolute; top: 0; bottom: 0; background: rgba(179,157,255,.55); border-radius: 2px; }
+  .foilcard .span { background: rgba(77,182,172,.5); }
+  .open { clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); }
+  .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+  .lead { position: absolute; top: -3px; bottom: -3px; width: 1px; background: #b39dff; opacity: .85; }
+  /* THE CLIFF. A floor of DEAD is not a low number and must not draw as one. */
+  .cliff { position: absolute; left: 0; top: -2px; bottom: -2px; width: 9px; background: repeating-linear-gradient(135deg, #d55e00 0 2px, transparent 2px 4px); border-left: 2px solid #d55e00; }
+  .cliffmark { color: #d55e00; font-weight: 700; }
+  .dots { display: flex; gap: 2px; margin-top: 3px; }
+  .dots i { width: 3px; height: 8px; border-radius: 1px; background: #4a4a4a; }
+  .dots i.on { background: rgba(179,157,255,.8); }
+  .num { font-variant-numeric: tabular-nums; }
+  .three { font-size: 11px; color: var(--ink-dim); }
+  .three b { color: var(--ink-bright); font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>X-2 · the interval glyph — worst, expected, best, and the DEAD cliff drawn as a cliff</h1>
+<p>
+  <code>lo</code> is a worst-world floor, <code>est</code> never adjudicates and <code>hi</code> is
+  what nothing has yet disproved (<code>src/lobster/evaluate/bound.ts</code>). Two shipped defects
+  are visible here: <b>one row whose floor is <code>DEAD</code> (−∞) makes
+  <code>bandScale</code> return null and every band in the table disappears</b>, and when a floor is
+  finite-but-saturated nothing distinguishes “low” from “on the cliff”.
+</p>
+<div class="row">
+
+  <div class="variant">
+    <h2>A · one scale, a cliff hatch, a leader hairline</h2>
+    <div class="why">The band keeps its shipped geometry — span <code>lo…hi</code>, <code>est</code>
+      as a tick, an arrowhead for an open ceiling — and gains two marks: a hatched wedge where the
+      floor is DEAD, and a 1&nbsp;px hairline at the leader's floor on every row, so
+      “this row's ceiling is below the leader's floor” is geometry rather than arithmetic.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1<span class="tag">would be staged</span></td>
+          <td class="num">−41.4 <span class="same">⌈72.8⌉</span>
+            <span class="band"><i class="span" style="left:22%;width:56%"></i><i class="tick" style="left:56%"></i><i class="lead" style="left:22%"></i></span>
+            <span class="three">worst <b>−41.4</b> · est 0.3 · best 31.4</span></td></tr>
+        <tr class="foilcard"><td>◇2<span class="tag">foil</span></td>
+          <td class="num">−41.4 <span class="same">⌈72.8⌉</span>
+            <span class="band"><i class="span" style="left:22%;width:56%"></i><i class="tick" style="left:56%"></i><i class="lead" style="left:22%"></i></span></td></tr>
+        <tr><td>4</td>
+          <td class="num">−62.0
+            <span class="band"><i class="span" style="left:6%;width:72%"></i><i class="tick" style="left:56%"></i><i class="lead" style="left:22%"></i></span></td></tr>
+        <tr><td>5</td>
+          <td class="num"><span class="cliffmark">−∞ DEAD</span>
+            <span class="band"><i class="cliff"></i><i class="span open" style="left:9px;right:0;width:auto"></i><i class="lead" style="left:22%"></i></span></td></tr>
+      </table>
+      <div class="legend">▎leader's floor · ▏est · ▶ nothing proved above · ▨ the floor is DEAD</div>
+    </div>
+    <div class="verdict win">CHOSEN. Three readings in one 8 px shape, the cliff is a different
+      shape and not a smaller number, and the leader's floor makes refutation visible.</div>
+  </div>
+
+  <div class="variant">
+    <h2>B · the three-dot quantile strip</h2>
+    <div class="why">Kay et al.'s quantile dotplot, collapsed to three: one dot at the floor, one at
+      <code>est</code>, one at the ceiling, spaced on the shared scale. Discrete marks are read more
+      accurately than a continuous bar.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td><td class="num">−41.4
+          <span class="dots"><i class="on"></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i><i class="on"></i><i></i><i></i></span></td></tr>
+        <tr class="foilcard"><td>◇2</td><td class="num">−41.4
+          <span class="dots"><i class="on"></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i><i class="on"></i><i></i><i></i></span></td></tr>
+        <tr><td>4</td><td class="num">−62.0
+          <span class="dots"><i class="on"></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i><i class="on"></i><i></i><i></i></span></td></tr>
+      </table>
+    </div>
+    <div class="verdict lose">REJECTED. A quantile dotplot is a claim about a DISTRIBUTION and this
+      is a bracket: there is no density between the endpoints and drawing three dots invites the
+      reader to interpolate one. It also loses the width, which is the number the operator needs.</div>
+  </div>
+
+  <div class="variant">
+    <h2>C · the eval bar, chess-style</h2>
+    <div class="why">One vertical bar per row filled to <code>est</code>, the way a chess GUI draws
+      an evaluation. Instantly familiar, preattentive, one channel.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td>
+          <td><span class="band" style="height:14px"><i class="span" style="left:0;width:56%"></i></span>
+          <span class="three">0.3</span></td></tr>
+        <tr class="foilcard"><td>◇2</td>
+          <td><span class="band" style="height:14px"><i class="span" style="left:0;width:56%"></i></span>
+          <span class="three">0.3</span></td></tr>
+        <tr><td>4</td>
+          <td><span class="band" style="height:14px"><i class="span" style="left:0;width:55%"></i></span>
+          <span class="three">0.1</span></td></tr>
+      </table>
+    </div>
+    <div class="verdict lose">REJECTED, and it is the most dangerous of the three. An eval bar is a
+      point estimate, and the point estimate here is <code>est</code> — the one channel that
+      <em>never adjudicates</em>. It draws the three identical-floor rows as three identical bars
+      and hides that the ranking among them is a salted coin-flip.</div>
+  </div>
+</div>
+</body>
+</html>

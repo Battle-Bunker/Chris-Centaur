@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>X-4 — how sure is the bot?</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .unsure {
+    margin-top: 6px; padding: 5px 7px; border-left: 3px solid var(--lens-open);
+    background: rgba(255,183,77,.07); font-size: 12px; line-height: 1.45;
+  }
+  .unsure b { color: var(--ink-bright); }
+  .unsure .pt { display: block; font-size: 11px; color: var(--ink-dim); }
+  .meter { display: flex; gap: 3px; align-items: center; margin-top: 6px; }
+  .meter i { height: 8px; flex: 1; background: #3a3a3a; border-radius: 2px; }
+  .meter i.on { background: var(--lens-ours); }
+  .pct { font-size: 22px; font-weight: 700; color: var(--lens-ours); }
+  .gauge { font-size: 11px; color: var(--ink-dim); }
+</style>
+</head>
+<body>
+<h1>X-4 · “how sure is the bot?” — the one sentence that must not read as confidence</h1>
+<p>
+  The rail already draws the WIDTH (<code>⌈w⌉</code> and the band). The question an operator is
+  actually asking is whether the <em>order</em> is proved, which is the margin to #2 read against
+  that width — two numbers that are both on screen and never in one sentence. On the harness turn
+  the margin is <b>0.0</b> and the width is <b>72.8</b>: the bot has not proved the order at all,
+  and nothing says so.
+</p>
+<div class="row">
+
+  <div class="variant">
+    <h2>A · the sentence, derived and hedged</h2>
+    <div class="why">One line, computed from published fields only: margin vs width, the ledger, the
+      channel and the vacuity cause. It never states a confidence the bounds do not carry, and it
+      leads with the negative reading because that is the one the operator is owed.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td><td>−41.4 <span class="same">⌈72.8⌉</span></td><td>red-B→131 · red-C→106</td></tr>
+        <tr class="foilcard"><td>◇2</td><td>−41.4 <span class="same">⌈72.8⌉</span></td><td>red-B→157 · red-C→106</td></tr>
+      </table>
+      <div class="unsure">
+        <b>the order is not proved</b> — the gap to #2 is 0.0 and each row's own bracket is
+        72.8 wide.
+        <span class="pt">2 ledger entries still open · not exact · adjudicating on <code>lo</code></span>
+      </div>
+    </div>
+    <div class="verdict win">CHOSEN. Everything in it is a field the frame publishes; the headline
+      is a comparison of two of them; and in the case where the bot IS sure the same sentence says
+      “the gap to #2 (3.1) is wider than either bracket (1.2)”.</div>
+  </div>
+
+  <div class="variant">
+    <h2>B · a confidence percentage</h2>
+    <div class="why">The thing every operator asks for: one number, 0–100. Familiar from every
+      classifier UI and from a chess engine's win probability.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td><td>−41.4</td><td>red-B→131 · red-C→106</td></tr>
+      </table>
+      <div class="unsure"><span class="pct">62%</span> <span class="gauge">confident in rank 1</span></div>
+    </div>
+    <div class="verdict lose">REJECTED, and it is the one that must never ship. There is no
+      probability anywhere in this system: <code>lo</code> and <code>hi</code> are a worst world and
+      a best world, not a distribution, and <code>est</code> carries no basis at all. Any percentage
+      here is manufactured — the failure mode Bansal et al. measure, where a confident-looking
+      explanation raises reliance on wrong advice.</div>
+  </div>
+
+  <div class="variant">
+    <h2>C · a five-segment certainty meter</h2>
+    <div class="why">No number, just a shape: segments lit by bracket width against the table's own
+      scale, like the depth gauge already beside <code>h1</code>.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td><td>−41.4</td><td>red-B→131 · red-C→106</td></tr>
+      </table>
+      <div class="meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i>
+        <span class="gauge">bracket width</span></div>
+    </div>
+    <div class="verdict lose">REJECTED as the ONLY reading. Width is not the question — three rows
+      here share one width and differ in nothing, so the meter reads identically on a proved order
+      and on a coin-flip. Kept as reinforcement <em>inside</em> A (the band already carries width);
+      not kept as the answer.</div>
+  </div>
+</div>
+</body>
+</html>

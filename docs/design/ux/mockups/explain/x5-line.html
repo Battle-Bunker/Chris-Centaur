@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>X-5 — the settlement the bound was read on</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .line { margin-top: 6px; font-size: 11px; }
+  .ply { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; border-bottom: 1px solid #333; }
+  .ply .side { min-width: 46px; color: var(--ink-dim); }
+  .ply.theirs .side { color: var(--refuter); }
+  .ply .what { flex: 1; color: #ddd; }
+  .ply.theirs .what { color: #cfa; opacity: .85; color: #e8c2b6; }
+  .ply .br { font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+  .leaf { color: var(--lens-ink); }
+  .premise { color: var(--ink-dim); font-style: italic; margin-top: 3px; }
+  .flat { display: flex; gap: 2px; align-items: center; font-size: 11px; margin-top: 6px; }
+  .flat i { width: 4px; height: 10px; background: #3a3a3a; border-radius: 1px; }
+  .flat i.on { background: rgba(179,157,255,.8); }
+  .tree { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre; color: #ccc; }
+</style>
+</head>
+<body>
+<h1>X-5 · lookahead legibility on a bot that does not look ahead — draw the premise, not a line</h1>
+<p>
+  <code>depth.line</code> is <code>[]</code> on every reading this bot has taken
+  (<code>06-LOOKAHEAD</code> F-1: 125,956 of 125,956 at h1). The row still has a premise, and it is
+  a real object: our cluster's moves, then <em>every</em> uncontrolled unit held as a claim cloud,
+  then one settlement, then the evaluator. The three variants differ in whether they say so.
+</p>
+<div class="row">
+
+  <div class="variant">
+    <h2>A · the premise strip</h2>
+    <div class="why">One <code>ours</code> layer, one <code>theirs</code> layer and a leaf — labelled
+      as the SETTLEMENT the bracket was read on, not as a proved line. When a refiner lands, the
+      same strip draws the real <code>PlyStep</code>s and the wording changes by itself.</div>
+    <div class="rail">
+      <div class="head">line · #1 · h1 · the settlement this bracket was read on</div>
+      <div class="line">
+        <div class="ply"><span class="side">ply 1 us</span>
+          <span class="what">red-B→131 · red-C→106</span></div>
+        <div class="ply theirs"><span class="side">ply 1 them</span>
+          <span class="what">blue-A held — 33 options, 0 of them touch us ⚑</span></div>
+        <div class="ply"><span class="side leaf">leaf</span>
+          <span class="what leaf">−41.4 … 31.4 ⌈72.8⌉ · alive · not terminal</span>
+          <span class="br">2 open</span></div>
+      </div>
+      <div class="premise">no ply was taken — this is the premise the bound was proved under, and
+        the <code>them</code> layer is a CLAIM SET, never a move we know they will play.</div>
+    </div>
+    <div class="verdict win">CHOSEN. It answers “what world is this number about” — the question
+      the bracket cannot answer on its own — without asserting one cell the search never produced.</div>
+  </div>
+
+  <div class="variant">
+    <h2>B · the ply gauge</h2>
+    <div class="why">No strip: extend the existing three-segment depth gauge to say what a lit
+      segment means, and stop. Nothing new in the rail at all.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table><tr class="card"><td>▸1</td><td>−41.4</td>
+        <td>h1 <span class="flat"><i class="on"></i><i></i><i></i></span></td></tr></table>
+      <div class="flat"><span class="premise">one ply proved · two and three never taken</span></div>
+    </div>
+    <div class="verdict lose">REJECTED. It is already shipped and it is exactly what does not
+      answer the question: the gauge says HOW DEEP and never says WHAT WORLD, so the operator still
+      has no way to check the number against anything.</div>
+  </div>
+
+  <div class="variant">
+    <h2>C · the search tree, drawn</h2>
+    <div class="why">The full min/max picture — our layer, the enumerated replies, the backed-up
+      bounds — which is what 06 §2.3's LINE panel eventually wants.</div>
+    <div class="rail">
+      <div class="head">line · #1</div>
+      <div class="tree">us  red-B→131 red-C→106      −41.4…31.4
+ ├ them blue-A o1                ?
+ ├ them blue-A o2                ?
+ └ …31 more                      ?</div>
+      <div class="premise">every child's bracket is unknown: B0 held the whole enemy set as one
+        cloud and never enumerated a branch.</div>
+    </div>
+    <div class="verdict lose">REJECTED. Thirty-three sibling rows with no numbers on them is a
+      picture of a tree the search did not build, and it costs the whole rail. Deferred to 06
+      §2.3's LINE panel, behind <kbd>D</kbd>, when a refiner exists to fill it.</div>
+  </div>
+</div>
+</body>
+</html>

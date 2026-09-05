@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>X-3 — which enemy reply hurts most?</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .threats { margin-top: 6px; }
+  .threats .t {
+    display: flex; gap: 6px; align-items: baseline; font-size: 11px;
+    padding: 2px 0; border-bottom: 1px solid #333;
+  }
+  .threats .u { color: var(--refuter); font-weight: 700; min-width: 84px; }
+  .threats .at { color: var(--ink-bright); font-variant-numeric: tabular-nums; min-width: 58px; }
+  .threats .why { color: var(--ink-dim); }
+  .absence { font-size: 11px; color: var(--ink-dim); font-style: italic; margin-top: 4px; }
+  .loud { font-size: 11px; color: var(--lens-foil); margin-top: 4px; }
+  .board {
+    width: 356px; height: 200px; background: #fff; position: relative; border: 1px solid #888;
+    border-radius: 3px; margin-top: 6px;
+  }
+  .board i {
+    position: absolute; width: 26px; height: 26px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #111;
+  }
+  .board .arrow { position: absolute; border-top: 2px dashed #d84315; width: 46px; }
+  .heat { position: absolute; background: rgba(216,67,21,.25); }
+  .rank { font-size: 10px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<h1>X-3 · the threat ranking — naming the reply behind <code>lo</code>, and drawing what is not stored</h1>
+<p>
+  What the frame actually publishes about the other side: each row's <code>citedUnits</code> (the
+  ledger entries the bracket is still open on, as WIRE keys), each losing row's
+  <code>contingent.onUnits</code> with its <code>atStake</code>, and the leader's
+  <code>LoudReading</code> — <code>q</code> of <code>product</code> replies touching our staged
+  footprint. On the harness turn: <code>q&nbsp;0 / product&nbsp;33</code>, and rank 4 is contingent
+  on <code>#-1</code> and <code>blue-B</code> with <b>72.8</b> at stake. What is <em>not</em>
+  published is which cell the reply plays: <code>depth.line</code> is empty at h1 and
+  <code>Witness.replies</code> is a <code>Map</code> that serialises to <code>{}</code>.
+</p>
+<div class="row">
+
+  <div class="variant">
+    <h2>A · a ranked list of named units</h2>
+    <div class="why">One row per named unit, ranked by what it holds at stake, with the rule stated
+      in the head and the loud count under it. Draws its own absence: “no cell is stored on this
+      build”.</div>
+    <div class="rail">
+      <div class="head">threats · what the bounds are open on</div>
+      <div class="sub">ranked by what a row says is at stake if it resolves against us</div>
+      <div class="threats">
+        <div class="t"><span class="u">blue-B</span><span class="at">72.8</span>
+          <span class="why">would carry #4 if it resolves against us</span></div>
+        <div class="t"><span class="u">the evaluator residue</span><span class="at">72.8</span>
+          <span class="why">named by 2 rows · the leader's floor is open on it</span></div>
+        <div class="t"><span class="u">blue-A</span><span class="at">—</span>
+          <span class="why">the leader's floor is open on it · 2 ledger entries</span></div>
+      </div>
+      <div class="loud">0 of 33 replies blue-A has touch our staged footprint — nothing a ceiling
+        ply could enumerate.</div>
+      <div class="absence">no enemy CELL is stored: every reading here is h1, so the line has no
+        <code>theirs</code> ply and the witness map does not survive the wire.</div>
+    </div>
+    <div class="verdict win">CHOSEN. Every entry is a wire key off the frame, the ranking rule is on
+      screen, and the one thing it cannot say is said rather than omitted.</div>
+  </div>
+
+  <div class="variant">
+    <h2>B · the refuter, on the board</h2>
+    <div class="why">02 §5 Q7's reserved glyph: the dominant refuting reply as a
+      <code>--refuter</code> hollow arrow with its claim cloud washed behind it. Spatial, and the
+      board is where the eye already is.</div>
+    <div class="rail">
+      <div class="head">threats · on the board</div>
+      <div class="board">
+        <i style="left:40px;top:40px;background:#ffb3b3">B</i>
+        <i style="left:150px;top:96px;background:#a9c8ff">bA</i>
+        <span class="heat" style="left:118px;top:64px;width:96px;height:64px"></span>
+        <span class="arrow" style="left:110px;top:110px"></span>
+      </div>
+      <div class="absence">…but the cells are the part that does not exist: the arrow above is drawn
+        from nothing.</div>
+    </div>
+    <div class="verdict lose">REJECTED — <em>as a build</em>, not as a design. The glyph needs
+      <code>PlyStep.moves</code> on a <code>theirs</code> layer, which is empty on every reading
+      this bot has ever taken. Drawing an arrow anyway would be the pixel-that-lies this round
+      exists to catch. Reserved, with the exact producer named in §3.</div>
+  </div>
+
+  <div class="variant">
+    <h2>C · a per-unit column on the moveset table</h2>
+    <div class="why">Fold the threat into the table: one extra column per row listing the units that
+      row is open on, so the threat is read with the row it belongs to.</div>
+    <div class="rail">
+      <div class="head">movesets · seq 21</div>
+      <table>
+        <tr class="card"><td>▸1</td><td>−41.4</td><td class="rank">residue, blue-A</td></tr>
+        <tr class="foilcard"><td>◇2</td><td>−41.4</td><td class="rank">residue, blue-A</td></tr>
+        <tr><td>3</td><td>−41.4</td><td class="rank">residue, blue-A</td></tr>
+        <tr><td>4</td><td>−62.0</td><td class="rank">residue, blue-B</td></tr>
+      </table>
+    </div>
+    <div class="verdict lose">REJECTED. Six columns in 380 px is what wrapped a unit id in half
+      (10 §3 F6), and the column repeats the same two names four times — the ranking is exactly the
+      information a per-row column throws away.</div>
+  </div>
+</div>
+</body>
+</html>
