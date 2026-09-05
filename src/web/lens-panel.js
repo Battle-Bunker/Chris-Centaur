@@ -270,6 +270,72 @@ const LensPanel = (() => {
     const rowCalls = allOf(transcript, 'panel.movesets.row');
     const rowCount = rowCalls.length;
     const scale = bandScale(rowCalls);
+
+    // WHAT SEPARATES THIS ROW FROM THE ONE BEING READ.
+    //
+    // The measured case: rank 1 assigns `red-A→84 · red-C→69`, the foil
+    // assigns `red-A→84 · red-C→67`, and NOTHING marks that the whole
+    // difference is one cell on one unit. The contrastive pair is the object
+    // the research says actually moves a decision (`01 §1` P5, #18) and the
+    // operator was left diffing two three-token strings character by
+    // character at 13 px, on a half-second clock.
+    //
+    // Worse on the rows below them: ranks 3–5 clip at 113 px, and since every
+    // row shares its first token the ellipsis eats exactly the token that
+    // differs — `red-A→108 · r…`, three times, identical. A list whose rows
+    // are distinguishable only in the part that is cut off is a list of one
+    // row drawn five times.
+    //
+    // So the reference is the row the cursor is on — the row the operator is
+    // comparing FROM — and every other row is drawn against it: the cards
+    // mark the tokens that differ, the walked rows show only those tokens and
+    // count the agreements they folded away. The transcript is untouched;
+    // this is the view choosing what to spend 380 px on.
+    const ASSIGNMENT = 7;
+    const SELECTED = 9;
+    const unitOf = (token) => String(token).split('\u2192')[0];
+    const rowsArgs = rowCalls.map((call) => ARGS(call));
+    const refRow = rowsArgs.find((a) => a[SELECTED]) || rowsArgs[0];
+    const reference = new Map(
+      ((refRow && refRow[ASSIGNMENT]) || []).map((m) => [unitOf(m), String(m)])
+    );
+    /** The row's assignment, split into what agrees with the reference and
+     *  what does not. A row with no reference to compare against (there is
+     *  only one row, or it IS the reference) differs in nothing, and says so
+     *  by drawing itself whole. */
+    const splitAssignment = (assignment) => {
+      const list = (assignment || []).map(String);
+      const differs = list.filter((m) => {
+        const ref = reference.get(unitOf(m));
+        return ref !== undefined && ref !== m;
+      });
+      return { list, differs, agreed: list.length - differs.length };
+    };
+
+    /** A card draws every unit and MARKS the ones that differ; a walked row
+     *  draws only what differs and says how many it folded. Both put the
+     *  informative token first, which is the half a 380 px column has room
+     *  for. */
+    const assignmentHTML = (assignment, isCard) => {
+      const { list, differs, agreed } = splitAssignment(assignment);
+      if (list.length === 0) return '';
+      const mark = (m) => {
+        const ref = reference.get(unitOf(m));
+        const cls = ref !== undefined && ref !== m ? 'lens-move lens-move-diff' : 'lens-move';
+        return `<span class="${cls}">${escapeHTML(m)}</span>`;
+      };
+      if (isCard || differs.length === 0) {
+        return list.map(mark).join(' · ');
+      }
+      // `\u2261 2` reads "two units the same as the row you are on" — a count,
+      // not a hidden list: the whole assignment is still one keypress away as
+      // this row's own card the moment the cursor lands on it.
+      return (
+        differs.map(mark).join(' · ') +
+        (agreed > 0 ? ` <span class="lens-move-same">\u2261 ${agreed}</span>` : '')
+      );
+    };
+
     const rows = rowCalls
       .map((call) => {
         const [
@@ -330,9 +396,8 @@ const LensPanel = (() => {
           // drawn on the leader too, where it reads "leads on the proved
           // floor": a blank cell and a row that leads are different states.
           `<td class="lens-unless">${escapeHTML(unless || '')}</td>` +
-          `<td>${(assignment || [])
-            .map((m) => `<span class="lens-move">${escapeHTML(m)}</span>`)
-            .join(' · ')}${trailHTML(trail, staged)}</td></tr>`
+          `<td>${assignmentHTML(assignment, selected || isFoil)}` +
+          `${trailHTML(trail, staged)}</td></tr>`
         );
       })
       .join('');
@@ -369,15 +434,20 @@ const LensPanel = (() => {
       // saying so — with the retained count beside it — turns the shortness
       // into a fact the operator can check (10 §4 O1).
       `<div class="lens-list-source">${sourceLine(source, retained, rowCount, truncated)}</div>` +
-      // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
-      // three of them mean something else elsewhere in the codebase. A reader
-      // who has to be told what a column means is reading a number they
-      // cannot check.
-      `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
-      `Q loud replies · unless what this row is betting on</div>` +
       `<table class="lens-table">${rows}</table>` +
       (fixed ? `<div class="lens-fixed-strip">${fixed}</div>` : '') +
       foil +
+      // THE LEGEND, UNDER THE TABLE IT GLOSSES. Four tokens are on that table
+      // with no gloss anywhere, and three of them mean something else in the
+      // rest of the codebase, so it stays. But it is L4 — "needed to check a
+      // number, never to take a decision inside 500 ms" — and it was drawn
+      // ABOVE the two cards, at the top of L2, three lines of definitions
+      // between the operator's eye and the row that is going to happen
+      // (`heuristic → movesets-measured`: legend at y 132, rank 1 at y 160).
+      // A reader meets the decision first now and the key to it afterwards,
+      // which is the order they are needed in.
+      `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
+      `Q loud replies · unless what this row is betting on</div>` +
       (lock ? `<div class="lens-lock">${escapeHTML(ARGS(lock)[0])}</div>` : '')
     );
   }
@@ -571,8 +641,18 @@ const LensPanel = (() => {
     const cls = ['lens-aff', chip.tone ? `lens-aff-${chip.tone}` : '', chip.off ? 'lens-aff-off' : '']
       .filter(Boolean)
       .join(' ');
+    // A CHIP THAT CLICKS IS A BUTTON, and has to say so. §3.3 makes the chips
+    // the mouse-first operator's path to every action; drawn as bare `<span>`s
+    // with a pointer handler they had no role, no name and no way to take
+    // focus, so the keyboard could not reach them and a screen reader could
+    // not announce them (WCAG 2.1.1, 4.1.2). The ones that do something are
+    // buttons now; the ones that only report state stay inert text, which is
+    // what they are.
+    const act = chip.action && !chip.off;
     return (
-      `<span class="${cls}"${chip.action ? ` data-lens-action="${escapeHTML(chip.action)}"` : ''}>` +
+      `<span class="${cls}"${chip.action ? ` data-lens-action="${escapeHTML(chip.action)}"` : ''}` +
+      `${act ? ` role="button" tabindex="0"` : ''}` +
+      `${chip.action && chip.off ? ' aria-disabled="true"' : ''}>` +
       `<span class="lens-aff-glyph">${escapeHTML(chip.glyph)}</span>${escapeHTML(chip.label)}` +
       `${chip.key ? `<kbd>${escapeHTML(chip.key)}</kbd>` : ''}` +
       `${chip.note ? `<span class="lens-aff-note">${escapeHTML(chip.note)}</span>` : ''}</span>`

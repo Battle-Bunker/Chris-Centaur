@@ -69,6 +69,12 @@
   const BUDGET_MAX_MS = 60000;
   const PING_INTERVAL_MS = 1000;   // the page's own is 5 s: too coarse to steer by
   const TICK_MS = 100;             // the readout's own cadence, off the deadline
+  // ...and the cadence when NOTHING on the strip is moving at 10 Hz. See
+  // `tick()`: the only thing that changes between ticks on a quiet wire is an
+  // age counter inside the banner sentence, and a sentence that re-renders ten
+  // times a second is the same sentence to a reader and ten times the layouts
+  // to the browser — for the whole length of a session.
+  const IDLE_TICK_MS = 1000;
   const SERVER_WORK_DEFAULT_MS = 20;
   const CHIP_HOLD_OK_MS = 2500;
   const CHIP_HOLD_BAD_MS = 9000;
@@ -535,7 +541,16 @@
       '<div class="lat-head">' +
       '<div class="lat-clock"><div class="lat-clock-fill"></div><div class="lat-clock-safe"></div></div>' +
       '<div class="lat-line"><span class="lat-dot"></span>' +
-      '<span class="lat-state">—</span><span class="lat-nums"></span></div>' +
+      '<span class="lat-state">—</span><span class="lat-nums">' +
+      // THE FOUR CELLS ARE BUILT ONCE. Two of these four numbers are AGES —
+      // how old the last frame is, how old the board is — so their text
+      // changes on EVERY tick of a 10 Hz readout, which meant the old
+      // `el.nums.innerHTML = …` destroyed and rebuilt four spans ten times a
+      // second for the life of the session. The markup below is character for
+      // character what `numsHTML` used to produce; `drawNums` now writes the
+      // value text and the grade attribute in place.
+      NUM_CELLS.map((c) => `<span class="lat-num" data-grade="none">${c.label}&nbsp;<span class="lat-v">—</span></span>`).join('') +
+      '</span></div>' +
       '</div>' +
       '<div class="lat-over"><div class="lat-banner"></div><div class="lat-cmds"></div></div>' +
       '</div>';
@@ -544,6 +559,8 @@
     el.safe = mount.querySelector('.lat-clock-safe');
     el.state = mount.querySelector('.lat-state');
     el.nums = mount.querySelector('.lat-nums');
+    el.num = Array.prototype.slice.call(mount.querySelectorAll('.lat-num'));
+    el.numV = el.num.map((n) => n.querySelector('.lat-v'));
     el.banner = mount.querySelector('.lat-banner');
     el.cmds = mount.querySelector('.lat-cmds');
     return true;
@@ -575,21 +592,50 @@
     return 'ok';
   }
 
-  function numsHTML(r) {
-    const cell = (label, value, g) =>
-      `<span class="lat-num" data-grade="${g}">${label}&nbsp;${value}</span>`;
-    const ms = (v) => (v === null ? '—' : `${v}ms`);
-    return [
-      cell('rtt', ms(r.rttMs), grade(r.rttMs, r.thresholds.rttWarnMs, r.thresholds.rttDegradedMs)),
-      cell('frame', r.frameAgeMs === null ? '—' : `+${r.frameAgeMs}ms`,
-        grade(r.frameAgeMs, r.thresholds.thinkingMs, r.thresholds.degradedMs)),
-      cell('board', r.boardAgeMs === null ? '—' : `+${r.boardAgeMs}ms`,
-        grade(r.boardAgeMs, r.budgetMs, r.budgetMs * 2)),
-      // `—` and not `0`: nobody reported the game server's own clock, which is
-      // a different statement from "the hop was instant".
-      cell('game', r.gameLagMs === null ? '—' : `+${r.gameLagMs}ms`,
-        grade(r.gameLagMs, r.thresholds.thinkingMs, r.thresholds.degradedMs)),
-    ].join('');
+  /**
+   * THE FOUR NUMBERS, as a table rather than as a template.
+   *
+   * Each cell says how to read its value out of a `read()` and how to grade
+   * it. The labels are the ones that were in `numsHTML`, in the same order,
+   * and `— / +Nms / Nms` is the same formatting: the rendered strip is
+   * character-identical to what the template produced. What changed is that
+   * the four spans are now built once, at mount, and only their text and
+   * their `data-grade` are written afterwards — because two of these four are
+   * AGES and therefore change on every tick, and rebuilding the strip at
+   * 10 Hz for the life of a session is ten forced layouts a second for a
+   * readout the operator mostly is not looking at.
+   */
+  const NUM_CELLS = [
+    {
+      label: 'rtt',
+      value: (r) => (r.rttMs === null ? '—' : `${r.rttMs}ms`),
+      grade: (r) => grade(r.rttMs, r.thresholds.rttWarnMs, r.thresholds.rttDegradedMs),
+    },
+    {
+      label: 'frame',
+      value: (r) => (r.frameAgeMs === null ? '—' : `+${r.frameAgeMs}ms`),
+      grade: (r) => grade(r.frameAgeMs, r.thresholds.thinkingMs, r.thresholds.degradedMs),
+    },
+    {
+      label: 'board',
+      value: (r) => (r.boardAgeMs === null ? '—' : `+${r.boardAgeMs}ms`),
+      grade: (r) => grade(r.boardAgeMs, r.budgetMs, r.budgetMs * 2),
+    },
+    // `—` and not `0`: nobody reported the game server's own clock, which is
+    // a different statement from "the hop was instant".
+    {
+      label: 'game',
+      value: (r) => (r.gameLagMs === null ? '—' : `+${r.gameLagMs}ms`),
+      grade: (r) => grade(r.gameLagMs, r.thresholds.thinkingMs, r.thresholds.degradedMs),
+    },
+  ];
+
+  function drawNums(r) {
+    for (let i = 0; i < NUM_CELLS.length; i++) {
+      const cell = NUM_CELLS[i];
+      set(el.numV[i], `num${i}v`, cell.value(r));
+      setAttr(el.num[i], `num${i}g`, 'data-grade', cell.grade(r));
+    }
   }
 
   function chipsHTML() {
@@ -625,8 +671,53 @@
     );
   }
 
+  /**
+   * A HIDDEN TAB IS NOT READ, SO IT IS NOT DRAWN.
+   *
+   * An operator holds this page open for hours and spends a good part of them
+   * looking at something else. The readout is a *display* and nothing else
+   * depends on it — `LatencyView.read()` recomputes from state on every call,
+   * `alerts.js` polls `read()` rather than the DOM, and the board's optimistic
+   * ink reads `pending()` — so a tick that paints a strip nobody can see is
+   * pure waste, ten times a second, for as long as the tab is in the
+   * background. The tick still runs (the wire is still measured); only the
+   * painting is skipped, and `visibilitychange` repaints in full on return.
+   */
+  function hidden() {
+    const d = global.document;
+    return !!(d && d.visibilityState === 'hidden');
+  }
+
+  /**
+   * THE TICK, AT THE RATE THE STRIP ACTUALLY MOVES.
+   *
+   * Measured on an idle page, the readout cost **10 forced layouts a second,
+   * for ever**, and the cause was one string: on a wire the ladder is not
+   * calling LIVE, the banner reads `no decision frame for 1234 ms` — an age
+   * counter, so a different string on every one of the ten ticks a second, so
+   * a text write, a style recalculation and a layout on every one of them. The
+   * page an operator leaves open all afternoon spent its whole afternoon
+   * re-laying-out a sentence that says the same thing.
+   *
+   * Two things on this strip genuinely move at 10 Hz and both of them are
+   * conditional: the depleting clock (only while a turn deadline is running)
+   * and a pending command chip's own age (only while a write is unanswered).
+   * With neither of those in play the strip is repainted once a second, which
+   * is indistinguishable to a reader and a tenth of the work. Event-driven
+   * draws — an arrival, a socket open or close, a command — are never gated;
+   * only the timer is.
+   */
+  function tick() {
+    if (hidden()) return;
+    const fast = wire.deadlineAt !== null || pending.length > 0;
+    if (!fast && nowMs() - lastPaintAt < IDLE_TICK_MS) return;
+    draw();
+  }
+
   function draw() {
     if (!ensureMount()) return;
+    if (hidden()) return;
+    lastPaintAt = nowMs();
     const r = read();
 
     if (r.state !== lastState) {
@@ -666,8 +757,7 @@
       setAttr(root, 'clock', 'data-clock', past ? 'past' : unsafe ? 'urgent' : frac < 0.35 ? 'warn' : 'ok');
     }
 
-    const nums = numsHTML(r);
-    if (written.nums !== nums) { written.nums = nums; el.nums.innerHTML = nums; }
+    drawNums(r);
 
     // ONE BANNER REGION, never modal, never red for a recoverable state.
     let banner = r.why;
@@ -733,6 +823,9 @@
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   let ticker = null;
+
+  let visibilityBound = false;
+  let lastPaintAt = -Infinity;
   let pinger = null;
 
   function sendPing() {
@@ -762,7 +855,13 @@
       }
     });
     ensureStyle();
-    if (ticker === null) ticker = global.setInterval(draw, TICK_MS);
+    if (ticker === null) ticker = global.setInterval(tick, TICK_MS);
+    if (!visibilityBound && global.document && global.document.addEventListener) {
+      visibilityBound = true;
+      global.document.addEventListener('visibilitychange', () => {
+        if (!hidden()) draw();
+      });
+    }
     if (pinger === null) pinger = global.setInterval(sendPing, PING_INTERVAL_MS);
     ensureMount();
     installPanelWriteGuard(['lensRail', 'lensLane']);

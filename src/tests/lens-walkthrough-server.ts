@@ -49,6 +49,7 @@
  * recorded log read back through the replay path.
  */
 
+import compression from 'compression';
 import express from 'express';
 import path from 'path';
 import { createServer } from 'http';
@@ -226,6 +227,11 @@ async function main(): Promise<void> {
 
   const manager = ActiveGameManager.getInstance();
   const app = express();
+  // `src/index.ts` line for line: compression BEFORE the static mount. It was
+  // missing here, and its absence is not neutral — the operator page ships
+  // 462 KB of script and 315 KB of markup, and measuring a cold load against
+  // an uncompressed mount measures a server nobody runs.
+  app.use(compression());
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '../web')));
   // `root` rather than an absolute path: a worktree lives under `.claude/`,
@@ -233,6 +239,13 @@ async function main(): Promise<void> {
   // dot-segment in it. The root is resolved once and only the leaf is checked.
   app.get('/game/:id', (_req, res) => {
     res.sendFile('play-game.html', { root: path.join(__dirname, '../web') });
+  });
+  // `/history` is a ROUTE in production (`src/index.ts:86`) and the review is
+  // reached at that path — `page-chrome.js` marks the current page by
+  // pathname, so serving the file only at `/history.html` would photograph a
+  // page that thinks it is nowhere.
+  app.get('/history', (_req, res) => {
+    res.sendFile('history.html', { root: path.join(__dirname, '../web') });
   });
 
   // ── The read side, off the list instead of off Postgres ─────────────────
@@ -289,9 +302,17 @@ async function main(): Promise<void> {
     // replay that stopped at the turn's last DECISION event would be a
     // different prefix from the one the live client ended on — which is a
     // difference in the harness, not in the product, and would show up as one.
+    // `kind=` is filtered here as production filters it in SQL (an indexed
+    // `(game_id, turn, kind)` column). The review's index pass asks for five
+    // small kinds across a whole game rather than the whole log, and a stub
+    // that ignored the filter would hand it the megabytes the split exists to
+    // avoid — a difference in the harness that reads as a difference in the
+    // product (docs/design/ux/07-REVIEW.md §1.6).
+    const kind = req.query.kind == null ? null : String(req.query.kind);
     const events = log
       .filter((t) => t.turn >= start && t.turn <= end)
-      .flatMap((t) => (captured.get(t.turn) ?? []).map((e) => storedRow(e).payload));
+      .flatMap((t) => (captured.get(t.turn) ?? []).map((e) => storedRow(e).payload))
+      .filter((p) => kind === null || (p as { kind?: string }).kind === kind);
     // `lensStringify`, exactly as `turn_events.payload` is written: `hi: +∞` is
     // the lattice top before anything is proved above the incumbent, and plain
     // `JSON.stringify` flattens it to `null`. Postgres holds the NAMED form and
@@ -301,6 +322,11 @@ async function main(): Promise<void> {
   });
 
   app.get('/api/logs/commands', (_req, res) => res.json([]));
+  // The viewer beacons its connection log on unload (`ws-client.js`), and
+  // production mounts this (`routes/connection-debug.ts`). A walk that leaves
+  // the game page — which it does the moment it goes to `/history` — otherwise
+  // records a 404 that belongs to the harness and reads as a page fault.
+  app.post('/api/connection-log/client', (_req, res) => res.json({ ok: true }));
   // THE REAL PLAY ROUTES. `/api/play/game/:id` 404ing is what tips the page
   // into `enterFinishedMode` — a live game read as a finished one — so the
   // walkthrough must mount the router rather than stub around it.
@@ -559,6 +585,59 @@ async function main(): Promise<void> {
     });
     void stepping.then(() => res.json({ ok: true, turn: turn - 1, turns: log.length }));
   });
+
+  // ── SOAK MODE ───────────────────────────────────────────────────────────
+  // The walkthrough plays eight turns and photographs them. A LONG SESSION is
+  // a different question — an operator holds this page open for hours and
+  // hundreds of turns — and the two things a soak needs that the walkthrough
+  // never did are (a) many turns without a round trip per turn and (b) a wire
+  // that can change WHILE the page stays open, because the latency ladder is
+  // the one surface whose whole behaviour is a function of the wire and a
+  // soak that never moves it never exercises its state changes at all.
+  //
+  // Neither route exists in production and neither is on the walkthrough's
+  // own path: `/dev/step` is untouched, so `10-WALKTHROUGH.md`'s re-run plays
+  // the same turns through the same code it always did.
+
+  /** N turns, back to back, one request. Returns how long they took. */
+  app.post('/dev/steps', (req, res) => {
+    const asked = Number((req.body as { n?: unknown } | undefined)?.n ?? req.query.n ?? 1);
+    const n = Math.max(1, Math.min(1000, Number.isFinite(asked) ? Math.floor(asked) : 1));
+    const t0 = Date.now();
+    for (let i = 0; i < n; i++) {
+      stepping = stepping.then(playTurn).catch((err) => {
+        console.error('[walkthrough] step failed:', err);
+      });
+    }
+    void stepping.then(() =>
+      res.json({ ok: true, played: n, turn: turn - 1, turns: log.length, ms: Date.now() - t0 })
+    );
+  });
+
+  /**
+   * RESHAPE THE WIRE WITHOUT RESTARTING — `GameWebSocketServer.shapeTransport`
+   * is already a runtime setter, and the sockets a page has open keep working
+   * across the change. `{}` (or `--latency=0`-shaped numbers) removes the
+   * shaping entirely, which is the shipped wire.
+   */
+  app.post('/dev/wire', (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const num = (k: string): number => {
+      const v = Number(body[k] ?? req.query[k] ?? 0);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    };
+    const shape = {
+      downMs: num('latency') || num('latencyDown'),
+      upMs: num('latency') || num('latencyUp'),
+      jitterMs: num('jitter'),
+      lossRate: num('loss'),
+      lossAny: body.lossAny === true || req.query.lossAny !== undefined,
+    };
+    const on = shape.downMs > 0 || shape.upMs > 0 || shape.jitterMs > 0 || shape.lossRate > 0;
+    ws.shapeTransport(on ? shape : null);
+    res.json({ ok: true, wire: on ? shape : null });
+  });
+
   // The turn's events AS BROADCAST (settlement intact) — the live side of the
   // live-vs-replay diff, readable without a browser.
   app.get('/dev/events', (req, res) => {

@@ -30,6 +30,9 @@ const arg = (name, fallback) => {
 
 const PORT = parseInt(arg('port', '5055'), 10);
 const OUT = path.resolve(arg('out', 'docs/design/decision-lens/walkthrough'));
+/** The review drill photographs a different surface for a different document,
+ *  so its pictures live beside that document (docs/design/ux/07-REVIEW.md). */
+const REVIEW_OUT = path.resolve(arg('review-out', 'docs/design/ux/review'));
 const BASE = `http://127.0.0.1:${PORT}`;
 const GAME = arg('game', 'lens-walk');
 const WAIT = parseInt(arg('wait', '2000'), 10);
@@ -77,8 +80,8 @@ function railText(page) {
   }));
 }
 
-async function shot(page, name, note, selector) {
-  const file = path.join(OUT, `${name}.png`);
+async function shot(page, name, note, selector, dir) {
+  const file = path.join(dir || OUT, `${name}.png`);
   const target = selector ? await page.$(selector) : page;
   if (!target) {
     report.shots.push({ name, note, missing: selector });
@@ -126,7 +129,31 @@ const step = () => fetch(`${BASE}/dev/step`, { method: 'POST' }).then((r) => r.j
 /** Focus a unit through the shipped gesture — the roster row. A row that is
  *  already the active perspective fires no selection, so the walk goes via
  *  another unit when it has to. */
+/**
+ * THE TAKEOVER DIALOG, ANSWERED.
+ *
+ * Selecting a unit another operator has claimed raises `#confirmDialog`, and
+ * it is a modal that swallows every pointer event on the page until it is
+ * answered — including the roster click that raised it. The walk only ever
+ * worked on a VIRGIN server, where the name `Ada` is free and therefore owns
+ * the units; run it a second time against the same server and the gate takes
+ * `Ada-2`, owns nothing, and dies on a screenshot of a rail that never
+ * opened. A gate that passes only on the first run is not a gate.
+ *
+ * Answering it is what an operator taking a seat does, and the count rides in
+ * `report.json` because how many modals a second operator has to answer to
+ * pick up one team is a fact about the surface.
+ */
+async function takeOver(page) {
+  if (!(await page.$('#confirmDialog.active'))) return false;
+  await page.click('#confirmTakeoverBtn');
+  await sleep(700);
+  report.notes.takeovers = (report.notes.takeovers || 0) + 1;
+  return true;
+}
+
 async function focusUnit(page, index) {
+  await takeOver(page);
   const active = await page.evaluate(() => {
     const el = document.querySelector('.snake-info-item.active-perspective');
     return el ? [...document.querySelectorAll('.snake-info-item.selectable')].indexOf(el) : -1;
@@ -135,14 +162,16 @@ async function focusUnit(page, index) {
     const rows = await page.$$('.snake-info-item.selectable');
     const other = index === 0 ? 1 : 0;
     if (rows[other]) {
-      await rows[other].click();
+      await rows[other].click({ force: true });
       await sleep(WAIT);
+      await takeOver(page);
     }
   }
   const again = await page.$$('.snake-info-item.selectable');
   if (again[index]) {
-    await again[index].click();
+    await again[index].click({ force: true });
     await sleep(WAIT);
+    await takeOver(page);
   }
 }
 
@@ -243,7 +272,8 @@ async function selectAnsweredCandidate(page, unit) {
       continue;
     }
     try {
-      await cell.click({ timeout: 4000 });
+      await takeOver(page);
+      await cell.click({ timeout: 4000, force: true });
       await sleep(WAIT);
       return { lock, clicked: true };
     } catch (_e) {
@@ -260,6 +290,15 @@ async function main() {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const context = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+  // THE TOUR'S FIRST-RUN OFFER IS SUPPRESSED FOR THE WHOLE WALK, and opened
+  // deliberately by the tour drill at the end of it. `src/web/tour.js` opens
+  // itself once per browser profile on the first game it can point at, which
+  // is right for an operator and wrong for a camera: a dim layer over every
+  // photograph below would change thirty-three pictures for a reason that has
+  // nothing to do with what they are of.
+  await context.addInitScript(() => {
+    try { localStorage.setItem('lensTourDone', '1'); } catch (e) { /* no storage */ }
+  });
   const page = await context.newPage();
   let at = 'boot';
   watch(page, () => at);
@@ -470,16 +509,55 @@ async function main() {
   await selectAnsweredCandidate(page, 'red-A');
   const beforePin = await railOf();
 
+  /** The undo stack's own depth, from the page. The control bar's TEXT is not
+   *  a witness for it: `/undo/` matches the chip's own label whatever the
+   *  stack holds, and `nothing yet` is absent whenever the stack is non-empty
+   *  FOR ANY REASON — including the multi-unit lock at `17-locked`, which runs
+   *  before this drill and pushes an entry of its own. Read the number. */
+  const undoDepth = () =>
+    page.evaluate(() => (typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length));
+
+  /** CAN THIS HARNESS STAGE AT ALL? `stageSelectedMove` needs
+   *  `userSelectedMove`, which needs a candidate in `moveState.moves`, which
+   *  `setupMoveStateForSnake` builds from `controlled-snake-turn-data` — a
+   *  message the walkthrough server does not send. So `moveState.moves` is
+   *  `{}` here and NO press of `Space` can stage anything, on any candidate,
+   *  in any state this walk reaches. That is a gap in the harness, not in the
+   *  page, and the honest thing is to say so out loud and assert what can be
+   *  asserted rather than to pass on a stack entry left standing by an earlier
+   *  step. It rides in `report.json` so the gap cannot go quiet. */
+  const stageable = await page.evaluate(
+    () => Object.keys((typeof moveState !== 'undefined' && moveState && moveState.moves) || {}).length
+  );
+  report.notes.pinStageable = stageable;
+  if (stageable === 0) {
+    console.log(
+      '  ⚠ drill/pin — this harness sends no controlled-snake-turn-data, so ' +
+        'moveState.moves is empty and no candidate is stageable. The pin step ' +
+        'asserts the undo AFFORDANCE, not a staged move.'
+    );
+  }
+
   // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
   // the operator's own unit, no confirmation, and an undo the moment it lands.
   at = 'drill/pin';
+  const depthBeforePin = await undoDepth();
   await page.keyboard.press(' ');
   await sleep(1200);
   const afterPin = await railOf();
+  const depthAfterPin = await undoDepth();
   check(
-    'pin — the undo affordance arrives with the determination',
-    /undo/i.test(afterPin.controls || '') && !/nothing yet/.test(afterPin.controls || ''),
-    { controls: afterPin.controls, before: beforePin.controls }
+    stageable === 0
+      ? 'pin — the undo affordance names the stack it stands over (nothing is stageable on this harness)'
+      : 'pin — the determination lands on the undo stack, and the affordance says so',
+    stageable === 0
+      ? // With nothing stageable, the honest property is that the bar and the
+        // stack AGREE: `nothing yet` iff the stack is empty. A bar that said
+        // otherwise would be the lie this check exists to catch.
+        depthAfterPin === depthBeforePin &&
+          /nothing yet/.test(afterPin.controls || '') === (depthAfterPin === 0)
+      : depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
+    { controls: afterPin.controls, before: beforePin.controls, depthBeforePin, depthAfterPin, stageable }
   );
   check('pin — the stage line names a plan for every unit', /Bot stages/.test(afterPin.stage || ''), {
     stage: afterPin.stage,
@@ -544,13 +622,22 @@ async function main() {
     await sleep(800);
   }
   await focusUnit(page, 0);
+  const depthBeforeUndo = await undoDepth();
   await page.keyboard.press('u');
   await sleep(1000);
   const undone = await railOf();
+  const depthAfterUndo = await undoDepth();
+  // AND HERE TOO, THE NUMBER RATHER THAN THE WORD. `/undo/` matched the
+  // chip's own label and passed whether or not anything was taken back. The
+  // property is that `U` pops exactly one entry when there is one, and that a
+  // press against an empty stack is a no-op rather than an underflow — and
+  // that the bar's sentence agrees with the stack either way.
   check(
-    'undo — takes the determination back and names what it took',
-    /undo/i.test(undone.controls || ''),
-    { controls: undone.controls }
+    'undo — pops exactly one determination, or nothing when there is nothing',
+    depthBeforeUndo > 0
+      ? depthAfterUndo === depthBeforeUndo - 1
+      : depthAfterUndo === 0 && /nothing yet/.test(undone.controls || ''),
+    { controls: undone.controls, depthBeforeUndo, depthAfterUndo }
   );
   await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
   report.notes.drill = drill;
@@ -638,6 +725,176 @@ async function main() {
   // page: a reload re-enters through the login gate, and an operator who has
   // to take a numbered name does not own the units. Nothing follows it, so
   // nothing can be hurt by that.
+  // ── THE TOUR DRILL ──────────────────────────────────────────────────────
+  //
+  // `src/web/tour.js` is the operator manual in the page it is about, and the
+  // one property it has to have is the one a screenshot cannot show: THAT IT
+  // CHANGES NOTHING. A tour that stops the turn to explain the turn has taught
+  // the operator nothing they can use, so this asserts, in this order:
+  //
+  //  · it opens on the chord the manual documents (`?` then `T`);
+  //  · it visits EVERY region whose element is actually on screen — no more,
+  //    because a step pointing at nothing is worse than a step skipped, and no
+  //    fewer, because a region the tour never reaches is a region it does not
+  //    teach;
+  //  · `Enter` steps and the last `Enter` finishes, leaving the completion in
+  //    `localStorage` so it does not open itself again;
+  //  · and the LENS FRAME AND THE DECISION ARE BYTE-IDENTICAL ACROSS THE WHOLE
+  //    OF IT — the rail's markup, the cursor, the staged moves and the undo
+  //    stack, taken off the head so nothing may legitimately move underneath.
+  //
+  // A failed assertion fails the run, like the other two drills.
+  at = 'tour';
+  const tour = [];
+  const tourCheck = (name, ok, saw) => {
+    tour.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} tour/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+  const tourState = () =>
+    page.evaluate(() => ({
+      open: window.Tour ? window.Tour.isOpen() : null,
+      step: window.Tour ? window.Tour.stepId() : null,
+      shown: window.Tour ? window.Tour.shown() : null,
+      all: window.Tour ? window.Tour.steps() : null,
+      card: (document.querySelector('.tour-card') || {}).innerText || null,
+      link: !!document.querySelector('[data-tour-open]'),
+      done: (() => { try { return localStorage.getItem('lensTourDone'); } catch (e) { return null; } })(),
+    }));
+
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await focusUnit(page, 0);
+  await selectAnsweredCandidate(page, 'red-A');
+  await sleep(400);
+  tourCheck('the chrome link is on the page before anything is pressed', (await tourState()).link, null);
+
+  // WHICH REGIONS ARE ACTUALLY THERE, asked of the DOM and not of the tour,
+  // so the next assertion compares two independent answers.
+  const onScreen = await page.evaluate(() => {
+    const sels = {
+      clock: '#turnClock', wire: '#latency-mount', board: '#gameCanvas', roster: '#snakeInfoList',
+      stage: '.lens-stage-line', business: '.lens-biz', focus: '.lens-focus',
+      candidates: '.lens-candidates', movesets: '.lens-movesets', breakdown: '.lens-breakdown',
+      controls: '#lensControls', keys: '#lensKeys', lane: '#lensLane',
+    };
+    const out = [];
+    for (const [id, sel] of Object.entries(sels)) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width >= 2 && r.height >= 2) out.push(id);
+    }
+    return out;
+  });
+
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(600);
+  const opened = await tourState();
+  tourCheck('`?` then `T` opens it', opened.open === true && opened.step !== null, {
+    open: opened.open, step: opened.step,
+  });
+  tourCheck(
+    'it visits every region that is on screen, and only those',
+    JSON.stringify(opened.shown) === JSON.stringify(onScreen),
+    { shown: opened.shown, onScreen, all: opened.all }
+  );
+  await shot(page, 'd8-tour', 'the drill: the tour on its first region — the page under it is live', null);
+
+  // ONE `Enter` PER REGION. The step id has to change on every one of them: a
+  // tour whose Next button redraws the same card is a tour of one region.
+  at = 'tour/steps';
+  const visited = [opened.step];
+  let cards = 1;
+  for (let i = 1; i < (opened.shown || []).length; i++) {
+    await page.keyboard.press('Enter');
+    await sleep(220);
+    const st = await tourState();
+    if (st.step && st.step !== visited[visited.length - 1]) cards++;
+    visited.push(st.step);
+  }
+  tourCheck(
+    'Enter steps through every region in the manual’s own order',
+    JSON.stringify(visited) === JSON.stringify(opened.shown) && cards === (opened.shown || []).length,
+    { visited, expected: opened.shown }
+  );
+  // THE WHOLE PAGE, and not a crop of the card. The card is `position: fixed`
+  // and it moves with the region it explains, so both ways of cropping it have
+  // now photographed something else: an element shot scrolls it out from under
+  // its own clip, and a page clip is in page coordinates where the card's rect
+  // is in viewport ones. The full page is the honest picture anyway — the
+  // point of the shot is the LAST region lit with the page still live under
+  // it — and the card's text is in the report beside it.
+  report.notes.tourLastCard = (await tourState()).card;
+  await shot(page, 'd9-tour-last', 'the drill: the last region of the tour, with the page live under it');
+
+  // THE INVARIANT. Taken OFF THE HEAD, because at the head the kernel is still
+  // emitting and a rail that changed would prove nothing about the tour.
+  at = 'tour/invariant';
+  await page.keyboard.press('Enter'); // the last card finishes
+  await sleep(400);
+  await page.keyboard.press('Home');
+  await sleep(700);
+  const fingerprint = () =>
+    page.evaluate(() => ({
+      seq: typeof lensSeq === 'undefined' ? null : lensSeq,
+      atHead: typeof lensAtHead === 'undefined' ? null : lensAtHead,
+      rail: (document.getElementById('lensRail') || {}).innerHTML || null,
+      controls: (document.getElementById('lensControls') || {}).innerHTML || null,
+      transcript: typeof lensTranscript === 'undefined' ? null : JSON.stringify(lensTranscript),
+      cursor: typeof lensCursor === 'undefined' ? null : JSON.stringify(lensCursor),
+      staged: typeof stagedMoves === 'undefined' ? null : JSON.stringify(stagedMoves),
+      undo: typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length,
+    }));
+  const before = await fingerprint();
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(500);
+  const midTour = await tourState();
+  for (let i = 0; i < (midTour.shown || []).length; i++) {
+    await page.keyboard.press('Enter');
+    await sleep(160);
+  }
+  await sleep(400);
+  const after = await fingerprint();
+  const closed = await tourState();
+  tourCheck(
+    'the tour changed no lens frame and no decision',
+    before.rail === after.rail &&
+      before.transcript === after.transcript &&
+      before.cursor === after.cursor &&
+      before.staged === after.staged &&
+      before.undo === after.undo &&
+      before.seq === after.seq,
+    {
+      rail: before.rail === after.rail,
+      transcript: before.transcript === after.transcript,
+      cursor: before.cursor === after.cursor,
+      staged: before.staged === after.staged,
+      undo: [before.undo, after.undo],
+      seq: [before.seq, after.seq],
+    }
+  );
+  tourCheck('it closes on the last Enter and remembers it', closed.open === false && closed.done !== null, {
+    open: closed.open, done: closed.done,
+  });
+
+  // AND `Esc` LEAVES, from the middle, which is the way an operator who
+  // already knows the page gets out of it.
+  at = 'tour/escape';
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(400);
+  await page.keyboard.press('Enter');
+  await sleep(200);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  const escaped = await tourState();
+  tourCheck('Esc leaves it from the middle', escaped.open === false && escaped.card === null, escaped);
+  await page.keyboard.press('n');
+  await sleep(500);
+  report.notes.tour = tour;
+
   at = 'scheme';
   const scheme = [];
   const schemeCheck = (name, ok, saw) => {
@@ -741,6 +998,229 @@ async function main() {
   });
   report.notes.scheme = scheme;
 
+  // ── THE LAST-SAFE-PRESS NOTCH ───────────────────────────────────────────
+  //
+  // L0's other half. `02 §2.1` says the clock draws a notch "wherever
+  // `window.__lensLastSafePressMs` puts it, and nothing when nobody has set
+  // it" — and nobody ever did, so the notch had never drawn in a real game
+  // and no gate could have noticed: an absent mark and a correctly absent
+  // mark are the same pixels. It is fed from `LatencyView.read().pressSlackMs`
+  // now, and this asserts the wiring rather than the shape.
+  //
+  // The clock has to be DRIVEN here. `/dev/step` plays turns on demand, so
+  // `turnExpiryTime` is never a future instant, `startTurnTimer` paints the
+  // idle bar for the whole walk, and L0 has been shipping unphotographed. The
+  // budget and the remaining time are handed to the page's own updater; the
+  // NUMBER under test is the one the latency module measured from the real
+  // socket this walk has been talking over.
+  at = 'clock';
+  const notch = await page.evaluate(() => {
+    const slack =
+      typeof LatencyView !== 'undefined' && LatencyView.read
+        ? Number(LatencyView.read().pressSlackMs)
+        : null;
+    delete window.__lensLastSafePressMs;
+    const budget = 1500;
+    updateTurnClock(700, budget);
+    const mark = document.getElementById('turnClockMark');
+    return {
+      rttMs:
+        typeof LatencyView !== 'undefined' && LatencyView.read ? LatencyView.read().rttMs : null,
+      pressSlackMs: Number.isFinite(slack) ? slack : null,
+      picked: Number(window.__lensLastSafePressMs),
+      on: mark ? mark.classList.contains('on') : false,
+      left: mark ? mark.style.left : null,
+      budget,
+    };
+  });
+  report.notes.clockNotch = notch;
+  scheme.push({
+    step: 'the last-safe-press notch draws once the wire has an RTT',
+    // A press slack the module has not measured is not a failure of the
+    // clock, and drawing a notch for it would be the lie the absence exists
+    // to avoid — so the assertion is the IMPLICATION, both ways.
+    ok:
+      notch.pressSlackMs === null
+        ? notch.on === false
+        : notch.on === true && Number.isFinite(notch.picked) && notch.picked === notch.pressSlackMs,
+    saw: notch,
+  });
+  console.log(
+    `  ${scheme[scheme.length - 1].ok ? '\u2713' : '\u2717'} clock/last-safe-press notch — ` +
+      `rtt ${notch.rttMs}ms, slack ${notch.pressSlackMs}ms, drawn ${notch.on} at ${notch.left}`
+  );
+  await shot(page, 'd8-clock-notch', 'the clock driven to mid-turn — the last-safe-press notch, fed from the wire', '#turnClock');
+  await page.evaluate(() => {
+    delete window.__lensLastSafePressMs;
+    updateTurnClock(null, null);
+  });
+
+  // ── THE REVIEW DRILL ────────────────────────────────────────────────────
+  //
+  // The other end of the product: not the operator inside a turn but the owner
+  // after the game, on /history (docs/design/ux/07-REVIEW.md). Every step is
+  // asserted, and one of them is asserted against a SECOND, INDEPENDENT
+  // computation — the drill diffs the stored boards itself and requires the
+  // strip to mark exactly the turns a unit disappeared on. A strip that agrees
+  // with the page that produced it proves nothing.
+  at = 'review';
+  fs.mkdirSync(REVIEW_OUT, { recursive: true });
+  const review = [];
+  const rvCheck = (name, ok, saw) => {
+    review.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} review/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  // A GAME WITH KNOWN DEATHS. The walk above has already played a dozen turns;
+  // this plays on until the boards show a unit gone, because "the expected
+  // count" is only a test where the expectation is not zero.
+  at = 'review/record';
+  const deathTurns = async () => {
+    const timeline = await (await fetch(`${BASE}/api/games/${GAME}/turns`)).json();
+    const turns = (timeline.turns || []).slice().sort((a, b) => a.turn - b.turn);
+    const out = [];
+    for (let i = 1; i < turns.length; i++) {
+      const live = (row) => new Set(((row.game_state.board || {}).snakes || [])
+        .filter((s) => s.health > 0 && (s.body || []).length > 0).map((s) => s.id));
+      const before = live(turns[i - 1]);
+      const after = live(turns[i]);
+      const gone = [...before].filter((id) => !after.has(id));
+      if (gone.length > 0) out.push({ turn: turns[i - 1].turn, gone });
+    }
+    return { turns, deaths: out };
+  };
+  let deaths = await deathTurns();
+  for (let i = 0; i < 24 && deaths.deaths.length === 0; i++) {
+    await step();
+    deaths = await deathTurns();
+  }
+  rvCheck('a game with a known death was recorded', deaths.deaths.length > 0, {
+    turns: deaths.turns.length,
+    deaths: deaths.deaths.map((d) => `${d.turn}:${d.gone.join('+')}`),
+  });
+
+  at = 'review/open';
+  await page.goto(`${BASE}/history`, { waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const reviewRows = await page.$$('.open-review');
+  rvCheck('/history offers a review on every row', reviewRows.length > 0, { rows: reviewRows.length });
+  await page.click('.open-review');
+  // The index pass, then the bounded deep pass over the turns it flagged.
+  await sleep(WAIT * 3);
+
+  at = 'review/strip';
+  const strip = await page.evaluate(() => ({
+    cells: [...document.querySelectorAll('.rv-cell')].map((c) => ({
+      turn: Number(c.dataset.turn),
+      glyph: c.textContent.trim(),
+      label: c.getAttribute('aria-label'),
+    })),
+    verdict: (document.getElementById('rvVerdict') || {}).innerText || '',
+    read: (document.getElementById('rvRead') || {}).innerText || '',
+  }));
+  rvCheck('the strip has one cell per stored turn', strip.cells.length === deaths.turns.length, {
+    cells: strip.cells.length, turns: deaths.turns.length,
+  });
+  // THE EXPECTED COUNT, against the drill's own diff of the boards.
+  const wantDeath = deaths.deaths.map((d) => d.turn).sort((a, b) => a - b);
+  const sawDeath = strip.cells.filter((c) => c.glyph === '▼' || c.glyph === '△')
+    .map((c) => c.turn).sort((a, b) => a - b);
+  rvCheck('the strip marks a death on exactly the turns a unit disappeared',
+    JSON.stringify(sawDeath) === JSON.stringify(wantDeath), { want: wantDeath, saw: sawDeath });
+  rvCheck('the headline says where the game was decided',
+    /DECIDED AT TURN\s+\d+/i.test(strip.verdict), { verdict: strip.verdict });
+  rvCheck('the strip says how much of the game it read in full',
+    /\d+ of \d+ turns read in full/.test(strip.read), { read: strip.read });
+  await shot(page, 'r1-strip', 'the moments strip and its legend — shape first, brightness for weight', '.rv-stripwrap', REVIEW_OUT);
+  await shot(page, 'r2-index', 'the index of moments, ranked and cut', '.rv-side', REVIEW_OUT);
+
+  at = 'review/keys';
+  const whereAmI = () => page.evaluate(() => ({
+    turn: (document.getElementById('rvTurn') || {}).innerText || '',
+    at: [...document.querySelectorAll('.rv-moment')].findIndex((m) => m.classList.contains('rv-at')),
+    link: (document.getElementById('rvLink') || {}).value || '',
+  }));
+  const rvBefore = await whereAmI();
+  await page.keyboard.press('j');
+  await sleep(900);
+  const afterJ = await whereAmI();
+  await page.keyboard.press('k');
+  await sleep(900);
+  const afterK = await whereAmI();
+  rvCheck('j walks to the next moment and k walks back',
+    afterJ.at !== rvBefore.at && afterK.at === rvBefore.at,
+    { before: rvBefore.at, afterJ: afterJ.at, afterK: afterK.at });
+  await page.keyboard.press('l');
+  await sleep(900);
+  const afterL = await whereAmI();
+  rvCheck('l steps one turn, moment or not', afterL.turn !== afterK.turn,
+    { before: afterK.turn, after: afterL.turn });
+
+  at = 'review/moment';
+  // Open the heaviest moment the index kept and read the why panel there.
+  await page.click('.rv-moment');
+  await sleep(WAIT * 2);
+  const why = await page.evaluate(() => {
+    const key = (document.querySelector('#rvWhy .rv-note code') || {}).textContent || '';
+    const units = [...document.querySelectorAll('#rvWhy .rv-unit')].map((u) => u.textContent);
+    return {
+      text: (document.getElementById('rvWhy') || {}).innerText || '',
+      key,
+      units,
+    };
+  });
+  rvCheck('the why panel names the chosen moveset',
+    why.key.length > 0 && why.text.indexOf(why.key) >= 0, { key: why.key });
+  rvCheck('and its top member, by name', why.units.length > 0 && why.text.indexOf(why.units[0]) >= 0,
+    { members: why.units.slice(0, 4) });
+  rvCheck('and the bracket it was priced at, with the channel that adjudicates',
+    /adjudicates on/.test(why.text) && /bracket/.test(why.text), {});
+  rvCheck('and the joint residual, drawn whatever it is',
+    /joint residual/.test(why.text), {});
+  rvCheck('and what the leader is betting against, as a foil or as its absence',
+    /THE FOIL|the foil/i.test(why.text), {});
+  await shot(page, 'r3-why', 'the why panel at a moment — the chosen moveset, its number, the breakdown, the runner-up, the foil and the threats', '.rv-main', REVIEW_OUT);
+  await shot(page, 'r4-review', 'the whole review: strip, index and the turn', '.rv', REVIEW_OUT);
+
+  at = 'review/bookmark';
+  const linkBefore = (await whereAmI()).link;
+  await page.keyboard.press('b');
+  await sleep(600);
+  const marked = await page.$$eval('.rv-markrow', (e) => e.map((x) => x.innerText));
+  rvCheck('b bookmarks the turn under the cursor', marked.length > 0, { marks: marked });
+  await shot(page, 'r5-mark', 'the index and the bookmark it just took', '.rv-side', REVIEW_OUT);
+  await shot(page, 'r6-link', 'the turn as a copyable link, beside the two ways into the lens', '.rv-turnbar', REVIEW_OUT);
+  await shot(page, 'r7-share', 'the export: this turn, as a link anyone can paste', '.rv-share', REVIEW_OUT);
+
+  // AND IT SURVIVES A RELOAD, which is the only thing persisting it is for —
+  // and the link goes back to the same turn, which is the only thing the deep
+  // link is for.
+  at = 'review/reload';
+  // Away and back, so the fragment-only navigation is a real load and the
+  // bookmark is read from storage rather than from the page still holding it.
+  await page.goto('about:blank');
+  await page.goto(linkBefore, { waitUntil: 'domcontentloaded' });
+  await sleep(WAIT * 3);
+  const rvAfter = await page.evaluate(() => ({
+    turn: (document.getElementById('rvTurn') || {}).innerText || '',
+    marks: [...document.querySelectorAll('.rv-markrow')].map((x) => x.innerText),
+    open: !(document.getElementById('reviewPanel') || {}).hidden,
+  }));
+  const wantedTurn = (/[#&]turn=(\d+)/.exec(linkBefore) || [])[1] || null;
+  rvCheck('the pasted link reopens the review at the same turn',
+    rvAfter.open && wantedTurn !== null &&
+      new RegExp(`turn\\s+${wantedTurn}\\b`).test(rvAfter.turn),
+    { want: wantedTurn, turn: rvAfter.turn, link: linkBefore });
+  rvCheck('and the bookmark is still there after the reload',
+    rvAfter.marks.length === marked.length && rvAfter.marks.length > 0,
+    { before: marked, after: rvAfter.marks });
+  report.notes.review = review;
+
+  fs.writeFileSync(path.join(REVIEW_OUT, 'report.json'), JSON.stringify({
+    game: GAME, turns: deaths.turns.length, deaths: deaths.deaths, drill: review,
+    shots: report.shots.filter((s) => /^r\d/.test(s.name)),
+  }, null, 2));
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
@@ -751,7 +1231,9 @@ async function main() {
   // step that failed.
   const failed = [
     ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
+    ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
+    ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
     console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);
