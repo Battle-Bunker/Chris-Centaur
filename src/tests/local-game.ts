@@ -450,6 +450,8 @@ export interface ProbeRow {
   readonly winnerRank: number;
   /** Rank at which that plan became the leader. */
   readonly winnerLeadRank: number;
+  /** The rung that proposed it: seed, sweep, pair, polish, restart. */
+  readonly winnerRung: string;
   /** Evaluator calls spent on trials that never led, over `nodes`. */
   readonly wastedNodes: number;
   /**
@@ -706,6 +708,16 @@ export interface DecisionOrderStats {
    *  was first priced at. They differ when a plan was priced, refused against
    *  a leader it could not beat, and reached again later on a line that could. */
   readonly winnerLeadRank: number;
+  /**
+   * WHICH RUNG PROPOSED THE ANSWER — and therefore which lever could have
+   * reached it sooner. A winner seated as the `seed` was the carried
+   * incumbent and no rung had to find it; one from `sweep` was found by the
+   * coordinate ascent, where candidate order and unit order decide what is
+   * tried before the clock stops; one from `polish` or `restart` needed a
+   * joint move or a perturbation, and no re-ordering of a per-unit list
+   * reaches those at all.
+   */
+  readonly winnerRung: string;
   /** Every plan priced, mapped to the 1-based rank it was FIRST priced at.
    *  What a paired arm's winner is looked up in, to ask whether this arm ever
    *  reached it at all. */
@@ -723,6 +735,7 @@ class OrderRecorder {
   private trials = 0;
   private leaderChanges = 0;
   private leader = '';
+  private leaderRung = 'seed';
   private lastNodes = 0;
   private wastedNodes = 0;
 
@@ -740,6 +753,7 @@ class OrderRecorder {
     if (advances && occasion.planKey !== this.leader) {
       if (this.leader !== '') this.leaderChanges++;
       this.leader = occasion.planKey;
+      this.leaderRung = occasion.rung;
       if (!this.leadRank.has(occasion.planKey)) this.leadRank.set(occasion.planKey, this.trials);
     } else if (!advances || occasion.planKey !== this.leader) {
       this.wastedNodes += nodes - this.lastNodes;
@@ -754,6 +768,7 @@ class OrderRecorder {
       winnerKey: this.leader,
       winnerRank: this.firstRank.get(this.leader) ?? 0,
       winnerLeadRank: this.leadRank.get(this.leader) ?? 0,
+      winnerRung: this.leaderRung,
       nodes,
       wastedNodes: this.wastedNodes,
       ranks: this.firstRank,
@@ -2120,6 +2135,7 @@ export async function runGame(
               leaderChanges: order?.leaderChanges ?? 0,
               winnerRank: order?.winnerRank ?? 0,
               winnerLeadRank: order?.winnerLeadRank ?? 0,
+              winnerRung: order?.winnerRung ?? '',
               wastedNodes: order?.wastedNodes ?? 0,
               refRankOfWinner:
                 order === undefined || refOrder === undefined
