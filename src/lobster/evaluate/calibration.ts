@@ -378,44 +378,6 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false }
  */
 
 /**
- * THE CONTESTED-MEAL DISCOUNT — how much of the food gradient a unit at FULL
- * health gives up toward a meal it would LOSE the arrival at.
- *
- * `contest` (3) sits under `food` (4) so that "a hungry unit still takes a
- * contested meal and a healthy one declines it". That relation is about the
- * DESTINATION: it decides the last step onto the meal. It says nothing about
- * the eight turns of walking that put the unit next to the meal in the first
- * place, and `food`'s flood seeds every meal on the board at distance 0
- * whatever is standing next to it — so a unit at full health is pulled across
- * the board toward a square a heavier enemy will take, and arrives inside its
- * fan. `docs/design/GLUTTON-CLASS.md` §1 is that reading: over 28 of our own
- * deaths on `potions`, not one is a unit taking a contested meal, and 26 of
- * them are a healthy unit that stepped into a fan one ply before it closed.
- *
- * The knob applies the SAME doctrine to the gradient that `contest < food`
- * applies to the destination, and it is scaled by the same hunger the food term
- * already carries:
- *
- *     discount = CONTESTED_MEAL_DISCOUNT x (1 - hunger)
- *
- * so a starving unit (`hunger` -> 1) sees every meal exactly as it does today
- * and the recorded relation is untouched at the one end it is about, while a
- * full unit's gradient is taken from the meals it could actually keep.
- *
- * ZERO IS THE IDENTITY, byte for byte: at 0 the discount is 0 at every hunger
- * and `pullOf` returns the number it returned before this knob existed. It is
- * also inert by construction wherever no meal is beaten for that unit's frozen
- * `(tier, weight)` — every board with no enemy in reach of a meal, which is
- * `sparse` and `sparse-lean` entire.
- *
- * The feature's declared range is UNCHANGED and so is the cliff inequality: the
- * discount interpolates between two `near` readings that are both in [0, 1] and
- * can only ever LOWER the pull, so `food`'s observable range is still [0, 1] and
- * `4 x 1` still sits inside `10 x lightest unit weight`. See `./food.ts`.
- */
-export const CONTESTED_MEAL_DISCOUNT = 1;
-
-/**
  * Half a kind's maximum. A piece at or above it has a movement budget that does
  * not bind — nothing it can do this turn brings it near exhaustion — and below
  * it the term slides to zero twice as fast as the linear reading did.

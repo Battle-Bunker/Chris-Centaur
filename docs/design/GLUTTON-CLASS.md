@@ -151,10 +151,15 @@ moves all three is measuring something else.
 
 ---
 
-## 2. The rule that was tried: THE CONTESTED-MEAL DISCOUNT
+## 2. The rule that was tried, and REFUSED: THE CONTESTED-MEAL DISCOUNT
 
-**One knob, `CONTESTED_MEAL_DISCOUNT` in `calibration.ts`, default 1; the whole
-of the change is in `food.ts`.**
+**Built exactly as written below, swept at three doses, and taken at none. It is
+not in the tree; `src/` at this commit is byte-identical to `aa16e66`.**
+
+### 2.1 What it was
+
+**One knob, `CONTESTED_MEAL_DISCOUNT` in `calibration.ts`; the whole of the
+change in `food.ts`.**
 
 `contest < food` is a statement about the LAST STEP: it decides whether a unit
 puts its head on the meal. §1.2 shows that step is not where our units die.
@@ -162,7 +167,7 @@ puts its head on the meal. §1.2 shows that step is not where our units die.
 on the board at distance 0 whatever is standing next to it — so a unit at full
 health is walked, one cell of gradient per step, toward a square a heavier enemy
 takes this turn, and §1.3 says it arrives inside that enemy's fan one ply before
-the fan closes. The rule applies the SAME doctrine to the gradient that
+the fan closes. The rule applied the SAME doctrine to the gradient that
 `contest < food` applies to the destination:
 
     field      = contestField(sub, asTeam)          -- the one the member folds
@@ -171,35 +176,143 @@ the fan closes. The rule applies the SAME doctrine to the gradient that
     discount   = CONTESTED_MEAL_DISCOUNT x (1 - hunger_u)
     near_u     = nearFree_u + (1 - discount) x (nearAll_u - nearFree_u)
 
-and `pullOf` is otherwise the function it was.
+and `pullOf` otherwise the function it was.
 
-* **It reads the BOARD and never the opponent.** `beatenAt` against the enemy
-  roster's own legal action sets, at our own unit's frozen `(tier, weight)`. It
-  would fire identically against a mirror; §3's mirror classes are how much it
-  does.
-* **It is not a board special case.** No branch on a scenario, a kind name or a
-  team; the knob is one number beside the others in `calibration.ts` and zero is
-  the identity, byte for byte, at every hunger.
-* **It does not refuse a capture.** A meal a LIGHTER or lower-tier enemy stands
-  beside is still seeded at full strength, because the test is `winsContest`'s
+* **It read the BOARD and never the opponent** — `beatenAt` against the enemy
+  roster's own legal action sets, at our own unit's frozen `(tier, weight)`.
+* **It was not a board special case**: no branch on a scenario, a kind name or a
+  team, and zero was the identity, byte for byte, at every hunger. That identity
+  is not asserted: the knob-0 arm reproduces the head's `potions` 1–8 counters
+  (11 ours of 21 board-wide; contest 18, bodyBlock 2, self 1), its `potions` vs
+  `glutton` seat 0 line (10/7, meals 78/386, `enemyOccupiedEntriesLost` 8) and
+  WEIGHT-SWEEP's `mixed` vs `material-only` line (12 board-wide, 4 ours) exactly.
+* **It did not refuse a capture.** A meal a LIGHTER or lower-tier enemy stands
+  beside was still seeded at full strength, because the test is `winsContest`'s
   and not "is anybody near it" — BEHAVIOUR-AUDIT D1's third falsifier, built in
   rather than checked afterwards.
-* **It respects every recorded inequality in `checkWeights` and in
-  `calibration.ts`.** No weight moves. `contest` (3) still sits under `food` (4).
-  The hunger conditioning is what keeps the relation the `contest` docstring
-  states — *"a hungry unit still takes a contested meal"* — exactly true: at
-  `hunger = 1` the discount is 0 at every knob setting and `pullOf` returns the
-  number it returned before the knob existed. The feature's declared range is
-  unchanged: `nearFree <= nearAll` because the free flood's seed set is a subset
-  of the full one, so `near` stays in `[0, 1]`, the feature stays in `[0, 1]`,
-  and `4 x 1 < 10 x 1` is the same certificate it was.
-* **Cost.** One extra 169-cell flood per `(marshalled board, team, tier,
-  weight)`. A team holds a handful of distinct pairs, and `contestField` is
-  already cached on the same key.
+* **It broke no recorded inequality.** No weight moved; `contest` (3) still under
+  `food` (4). At `hunger = 1` the discount is 0 at every knob setting, so the
+  relation the `contest` docstring states — *"a hungry unit still takes a
+  contested meal"* — is exactly true. `nearFree <= nearAll` because the free
+  flood's seed set is a subset of the full one, so `near` stayed in `[0, 1]`,
+  the feature's declared range did not move, and the cliff certificate
+  `4 x 1 < 10 x 1` was the one it was.
+* **Cost:** one extra 169-cell flood per `(marshalled board, team, tier,
+  weight)`, on the key `contestField` is already cached under.
 
-`src/lobster/__tests__/food-contested-meal.test.ts` pins the four properties:
-the free flood drops the beaten meal and keeps the clear one; a heavier or
-higher-tier unit of ours keeps it; a hungry unit still prefers it, and at
-`hunger = 1` the reading is the undiscounted one; and a full unit's preference
-FLIPS away from it.
+### 2.2 It does what it says on the class it was aimed at
 
+`potions` seeds 1–6, 60 turns, `--nodes`, decider side split, `ours/theirs`:
+
+| dose | seat 0 our deaths | seat 0 theirs | seat 0 our meals | seat 1 our deaths | seat 1 theirs | seat 1 our meals |
+|---|---|---|---|---|---|---|
+| **0 (head)** | **10** | 7 | 78 | **9** | 13 | 252 |
+| 0.25 | 9 | 9 | 82 | 5 | 16 | 283 |
+| **0.5** | **9** | 7 | 74 | **2** | 16 | 250 |
+| 1 | 10 | 7 | 87 | 5 | 15 | 267 |
+
+At `0.5` the finding is closed at seat 1: our deaths 9 → **2**, which is the
+MIRROR's own 2 on the same six seeds, while `glutton`'s own deaths go 13 → 16.
+Seat 0 moves 10 → 9 with `glutton`'s flat at 7, and its five `edge` deaths go to
+zero. `enemyOccupiedEntriesLost` falls 8 → 4 at seat 0. On its own class the rule
+is not a near miss; it is the repair.
+
+### 2.3 And it is refused by the mirror and by the meals
+
+Same build, no `--opponent`, seeds 1–3 (and `potions` 1–8), decider deaths and
+meals:
+
+| class | 0 (head) | 0.25 | 0.5 | 1 |
+|---|---|---|---|---|
+| `snakes` 1–3 | 2 d / 52 m | 2 / 54 | 2 / 50 | 2 / **46** |
+| `mixed` 1–3 | **3 d** / 47 m | **7** / **36** | **4** / **36** | **7** / **38** |
+| `sparse` 1–3 | 0 d / 31 m | 0 / 32 | 0 / 33 | 0 / 33 |
+| `potions` 1–3 | **4 d** / 51 m | 3 / **44** | **6** / **44** | 4 / **32** |
+| `sparse-lean` 1–3 | 0 d / 30 m | 0 / 30 | 0 / 32 | 0 / 33 |
+| `potions` 1–8 | **11 d** / 126 m | — | **13** / **115** | 11 / **113** |
+
+**Deaths rise on the mirror at every dose**, and the standing rule
+(OPPONENTS.md §5, falsifier 4, and BEHAVIOUR-AUDIT's own budget) is that a rise
+in our deaths on any class against any arm including the mirror is a revert.
+`mixed` goes 3 → 7 at both 0.25 and 1 and 3 → 4 at 0.5; `potions` 1–3 goes
+4 → 6 at 0.5, and `potions` 1–8 11 → 13.
+
+**And the meals bill is an order of magnitude over budget.** The repo's standing
+meals budget is 3% (`docs/design/BEHAVIOUR-AUDIT.md` D1, `WEIGHT-SWEEP.md`).
+This costs `mixed` −23% and `potions` 1–3 −14% at 0.5, and `potions` 1–3 −37%
+at 1. That is what the rule IS — it takes the gradient off a share of the meals
+— but a term that buys nothing on the mirror cannot spend that much of it.
+
+There is no dose that keeps the seat-1 repair and pays neither bill: 0.5 is the
+only dose that moves both `glutton` seats the right way and it is the dose that
+takes `potions` 1–8 deaths up by two.
+
+### 2.4 A third thing it is not: inert on `sparse`
+
+`sparse` and `sparse-lean` were predicted byte-identical — the audit records 0
+contest events in 720 unit-turns there — and they are NOT: meals move 31 → 33
+and 30 → 33. The reason is worth writing down, because it is the rule's real
+shape. `beatenAt` is asked at the MEAL cell, not at our unit's cell, so a meal an
+enemy can reach while standing nowhere near any unit of ours is still dropped
+from the seed set. The rule is a statement about where the FOOD is, not about
+where the danger is, and on a board with no danger at all it still moves the
+gradient. That is the clearest statement of why it costs so many meals.
+
+---
+
+## 3. Keep-or-revert: REVERTED
+
+The gate, in the order it was checked, and where it stopped:
+
+| gate | verdict |
+|---|---|
+| `potions` vs `glutton`, both seats, our deaths down, theirs not up | **PASS at 0.5** — 10 → 9 and 9 → 2, theirs 7 → 7 and 13 → 16 |
+| mirror classes `mixed`/`snakes`/`sparse`/`potions`/`sparse-lean` 1–3 and `potions` 4–8, deaths not up on any class | **FAIL** — `mixed` 3 → 4, `potions` 1–3 4 → 6, `potions` 1–8 11 → 13 |
+| byte-identical wherever the rule is inert | **FAIL** — `sparse`/`sparse-lean` move (see §2.4) |
+| the remaining gates | not reached; the rule is out |
+
+`src/` at this commit is the working head's `src/`, file for file. The knob, the
+free flood and the four-property fixture that pinned them are gone with it: a
+refuted rule earns a paragraph, and this is the paragraph.
+
+**What the next worker should NOT do again.** Do not re-derive the food licence
+from OPPONENTS.md §4.4 — §1.2 is the transcript reading that kills it, and it
+kills it for the mirror too. Do not build a one-ply dilation of the arrival
+field — §1.5. Do not build the contested-meal discount — this section, at three
+doses. Do not build `CONTEST_STANDING` — `contest-gap.md` §3's STATUS.
+
+**Where the class actually is.** §1.3: 17 of 19, and 9 of 9 in the mirror, are a
+unit that took a square the member read as FREE and was inside a closed fan one
+ply later. `contestField` is one ply and reads at the arrival turn; by the time
+it speaks, `settlesOn`'s origin pins `lo` and `ourUnitTerm`'s alive-polarity
+zeroes `hi`, so the member is flat and has nothing to say. Both halves of that
+are `contest-gap.md` §2, now confirmed against a non-mirror opponent for the
+first time. Whatever closes it is a reading that speaks at the ENTRY turn and is
+NOT the dilation of §1.5 — and it is not in `food.ts`, which this attempt has now
+established costs more in meals than it can ever buy in deaths.
+
+### 3.1 The tree this commit leaves, and the gates on it
+
+`git diff aa16e66 -- src/` is **EMPTY**: not one byte of `src/` differs from the
+working head, so every gate below is the head's own number and nothing here is
+re-pinned.
+
+* `npx tsc --noEmit -p .` clean; `npx eslint "src/**/*.ts"` clean.
+* `npx jest --maxWorkers=2 src/lobster/__tests__ src/lobster/bounds/soundness.test.ts
+  src/lobster/bounds/exact-reply.test.ts src/lobster/evaluate/law-sweep.test.ts
+  src/tests/local-game-determinism.test.ts src/tests/basic-intelligence.test.ts`
+  — **19 suites, 325 tests, all pass**. `exact-reply` exact on all four seed-1
+  arms (`floor=0 ceiling=0 classes={}`); `law-sweep`'s ratchet unmoved;
+  `local-game-determinism` and `basic-intelligence` pass with no fixture touched,
+  because there was nothing to re-pin.
+* Sixteen-arm inversion gate, `CENTAUR_DEBUG_INVERSION=1` — the five scenarios
+  seeds 1–3 at 30 turns plus `potions` 4, 5, 6 and 8 at 60: **no `INVERSION`
+  line on any arm**.
+* The standing non-mirror gate, `mixed`/`snakes` seeds 1–3 vs `material-only`,
+  is the head's: `mixed` 12 board-wide / 4 ours, `snakes` 11 board-wide / 1
+  ours — which reproduces `WEIGHT-SWEEP.md`'s own line and is what verified the
+  knob-0 identity in §2.1.
+
+The scratch instruments (`GLUTTON_DIAG`, `GLUTTON_DIAG2` in
+`src/tests/local-game.ts`) are not in the tree either. What they printed is
+§1; what they cost is nothing, because they are gone.
