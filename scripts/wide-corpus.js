@@ -16,10 +16,9 @@
  * BOARD CLASSES. Every row of the table is one (scenario, arm) and the totals
  * column is a sum over that class's seeds only. `pair` will compare two classes
  * — that is what it is for — but only ever seed-by-seed, and only two classes
- * that were run at the same seeds, so the pairing is a real pairing: `hazards`
- * against `mixed` is the same roster on the same board at the same seed with
- * one thing changed, and `long` against `mixed` is the same game run twice as
- * far. Two classes that do not share a roster are not made comparable by this
+ * that were run at the same seeds, so the pairing is a real pairing: `long`
+ * against `mixed` is the same game run twice as far, and `wide:material-only`
+ * against `wide:mirror` is the same board against a different field. Two classes that do not share a roster are not made comparable by this
  * script and asking it for one prints the warning it deserves.
  */
 

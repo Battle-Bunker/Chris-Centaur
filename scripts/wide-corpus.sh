@@ -20,9 +20,9 @@
 #   scripts/wide-corpus.sh [outdir] [seeds] [jobs]
 #     outdir  where to record         (default docs/design/wide)
 #     seeds   N (meaning 1..N) or A-B (default 20)
-#     jobs    parallel processes      (default 4)
+#     jobs    parallel processes      (default 1 — see below)
 #
-#   CLASSES="wide dense" scripts/wide-corpus.sh docs/design/wide 1-5 6
+#   CLASSES="wide dense" scripts/wide-corpus.sh docs/design/wide 1-5
 #     Records a SLICE. `CLASSES` overrides the scenario list and the seed range
 #     takes an explicit start, so a whole corpus can be recorded as a series of
 #     bounded pieces — which is how it is actually recorded, because one process
@@ -30,6 +30,12 @@
 #     Slices compose: the table at the end always describes everything on disk.
 #
 #   scripts/wide-corpus.sh --table [outdir]     re-print the summary table only
+#
+# ONE GAME AT A TIME, by default. `jobs` exists and the pool is real, but the
+# default is 1: a wave of workers each running four node processes is what
+# OOM-killed the machine (`docs/ORCHESTRATOR-LOOP.md`, lessons), and a corpus
+# that dies at game 300 of 400 costs more than one that runs on one core. Raise
+# it only when this is the only thing on the box.
 #
 # Everything is deterministic (`--nodes`), so a run's numbers are a function of
 # (build, scenario, seed, arm) and nothing else, and re-recording a corpus on
@@ -47,7 +53,7 @@ fi
 
 OUT="${1:-docs/design/wide}"
 SEEDS="${2:-20}"
-JOBS="${3:-4}"
+JOBS="${3:-1}"
 case "$SEEDS" in
   *-*) SEED_FROM="${SEEDS%%-*}"; SEED_TO="${SEEDS##*-}" ;;
   *)   SEED_FROM=1;             SEED_TO="$SEEDS" ;;
@@ -57,7 +63,16 @@ esac
 # turn cap that scenario is for. `long` is the only one that is not 60 — it is
 # `mixed` run to 120, so its first sixty turns are byte-identical to `mixed`'s
 # and everything that differs is the second sixty.
-SCENARIOS="${CLASSES:-snakes mixed sparse sparse-lean potions wide dense asym potion-rich hazards long}"
+#
+# The first five are the corpus the behaviour programme ran out of, recorded
+# here UNCHANGED and at twenty seeds instead of three; the last five are this
+# branch's own `local-game.ts` scenario section (`boardOfShape`). There is no
+# `hazards` class: `GameSpec` has no hazard field, `buildBoard` hard-codes
+# `hazards: []`, and nothing under `src/lobster` reads one — the class would
+# have meant editing parts of `local-game.ts` two other workers own, in order
+# to measure a mechanic the evaluator cannot see. It is recorded as the next
+# dimension, not smuggled into this one.
+SCENARIOS="${CLASSES:-snakes mixed sparse sparse-lean potions wide dense asym potion-rich long}"
 turns_for() { case "$1" in long) echo 120 ;; *) echo 60 ;; esac; }
 
 # The two arms. `mirror` is every team on the default profile — the state the
