@@ -20,7 +20,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { applyEvent, emptyStore, frameAt } from '../lens/store';
 import type { FrameStore, TurnEvent } from '../lens/types';
-import { anchorEvent, operatorActor, turnEvent } from './lens-fixtures';
+import { anchorEvent, moveset, operatorActor, turnEvent } from './lens-fixtures';
+import type { Moveset, UnitKey } from '../lens/types';
 import { digestOf } from '../lobster/team-decision-engine';
 import { DEFAULT_KERNEL_OPTIONS } from '../lobster/kernel';
 import { BoundEvaluator, DEFAULT_PROFILE, defaultEvaluator } from '../lobster/evaluate';
@@ -84,11 +85,61 @@ describe('applyEvent never mutates its input', () => {
     expect(JSON.stringify(event)).toBe(snapshot);
   });
 
+  it('refuses the ANCHOR\'s own seq, which `upTo` folds alongside the events', () => {
+    // `upTo` folds `[anchor, ...events]`. The dedupe compared the incoming seq
+    // against `store.events` alone, so a re-delivered anchor was appended and
+    // the fold then counted it twice: `frame.events` read [0, 0].
+    const store = applyEvent(emptyStore(ANCHOR), ANCHOR);
+    expect(store.events).toHaveLength(0);
+    expect(frameAt(store, 9).events.map((e) => e.seq)).toEqual([0]);
+    // And it survives a stream around it: the anchor arriving late is refused
+    // where an event at a fresh seq is not.
+    const folded = applyEvent(fold(STREAM), ANCHOR);
+    expect(folded.events.map((e) => e.seq)).toEqual(STREAM.map((e) => e.seq));
+    expect(frameAt(folded, 6).events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
   it('appends rather than replaces: every folded event survives to the store', () => {
     const store = fold(STREAM);
     expect(store.events.map((e) => e.seq)).toEqual(STREAM.map((e) => e.seq));
     expect(store.anchor).toBe(ANCHOR);
     expect(store.turn).toBe(ANCHOR.turn);
+  });
+});
+
+describe('conditionalBest is the INCUMBENT\'s number, and only rank 1 fills it', () => {
+  /** One reservoir, two ranks, two destinations for the same unit. */
+  function reservoir(): ReadonlyArray<Moveset> {
+    return [
+      { ...moveset({ rank: 1, lo: 12.4 }), moves: [{ unit: 'A-A' as UnitKey, to: 20, path: [20] }] },
+      { ...moveset({ rank: 2, lo: 11.7 }), moves: [{ unit: 'A-A' as UnitKey, to: 21, path: [21] }] },
+    ];
+  }
+
+  it('fills rank 1 from the PLAIN reservoir and leaves every other destination null', () => {
+    // 04 §3 D-c: "the incumbent's aggregate exact, the hovered candidate's
+    // provisional, and every other candidate `·` unpriced — never a bare
+    // number". The plain reservoir's rank 1 IS the incumbent, so the `true` at
+    // the `movesets` call site is the contract rather than a leak from it —
+    // what `candidatesOf`'s wording used to deny.
+    const event = turnEvent({
+      kind: 'movesets',
+      seq: 1,
+      payload: {
+        cluster: 0,
+        generation: 0,
+        emissionSeq: 0,
+        complementKey: 'comp:live',
+        rows: reservoir(),
+      },
+    });
+    const rows = frameAt(applyEvent(emptyStore(ANCHOR), event), 1).candidates['A-A'] ?? [];
+    expect(rows.map((r) => [r.to, r.conditionalBest?.aggregate ?? null])).toEqual([
+      [20, 12.4],
+      [21, null],
+    ]);
+    // And the filled one carries its GRADE, so it never draws as a bare number.
+    expect(rows[0]?.conditionalBest?.grade).toBe('provisional');
   });
 });
 

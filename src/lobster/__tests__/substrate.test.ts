@@ -409,6 +409,30 @@ describe('a modelled sibling answers its OWN claim question', () => {
     expect(widerPeril(true)).toEqual([]);
   });
 
+  test("a sibling's settlements count into the FAMILY's meter", () => {
+    // `settlements()` is the currency the search's budget is denominated in,
+    // and the bank prices B1/B3 on siblings. The counters used to be own
+    // scalars, so `this.settleCount++` on a sibling read the parent's value
+    // through the prototype and wrote an OWN property: the parent stayed at 0
+    // while the sibling that had just settled read 1.
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const a = sub.unitOfWireId('A')?.unitId as UnitId;
+    const b = sub.unitOfWireId('B')?.unitId as UnitId;
+    const sibling = sub.withModelled([b]) as unknown as EngineSubstrate;
+    const plan = new Map<UnitId, Candidate>([
+      [a, { unitId: a, from: -1, to: NO_ORDER_MOVE, path: [] }],
+    ]);
+    sibling.resolveBoundedFor(plan, 0);
+    expect(sibling.settlements()).toBe(1);
+    expect(sub.settlements()).toBe(1);
+    // The one-mover meter is shared the same way, and stays its own budget.
+    sibling.settleMover(a, sub.pathFor(a, sub.actionsOf(a)[0].to) ?? []);
+    expect(sub.assessments()).toBe(1);
+    expect(sub.settlements()).toBe(1);
+    sibling.release();
+    sub.release();
+  });
+
   test('resolution on a sibling is unaffected: the plan is the modelled set', () => {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const a = sub.unitOfWireId('A')?.unitId as UnitId;

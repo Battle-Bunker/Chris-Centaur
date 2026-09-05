@@ -72,6 +72,7 @@ var LensView = (() => {
   }
   function applyEvent(store, event) {
     if (event.turn !== store.turn) return store;
+    if (event.seq === store.anchor.seq) return store;
     for (const held of store.events) {
       if (held.seq === event.seq) return store;
     }

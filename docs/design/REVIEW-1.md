@@ -99,6 +99,15 @@ plan on the sibling, read `sub.settlements()` — it is 0 while the sibling's is
 and `bounds/testkit.ts` meters separately), fatal the day a budget reads it.
 Fix would be a shared counter object, not an own field.
 
+**REVIEW-2 verdict: CONFIRMED and fixed.** Reproduced exactly as written —
+`sub.settlements()` read 0 with the sibling's reading 1. The two scalars are now
+one `counters: { settle, assess }` object on the family, mutated in place
+through the prototype, which is the shape `bounds/testkit.ts` already uses for
+the same reason. Regression beside the other sibling tests in
+`src/lobster/__tests__/substrate.test.ts`; it asserts both counters, and that
+`settleMover` still meters apart from `resolveBoundedFor`. No pin moves —
+nothing on the decision path reads either counter.
+
 ### F2 — `perilOf` on a B1/B3 view is computed on a board WE ARE ON
 
 `src/lobster/substrate.ts:752` (`perilOf`), `src/lobster/bounds/bank.ts:406`
@@ -131,6 +140,23 @@ B1 branch spread on a plan that captures against one that walks away. The fix
 would be for `viewFor` to model our commandable units alongside the enemy, which
 moves play and belongs in its own change.
 
+**REVIEW-2 verdict: CONFIRMED, not fixed — `bounds/bank.ts` is another
+worker's.** Reproduced on knights at A(0,0) red, B(10,10) blue, C(2,1) blue,
+`asTeam: 'red'` — A and C take each other, B reaches neither:
+
+    parent  claims [B, C]   peril [B]
+    B1 view claims [A, C]   peril [A, C]
+
+C is in peril on the B1 view for one reason only: OUR A is standing on the
+probe board. Our own A is priced there as a held unit too. The assertion, when
+`viewFor` is fixed to model our commandable units alongside the enemy:
+
+    const view = sub.withModelled([b]) as unknown as EngineSubstrate;
+    expect([...view.perilOf()].sort()).toEqual(['B']);   // today: ['A', 'C']
+
+Direction is as the finding says — both endpoints widen — so the pins do not
+move and this stays a finding.
+
 ### F3 — the entanglement gate reads the plan, not the plan plus references
 
 `src/lobster/bounds/bank.ts:561` (`price` calls `this.gate(plan, …)`, not
@@ -146,6 +172,31 @@ Confirm: a board with a reference-action teammate whose ray meets a held
 enemy's claim, and no commandable unit near it; `gate()` returns an empty pool
 and `members` carries B0 alone.
 
+**REVIEW-2 verdict: CONFIRMED at the gate's input, not fixed — `bounds/bank.ts`
+is another worker's.** On an 11x11 with our rook at (0,0) staging (1,0), a
+THEIRS rook at (9,9) held by reference to (9,7) (path 97, 86) and a THEIRS rook
+H at (5,7) whose file claim meets 86:
+
+    sub.entangled(footprintOf(plan))  →  []        // what `price` asks
+    sub.entangled(footprintOf(base))  →  [2, 3]    // what it resolves
+
+H (unit 3) is enumerable only from the second. The assertion, once `price`
+passes `base`:
+
+    expect(sub.entangled(footprintOf(base)).filter(uncontrolled)).toContain(3);
+    // and, on this board, `members` gains its B1/B3 member for unit 3
+
+The fix is one word: `this.gate(base, b0.bounds.ledger)` in `price`.
+
+One qualification the finding does not make, and it should: the loss is MASKED
+on every board tried. The gate is a UNION, and its second arm — `residueOf(b0
+ledger)` — named unit 3 in all eight variants swept (rook and knight H, energies
+60/4/2/1/0, four placements), so `members` still carried B3 and B2/3. The
+geometric arm is the one that is wrong; the ledger arm happened to cover it
+each time. So this is a latent gap in coverage, not an observed one — which is
+consistent with the finding's own reading that missing a unit only loosens a
+floor.
+
 ### F4 — `continuationDirection` dereferences an absent orientation
 
 `src/firebase/translate.ts:100`, called from
@@ -156,6 +207,23 @@ map tolerates a missing key — `buildSnake` at `:323` spreads it, yielding `{}`
 so this is the one call that throws, and it throws inside a Firestore snapshot
 handler. Not reproduced: the wire contract says orientation is present for every
 living unit and the call site filters to `aliveOurs`. Hardening, not a bug.
+
+**REVIEW-2 verdict: NOT A DEFECT.** Traced rather than reproduced, because the
+key cannot be absent at that call. `beginTurnWatch` is handed ONE parsed turn
+(`pt`, `firebase-interface.ts:1410`), and the `aliveOurs` it is handed alongside
+was filtered on that same object (`:1375`, `ourSnakes.filter((id) =>
+pt.alive(id))`). `alive` reads `turn.alivePlayers` and `continuationDirection`
+reads `turn.orientation` — two fields of the SAME captured `TTTurn`; nothing
+between the filter and `maybeFinalize` re-reads the document, so the pair cannot
+drift. The contract those two fields share is written at
+`tactictoes-types.ts:92`: orientation carries "EVERY unit in EVERY game, per
+turn", and only "dead units drop from the map" — so `alivePlayers` is a subset
+of `orientation`'s keys by construction. `continuationDirection` has exactly one
+production caller (`:1656`) and it is this one. The unguarded dereference is
+therefore total on its actual domain, and the asymmetry with `buildSnake`'s
+spread at `:323` is a difference in what each reader NEEDS (a spread of a
+missing key is `{}`, which `buildSnake` can carry; a Direction has no such
+zero), not a missing guard. No change made.
 
 ### F5 — the lens reducer dedupes a `seq` against the events but not the anchor
 
@@ -168,6 +236,24 @@ anchor's own seq is appended and then folded twice by `upTo`, which concatenates
 the anchor with the events. Not reproduced — the `seq` writer never reuses the
 anchor's number — but the refusal is one comparison short of the property its
 docstring claims.
+
+**REVIEW-2 verdict: CONFIRMED and fixed.** Reproduced in one line —
+`applyEvent(emptyStore(a), a)` appended, and `frameAt(...).events` then read
+`[0, 0]`. The refusal now also compares against `store.anchor.seq`.
+
+Corroboration the finding did not have: BOTH production folders already
+de-duplicate the anchor OUTSIDE the reducer — `store/index.ts::storeFromRows`
+filters `e.seq !== anchor.seq` and `view/index.ts::storeOf` filters `e.seq >
+anchor.seq` — which is precisely the de-duplication the docstring promises no
+caller needs. The guard moves that comparison to where the promise is made.
+
+It cost one harness repair. `src/tests/lens-frame-fold.test.ts` folded a
+recorded stream onto a SYNTHETIC `anchorEvent()` at seq 0 while its own writer
+also started at 0, so two distinct events shared a `seq` — which the writer's
+uniqueness contract forbids and `upTo`'s sort cannot order, and which the guard
+then resolved by dropping the stream's `partition`. The harness now writes its
+anchor through the turn's own writer, as both production folders do, and the
+recorded stream starts at 1. Every pin is unmoved.
 
 ### F6 — `conditionalBest` is filled from the UNCONDITIONAL reservoir too
 
@@ -183,6 +269,28 @@ comment or the `true` at the `movesets` call site is wrong; a reader cannot tell
 which from the code. Confirm by folding a turn with `movesets` and no
 `conditional` and reading `frame.candidates`.
 
+**REVIEW-2 verdict: the CODE is right; the COMMENT was wrong. Comment
+corrected, behaviour untouched.** Folded a real `mixed 1 / 550` turn with the
+`conditional` events filtered out and read `frame.candidates`:
+
+    red-A  106:·  118:·  120:~-51.81
+    red-B  120:·  132:~-51.81  133:·  134:·
+    red-C  144:~-51.81
+
+Exactly one destination per unit is filled — the RANK-1 row's, which in the
+plain reservoir is the incumbent's — and it carries its grade, so it draws as
+`~-51.81` and not as a bare number. That is 04 §3 D-c verbatim: *"the
+incumbent's aggregate exact, the hovered candidate's `provisional`, and every
+other candidate `·` unpriced — never a bare number"*. `noteCandidates` fills on
+`best && row.rank === 1`, so the `true` at the `movesets` call site is the
+contract being kept, not leaked past.
+
+So the finding is real as a documentation defect and not as a behaviour one.
+`candidatesOf`'s wording now says "only where a RANK-1 row answered, in either
+reservoir", and a pin beside the reducer's other fold tests asserts rank 1
+filled and rank 2 `null` off one plain-reservoir event, so the two cannot drift
+apart again.
+
 ### F7 — a cluster that has VANISHED is not a generation refusal
 
 `src/lens/store/sources.ts:188` (`askConditional`).
@@ -193,6 +301,35 @@ plainest reading of "the cluster the operator was LOOKING AT is gone" — the as
 falls through to `port.rankConditional`. Whether that is a typed refusal depends
 on the port. Confirm with a port whose `partition()` no longer lists the asked
 cluster.
+
+**REVIEW-2 verdict: NOT A DEFECT, and the fall-through is REQUIRED.** Two
+things the finding did not have.
+
+First, it is always a typed refusal. This repo has exactly one production
+`KernelLensPort` (`kernel.ts:2775`, reached through
+`team-decision-engine.ts::lensPortFor`), and every route through it refuses an
+absent cluster: `inspect` at `kernel.ts:2863`, `rankConditionalNow` (the
+first-paint path) at `:3036`, and the pure `rankConditional` at
+`lens/kernel/conditional.ts:219` — all `unknown-cluster`. `partition()` returns
+`run.clusters`, which is the very list those three search, so "absent from
+`partition()`" and "refused by the port" are the same set by construction. No
+stale list is ever served.
+
+Second, and this is why the guard MUST NOT be completed here: a `ClusterId` is
+a substrate unit number, and `conditional.ts:215` deliberately answers an ask
+that names a MEMBER rather than the anchor — *"a caller naming a member rather
+than the anchor is naming the same cluster and is answered"* — by mapping the
+id through `unitKeyOf(ctx.sub, req.cluster)` and matching `members`.
+`askConditional` holds only `ClusterView`s and no substrate, so it cannot
+resolve that alias. Refusing on `live === undefined` would refuse every
+legitimate member-named ask, which is a wrong output where today there is none.
+
+The division is therefore correct as built: `askConditional` is a pre-check
+that can only decide the case it can see — the cluster is present and its
+generation has moved — and the port, which alone can resolve the anchor,
+decides the rest. What is genuinely one word short is the DOCSTRING's
+"Superseded means the cluster the operator was LOOKING AT is gone": the guard
+means *present and moved on*. No change made.
 
 ### F8 — the shutdown deadline does not stop the worker
 
@@ -206,6 +343,33 @@ unref'd — but the line does not describe what happens, and a caller that treat
 `src/tests/logger-shutdown-deadline.test.ts`'s fixture plus a queue that is
 still draining when the deadline fires.
 
+**REVIEW-2 verdict: CONFIRMED and fixed, and it was worse than written on both
+halves.** Reproduced with a WriteQueue over a SLOW-but-alive write (30 ms an
+entry, twenty entries, a 120 ms deadline). `shutdown` returned false, warned
+
+    Shutdown flush deadline (120ms) reached; dropping 0 unflushed entries.
+
+— and 800 ms later all twenty had been written. So (a) nothing was dropped, and
+(b) the count was 0, because `queue.length` excludes the batch already handed
+to `opts.flush`, which is exactly where every stranded entry was.
+
+"Nothing leaks" is also not quite right. Against a DEAD database the worker
+awaits a promise that never settles, which holds no handle, so the process
+still exits — which is why the existing suite could not see this. Against a
+slow one the drain keeps a socket open and `gracefulShutdown` has no
+`process.exit`, so exit is delayed by the whole remaining drain: precisely the
+unbounded grind the deadline was added to bound.
+
+Fix: an `abandoned` flag, set at the deadline. `runWorkerLoop` stops at its
+next checkpoint and `withRetry` returns without writing, so the drain is
+bounded to the ONE write already inside `opts.write` — which cannot be
+recalled, and is the single entry the count may over-report. `inFlight` makes
+the count the real remainder, and the stranded entries are charged to
+`droppedCount` and discarded, so `false` now means abandoned rather than merely
+late. Regressions beside the two deadline tests: one that the drain stops and
+the count is real, one that a queue draining inside its deadline still reports
+true and drops nothing. Every pin unmoved.
+
 ### F9 — the facing probe stands on one fixed cell
 
 `src/lobster/evaluate/shells.ts:407` (`orientationSensitive`).
@@ -216,6 +380,32 @@ board whose middle cell is a wall, or otherwise offers the kind no rotation, the
 kind is recorded as facing-insensitive everywhere. Confirm by placing a wall on
 the middle cell of an odd-by-odd board and reading `facingMatters('pawn')`.
 
+**REVIEW-2 verdict: NOT A DEFECT. The probe cannot be wrong, and the recipe
+above has no instance.** `rotationTargets` filters `legalActions` for
+`action.kind === 'rotate'`, and the ONLY branch in the whole grammar that
+returns one is the pawn's side-square case at
+`engine-vendor/engine/moveGrammar.ts:229` — which carries no board condition at
+all: no `interior` test, no occupancy test, no wall test. Its own comment says
+so: *"The pawn never enters the square, so it may sit anywhere — including a
+wall."* A pawn's side squares are the two cells orthogonal to its facing, and a
+marshalled board is `width + 2` by `height + 2`, so at least one of them is
+always on the grid. So `rotationTargets` is non-empty at EVERY cell for a pawn
+and empty at every cell for every other kind: the answer is a property of the
+kind alone, which is exactly what the memo-per-kind assumes and what
+`orientationSensitive`'s own docstring claims ("it has one wherever it
+stands").
+
+Swept to confirm rather than only read — all seven kinds x four orientations x
+nine board shapes (9x9, 11x11, 8x8, 4x6, 3x5, 1x1, 2x2, 1x2 and the degenerate
+0x0), plus a 9x9 with the probe cell and both its side squares occupied:
+
+    uniform everywhere, probe agrees   — every row
+
+And the finding's own recipe was tried directly. On a 2x2 play area (full 4x4)
+and on 1x2 (full 3x4) the probe cell IS a wall — `sub.isWall(probe)` is true —
+and `facingMatters('pawn')` is still `true`. There is no board on which the
+middle cell offers a pawn no rotation. No change made.
+
 ### F10 — `canPromote`'s probe settles at the arrival turn under the turn cap
 
 `src/lobster/substrate.ts:640`.
@@ -225,6 +415,32 @@ m.maxTurns`, then reads `settled.unitTypes[record.id] ?? record.type`. On a
 board at or past the cap the settlement may end the game and carry no entry, so
 the kind is memoised as non-promotable — for the rest of the decision, and the
 answer is memoised per KIND. Confirm on a pawn one turn from `maxTurns`.
+
+**REVIEW-2 verdict: NOT A DEFECT. Ending the game does not empty `unitTypes`,
+and the probe ends the game EVERY time anyway.** Nothing in `bounds/` or
+`evaluate/` needed touching.
+
+Structural, at `engine-vendor/engine/settleTurn.ts`: `unitTypes` is built at
+step 5 (promotion, `:292`–`:306`) and `adjudicate` does not run until step 7
+(`:341`), where its verdict lands in a SEPARATE field, `outcome`. The only gate
+on `unitTypes[u.id] = u.type` is `alive.has(u.id)` — the unit dying this turn —
+and the probe stands the unit still at `energy: Number.MAX_SAFE_INTEGER` with
+no other unit on the board, so it cannot die. The turn cap has no path to that
+map.
+
+Measured, which makes the point more sharply than the finding's own recipe: the
+probe puts ONE unit on the board, so `adjudicate` decides "last team standing"
+at every turn, cap or no cap. Ran it at turn 20, 99, 100 and 120 against the
+default `maxTurns` of 100, and at 9, 10, 11 against `maxTurns: 10`, and with
+`maxTurns: null`:
+
+    outcome = {"kind":"last-team","winners":["red"],...}   — every row
+    unitTypes = {"P":"queen"}                              — every row
+
+`canPromote` returned `true` on all of them. So the settlement ends the game on
+every canPromote probe there has ever been; if that emptied `unitTypes`, no
+pawn would be promotable on any board at any turn, which turn 1 disproves. No
+change made.
 
 ---
 

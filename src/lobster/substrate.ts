@@ -359,8 +359,18 @@ export class EngineSubstrate implements Substrate {
   private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
   private readonly targetCache = new Map<UnitId, ReadonlyArray<Candidate>>();
   private readonly promotable = new Map<UnitType, boolean>();
-  private settleCount = 0;
-  private assessCount = 0;
+  /**
+   * The two settlement counters, in ONE OBJECT ON THE FAMILY rather than as
+   * two own scalars — for the same reason `settleCache` lives there.
+   * `withModelled` builds a sibling with `Object.create(parent)`, and `x++` on
+   * an inherited scalar READS the parent's value and WRITES an own one, so a
+   * sibling's settlements would be invisible to `settlements()` on the
+   * substrate the search actually holds — zero on a family whose siblings have
+   * settled, while the docstring calls it "the currency the search's budget is
+   * denominated in". A shared object is mutated in place through the
+   * prototype, so every view of the family counts into the same pair.
+   */
+  private readonly counters: { settle: number; assess: number } = { settle: 0, assess: 0 };
   private released = false;
 
   constructor(options: SubstrateOptions) {
@@ -521,7 +531,7 @@ export class EngineSubstrate implements Substrate {
    * search's budget is denominated in. One per priced plan.
    */
   settlements(): number {
-    return this.settleCount;
+    return this.counters.settle;
   }
 
   /**
@@ -531,7 +541,7 @@ export class EngineSubstrate implements Substrate {
    * times, and mixing the two hides which of them a slice spent itself on.
    */
   assessments(): number {
-    return this.assessCount;
+    return this.counters.assess;
   }
 
   /** The step relation cache the reach shells iterate. Shared per board. */
@@ -969,7 +979,7 @@ export class EngineSubstrate implements Substrate {
     // One held-set key, not two: `heldUnitsFor` and `claimsFor` are both keyed
     // on it and both used to compute it themselves.
     const heldKey = keyOf(held);
-    this.settleCount++;
+    this.counters.settle++;
     // The claims come FIRST: `claimsFor` builds its own settlement input, and
     // the scratch below may not be live while it does.
     const claims = this.claimsFor(held, heldKey);
@@ -1048,7 +1058,7 @@ export class EngineSubstrate implements Substrate {
       held.push(unit.unitId);
       return record;
     });
-    this.assessCount++;
+    this.counters.assess++;
     return settlePartial(
       this.settleInputFor(units, this.heldUnitsFor(held)),
       NO_SPAWN,

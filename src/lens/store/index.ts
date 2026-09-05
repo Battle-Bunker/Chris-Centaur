@@ -103,9 +103,18 @@ export function emptyStore(anchor: TurnEvent): FrameStore {
  * not double it). Both refusals return the store unchanged, which keeps
  * `applyEvent` idempotent per `seq` and therefore safe to drive from either
  * source with no de-duplication above it.
+ *
+ * ALREADY FOLDED INCLUDES THE ANCHOR. `upTo` folds `[anchor, ...events]`, so
+ * the anchor's own `seq` is as folded as any event's; comparing only against
+ * `events` let a re-delivered anchor through and the fold then counted it
+ * twice. The `seq` writer does not reuse the anchor's number today, so this is
+ * the property the docstring claims rather than a play that changes — but the
+ * replay source rebuilds the anchor from `turn_boards` beside the same event
+ * stream, which is exactly the shape that would deliver it.
  */
 export function applyEvent(store: FrameStore, event: TurnEvent): FrameStore {
   if (event.turn !== store.turn) return store;
+  if (event.seq === store.anchor.seq) return store;
   for (const held of store.events) {
     if (held.seq === event.seq) return store;
   }
@@ -222,9 +231,20 @@ function conditionalKey(cluster: ClusterId, unit: UnitKey, to: CellIndex): strin
  * The candidates a frame can honestly draw: the destinations THIS DECISION
  * priced, as they appear in the rows it retained. Nothing else in the event
  * stream enumerates a unit's options, and inventing an enumeration here would
- * be a computation nobody performed (04 §2.5). `conditionalBest` is filled
- * only where a conditional ranking answered for that destination — every
- * other candidate renders as `·`, never as a bare number (04 §3 D-c).
+ * be a computation nobody performed (04 §2.5).
+ *
+ * `conditionalBest` is filled only where a RANK-1 row answered for that
+ * destination, in either reservoir — the plain one, whose rank 1 is the
+ * incumbent, and a conditional one, whose rank 1 is the best under that lock.
+ * Every other destination stays `null` and renders as `·`. That is 04 §3 D-c
+ * exactly: "the incumbent's aggregate exact, the hovered candidate's
+ * provisional, and every other candidate `·` unpriced — never a bare number".
+ * The grade travels with it (`exact` draws nothing, `provisional` draws `~`),
+ * so a filled cell is never a bare number either.
+ *
+ * An earlier wording here said "only where a CONDITIONAL ranking answered",
+ * which reads as a promise that the plain reservoir never fills the field —
+ * it does, for rank 1, and that is the incumbent's number D-c grants.
  */
 function candidatesOf(
   priced: ReadonlyMap<UnitKey, Map<CellIndex, CandidateRow>>

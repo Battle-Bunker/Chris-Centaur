@@ -24,22 +24,39 @@ import type { FrameStore, LensFrame, TurnEvent } from '../lens/types';
 import { FIXTURE_GAME, anchorEvent } from './lens-fixtures';
 
 const TURN = 1;
-const ANCHOR = anchorEvent();
 
-async function recordedTurn(): Promise<ReadonlyArray<TurnEvent>> {
+/**
+ * THE ANCHOR IS ONE OF THE TURN'S OWN EVENTS, written by the turn's own
+ * writer — which is what production does (`view/index.ts::storeOf` picks the
+ * stream's `board.arrived`, `store/index.ts::storeFromRows` rebuilds it at the
+ * stored anchor's seq) and therefore what this harness has to do too. Writing
+ * it here spends seq 0 on it and starts the recorded stream at 1. Handing
+ * `emptyStore` a SYNTHETIC anchor beside a stream that also began at 0 put two
+ * distinct events on one `seq`, which the writer's own uniqueness contract
+ * forbids and which `upTo`'s sort cannot order.
+ */
+async function recordedTurn(): Promise<{
+  anchor: TurnEvent;
+  events: ReadonlyArray<TurnEvent>;
+}> {
   const writer = makeSeqWriter(FIXTURE_GAME, TURN);
+  // `write` stamps its own `id` and `seq` over whatever the draft carried.
+  const anchor = writer.write(anchorEvent(undefined, TURN));
   const lensEvents = await recordLensRun({
     scenario: 'mixed',
     seed: 1,
     nodes: 550,
     turns: 1,
   });
-  return ingestLensEvents(writer, lensEvents);
+  return { anchor, events: ingestLensEvents(writer, lensEvents) };
 }
 
 /** The LIVE path: feed one event at a time, read the frame each time. */
-function liveFrames(events: ReadonlyArray<TurnEvent>): ReadonlyArray<LensFrame> {
-  let store: FrameStore = emptyStore(ANCHOR);
+function liveFrames(
+  anchor: TurnEvent,
+  events: ReadonlyArray<TurnEvent>
+): ReadonlyArray<LensFrame> {
+  let store: FrameStore = emptyStore(anchor);
   const out: LensFrame[] = [];
   for (const event of events) {
     store = applyEvent(store, event);
@@ -62,17 +79,20 @@ function withoutAt(frame: LensFrame): unknown {
 }
 
 /** The REPLAY path: fold the whole array once, then ask for each seq. */
-function foldedFrames(events: ReadonlyArray<TurnEvent>): ReadonlyArray<LensFrame> {
-  const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(ANCHOR));
+function foldedFrames(
+  anchor: TurnEvent,
+  events: ReadonlyArray<TurnEvent>
+): ReadonlyArray<LensFrame> {
+  const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(anchor));
   return events.map((e) => frameAt(store, e.seq));
 }
 
 describe('every live frame equals the independent fold at the same seq', () => {
   it('agrees field for field, at every seq of a real decision', async () => {
-    const events = await recordedTurn();
+    const { anchor, events } = await recordedTurn();
     expect(events.length).toBeGreaterThan(0);
-    const live = liveFrames(events);
-    const folded = foldedFrames(events);
+    const live = liveFrames(anchor, events);
+    const folded = foldedFrames(anchor, events);
     expect(folded).toHaveLength(live.length);
     for (let i = 0; i < live.length; i++) {
       const { at: liveAt, ...liveRest } = live[i] as LensFrame;
@@ -84,8 +104,8 @@ describe('every live frame equals the independent fold at the same seq', () => {
   }, 120_000);
 
   it('carries the WHOLE partition on a partition frame, not a diff', async () => {
-    const events = await recordedTurn();
-    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(ANCHOR));
+    const { anchor, events } = await recordedTurn();
+    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(anchor));
     const partitions = events.filter((e) => e.kind === 'partition');
     expect(partitions.length).toBeGreaterThan(0);
     for (const e of partitions) {
@@ -94,21 +114,21 @@ describe('every live frame equals the independent fold at the same seq', () => {
       // if the frame is whole.
       const upTo = events
         .filter((x) => x.seq <= e.seq)
-        .reduce<FrameStore>((s, x) => applyEvent(s, x), emptyStore(ANCHOR));
+        .reduce<FrameStore>((s, x) => applyEvent(s, x), emptyStore(anchor));
       expect(frameAt(upTo, e.seq).partition).toEqual(frameAt(store, e.seq).partition);
       expect(frameAt(store, e.seq).partition.length).toBeGreaterThan(0);
     }
   }, 120_000);
 
   it('carries the WHOLE reservoir on a movesets frame, not a diff', async () => {
-    const events = await recordedTurn();
-    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(ANCHOR));
+    const { anchor, events } = await recordedTurn();
+    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(anchor));
     const movesetFrames = events.filter((e) => e.kind === 'movesets');
     expect(movesetFrames.length).toBeGreaterThan(0);
     for (const e of movesetFrames) {
       const upTo = events
         .filter((x) => x.seq <= e.seq)
-        .reduce<FrameStore>((s, x) => applyEvent(s, x), emptyStore(ANCHOR));
+        .reduce<FrameStore>((s, x) => applyEvent(s, x), emptyStore(anchor));
       expect(frameAt(upTo, e.seq).movesets).toEqual(frameAt(store, e.seq).movesets);
     }
   }, 120_000);
@@ -116,16 +136,16 @@ describe('every live frame equals the independent fold at the same seq', () => {
 
 describe('the fold survives a consumer that never saw the predecessor', () => {
   it('reconstructs the last frame from the event array alone', async () => {
-    const events = await recordedTurn();
+    const { anchor, events } = await recordedTurn();
     const last = events[events.length - 1] as TurnEvent;
-    const cold = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(ANCHOR));
-    const live = liveFrames(events)[events.length - 1] as LensFrame;
+    const cold = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(anchor));
+    const live = liveFrames(anchor, events)[events.length - 1] as LensFrame;
     expect(withoutAt(frameAt(cold, last.seq))).toEqual(withoutAt(live));
   }, 120_000);
 
   it("never crosses a turn boundary: the fold's t0 is board.arrived", async () => {
-    const events = await recordedTurn();
-    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(ANCHOR));
+    const { anchor, events } = await recordedTurn();
+    const store = events.reduce<FrameStore>((s, e) => applyEvent(s, e), emptyStore(anchor));
     expect(store.anchor.kind).toBe('board.arrived');
     expect(store.events.every((e) => e.turn === TURN)).toBe(true);
   }, 120_000);
