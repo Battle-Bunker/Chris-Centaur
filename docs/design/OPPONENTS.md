@@ -114,22 +114,284 @@ living unit — the only unambiguous outcomes the corpus contains.
 
 ## 3. The matchup table
 
-<!-- ROUND-ROBIN-TABLE -->
+336 games: 4 classes × 7 arms × 2 seats × 6 seeds, 60 turns, `--nodes=550`, one
+`RunSummary` per game under `.round-robin/<class>__<arm>__seat<N>.jsonl`. The
+`mirror` row is the control; `Δ vs mirror` is this arm's weight share at the cap
+minus the mirror's own share **on the same class and the same seat**.
+
+`ourDeaths`/`theirDeaths`, `ourMeals`/`theirMeals`, `ourSeed%`/`theirSeed%` and
+the share are the side split (`oursX`/`theirsX`), so "ours" is always the decider
+team and "theirs" is every other team pooled. `wiped them`/`wiped us` count the
+seeds that ended with one side holding no living unit.
+
+### `mixed`
+
+| arm | seeds | ourDeaths | theirDeaths | ourMeals | theirMeals | ourSeed% | theirSeed% | share | Δ vs mirror | seat0 Δ | seat1 Δ | wiped them | wiped us |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mirror | 12 | 13 | 15 | 352 | 540 | 45.3 | 43.9 | 0.384 | — | — | — | 0 | 0 |
+| material-only | 12 | 14 | 34 | 402 | 321 | 39.6 | 69.2 | 0.568 | +0.184 | +0.185 | +0.168 | 0 | 0 |
+| random-legal | 12 | 1 | 60 | 189 | 16 | 38.4 | 0.0 | 1.000 | +0.616 | +0.859 | +0.373 | 12 | 0 |
+| glutton | 12 | 14 | 25 | 341 | 570 | 45.1 | 44.7 | 0.386 | +0.002 | +0.035 | -0.001 | 0 | 0 |
+| aggressive | 12 | 15 | 33 | 363 | 426 | 44.0 | 44.3 | 0.475 | +0.091 | +0.026 | +0.128 | 0 | 2 |
+| territorial | 12 | 16 | 26 | 348 | 517 | 43.8 | 44.2 | 0.406 | +0.022 | +0.023 | +0.020 | 0 | 0 |
+| cautious | 12 | 13 | 31 | 380 | 500 | 45.9 | 46.5 | 0.456 | +0.072 | +0.068 | +0.090 | 0 | 0 |
+
+### `snakes`
+
+| arm | seeds | ourDeaths | theirDeaths | ourMeals | theirMeals | ourSeed% | theirSeed% | share | Δ vs mirror | seat0 Δ | seat1 Δ | wiped them | wiped us |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mirror | 12 | 10 | 22 | 215 | 419 | 56.5 | 58.1 | 0.356 | — | — | — | 0 | 2 |
+| material-only | 12 | 4 | 29 | 275 | 140 | 57.2 | 88.4 | 0.684 | +0.328 | +0.375 | +0.280 | 2 | 0 |
+| random-legal | 12 | 0 | 48 | 22 | 0 | 34.3 | 0.0 | 1.000 | +0.644 | +0.695 | +0.593 | 12 | 0 |
+| glutton | 12 | 10 | 24 | 238 | 452 | 57.4 | 61.5 | 0.364 | +0.008 | +0.020 | -0.007 | 0 | 0 |
+| aggressive | 12 | 8 | 13 | 183 | 325 | 54.8 | 53.5 | 0.332 | -0.024 | +0.010 | -0.065 | 0 | 2 |
+| territorial | 12 | 10 | 14 | 177 | 328 | 54.8 | 53.2 | 0.316 | -0.040 | +0.033 | -0.111 | 0 | 1 |
+| cautious | 12 | 5 | 15 | 206 | 336 | 54.0 | 54.3 | 0.393 | +0.037 | +0.082 | -0.009 | 1 | 0 |
+
+### `potions`
+
+| arm | seeds | ourDeaths | theirDeaths | ourMeals | theirMeals | ourSeed% | theirSeed% | share | Δ vs mirror | seat0 Δ | seat1 Δ | wiped them | wiped us |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mirror | 12 | 9 | 19 | 362 | 562 | 45.2 | 43.1 | 0.402 | — | — | — | 0 | 0 |
+| material-only | 12 | 12 | 28 | 409 | 311 | 42.8 | 71.6 | 0.549 | +0.147 | +0.026 | +0.242 | 0 | 0 |
+| random-legal | 12 | 2 | 57 | 285 | 18 | 39.0 | 0.0 | 0.976 | +0.574 | +0.758 | +0.391 | 9 | 0 |
+| glutton | 12 | 19 | 19 | 331 | 571 | 41.6 | 43.3 | 0.362 | -0.040 | -0.053 | -0.005 | 0 | 1 |
+| aggressive | 12 | 14 | 21 | 342 | 532 | 43.3 | 43.4 | 0.387 | -0.016 | -0.033 | -0.001 | 0 | 1 |
+| territorial | 12 | 18 | 23 | 346 | 503 | 45.7 | 42.1 | 0.402 | +0.000 | -0.075 | +0.084 | 0 | 2 |
+| cautious | 12 | 15 | 22 | 349 | 501 | 46.0 | 44.5 | 0.410 | +0.007 | -0.039 | +0.030 | 0 | 0 |
+
+### `sparse`
+
+| arm | seeds | ourDeaths | theirDeaths | ourMeals | theirMeals | ourSeed% | theirSeed% | share | Δ vs mirror | seat0 Δ | seat1 Δ | wiped them | wiped us |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mirror | 12 | 0 | 0 | 101 | 101 | 44.7 | 44.7 | 0.500 | — | — | — | 0 | 0 |
+| material-only | 12 | 1 | 1 | 140 | 12 | 42.8 | 99.3 | 0.715 | +0.215 | +0.165 | +0.264 | 0 | 0 |
+| random-legal | 12 | 0 | 24 | 7 | 0 | 35.3 | 0.0 | 1.000 | +0.500 | +0.468 | +0.532 | 12 | 0 |
+| glutton | 12 | 2 | 2 | 109 | 97 | 46.9 | 42.9 | 0.518 | +0.018 | -0.005 | +0.041 | 0 | 0 |
+| aggressive | 12 | 1 | 2 | 97 | 54 | 47.0 | 39.6 | 0.587 | +0.087 | +0.111 | +0.066 | 0 | 0 |
+| territorial | 12 | 1 | 1 | 93 | 39 | 43.2 | 37.9 | 0.600 | +0.100 | +0.094 | +0.107 | 0 | 0 |
+| cautious | 12 | 0 | 0 | 92 | 43 | 45.9 | 41.9 | 0.588 | +0.088 | +0.083 | +0.094 | 0 | 0 |
+
+Two readings the table cannot show, printed by the report on their own:
+
+```
+=== seats that disagree in sign (the pooled row is not a matchup result) ===
+  mixed vs glutton: seat0 +0.035, seat1 -0.001
+  snakes vs glutton: seat0 +0.020, seat1 -0.007
+  snakes vs aggressive: seat0 +0.010, seat1 -0.065
+  snakes vs territorial: seat0 +0.033, seat1 -0.111
+  snakes vs cautious: seat0 +0.082, seat1 -0.009
+  potions vs territorial: seat0 -0.075, seat1 +0.084
+  potions vs cautious: seat0 -0.039, seat1 +0.030
+  sparse vs glutton: seat0 -0.005, seat1 +0.041
+
+=== matchups the default is BEHIND its own mirror on (share Δ < 0) ===
+  mixed seat1 vs glutton: -0.001      snakes seat1 vs glutton: -0.007
+  snakes seat1 vs aggressive: -0.065  snakes seat1 vs territorial: -0.111
+  snakes seat1 vs cautious: -0.009    sparse seat0 vs glutton: -0.005
+  potions seat0 vs glutton: -0.053    potions seat1 vs glutton: -0.005
+  potions seat0 vs aggressive: -0.033 potions seat1 vs aggressive: -0.001
+  potions seat0 vs territorial: -0.075
+  potions seat0 vs cautious: -0.039
+```
+
+### What is instrumented per side, and what is not
+
+Only six counters are split: `meals`, `deaths`, `unitTurns`, `seedKept`, `weight`
+at the cap and `survivors`. `deathsByCause`, `enemyOccupiedEntries[Lost]`, the
+entrapment counters and every potion counter are **board-wide** — they are a sum
+over both players and they move when either one changes. Every claim in §4 is
+made from the split counters; where a board-wide number is quoted it is named as
+board-wide and carries no attribution. That gap is the largest single limitation
+of this corpus and §6 says what to do about it.
 
 ---
 
 ## 4. What the games say
 
-<!-- FINDINGS -->
+### 4.1 The floor is a long way down, and it is nearest on `potions`
+
+The default wipes `random-legal` out on 12/12 seeds of `mixed`, `snakes` and
+`sparse` and holds share 1.000 on all three. Whatever else is true, the search
+and the fold together are worth an enormous amount against no policy at all.
+
+The one class where the floor is closer is `potions`: 9/12 wipes and share 0.976,
+and two of our own deaths where the other three classes give up 0 or 1. It is the
+first of four separate signs in this corpus that `potions` is where this bot is
+weakest, and the only one visible without an opponent that plays well.
+
+### 4.2 `material-only` was a soft opponent, and every earlier claim rests on it
+
+`material-only` hands the default +0.147 to +0.328 of share on every class — the
+largest margins in the table after `random-legal`. It is not a control for
+anything except "does the fold do something at all". `theirSeed%` says why: it
+keeps the generator's first offer on 69–99% of its unit-turns, because with every
+ordering weight at zero the search has nothing to reorder with. Any claim in this
+repo whose evidence is a win over `material-only` should be read as unproven
+against a player with opinions.
+
+### 4.3 No fixed table beats the default outright — two beat it on one class
+
+Across four classes and both seats there is no arm that is ahead of the default
+everywhere, and no arm that is ahead of it on more than one class. Three of the
+five bench entries lose to the default on all four classes from both seats.
+
+Two are ahead on exactly one class, from **both** seats, which is what makes them
+matchup results rather than seat results:
+
+| arm | class | pooled Δ | seat 0 | seat 1 |
+|---|---|---|---|---|
+| `glutton` | `potions` | **−0.040** | −0.053 | −0.005 |
+| `aggressive` | `potions` | −0.016 | −0.033 | −0.001 |
+
+and both of them lose to the default on `mixed`, `snakes` and `sparse`. So the
+finding is: **the default is not beaten outright by any fixed weight table, and
+it is beaten on `potions` by the two tables that price food or aggression above
+the arrival-turn verdict.**
+
+Everything else in the "behind" list is one-seated and reverses at the other
+seat — `snakes` vs `territorial` is −0.111 at seat 1 and +0.033 at seat 0,
+`potions` vs `territorial` is −0.075 at seat 0 and +0.084 at seat 1 — and a
+matchup that changes sign with the colour is a fact about the colour.
+
+### 4.4 The weakest matchup: `potions` vs `glutton`, and its mechanism
+
+It is the largest two-seat-consistent loss in the corpus, and the share
+understates it badly. The side-split deaths:
+
+| `potions` | our deaths | their deaths | our weight | their weight | share |
+|---|---|---|---|---|---|
+| seat 0 vs mirror | 7 | 7 | 85 | 350 | 0.195 |
+| seat 0 vs `glutton` | **10** | 7 | 66 | 398 | 0.142 |
+| seat 1 vs mirror | 2 | 12 | 265 | 170 | 0.609 |
+| seat 1 vs `glutton` | **9** | 12 | 255 | 167 | 0.604 |
+
+**The opponents die exactly as often as the mirror's opponents do — 7 and 12,
+unchanged at both seats — and the default dies three and seven more times.** All
+of the extra dying is ours. At seat 1 the weight share moves −0.005, which is
+noise, while our deaths go from 2 to 9: the share proxy is under-reading the
+damage by a factor the owner's own rule cares about most, because deaths are the
+currency and meals and territory are what may be spent.
+
+The mechanism is the recorded `contest < food` relation being exercised by
+somebody else. `calibration.ts` sets `contest` (3) under `food` (4), whose pull
+reaches 1 for a starving unit, precisely so "a hungry unit still takes a contested
+meal and a healthy one declines it". `glutton` names `food` 9 against `contest`
+0.5, so it is at the contested meal in far more turns than a mirror opponent is —
+and the default's own licence to take a contested meal is therefore exercised far
+more often, against a player that is not going to give way. Board-wide, the
+class's `contest` deaths go from 12 (mirror) to 16 at seat 1, and five `edge`
+deaths — a head-on exchange lost — appear at seat 0 where the mirror has none.
+
+The limit of the claim, stated rather than glossed: `deathsByCause` is board-wide,
+so "our extra deaths are contest deaths" is an inference from the side-split
+totals plus the board-wide causes, not a measurement. §6 names the counter that
+would settle it.
+
+**Why the mirror could never have found this.** Against a mirror, both sides hold
+`contest < food` on the same numbers, so both sides decline and take the same
+contested meals and the deaths split evenly (7/7 at seat 0). The relation only
+costs something when the opponent's ratio is different from ours, and a mirror
+opponent's never is.
+
+### 4.5 The `snakes` mirror baseline is inflated by the mirror's own blunders
+
+`snakes` is the class where the biggest one-seat losses live, and the reason is
+in the control rather than the matchups. The mirror arm's six games produce 16
+deaths, **seven of them `self`** — a unit walking into its own body. The same six
+seeds against `territorial` produce 11 deaths, two of them `self`; against
+`aggressive` at seat 1, six deaths and none.
+
+So a large part of the default's weight share against its own mirror on `snakes`
+is a dividend on deaths its clone inflicts on itself, and it does not transfer to
+an opponent that does not make them. It is not that the default plays `snakes`
+badly against `territorial`; it is that the baseline it is being read against is
+too kind. This is the single clearest illustration of the owner's warning that
+mirror self-play is not a measurement, and it argues for the mirror baseline being
+retired on this class rather than for any weight change.
+
+### 4.6 The seat effect is larger than every matchup effect on `potions`
+
+The mirror's own share on `potions` is 0.195 at seat 0 and 0.609 at seat 1 — a
+gap of 0.414, ten times the largest matchup Δ on that class. `mixed` is the same
+shape (0.242 / 0.627). Any future `potions` or `mixed` claim taken from one seat
+is worth nothing; both seats or nothing. The colour swap earned its place here.
 
 ---
 
 ## 5. The proposed change, and what would kill it
 
-<!-- PROPOSAL -->
+**One weakness class emerged**: on `potions`, against an opponent whose
+`food`-to-`contest` ratio is far above the default's, the default's own deaths
+rise while the opponent's do not, and the extra deaths are concentrated in the
+board-wide `contest` and `edge` causes — squares whose arrival-turn verdict was
+already lost when the move was staged.
+
+**Proposed change.** A staged destination that `winsContest` says we lose at the
+turn we arrive is not an ordering question; it is a terminal outcome, and
+`calibration.ts` already says how those are handled: *"Terminal outcomes need no
+protection at all, because DEAD is a lattice bottom applied by replacement and
+never by addition."* The `contest` term instead prices that case by ADDITION, at
+weight 3, where the `food` term is licensed to reach 4 — so a certain loss is
+being traded against a meal. The proposal is to move that ONE sub-case, `lost` in
+the `enemyOccupiedEntriesAt` sense (enemy's turn-start head cell, `winsContest`
+false at current tier and weight), out of the additive fold and into the same
+replacement path `DEAD` uses, and to leave the `contest` weight and every other
+sub-case exactly as they are. It is not a weight change and it does not touch the
+recorded `contest < food` relation: a hungry unit still takes a contested meal it
+can survive.
+
+**What would kill it**, in the order it should be checked:
+
+1. **The diagnosis.** Run `potions`, both seats, vs `glutton` and `aggressive`.
+   If the board-wide `enemyOccupiedEntriesLost` does not fall to near zero, the
+   change did not do what it says and the losses are not staged-into-a-known-lost
+   square — they are arrival-order effects the turn-start board cannot see, and
+   the repair is somewhere else entirely.
+2. **The point of it.** If `enemyOccupiedEntriesLost` falls but OUR deaths on
+   `potions` vs `glutton` do not fall below 10 (seat 0) and 9 (seat 1), the
+   contested entries were not the death channel: the bot is simply dying
+   somewhere else and the change buys nothing. Revert it.
+3. **The cost.** `enemyOccupiedEntries` is an OPPORTUNITY, not a blunder —
+   BEHAVIOUR-AUDIT D1 says taking a square off a lighter enemy is a capture — so
+   if entries fall by more than the lost ones do, the veto is too wide and is
+   refusing captures. Revert it.
+4. **The rest of the corpus.** If our deaths rise on any of `mixed`, `snakes` or
+   `sparse` against ANY arm including the mirror, revert it. Deaths are the
+   currency.
+
+Nothing here is proposed on this document's own authority: it is one hypothesis
+with four ways to fail, and it is written down so that the next worker can kill it
+cheaply rather than inherit it.
 
 ---
 
 ## 6. Which arm should join the standing gate
 
-<!-- GATE -->
+**`glutton`, on `potions`, both seats.** It is the only arm that beats the
+default from both seats of a class, it reaches the default through a RECORDED
+inequality (`contest < food`) rather than through a seat asymmetry, and it costs
+two cells — twelve games, about ten minutes — which is affordable on every run.
+
+The gate should assert two things, and the second matters more than the first:
+
+* **our deaths** on `potions` vs `glutton`, both seats, at or below today's 10
+  (seat 0) and 9 (seat 1). This is the number the matchup actually moved.
+* **the weight share** at or above today's 0.142 / 0.604, as a coarse guard only.
+  §4.4 is the reason it is second: at seat 1 the share moved −0.005 while the
+  deaths more than quadrupled, so a share-only gate would have slept through the
+  whole finding.
+
+Two arms it should NOT be. `random-legal` is a floor and not a gate: a regression
+would have to be enormous to move it, and the one class where it is informative
+(`potions`, 9/12 wipes) is the class `glutton` already covers. `territorial` is
+the most interesting player on the bench and the worst gate, because its result
+changes sign with the seat on both classes it is interesting on.
+
+**Two follow-ups this corpus asks for and cannot do itself.** First, split
+`deathsByCause` and `enemyOccupiedEntries[Lost]` by side; today they are
+board-wide, and §4.4's mechanism is an inference rather than a measurement
+because of it. Second, when the `endgame` worker's win/draw/loss counter lands,
+re-run the sweep — the outcome column here is weight at the cap because there was
+no adjudicated result to report, and §4.4 is a live demonstration that share and
+deaths can point in different directions.
