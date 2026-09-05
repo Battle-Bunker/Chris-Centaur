@@ -559,6 +559,59 @@ async function main(): Promise<void> {
     });
     void stepping.then(() => res.json({ ok: true, turn: turn - 1, turns: log.length }));
   });
+
+  // ── SOAK MODE ───────────────────────────────────────────────────────────
+  // The walkthrough plays eight turns and photographs them. A LONG SESSION is
+  // a different question — an operator holds this page open for hours and
+  // hundreds of turns — and the two things a soak needs that the walkthrough
+  // never did are (a) many turns without a round trip per turn and (b) a wire
+  // that can change WHILE the page stays open, because the latency ladder is
+  // the one surface whose whole behaviour is a function of the wire and a
+  // soak that never moves it never exercises its state changes at all.
+  //
+  // Neither route exists in production and neither is on the walkthrough's
+  // own path: `/dev/step` is untouched, so `10-WALKTHROUGH.md`'s re-run plays
+  // the same turns through the same code it always did.
+
+  /** N turns, back to back, one request. Returns how long they took. */
+  app.post('/dev/steps', (req, res) => {
+    const asked = Number((req.body as { n?: unknown } | undefined)?.n ?? req.query.n ?? 1);
+    const n = Math.max(1, Math.min(1000, Number.isFinite(asked) ? Math.floor(asked) : 1));
+    const t0 = Date.now();
+    for (let i = 0; i < n; i++) {
+      stepping = stepping.then(playTurn).catch((err) => {
+        console.error('[walkthrough] step failed:', err);
+      });
+    }
+    void stepping.then(() =>
+      res.json({ ok: true, played: n, turn: turn - 1, turns: log.length, ms: Date.now() - t0 })
+    );
+  });
+
+  /**
+   * RESHAPE THE WIRE WITHOUT RESTARTING — `GameWebSocketServer.shapeTransport`
+   * is already a runtime setter, and the sockets a page has open keep working
+   * across the change. `{}` (or `--latency=0`-shaped numbers) removes the
+   * shaping entirely, which is the shipped wire.
+   */
+  app.post('/dev/wire', (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const num = (k: string): number => {
+      const v = Number(body[k] ?? req.query[k] ?? 0);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    };
+    const shape = {
+      downMs: num('latency') || num('latencyDown'),
+      upMs: num('latency') || num('latencyUp'),
+      jitterMs: num('jitter'),
+      lossRate: num('loss'),
+      lossAny: body.lossAny === true || req.query.lossAny !== undefined,
+    };
+    const on = shape.downMs > 0 || shape.upMs > 0 || shape.jitterMs > 0 || shape.lossRate > 0;
+    ws.shapeTransport(on ? shape : null);
+    res.json({ ok: true, wire: on ? shape : null });
+  });
+
   // The turn's events AS BROADCAST (settlement intact) — the live side of the
   // live-vs-replay diff, readable without a browser.
   app.get('/dev/events', (req, res) => {
