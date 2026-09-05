@@ -27,3 +27,6 @@ npm-debug.log*
 
 # Local git worktrees for parallel branches — never part of the tree.
 worktrees/
+
+# The round-robin harness writes its matchup files here by default.
+.round-robin/
