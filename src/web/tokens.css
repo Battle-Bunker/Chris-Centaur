@@ -1,0 +1,652 @@
+/*
+ * THE DESIGN TOKENS — one sheet for the whole operator surface.
+ * docs/design/ux/09-DESIGN-TOKENS.md is the reasoning; this file is normative.
+ *
+ * WHY IT IS ITS OWN FILE AND NOT THE TOP OF `chrome.css`. `chrome.css` styles
+ * the lobby pages; `play-game.html` styles the operator page in its own
+ * `<style>`, and the two use overlapping selector names (`.header`,
+ * `.main-content`, `body`) with different values. Linking one into the other
+ * would restyle a page. A sheet that declares CUSTOM PROPERTIES AND NOTHING
+ * ELSE paints nothing on its own, so it can be linked by every page — which
+ * is the only way the JS modules that inject their own stylesheets, and the
+ * canvas renderer that cannot cascade at all, can read the same values as the
+ * CSS. `chrome.css`'s first line `@import`s it; `play-game.html` links it.
+ *
+ * THE FOUR GROUPS, in cascade order and in reading order:
+ *   A. PALETTE      — raw values, named for what they ARE. No opinion.
+ *   B. SEMANTIC     — what the interface MEANS by them. Points at group A.
+ *   C. COMPONENT    — where one component needs its own handle. Points at B.
+ *   D. SCALES       — radius, z-index, duration, shadow, space, type.
+ *   E. PREFERENCES  — prefers-reduced-motion, stated ONCE, as token overrides.
+ *
+ * THE RULE FOR ADDING TO IT. A new value goes in group A first, always, even
+ * if it is used once: group A is the census, and the census is what makes the
+ * near-duplicates visible. Then it earns a group B name if it MEANS something
+ * — if a document says what it encodes and a reader is meant to decode it.
+ *
+ * NOTHING HERE MOVED A PIXEL. The pass that wrote this file was gated on
+ * pixel identity, so every near-duplicate the census exposes still has its own
+ * name and its own hex: #999999, #9a9a9a, #9e9e9e, #a2a2a2 and #a6a6a6 are one
+ * grey doing one job and they are all still here. Collapsing them is now a
+ * one-line edit in one file — and it is a DESIGN edit, with a screenshot to
+ * approve, not a refactor.
+ */
+
+:root {
+  /* ── A. PALETTE ────────────────────────────────────────────────────────
+   * Every distinct colour on the surface, named `--<family>-<hex>` so the
+   * near-duplicates sort next to each other and cannot hide. Sorted by
+   * luminance (neutrals) and by hue (chromatic). `x N` is how many places
+   * wrote it before this file existed.
+   * ------------------------------------------------------------------- */
+
+  /* neutrals, by luminance */
+  --grey-000000:     #000000;   /* x9 */
+  --grey-141414:     #141414;   /* x1 */
+  --slate-10151a:    #10151a;   /* x1 */
+  --grey-161616:     #161616;   /* x1 */
+  --slate-14181e:    #14181e;   /* x3 */
+  --grey-1a1a1a:     #1a1a1a;   /* x7 */
+  --grey-1b1b1b:     #1b1b1b;   /* x2 */
+  --grey-1c1c1c:     #1c1c1c;   /* x1 */
+  --grey-1e1e1e:     #1e1e1e;   /* x3 */
+  --grey-1f1f1f:     #1f1f1f;   /* x1 */
+  --slate-1e1f22:    #1e1f22;   /* x1 */
+  --slate-1b2026:    #1b2026;   /* x1 */
+  --grey-202020:     #202020;   /* x1 */
+  --grey-222222:     #222222;   /* x1 */
+  --grey-232323:     #232323;   /* x4 */
+  --grey-242424:     #242424;   /* x1 */
+  --slate-22262b:    #22262b;   /* x1 */
+  --grey-262626:     #262626;   /* x3 */
+  --slate-1f2a1f:    #1f2a1f;   /* x1 */
+  --slate-23282e:    #23282e;   /* x1 */
+  --grey-282828:     #282828;   /* x1 */
+  --grey-2a2a2a:     #2a2a2a;   /* x15 */
+  --grey-2b2b2b:     #2b2b2b;   /* x1 */
+  --grey-2c2c2c:     #2c2c2c;   /* x2 */
+  --grey-2e2e2e:     #2e2e2e;   /* x2 */
+  --grey-2f2f2f:     #2f2f2f;   /* x1 */
+  --grey-303030:     #303030;   /* x2 */
+  --slate-2e332e:    #2e332e;   /* x1 */
+  --grey-333333:     #333333;   /* x13 */
+  --grey-343434:     #343434;   /* x1 */
+  --slate-33373b:    #33373b;   /* x1 */
+  --grey-383838:     #383838;   /* x2 */
+  --grey-3a3a3a:     #3a3a3a;   /* x7 */
+  --slate-3a3d41:    #3a3d41;   /* x2 */
+  --grey-3d3d3d:     #3d3d3d;   /* x2 */
+  --grey-444444:     #444444;   /* x10 */
+  --grey-4a4a4a:     #4a4a4a;   /* x6 */
+  --grey-555555:     #555555;   /* x11 */
+  --slate-55595e:    #55595e;   /* x1 */
+  --grey-5c5c5c:     #5c5c5c;   /* x1 */
+  --grey-666666:     #666666;   /* x10 */
+  --grey-6b6b6b:     #6b6b6b;   /* x2 */
+  --grey-6d6d6d:     #6d6d6d;   /* x1 */
+  --grey-6e6e6e:     #6e6e6e;   /* x1 */
+  --grey-777777:     #777777;   /* x2 */
+  --grey-7a7a7a:     #7a7a7a;   /* x2 */
+  --grey-888888:     #888888;   /* x24 */
+  --grey-8a8a8a:     #8a8a8a;   /* x2 */
+  --grey-8d8d8d:     #8d8d8d;   /* x1 */
+  --grey-999999:     #999999;   /* x2 */
+  --grey-9a9a9a:     #9a9a9a;   /* x16 */
+  --grey-9e9e9e:     #9e9e9e;   /* x3 */
+  --grey-a2a2a2:     #a2a2a2;   /* x1 */
+  --grey-a6a6a6:     #a6a6a6;   /* x6 */
+  --grey-a8a8a8:     #a8a8a8;   /* x1 */
+  --grey-aaaaaa:     #aaaaaa;   /* x4 */
+  --grey-ababab:     #ababab;   /* x1 */
+  --grey-bbbbbb:     #bbbbbb;   /* x4 */
+  --grey-bdbdbd:     #bdbdbd;   /* x1 */
+  --grey-c4c4c4:     #c4c4c4;   /* x1 */
+  --slate-c2c7cd:    #c2c7cd;   /* x1 */
+  --grey-cccccc:     #cccccc;   /* x1 */
+  --grey-d8d8d8:     #d8d8d8;   /* x2 */
+  --grey-dcdcdc:     #dcdcdc;   /* x1 */
+  --grey-dddddd:     #dddddd;   /* x9 */
+  --grey-e0e0e0:     #e0e0e0;   /* x4 */
+  --grey-e8e8e8:     #e8e8e8;   /* x1 */
+  --grey-eeeeee:     #eeeeee;   /* x6 */
+  --grey-ffffff:     #ffffff;   /* x34 */
+
+  /* chromatic, by hue */
+  --red-8b0000:      #8b0000;   /* h0 x1 */
+  --red-b71c1c:      #b71c1c;   /* h0 x1 */
+  --red-d81b1b:      #d81b1b;   /* h0 x1 */
+  --red-ff5252:      #ff5252;   /* h0 x1 */
+  --red-e57373:      #e57373;   /* h0 x4 */
+  --red-ef9a9a:      #ef9a9a;   /* h0 x2 */
+  --red-e53935:      #e53935;   /* h1 x2 */
+  --red-ef5350:      #ef5350;   /* h1 x1 */
+  --red-f44336:      #f44336;   /* h4 x1 */
+  --red-6b2f28:      #6b2f28;   /* h6 x1 */
+  --red-b03a2e:      #b03a2e;   /* h6 x2 */
+  --red-e0685a:      #e0685a;   /* h6 x3 */
+  --red-c9503f:      #c9503f;   /* h7 x1 */
+  --red-e88c80:      #e88c80;   /* h7 x1 */
+  --red-8a3b2a:      #8a3b2a;   /* h11 x1 */
+  --red-d84315:      #d84315;   /* h14 x1 */
+  --red-ff8a65:      #ff8a65;   /* h14 x7 */
+  --orange-ffd2c2:   #ffd2c2;   /* h16 x1 */
+  --orange-8a3a1a:   #8a3a1a;   /* h17 x1 */
+  --orange-f0cfc2:   #f0cfc2;   /* h17 x1 */
+  --orange-f7d6c8:   #f7d6c8;   /* h18 x1 */
+  --orange-e65100:   #e65100;   /* h21 x1 */
+  --orange-d55e00:   #d55e00;   /* h26 x1 */
+  --orange-fb8c00:   #fb8c00;   /* h33 x1 */
+  --orange-ff8f00:   #ff8f00;   /* h34 x1 */
+  --amber-ff9800:    #ff9800;   /* h36 x1 */
+  --amber-ffa726:    #ffa726;   /* h36 x1 */
+  --amber-ffb74d:    #ffb74d;   /* h36 x2 */
+  --amber-ffcc80:    #ffcc80;   /* h36 x1 */
+  --amber-d8a13a:    #d8a13a;   /* h39 x5 */
+  --amber-e0b463:    #e0b463;   /* h39 x1 */
+  --amber-f4e3c4:    #f4e3c4;   /* h39 x1 */
+  --amber-e69f00:    #e69f00;   /* h41 x1 */
+  --amber-ffb300:    #ffb300;   /* h42 x1 */
+  --amber-8a6d1a:    #8a6d1a;   /* h44 x1 */
+  --amber-ffc107:    #ffc107;   /* h45 x1 */
+  --amber-ffca28:    #ffca28;   /* h45 x2 */
+  --amber-6d5b1f:    #6d5b1f;   /* h46 x1 */
+  --amber-ffd54f:    #ffd54f;   /* h46 x3 */
+  --amber-8a7524:    #8a7524;   /* h48 x1 */
+  --amber-ffd700:    #ffd700;   /* h51 x1 */
+  --green-8fbf6a:    #8fbf6a;   /* h94 x1 */
+  --green-7fbf6a:    #7fbf6a;   /* h105 x1 */
+  --green-3d5c34:    #3d5c34;   /* h107 x1 */
+  --green-3c6e3e:    #3c6e3e;   /* h122 x2 */
+  --green-4caf50:    #4caf50;   /* h122 x25 */
+  --green-a5d6a7:    #a5d6a7;   /* h122 x2 */
+  --green-cfe8d0:    #cfe8d0;   /* h122 x3 */
+  --green-d6efd7:    #d6efd7;   /* h122 x1 */
+  --green-2e7d32:    #2e7d32;   /* h123 x2 */
+  --green-388e3c:    #388e3c;   /* h123 x1 */
+  --green-5f8f61:    #5f8f61;   /* h123 x1 */
+  --green-43a047:    #43a047;   /* h123 x2 */
+  --green-66bb6a:    #66bb6a;   /* h123 x1 */
+  --green-81c784:    #81c784;   /* h123 x3 */
+  --green-1b5e20:    #1b5e20;   /* h124 x1 */
+  --green-cfe9d1:    #cfe9d1;   /* h125 x2 */
+  --green-35734a:    #35734a;   /* h140 x1 */
+  --teal-9fb8b3:     #9fb8b3;   /* h168 x1 */
+  --teal-9db8b3:     #9db8b3;   /* h169 x1 */
+  --teal-9fc6c0:     #9fc6c0;   /* h171 x1 */
+  --teal-cfe6e3:     #cfe6e3;   /* h172 x1 */
+  --teal-00897b:     #00897b;   /* h174 x1 */
+  --teal-4db6ac:     #4db6ac;   /* h174 x3 */
+  --blue-80d8ff:     #80d8ff;   /* h198 x1 */
+  --blue-56b4e9:     #56b4e9;   /* h202 x1 */
+  --blue-47708c:     #47708c;   /* h204 x1 */
+  --blue-d7e4ee:     #d7e4ee;   /* h206 x1 */
+  --blue-dfe7ee:     #dfe7ee;   /* h208 x2 */
+  --blue-8b98a4:     #8b98a4;   /* h209 x1 */
+  --blue-9fb4c7:     #9fb4c7;   /* h209 x1 */
+  --blue-2a323a:     #2a323a;   /* h210 x1 */
+  --blue-3a4a5a:     #3a4a5a;   /* h210 x1 */
+  --blue-55606b:     #55606b;   /* h210 x1 */
+  --blue-3a4149:     #3a4149;   /* h212 x2 */
+  --blue-39424c:     #39424c;   /* h212 x1 */
+  --blue-3f4852:     #3f4852;   /* h212 x1 */
+  --blue-1565c0:     #1565c0;   /* h212 x1 */
+  --blue-8d949c:     #8d949c;   /* h212 x1 */
+  --blue-8ab4f8:     #8ab4f8;   /* h217 x6 */
+  --blue-2a3140:     #2a3140;   /* h221 x1 */
+  --blue-2f3542:     #2f3542;   /* h221 x1 */
+  --blue-7aa2f7:     #7aa2f7;   /* h221 x1 */
+  --violet-b39dff:   #b39dff;   /* h253 x9 */
+  --violet-7b4fe0:   #7b4fe0;   /* h258 x1 */
+  --pink-9c27b0:     #9c27b0;   /* h291 x1 */
+  --red-ff1744:      #ff1744;   /* h348 x1 */
+
+  /* The washes. A colour with an alpha is a different value from the colour,
+   * and `color-mix()` would round differently, so they are their own entries. */
+  --wash-black-25:      rgba(0,0,0,0.25);
+  --wash-black-40:      rgba(0, 0, 0, 0.4);
+  --wash-black-45:      rgba(0, 0, 0, 0.45);
+  --wash-black-50:      rgba(0,0,0,.5);
+  --wash-black-55:      rgba(0,0,0,0.55);
+  --wash-black-60:      rgba(0,0,0,0.6);
+  --wash-black-65:      rgba(0,0,0,0.65);
+  --wash-black-70:      rgba(0,0,0,0.7);
+  --wash-black-80:      rgba(0, 0, 0, 0.8);
+  --wash-black-85:      rgba(0, 0, 0, 0.85);
+  --wash-white-08:      rgba(255,255,255,0.08);
+  --wash-white-10:      rgba(255, 255, 255, 0.1);
+  --wash-white-55:      rgba(255, 255, 255, 0.55);
+  --wash-white-90:      rgba(255, 255, 255, 0.9);
+  --wash-white-94:      rgba(255, 255, 255, 0.94);
+  --wash-ink-62:        rgba(8, 10, 12, 0.62);   /* the tour's dim */
+  --wash-ink-72:        rgba(8, 10, 12, 0.72);
+  --wash-ink-94:        rgba(20,24,28,0.94);
+  --wash-ink-97:        rgba(20,24,28,0.97);
+  --wash-slate-72:      rgba(12, 16, 22, 0.72);
+  --wash-slate-75:      rgba(20, 24, 30, 0.75);
+  --wash-slate-90:      rgba(16, 20, 26, 0.9);
+  --wash-violet-07:     rgba(123, 79, 224, 0.07);
+  --wash-violet-12:     rgba(179, 157, 255, 0.12);
+  --wash-violet-14:     rgba(179,157,255,.14);
+  --wash-violet-55:     rgba(179,157,255,.55);
+  --wash-teal-50:       rgba(77,182,172,.5);
+  --wash-green-14:      rgba(76,175,80,0.14);
+  --wash-green-18:      rgba(76,175,80,0.18);
+  --wash-green-28:      rgba(76,175,80,0.28);
+  --wash-orange-12:     rgba(255,138,101,.12);
+  --wash-orange-18:     rgba(255,152,0,0.18);
+  --wash-amber-16:      rgba(255, 143, 0, 0.16);
+  --wash-amber-30:      rgba(255, 143, 0, 0.3);
+  --wash-amber-85:      rgba(240, 198, 70, 0.85);
+  --wash-red-15:        rgba(244, 67, 54, 0.15);
+  --wash-red-18:        rgba(220, 30, 30, 0.18);
+  --wash-red-70:        rgba(255, 82, 82, 0.7);
+  --wash-red-90:        rgba(200, 12, 12, 0.9);
+  --wash-blue-34:       rgba(78, 108, 142, 0.34);
+  --wash-cyan-80:       rgba(56, 174, 255, 0.8);
+  --wash-warn-96:       rgba(38, 30, 12, 0.96);   /* the ladder's amber banner */
+  --wash-stop-96:       rgba(40, 16, 13, 0.96);   /* ...and its red one */
+
+  /* ── B. SEMANTIC ROLES ─────────────────────────────────────────────────
+   * What the interface means. Everything here points at group A, and a
+   * change to one of these is a change to the INTERFACE, not a refactor.
+   * ------------------------------------------------------------------- */
+
+  /* Ink and ground. */
+  --ink:           var(--grey-e0e0e0);
+  --ink-bright:    var(--grey-ffffff);
+  --ink-dim:       var(--grey-9a9a9a);
+  --ink-faint:     var(--grey-6e6e6e);
+  --ground:        var(--grey-1a1a1a);   /* the body, on every page */
+  --panel:         var(--grey-2a2a2a);
+  --panel-2:       var(--grey-222222);
+  --line:          var(--grey-444444);
+  --line-soft:     var(--grey-383838);
+
+  /* THE OPERATOR PALETTE — Okabe–Ito, chosen for separation under
+   * protanopia, deuteranopia and tritanopia AND for distinct luminance
+   * (01-RESEARCH #17). Shape carries the meaning; these only reinforce it. */
+  --go:            var(--green-4caf50);   /* live / active            */
+  --warn:          var(--amber-e69f00);   /* degraded, idle, paused   */
+  --stop:          var(--orange-d55e00);  /* down. Never recoverable. */
+  --cool:          var(--blue-56b4e9);    /* boot / neutral events    */
+
+  /* THE FOCUS RING — WCAG 2.4.7 / 2.4.13, the one indicator all 62 tab
+   * stops share (05-EVALUATION §3 A-5). One colour, one geometry, one
+   * place; there were three of each before this line. */
+  --focus:              var(--blue-8ab4f8);
+  --focus-ring-width:   2px;
+  --focus-ring-offset:  2px;
+  --focus-ring-offset-tight: 1px;   /* inside the rail, where 2px collides */
+
+  /* THE STALENESS LADDER — 03-LATENCY §3. Five rungs, and the rule that
+   * NOTHING IS RED FOR A RECOVERABLE STATE: DEGRADED and STALE are amber,
+   * DISCONNECTED is the only red on the ladder. */
+  --lat-live:          var(--green-4caf50);
+  --lat-thinking:      var(--green-8fbf6a);
+  --lat-degraded:      var(--amber-d8a13a);
+  --lat-stale:         var(--amber-d8a13a);
+  --lat-stale-alpha:   0.5;              /* STALE is DEGRADED, dimmed */
+  --lat-disconnected:  var(--red-b03a2e);
+
+  /* THE TURN CLOCK — four states, brightness first and hue second
+   * (03-LATENCY §2.1; 05 H-7 made urgency a shape as well). */
+  --clock-run:      var(--green-35734a);
+  --clock-warn:     var(--amber-8a7524);
+  --clock-urgent:   var(--red-c9503f);
+  --clock-past:     var(--grey-3a3a3a);
+  --clock-notch:    var(--grey-e8e8e8);   /* the last safe press */
+
+  /* THE LENS VOCABULARY, ON THE RAIL (dark ground). 02-IA §3.2. */
+  --lens-ink:    var(--violet-b39dff);   /* hypothetical · ▸, solid rule   */
+  --lens-foil:   var(--teal-4db6ac);     /* the runner-up · ◇, dashed rule */
+  --lens-warn:   var(--red-ff8a65);   /* refused/stale · ⚠ / strike     */
+  --lens-open:   var(--amber-ffb74d);    /* no plan       · ◦              */
+  --lens-fixed:  var(--grey-9a9a9a);     /* pinned/held   · 🔒 / ⛨         */
+  --lens-ours:   var(--green-81c784);    /* ours          · ●              */
+
+  /* THE SAME VOCABULARY, ON THE BOARD — and this is the one genuine
+   * LIGHT/DARK pair on the surface. The board is white and the rail is
+   * #1a1a1a, so a violet that reads on one is invisible on the other, and
+   * `board-renderer.js` has carried both tables since the lens shipped. It
+   * reads them from here now. `-on-light` is the white board. */
+  --board-lens-on-light:         var(--violet-7b4fe0);
+  --board-lens-wash-on-light:    var(--wash-violet-07);
+  --board-foil-on-light:         var(--teal-00897b);
+  --board-fixed-on-light:        var(--grey-6b6b6b);
+  --board-refuter-on-light:      var(--red-d84315);
+  --board-chiptext-on-light:     var(--grey-ffffff);
+  --board-lens-on-dark:          var(--violet-b39dff);
+  --board-lens-wash-on-dark:     var(--wash-violet-12);
+  --board-foil-on-dark:          var(--teal-4db6ac);
+  --board-fixed-on-dark:         var(--grey-9a9a9a);
+  --board-refuter-on-dark:       var(--red-ff8a65);
+  --board-chiptext-on-dark:      var(--slate-14181e);
+
+  /* THE BOARD'S OWN SIGNAL SET — what the lens violet must never be
+   * mistakable for (board-renderer.js §lens). */
+  --board-food:            var(--amber-ffca28);
+  --board-food-line:       var(--wash-slate-90);
+  --board-hazard:          var(--red-d81b1b);
+  --board-hazard-inner:    var(--grey-ffffff);
+  --board-hazard-wash:     var(--wash-red-18);
+  --board-hazard-edge:     var(--wash-red-90);
+  --board-clash:           var(--orange-ff8f00);
+  --board-clash-hot:       var(--amber-ffc107);
+  --board-clash-halo:      var(--wash-black-50);
+  --board-eye:             var(--wash-cyan-80);
+  --board-goto:            var(--green-4caf50);
+  --board-highlight:       var(--amber-ffd700);
+  --board-danger-outline:  var(--red-ff1744);
+  --board-base:            var(--grey-ffffff);
+  --board-line:            var(--wash-black-80);
+  --board-accent:          var(--red-e53935);
+  --board-item-plaque:     var(--wash-white-94);
+  --board-item-text:       var(--slate-14181e);
+  --board-silver:          var(--slate-c2c7cd);
+  --board-silver-line:     var(--wash-slate-75);
+  --board-unowned:         var(--blue-8d949c);
+  --board-candidate-plate: var(--wash-blue-34);
+  --board-ring-mark:       var(--wash-amber-85);
+  --board-invuln-up:       rgba(40, 120, 255, 1);
+  --board-invuln-down:     rgba(255, 40, 40, 1);
+
+  /* THE UNIT-COLOUR FALLBACK. A unit with no colour of its own gets this,
+   * in five files and 24 places. It is also a CONTRAST FAILURE at 4.05 : 1
+   * (05-EVALUATION §3 A-1) and one of the seven left open there — which is
+   * now a one-line fix, because it is one line. */
+  --unit-colour-fallback: var(--grey-888888);
+
+  /* THE HEALTH RAMP, AT TWO CONTRAST GRADES. A bar is a non-text mark and
+   * owes 3 : 1; the roster's ♥ is TEXT at 11 px and owes 4.5 : 1. The two
+   * live side by side on purpose, so they cannot drift (05 §3 A-1). */
+  --health-bar-low:    var(--red-e53935);
+  --health-bar-mid:    var(--orange-fb8c00);
+  --health-bar-high:   var(--green-43a047);
+  --health-text-low:   var(--red-ef5350);
+  --health-text-mid:   var(--amber-ffa726);
+  --health-text-high:  var(--green-66bb6a);
+  --health-bar-track:       var(--wash-black-40);
+  --health-bar-track-cell:  var(--grey-000000);
+
+  /* ALERT PRIORITY — weight and opacity, hue only as a second reading
+   * (06-ALERTS §4). A 3 px edge changes neither area nor luminance by much,
+   * which is what keeps it under the general-flash threshold. */
+  --al-ring-width:      3px;
+  --al-ring-width-p1:   5px;
+  --al-ring-p1-off:     rgba(255, 176, 96, 0);
+  --al-ring-p1-on:      rgba(255, 176, 96, .96);
+  --al-ring-p2-off:     rgba(255, 214, 130, 0);
+  --al-ring-p2-on:      rgba(255, 214, 130, .92);
+  --al-ring-p3-on:      rgba(198, 214, 235, .72);
+
+  /* ── C. COMPONENT TOKENS ───────────────────────────────────────────────
+   * Where one component needs a handle of its own. Every one of these
+   * points at group A or B; none of them introduces a new value.
+   * ------------------------------------------------------------------- */
+
+  /* Page chrome (chrome.css). */
+  --chrome-header-h:      60px;
+  --chrome-header-bg:     var(--grey-2a2a2a);
+  --chrome-nav-bg:        var(--grey-333333);
+  --chrome-nav-bg-hover:  var(--grey-3d3d3d);
+  --chrome-nav-line:      var(--grey-555555);
+  --chrome-nav-ink:       var(--green-cfe8d0);
+  --chrome-here-bg:       var(--slate-1f2a1f);
+  --chrome-here-line:     var(--green-3c6e3e);
+  --chrome-card-hover-bg: var(--grey-303030);
+  --chrome-card-hover-line: var(--green-5f8f61);
+  --chrome-card-sel-bg:   var(--slate-2e332e);
+  --chrome-field-bg:      var(--grey-1e1e1e);
+  --chrome-idx-bg:        var(--grey-333333);
+  --chrome-idx-line:      var(--grey-4a4a4a);
+  --chrome-chip-bg:       var(--grey-262626);
+  --chrome-chip-ok-ink:   var(--green-d6efd7);
+  --chrome-chip-warn-ink: var(--amber-f4e3c4);
+  --chrome-chip-warn-line: var(--amber-8a6d1a);
+  --chrome-chip-bad-ink:  var(--orange-f7d6c8);
+  --chrome-chip-bad-line: var(--orange-8a3a1a);
+  --chrome-won-ink:       var(--green-cfe8d0);
+  --chrome-lost-ink:      var(--orange-f0cfc2);
+  --chrome-draw-ink:      var(--grey-d8d8d8);
+  --keysheet-bg:          var(--grey-232323);
+  --keysheet-scrim:       var(--wash-black-60);
+  --kbd-bg:               var(--grey-333333);
+  --kbd-line:             var(--grey-555555);
+  /* THE LOBBY NAV'S FOCUS RING was #ffffff, and only because
+   * `.nav-links a:focus-visible` is (0,2,1) against the shared block's
+   * `a:focus-visible` at (0,1,1) — a specificity accident, against 04's own
+   * "every interactive element in the chrome". It is `--focus` now. */
+
+  /* The review (chrome.css UX-REVIEW block). */
+  --rv-cell-bg:        var(--grey-232323);
+  --rv-cell-line:      var(--grey-2e2e2e);
+  --rv-cell-hover:     var(--grey-666666);
+  --rv-row-hover-bg:   var(--grey-282828);
+  --rv-at-bg:          var(--blue-2f3542);
+  --rv-focus-row-bg:   var(--blue-2a3140);
+  --rv-none-ink:       var(--grey-4a4a4a);
+  --rv-unread-ink:     var(--grey-3a3a3a);
+  --rv-weight-1:       0.45;   /* brightness, because the periphery reads it */
+  --rv-weight-2:       0.78;
+  --rv-weight-3:       1;
+  --rv-weight-4:       1.25;
+  --rv-back-bg:        var(--grey-2a2a2a);
+  --rv-back-hover-bg:  var(--grey-343434);
+  --rv-btn-bg:         var(--grey-333333);
+  --rv-btn-line:       var(--grey-4a4a4a);
+  --rv-btn-hover-bg:   var(--grey-3d3d3d);
+  --rv-card-bg:        var(--grey-202020);
+  --rv-table-line:     var(--grey-2b2b2b);
+  --rv-unit-underline: var(--blue-47708c);
+  --rv-iframe-bg:      var(--grey-1a1a1a);
+
+  /* The ladder strip (latency.js). */
+  --lat-mount-ink:     var(--grey-888888);
+  --lat-track-bg:      var(--grey-1c1c1c);
+  --lat-track-line:    var(--grey-333333);
+  --lat-state-ink:     var(--grey-bbbbbb);
+  --lat-num-ink:       var(--grey-6d6d6d);   /* 2.77:1 — 05 §3 A-1, open  */
+  --lat-num-warn:      var(--amber-d8a13a);
+  --lat-num-bad:       var(--red-e0685a);    /* 4.30:1 — 05 §3 A-1, open  */
+  --lat-banner-bg:     var(--wash-warn-96);
+  --lat-banner-ink:    var(--amber-e0b463);
+  --lat-banner-rule:   var(--amber-d8a13a);
+  --lat-banner-bad-bg:   var(--wash-stop-96);
+  --lat-banner-bad-ink:  var(--red-e88c80);
+  --lat-banner-bad-rule: var(--red-b03a2e);
+  --lat-cmd-bg:        var(--grey-242424);
+  --lat-cmd-ink:       var(--grey-999999);
+  --lat-cmd-line:      var(--grey-383838);
+  --lat-cmd-pending-ink:  var(--grey-dcdcdc);
+  --lat-cmd-pending-line: var(--grey-7a7a7a);
+  --lat-cmd-ack-ink:      var(--green-7fbf6a);
+  --lat-cmd-ack-line:     var(--green-3d5c34);
+  --lat-cmd-applied-ink:  var(--grey-8a8a8a);
+  --lat-cmd-refused-ink:  var(--red-e0685a);
+  --lat-cmd-refused-line: var(--red-6b2f28);
+  --lat-over-w:        340px;
+
+  /* The alert channel (alerts.js). */
+  --al-btn-bg:         var(--grey-1f1f1f);
+  --al-btn-ink:        var(--grey-bbbbbb);
+  --al-btn-line:       var(--grey-3a3a3a);
+  --al-btn-muted-ink:  var(--grey-7a7a7a);
+  --al-btn-muted-line: var(--grey-2c2c2c);
+  --al-pop-bg:         var(--grey-161616);
+  --al-pop-ink:        var(--grey-dddddd);
+  --al-pop-head-ink:   var(--grey-999999);
+  --al-pop-note-ink:   var(--grey-8a8a8a);
+  --al-pop-sep:        var(--grey-2c2c2c);
+  --al-pop-btn-bg:     var(--grey-262626);
+  --al-pop-w:          268px;
+
+  /* The tour (tour.js). Its four rings were hand-typed copies of --focus. */
+  --tour-link-bg:      var(--slate-23282e);
+  --tour-link-ink:     var(--blue-9fb4c7);
+  --tour-line:         var(--blue-3a4149);
+  --tour-link-hover-ink:  var(--blue-d7e4ee);
+  --tour-link-hover-line: var(--blue-55606b);
+  --tour-dim:          var(--wash-ink-62);
+  --tour-card-bg:      var(--slate-1b2026);
+  --tour-card-ink:     var(--blue-dfe7ee);
+  --tour-foot-ink:     var(--blue-8b98a4);
+  --tour-btn-bg:       var(--blue-2a323a);
+  --tour-btn-line:     var(--blue-3f4852);
+  --tour-kbd-bg:       var(--slate-10151a);
+  --tour-kbd-line:     var(--blue-39424c);
+  --tour-card-w:       340px;
+
+  /* ── D. SCALES ─────────────────────────────────────────────────────────
+   * The census found 13 radii, 16 z-indices, 11 durations, 14 shadows, 20
+   * type sizes and 95 spacing values. These are the scales they collapse
+   * to; nothing was resized to fit one.
+   * ------------------------------------------------------------------- */
+
+  --radius-1:     1px;
+  --radius-2:     2px;
+  --radius-3:     3px;
+  --radius-4:     4px;    /* the house radius: 32 of the 80 uses */
+  --radius-5:     5px;
+  --radius-6:     6px;
+  --radius-8:     8px;
+  --radius-9:     9px;
+  --radius-10:    10px;
+  --radius-12:    12px;
+  --radius-pill:  999px;
+  --radius-round: 50%;
+
+  /* THE LAYERING ORDER, which is meaning nobody had written down: sixteen
+   * numbers in five files, and `alerts.js` reasoning in a comment about a
+   * 2000 declared in `play-game.html`. `--z-alert-ring` is deliberately
+   * ABOVE the page's own modals (the fatal-consent dialog is up at exactly
+   * the moment the fatal alert fires, and a peripheral cue drawn underneath
+   * the thing it is about is not a peripheral cue) and BELOW the login
+   * gate, which is not a game state. */
+  --z-board-overlay:  5;
+  --z-grip:           20;
+  --z-toast:          25;
+  --z-roster-id:      26;
+  --z-panel:          30;
+  --z-lat-over:       40;
+  --z-tour-link:      60;
+  --z-tour-layer:     70;
+  --z-tour-card:      71;
+  --z-header:         1000;
+  --z-alert-pop:      1500;
+  --z-modal:          2000;
+  --z-alert-ring:     2500;
+  --z-login:          3000;
+  --z-keysheet:       11000;
+
+  /* MOTION. Every duration on the surface, so that group E can turn all of
+   * them off in one place instead of in four @media blocks. */
+  --dur-instant:    0.001ms;   /* the universal reduced-motion floor */
+  --dur-card:       0.12s;
+  --dur-hover:      0.15s;
+  --dur-cell:       0.2s;
+  --dur-tour:       0.18s;
+  --dur-slow:       0.25s;
+  --dur-al-ring-on:  140ms;
+  --dur-al-ring-off: 620ms;
+  --dur-lat-arrive:  900ms;
+  --dur-badge-pulse: 2s;
+
+  /* SIX DROP SHADOWS, no two alike, all meaning "a panel floats". */
+  --shadow-pop:    0 8px 24px var(--wash-black-50);
+  --shadow-tour:   0 6px 24px var(--wash-black-55);
+  --shadow-modal:  0 20px 60px var(--wash-black-60);
+  --shadow-sheet:  0 18px 50px var(--wash-black-65);
+  --shadow-toast:  0 2px 10px var(--wash-black-60);
+  --shadow-card:   0 2px 12px var(--wash-black-70);
+  --shadow-hairline: 0 0 0 1px var(--wash-black-60);
+
+  /* SPACING. The 2 px grid the surface is actually written on. */
+  --space-1:   1px;
+  --space-2:   2px;
+  --space-3:   3px;
+  --space-4:   4px;
+  --space-5:   5px;
+  --space-6:   6px;
+  --space-7:   7px;
+  --space-8:   8px;
+  --space-9:   9px;
+  --space-10:  10px;
+  --space-11:  11px;
+  --space-12:  12px;
+  --space-14:  14px;
+  --space-15:  15px;
+  --space-16:  16px;
+  --space-18:  18px;
+  --space-20:  20px;
+  --space-22:  22px;
+  --space-24:  24px;
+  --space-60:  60px;
+
+  /* TYPE. Two stacks and a size ladder. The rail does NOT use the ladder —
+   * it derives from `--lens-size`, which is the density scale (05 §4) and
+   * is declared with the rail it governs. */
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --size-10:   10px;
+  --size-11:   11px;
+  --size-115:  11.5px;
+  --size-12:   12px;
+  --size-13:   13px;
+  --size-14:   14px;
+  --size-15:   15px;
+  --size-16:   16px;
+  --size-17:   17px;
+  --size-18:   18px;
+  --size-19:   19px;
+  --size-20:   20px;
+  --size-22:   22px;
+  --size-24:   24px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semi:   600;
+  --weight-bold:   700;
+  --weight-heavy:  800;
+}
+
+/* ── E. PREFERENCES ────────────────────────────────────────────────────────
+ * REDUCED MOTION, STATED ONCE. There were four `@media (prefers-reduced-
+ * motion: reduce)` blocks before this one — in chrome.css, latency.js,
+ * alerts.js and tour.js — each naming its own selectors, and each of them a
+ * separate chance to miss a component. Setting the duration tokens to zero
+ * turns off everything that reads them, everywhere, including in the three
+ * stylesheets that are injected by JS and cannot see this file's selectors.
+ *
+ * A transition of zero duration and `transition: none` are the same pixels;
+ * an animation of zero duration leaves the element at its own resting style,
+ * which is what `animation: none` did. `chrome.css` keeps its universal
+ * belt-and-braces rule as well, because a catch-all is the right shape for
+ * anything not yet tokenised.
+ * ---------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-card:        0s;
+    --dur-hover:       0s;
+    --dur-cell:        0s;
+    --dur-tour:        0s;
+    --dur-slow:        0s;
+    --dur-al-ring-on:  0s;
+    --dur-al-ring-off: 0s;
+    --dur-lat-arrive:  0s;
+    --dur-badge-pulse: 0s;
+  }
+}
+
+/* ── LIGHT SCHEME, AND WHY THERE IS NOT ONE ────────────────────────────────
+ * `prefers-color-scheme` on this surface is THE BOARD, not the OS: the board
+ * is white, the rail is #1a1a1a, and `--board-*-on-light` / `-on-dark` above
+ * is that pair, read by the canvas renderer at init.
+ *
+ * A light CHROME is deliberately not introduced here. The operator page's
+ * ground is #1a1a1a unconditionally, 04-SECONDARY-SCREENS designs every
+ * contrast ratio in 05 §3 against that ground, and the harness Chromium
+ * reports `prefers-color-scheme: light` — so a light block would repaint the
+ * whole surface on the next screenshot against ratios nobody has measured.
+ * That is a design decision, not a consolidation. When it is taken, the place
+ * to take it is a `@media (prefers-color-scheme: light)` block here that
+ * re-points GROUP B and nothing else, which is the shape this file is in.
+ * ---------------------------------------------------------------------- */

@@ -5,63 +5,80 @@
  * style blocks. Link this BEFORE the page's own <style> so page-specific
  * additions (e.g. play.html's flex game-card layout) override at equal
  * specificity. play-game/config/connection-debug keep their own styles.
+ *
+ * EVERY VALUE IN THIS FILE COMES FROM `tokens.css` — see
+ * docs/design/ux/09-DESIGN-TOKENS.md. The import is first because @import has
+ * to be, and because a rule that reads a token the browser has not parsed yet
+ * gets nothing. `play-game.html` links `tokens.css` directly instead: it does
+ * NOT link this file, and must not, because the two sheets use the same
+ * selector names (`.header`, `.main-content`, `body`) for different pages.
  */
+@import url("/tokens.css");
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background-color: #1a1a1a;
-  color: #e0e0e0;
-  padding-top: 60px;
+  font-family: var(--font-ui);
+  background-color: var(--ground);
+  color: var(--ink);
+  padding-top: var(--chrome-header-h);
 }
 
+/* WHAT IS NOT HERE ANY MORE. The UX-SECONDARY block below deliberately
+   restates several of this base's selectors so it can WIN at equal
+   specificity — and once a later rule in the same file covers EVERY
+   declaration of an earlier one, the earlier one is unreachable, not merely
+   redundant. Five whole rules and four declarations were in that state and
+   are gone: `.header h1` (19px won), `.nav-links` (static, not absolute),
+   `.nav-links a` (all eight declarations restated), `.nav-links a:hover`
+   (#3d3d3d won), `.game-card:hover` (the no-lift rule won), and from the two
+   rules that survive, `.header`'s `display:flex` / `justify-content:center` /
+   `padding: 0 15px` and `.game-card`'s `transition: all .2s` /
+   `margin-bottom: 15px`. Proved by cascade and re-proved by capturing every
+   computed property of every element on all five pages before and after.
+   docs/design/ux/09-DESIGN-TOKENS.md §1.5. */
 .header {
-  position: fixed; top: 0; left: 0; right: 0; height: 60px;
-  background: #2a2a2a; border-bottom: 1px solid #444;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0 15px; z-index: 1000;
+  position: fixed; top: 0; left: 0; right: 0; height: var(--chrome-header-h);
+  background: var(--chrome-header-bg); border-bottom: 1px solid var(--line);
+  align-items: center;
+  z-index: var(--z-header);
 }
-.header h1 { font-size: 20px; font-weight: 600; }
 
-.nav-links { position: absolute; right: 15px; display: flex; gap: 10px; }
-.nav-links a {
-  color: #4CAF50; text-decoration: none; font-size: 14px;
-  padding: 6px 12px; border-radius: 4px; background: #333;
-}
-.nav-links a:hover { background: #444; }
-
-.main-content { max-width: 1200px; margin: 0 auto; padding: 20px 15px; }
+.main-content { max-width: 1200px; margin: 0 auto; padding: var(--space-20) var(--space-15); }
 
 /* Game-card base (play.html adds its flex layout on top). */
 .game-card {
-  background: #2a2a2a; border-radius: 8px; padding: 15px;
-  border: 1px solid #444; cursor: pointer; transition: all 0.2s;
-  margin-bottom: 15px;
+  background: var(--panel); border-radius: var(--radius-8); padding: var(--space-15);
+  border: 1px solid var(--line); cursor: pointer;
 }
-.game-card:hover { border-color: #4CAF50; transform: translateY(-2px); }
 
 /* A visible focus ring on everything the keyboard can land on. `:hover` alone
    said "this is a target" to the mouse and to nobody else: these cards are
    the lobby's whole navigation and a keyboard operator could not see where
-   they were (WCAG 2.4.13). */
-.game-card:focus-visible,
-.nav-links a:focus-visible {
-  outline: 2px solid #fff; outline-offset: 2px;
-}
+   they were (WCAG 2.4.13).
 
-/* MOTION IS A PREFERENCE, NOT A DECORATION. The card's lift is a 0.2 s
-   transform on every property, which is exactly the class of animation
-   `prefers-reduced-motion` exists to turn off; the colour change carries the
-   same meaning on its own. */
-@media (prefers-reduced-motion: reduce) {
-  .game-card { transition: border-color 0.2s; }
-  .game-card:hover { transform: none; }
-}
+   THE RULE THAT USED TO BE HERE IS GONE, and the deletion is a fix. It read
+   `.game-card:focus-visible, .nav-links a:focus-visible { outline: 2px solid
+   #fff }`. Half of it was dead — `.game-card:focus-visible` is restated at
+   equal specificity further down and lost on document order — and the other
+   half was worse than dead: `.nav-links a:focus-visible` is (0,2,1) against
+   the shared block's `a:focus-visible` at (0,1,1), so the lobby nav links,
+   and only they, kept a WHITE ring while every other tab stop on the page had
+   a blue one. 04-SECONDARY-SCREENS §2 says what was meant — "a 2 px #8ab4f8
+   ring with a 2 px offset on EVERY interactive element in the chrome" — and
+   with the rule gone, that is what they get.
+   docs/design/ux/09-DESIGN-TOKENS.md §1.5. */
 
-.no-games { text-align: center; padding: 60px 20px; color: #666; }
-.no-games h2 { font-size: 24px; margin-bottom: 10px; }
-.no-games p { font-size: 14px; line-height: 1.6; }
+/* MOTION IS A PREFERENCE, NOT A DECORATION — and it is now stated ONCE, in
+   `tokens.css` group E, which zeroes every `--dur-*` token. The block that
+   used to be here restored `.game-card { transition: border-color 0.2s }` and
+   `transform: none` under the preference, and both were already overridden by
+   the UX-SECONDARY block further down at equal specificity, to the same
+   values. Proved in a browser in both motion settings; §1.5. */
+
+.no-games { text-align: center; padding: var(--space-60) var(--space-20); color: var(--grey-666666); }
+.no-games h2 { font-size: var(--size-24); margin-bottom: var(--space-10); }
+.no-games p { font-size: var(--size-14); line-height: 1.6; }
 
 /* ── UX-SECONDARY ─────────────────────────────────────────────────────────
  * Owned by the secondary-screens pass (docs/design/ux/04-SECONDARY-SCREENS.md).
@@ -77,22 +94,12 @@ body {
  *      (01-RESEARCH #7), instead of health in the bottom-left corner only;
  *   2. status as SHAPE + WORD + brightness, never hue alone (01 #17, P1);
  *   3. a visible focus ring and a reduced-motion path everywhere (01 ch.10).
+ *
+ * The `:root` block that used to open this section — `--ink`, `--panel`,
+ * `--go`, `--focus` and the rest — is the seed the whole token sheet grew
+ * from, and it now lives in `tokens.css` with the other 460, under the same
+ * names, so nothing that read them had to change.
  * ------------------------------------------------------------------------ */
-
-:root {
-  --ink: #e0e0e0;
-  --ink-dim: #9a9a9a;
-  --ink-faint: #6e6e6e;
-  --panel: #2a2a2a;
-  --panel-2: #222;
-  --line: #444;
-  --line-soft: #383838;
-  --go: #4CAF50;          /* live / active */
-  --warn: #E69F00;        /* Okabe–Ito orange: degraded, idle, paused */
-  --stop: #D55E00;        /* Okabe–Ito vermillion: down. Never for recoverable */
-  --cool: #56B4E9;        /* Okabe–Ito sky: boot / neutral events */
-  --focus: #8ab4f8;
-}
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
@@ -100,160 +107,163 @@ body {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 18px;
+  gap: var(--space-18);
   justify-content: initial;
-  padding: 0 16px;
+  padding: 0 var(--space-16);
 }
 .header .brand {
-  display: flex; align-items: baseline; gap: 9px;
+  display: flex; align-items: baseline; gap: var(--space-9);
   text-decoration: none; color: inherit; white-space: nowrap;
 }
 .header .brand-mark {
-  font-size: 15px; font-weight: 700; letter-spacing: 0.06em;
+  font-size: var(--size-15); font-weight: var(--weight-bold); letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--ink-dim);
 }
-.header .brand-page { font-size: 19px; font-weight: 600; color: #fff; }
-.header h1 { font-size: 19px; font-weight: 600; }
+.header .brand-page { font-size: var(--size-19); font-weight: var(--weight-semi); color: var(--ink-bright); }
+.header h1 { font-size: var(--size-19); font-weight: var(--weight-semi); }
 
 /* The nav is a normal grid cell now, not an absolutely positioned island. */
 .nav-links {
   position: static; right: auto;
-  display: flex; gap: 6px; align-items: center; justify-self: center;
+  display: flex; gap: var(--space-6); align-items: center; justify-self: center;
   flex-wrap: wrap;
 }
 .nav-links a {
-  color: #cfe8d0; background: #333; border: 1px solid transparent;
-  font-size: 13px; padding: 6px 12px; border-radius: 4px; text-decoration: none;
+  color: var(--chrome-nav-ink); background: var(--chrome-nav-bg); border: 1px solid transparent;
+  font-size: var(--size-13); padding: var(--space-6) var(--space-12); border-radius: var(--radius-4); text-decoration: none;
   position: relative;
 }
-.nav-links a:hover { background: #3d3d3d; border-color: #555; }
+.nav-links a:hover { background: var(--chrome-nav-bg-hover); border-color: var(--chrome-nav-line); }
 /* You are here: a persistent left rule + full-strength ink. Not colour alone
  * and not a hover-only cue — the mark has to survive a glance from a metre. */
 .nav-links a[aria-current="page"] {
-  background: #1f2a1f; color: #fff; border-color: #3c6e3e;
+  background: var(--chrome-here-bg); color: var(--ink-bright); border-color: var(--chrome-here-line);
   box-shadow: inset 3px 0 0 0 var(--go);
-  padding-left: 15px;
+  padding-left: var(--space-15);
 }
 
 /* ── Status chips (right of the header) ─────────────────────────────────── */
 
-.chrome-status { display: flex; gap: 8px; align-items: center; justify-self: end; }
+.chrome-status { display: flex; gap: var(--space-8); align-items: center; justify-self: end; }
 .chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
-  padding: 5px 10px; border-radius: 999px;
-  background: #262626; border: 1px solid var(--line-soft); color: var(--ink-dim);
+  display: inline-flex; align-items: center; gap: var(--space-6);
+  font-size: var(--size-12); font-weight: var(--weight-semi); letter-spacing: 0.01em;
+  padding: var(--space-5) var(--space-10); border-radius: var(--radius-pill);
+  background: var(--chrome-chip-bg); border: 1px solid var(--line-soft); color: var(--ink-dim);
   white-space: nowrap; text-decoration: none;
 }
 /* The glyph carries the state; the colour only reinforces it. */
-.chip .glyph { font-size: 11px; line-height: 1; }
-.chip-ok    { color: #d6efd7; border-color: #3c6e3e; }
+.chip .glyph { font-size: var(--size-11); line-height: 1; }
+.chip-ok    { color: var(--chrome-chip-ok-ink); border-color: var(--chrome-here-line); }
 .chip-ok    .glyph { color: var(--go); }
-.chip-warn  { color: #f4e3c4; border-color: #8a6d1a; }
+.chip-warn  { color: var(--chrome-chip-warn-ink); border-color: var(--chrome-chip-warn-line); }
 .chip-warn  .glyph { color: var(--warn); }
-.chip-bad   { color: #f7d6c8; border-color: #8a3a1a; }
+.chip-bad   { color: var(--chrome-chip-bad-ink); border-color: var(--chrome-chip-bad-line); }
 .chip-bad   .glyph { color: var(--stop); }
 .chip-unknown { color: var(--ink-faint); border-color: var(--line-soft); }
-.chip-hint { font-weight: 400; color: var(--ink-faint); }
+.chip-hint { font-weight: var(--weight-normal); color: var(--ink-faint); }
 
 /* ── Focus, everywhere ──────────────────────────────────────────────────── */
 
 a:focus-visible, button:focus-visible, input:focus-visible,
 select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
 .game-card:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-4);
 }
 
 /* ── Cards: no motion under the cursor ──────────────────────────────────── */
 /* 01-RESEARCH P3. The base rule lifts the card 2px on hover, which moves the
  * thing the pointer just landed on. Ink changes; position does not. */
 .game-card {
-  transition: border-color 0.12s ease, background-color 0.12s ease;
-  margin-bottom: 10px;
+  transition: border-color var(--dur-card) ease, background-color var(--dur-card) ease;
+  margin-bottom: var(--space-10);
 }
-.game-card:hover { border-color: #5f8f61; background: #303030; transform: none; }
-.game-card:focus-visible { border-color: var(--focus); background: #303030; }
+.game-card:hover { border-color: var(--chrome-card-hover-line); background: var(--chrome-card-hover-bg); transform: none; }
+.game-card:focus-visible { border-color: var(--focus); background: var(--chrome-card-hover-bg); }
 .game-card[aria-selected="true"] {
-  border-color: var(--go); background: #2e332e;
+  border-color: var(--go); background: var(--chrome-card-sel-bg);
   box-shadow: inset 3px 0 0 0 var(--go);
 }
 
 /* ── The list idiom shared by /play and /history ────────────────────────── */
 
 .list-bar {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  background: var(--panel); border-radius: 8px; padding: 10px 14px;
-  margin-bottom: 12px; border: 1px solid var(--line-soft);
+  display: flex; gap: var(--space-12); align-items: center; flex-wrap: wrap;
+  background: var(--panel); border-radius: var(--radius-8); padding: var(--space-10) var(--space-14);
+  margin-bottom: var(--space-12); border: 1px solid var(--line-soft);
 }
 .list-bar .grow { flex: 1; }
 .list-filter {
-  background: #1e1e1e; border: 1px solid var(--line); border-radius: 4px;
-  color: var(--ink); font: inherit; font-size: 13px; padding: 6px 10px;
+  background: var(--chrome-field-bg); border: 1px solid var(--line); border-radius: var(--radius-4);
+  color: var(--ink); font: inherit; font-size: var(--size-13); padding: var(--space-6) var(--space-10);
   min-width: 220px;
 }
 .list-filter::placeholder { color: var(--ink-faint); }
-.count-read { font-size: 13px; color: var(--ink-dim); }
+.count-read { font-size: var(--size-13); color: var(--ink-dim); }
 .idx {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; border-radius: 4px; flex: 0 0 auto;
-  background: #333; border: 1px solid #4a4a4a; color: var(--ink-dim);
-  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  width: 18px; height: 18px; border-radius: var(--radius-4); flex: 0 0 auto;
+  background: var(--chrome-idx-bg); border: 1px solid var(--chrome-idx-line); color: var(--ink-dim);
+  font-size: var(--size-11); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums;
 }
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px; color: var(--ink-faint); word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: var(--size-11); color: var(--ink-faint); word-break: break-all;
 }
 .headline-num {
-  font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
-  color: #fff; line-height: 1;
+  font-size: var(--size-22); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums;
+  color: var(--ink-bright); line-height: 1;
 }
-.headline-unit { font-size: 11px; color: var(--ink-faint); letter-spacing: 0.08em;
+.headline-unit { font-size: var(--size-11); color: var(--ink-faint); letter-spacing: 0.08em;
   text-transform: uppercase; }
 
 /* Outcome, as a word and a shape. Hue reinforces and never carries alone. */
 .outcome {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: var(--space-6);
+  font-size: var(--size-13); font-weight: var(--weight-bold); letter-spacing: 0.06em; text-transform: uppercase;
 }
-.outcome-won  { color: #cfe8d0; }
-.outcome-lost { color: #f0cfc2; }
-.outcome-draw { color: #d8d8d8; }
+.outcome-won  { color: var(--chrome-won-ink); }
+.outcome-lost { color: var(--chrome-lost-ink); }
+.outcome-draw { color: var(--chrome-draw-ink); }
 .outcome-open { color: var(--ink-faint); }
 
 /* ── Shortcut sheet (Ctrl+/ — the same chord the live view uses) ─────────── */
 
 .keysheet-backdrop {
-  position: fixed; inset: 0; z-index: 11000; display: none;
-  background: rgba(0,0,0,0.6);
-  align-items: center; justify-content: center; padding: 24px;
+  position: fixed; inset: 0; z-index: var(--z-keysheet); display: none;
+  background: var(--keysheet-scrim);
+  align-items: center; justify-content: center; padding: var(--space-24);
 }
 .keysheet-backdrop.open { display: flex; }
 .keysheet {
-  background: #232323; border: 1px solid var(--line); border-radius: 10px;
-  padding: 18px 22px; max-width: 560px; width: 100%;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6); color: var(--ink);
+  background: var(--keysheet-bg); border: 1px solid var(--line); border-radius: var(--radius-10);
+  padding: var(--space-18) var(--space-22); max-width: 560px; width: 100%;
+  box-shadow: var(--shadow-modal); color: var(--ink);
 }
-.keysheet h2 { font-size: 15px; margin-bottom: 12px; }
-.keysheet dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.keysheet h2 { font-size: var(--size-15); margin-bottom: var(--space-12); }
+.keysheet dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-6) var(--space-14); font-size: var(--size-13); }
 .keysheet dt { text-align: right; }
 .keysheet kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: #333; border: 1px solid #555; border-bottom-width: 2px;
-  border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #fff;
+  font-family: var(--font-mono);
+  background: var(--kbd-bg); border: 1px solid var(--kbd-line); border-bottom-width: 2px;
+  border-radius: var(--radius-4); padding: 1px var(--space-6); font-size: var(--size-12); color: var(--ink-bright);
 }
 .keysheet dd { color: var(--ink-dim); }
-.keysheet .foot { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
+.keysheet .foot { margin-top: var(--space-14); font-size: var(--size-12); color: var(--ink-faint); }
 
 /* ── Reduced motion ─────────────────────────────────────────────────────── */
-/* 01-RESEARCH change 10. The badge's 2s pulse and every transition here are
- * decoration; the state is already carried by glyph and word. */
+/* 01-RESEARCH change 10. The per-component durations are turned off by
+ * `tokens.css` group E, once, for every sheet on the page including the three
+ * that are injected by JS. This block is the CATCH-ALL underneath it: it
+ * covers anything not yet reading a token, which is the correct shape for a
+ * belt-and-braces rule and the reason it stays. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.001ms !important;
+    animation-duration: var(--dur-instant) !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    transition-duration: var(--dur-instant) !important;
   }
   .server-state-badge .dot { animation: none !important; }
 }
@@ -282,47 +292,47 @@ select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
 .rv { display: block; }
 
 .review-head {
-  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-  padding: 4px 0 12px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px;
+  display: flex; align-items: baseline; gap: var(--space-12); flex-wrap: wrap;
+  padding: var(--space-4) 0 var(--space-12); border-bottom: 1px solid var(--line-soft); margin-bottom: var(--space-12);
 }
 .rv-back {
-  font: inherit; font-size: 12px; color: var(--ink-dim); background: #2a2a2a;
-  border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; cursor: pointer;
+  font: inherit; font-size: var(--size-12); color: var(--ink-dim); background: var(--rv-back-bg);
+  border: 1px solid var(--line); border-radius: var(--radius-4); padding: var(--space-3) var(--space-9); cursor: pointer;
 }
-.rv-back:hover { background: #343434; color: var(--ink); }
-.rv-verdict { font-size: 17px; font-weight: 600; margin: 0; }
-.rv-verdict .rv-sub { font-size: 12px; font-weight: 400; color: var(--ink-dim); }
+.rv-back:hover { background: var(--rv-back-hover-bg); color: var(--ink); }
+.rv-verdict { font-size: var(--size-17); font-weight: var(--weight-semi); margin: 0; }
+.rv-verdict .rv-sub { font-size: var(--size-12); font-weight: var(--weight-normal); color: var(--ink-dim); }
 .rv-verdict .rv-sub b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.rv-read { font-size: 11px; color: var(--ink-faint); margin-left: auto; }
-.rv-id { font-size: 11px; color: var(--ink-faint); }
+.rv-read { font-size: var(--size-11); color: var(--ink-faint); margin-left: auto; }
+.rv-id { font-size: var(--size-11); color: var(--ink-faint); }
 
 /* ── The strip: one cell per stored turn ─────────────────────────────────── */
-.rv-stripwrap { padding: 2px 0 4px; }
+.rv-stripwrap { padding: var(--space-2) 0 var(--space-4); }
 .rv-strip {
-  list-style: none; margin: 0 0 6px; padding: 0;
-  display: flex; flex-wrap: wrap; gap: 2px;
+  list-style: none; margin: 0 0 var(--space-6); padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
 }
 .rv-cell {
   width: 20px; height: 26px; padding: 0; cursor: pointer;
-  background: #232323; border: 1px solid #2e2e2e; border-radius: 3px;
-  color: var(--ink-faint); font-size: 13px; line-height: 1;
+  background: var(--rv-cell-bg); border: 1px solid var(--rv-cell-line); border-radius: var(--radius-3);
+  color: var(--ink-faint); font-size: var(--size-13); line-height: 1;
   display: flex; align-items: center; justify-content: center;
 }
-.rv-cell:hover { border-color: #666; }
-.rv-cell:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.rv-cell:hover { border-color: var(--rv-cell-hover); }
+.rv-cell:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset-tight); }
 /* Read, and nothing fired: a flat dot. Not read in full: dimmer AND dashed,
  * because "nothing happened" and "nobody looked" are different readings. */
-.rv-none { color: #4a4a4a; }
-.rv-unread { color: #3a3a3a; border-style: dashed; }
+.rv-none { color: var(--rv-none-ink); }
+.rv-unread { color: var(--rv-unread-ink); border-style: dashed; }
 /* Weight is BRIGHTNESS — the channel the periphery actually reads. `w1` is a
  * hit that did not make the index's cut: quieter than the rest of this game,
  * which is not the same as nothing. */
-.rv-w1 { filter: brightness(0.45); }
-.rv-w2 { filter: brightness(0.78); }
-.rv-w3 { filter: brightness(1); }
-.rv-w4 { filter: brightness(1.25); }
+.rv-w1 { filter: brightness(var(--rv-weight-1)); }
+.rv-w2 { filter: brightness(var(--rv-weight-2)); }
+.rv-w3 { filter: brightness(var(--rv-weight-3)); }
+.rv-w4 { filter: brightness(var(--rv-weight-4)); }
 .rv-cell.rv-at, .rv-moment.rv-at {
-  border-color: var(--focus); background: #2f3542;
+  border-color: var(--focus); background: var(--rv-at-bg);
 }
 .rv-stop .rv-glyph { color: var(--stop); }
 .rv-warn .rv-glyph { color: var(--warn); }
@@ -330,106 +340,106 @@ select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
 .rv-ink  .rv-glyph { color: var(--ink); }
 
 .rv-legend {
-  display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px;
-  color: var(--ink-faint); margin-bottom: 14px;
+  display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-14); font-size: var(--size-11);
+  color: var(--ink-faint); margin-bottom: var(--space-14);
 }
-.rv-key { display: inline-flex; align-items: center; gap: 5px; }
-.rv-key .rv-glyph { font-size: 12px; }
+.rv-key { display: inline-flex; align-items: center; gap: var(--space-5); }
+.rv-key .rv-glyph { font-size: var(--size-12); }
 
 /* ── The two columns ─────────────────────────────────────────────────────── */
-.rv-body { display: grid; grid-template-columns: minmax(230px, 300px) 1fr; gap: 16px; }
+.rv-body { display: grid; grid-template-columns: minmax(230px, 300px) 1fr; gap: var(--space-16); }
 @media (max-width: 900px) { .rv-body { grid-template-columns: 1fr; } }
 
 .rv-h {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--ink-dim); margin: 0 0 6px;
+  font-size: var(--size-11); font-weight: var(--weight-semi); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-dim); margin: 0 0 var(--space-6);
 }
-.rv-hint { font-size: 10px; color: var(--ink-faint); letter-spacing: 0; text-transform: none; }
-.rv-list, .rv-marks { list-style: none; margin: 0 0 18px; padding: 0; }
+.rv-hint { font-size: var(--size-10); color: var(--ink-faint); letter-spacing: 0; text-transform: none; }
+.rv-list, .rv-marks { list-style: none; margin: 0 0 var(--space-18); padding: 0; }
 .rv-moment, .rv-markrow {
-  width: 100%; text-align: left; font: inherit; font-size: 12px; cursor: pointer;
-  background: #232323; border: 1px solid #2e2e2e; border-radius: 4px;
-  color: var(--ink); padding: 5px 8px; margin-bottom: 3px;
-  display: grid; grid-template-columns: 14px 30px 1fr; gap: 2px 6px;
+  width: 100%; text-align: left; font: inherit; font-size: var(--size-12); cursor: pointer;
+  background: var(--rv-cell-bg); border: 1px solid var(--rv-cell-line); border-radius: var(--radius-4);
+  color: var(--ink); padding: var(--space-5) var(--space-8); margin-bottom: var(--space-3);
+  display: grid; grid-template-columns: 14px 30px 1fr; gap: var(--space-2) var(--space-6);
 }
-.rv-moment:hover, .rv-markrow:hover { border-color: #666; background: #282828; }
-.rv-moment:focus-visible, .rv-markrow:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.rv-moment:hover, .rv-markrow:hover { border-color: var(--rv-cell-hover); background: var(--rv-row-hover-bg); }
+.rv-moment:focus-visible, .rv-markrow:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset-tight); }
 .rv-mturn { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .rv-mhead { color: var(--ink); }
-.rv-mdet { grid-column: 2 / -1; color: var(--ink-faint); font-size: 11px; }
+.rv-mdet { grid-column: 2 / -1; color: var(--ink-faint); font-size: var(--size-11); }
 .rv-markrow { display: block; }
-.rv-empty { font-size: 12px; color: var(--ink-faint); padding: 6px 0; }
+.rv-empty { font-size: var(--size-12); color: var(--ink-faint); padding: var(--space-6) 0; }
 
 /* ── The turn ────────────────────────────────────────────────────────────── */
 .rv-turnbar, .rv-share {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 12px; color: var(--ink-dim); margin-bottom: 8px;
+  display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap;
+  font-size: var(--size-12); color: var(--ink-dim); margin-bottom: var(--space-8);
 }
-.rv-turn b { color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.rv-turn b { color: var(--ink); font-size: var(--size-14); font-variant-numeric: tabular-nums; }
 .rv-lead { font-variant-numeric: tabular-nums; }
 .rv-turnbar .grow { flex: 1; }
 .rv-btn {
-  font: inherit; font-size: 12px; color: #cfe8d0; background: #333;
-  border: 1px solid #4a4a4a; border-radius: 4px; padding: 3px 9px;
+  font: inherit; font-size: var(--size-12); color: var(--chrome-nav-ink); background: var(--rv-btn-bg);
+  border: 1px solid var(--rv-btn-line); border-radius: var(--radius-4); padding: var(--space-3) var(--space-9);
   text-decoration: none; cursor: pointer;
 }
-.rv-btn:hover { background: #3d3d3d; border-color: #666; }
+.rv-btn:hover { background: var(--rv-btn-hover-bg); border-color: var(--rv-cell-hover); }
 .rv-btn.rv-on { border-color: var(--warn); color: var(--warn); }
 .rv-share label { color: var(--ink-faint); }
 .rv-link {
-  flex: 1; min-width: 220px; background: #1e1e1e; border: 1px solid var(--line);
-  border-radius: 4px; color: var(--ink-dim); font-size: 11px; padding: 4px 7px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  flex: 1; min-width: 220px; background: var(--chrome-field-bg); border: 1px solid var(--line);
+  border-radius: var(--radius-4); color: var(--ink-dim); font-size: var(--size-11); padding: var(--space-4) var(--space-7);
+  font-family: var(--font-mono);
 }
 /* A fixed slot, so a status appearing moves nothing under the cursor. */
-.rv-said { min-width: 11em; color: var(--warn); font-size: 11px; }
+.rv-said { min-width: 11em; color: var(--warn); font-size: var(--size-11); }
 
 /* ── The why panel ───────────────────────────────────────────────────────── */
 .rv-sentence {
-  font-size: 13px; color: var(--ink); background: #232323;
+  font-size: var(--size-13); color: var(--ink); background: var(--rv-cell-bg);
   border: 1px solid var(--line-soft); border-left: 3px solid var(--cool);
-  border-radius: 4px; padding: 8px 12px; margin-bottom: 10px;
+  border-radius: var(--radius-4); padding: var(--space-8) var(--space-12); margin-bottom: var(--space-10);
 }
-.rv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.rv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-10); }
 .rv-card {
-  background: #202020; border: 1px solid var(--line-soft); border-radius: 6px;
-  padding: 9px 11px; min-width: 0;
+  background: var(--rv-card-bg); border: 1px solid var(--line-soft); border-radius: var(--radius-6);
+  padding: var(--space-9) var(--space-11); min-width: 0;
 }
 .rv-card h4 {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--ink-dim); margin: 0 0 7px;
+  font-size: var(--size-11); font-weight: var(--weight-semi); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-dim); margin: 0 0 var(--space-7);
 }
-.rv-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.rv-table { width: 100%; border-collapse: collapse; font-size: var(--size-115); }
 .rv-table th, .rv-table td {
-  text-align: left; padding: 3px 6px 3px 0; vertical-align: top;
-  border-bottom: 1px solid #2b2b2b; font-variant-numeric: tabular-nums;
+  text-align: left; padding: var(--space-3) var(--space-6) var(--space-3) 0; vertical-align: top;
+  border-bottom: 1px solid var(--rv-table-line); font-variant-numeric: tabular-nums;
 }
-.rv-table thead th { color: var(--ink-faint); font-weight: 500; }
-.rv-table tbody th { color: var(--ink-dim); font-weight: 500; white-space: nowrap; }
+.rv-table thead th { color: var(--ink-faint); font-weight: var(--weight-medium); }
+.rv-table tbody th { color: var(--ink-dim); font-weight: var(--weight-medium); white-space: nowrap; }
 .rv-table code { color: var(--ink-dim); }
-.rv-focus > td { background: #2a3140; }
+.rv-focus > td { background: var(--rv-focus-row-bg); }
 .rv-differs { color: var(--warn); }
 .rv-residual > * { border-top: 1px solid var(--line); color: var(--ink); }
 .rv-unit {
-  font: inherit; font-size: 11.5px; color: var(--cool); background: none;
-  border: none; border-bottom: 1px dashed #47708c; padding: 0; cursor: pointer;
+  font: inherit; font-size: var(--size-115); color: var(--cool); background: none;
+  border: none; border-bottom: 1px dashed var(--rv-unit-underline); padding: 0; cursor: pointer;
 }
-.rv-unit:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.rv-note { font-size: 11px; color: var(--ink-faint); margin: 5px 0 0; line-height: 1.5; }
-.rv-clause { font-size: 12px; color: var(--warn); margin: 4px 0 6px; }
-.rv-feats { list-style: none; margin: 4px 0 0; padding: 0; font-size: 11px; color: var(--ink-dim); }
+.rv-unit:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: var(--focus-ring-offset); }
+.rv-note { font-size: var(--size-11); color: var(--ink-faint); margin: var(--space-5) 0 0; line-height: 1.5; }
+.rv-clause { font-size: var(--size-12); color: var(--warn); margin: var(--space-4) 0 var(--space-6); }
+.rv-feats { list-style: none; margin: var(--space-4) 0 0; padding: 0; font-size: var(--size-11); color: var(--ink-dim); }
 .rv-feats li { padding: 1px 0; }
-.rv-clusters { font-size: 11px; color: var(--ink-faint); margin: 0 0 8px; display: flex;
-  align-items: center; gap: 6px; flex-wrap: wrap; }
+.rv-clusters { font-size: var(--size-11); color: var(--ink-faint); margin: 0 0 var(--space-8); display: flex;
+  align-items: center; gap: var(--space-6); flex-wrap: wrap; }
 .rv-cbtn {
-  font: inherit; font-size: 11px; color: var(--ink-dim); background: #262626;
-  border: 1px solid var(--line-soft); border-radius: 10px; padding: 1px 9px; cursor: pointer;
+  font: inherit; font-size: var(--size-11); color: var(--ink-dim); background: var(--chrome-chip-bg);
+  border: 1px solid var(--line-soft); border-radius: var(--radius-10); padding: 1px var(--space-9); cursor: pointer;
 }
-.rv-cbtn:hover { border-color: #666; color: var(--ink); }
+.rv-cbtn:hover { border-color: var(--rv-cell-hover); color: var(--ink); }
 .rv-cbtn.rv-on { border-color: var(--cool); color: var(--cool); }
-.rv-embed { margin-top: 12px; }
+.rv-embed { margin-top: var(--space-12); }
 .rv-iframe {
-  width: 100%; height: 620px; border: 1px solid var(--line); border-radius: 6px;
-  background: #1a1a1a;
+  width: 100%; height: 620px; border: 1px solid var(--line); border-radius: var(--radius-6);
+  background: var(--rv-iframe-bg);
 }
 /* ── END UX-REVIEW ───────────────────────────────────────────────────────── */
