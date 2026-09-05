@@ -53,7 +53,7 @@
       font-variant-numeric: tabular-nums;
       min-width: 60px; text-align: center;
     }
-    .timer-display.urgent { color: var(--red-f44336); background: rgba(244, 67, 54, 0.15); }
+    .timer-display.urgent { color: var(--red-f44336); background: var(--wash-red-15); }
     .timer-display.normal { color: var(--go); }
     .timer-display.idle { color: var(--grey-a8a8a8); }
     .ping-display {
@@ -95,7 +95,7 @@
       position: absolute; background: transparent; border: none;
       cursor: pointer; pointer-events: auto; transition: all var(--dur-cell);
     }
-    .cell-button:hover { background: rgba(255, 255, 255, 0.1); }
+    .cell-button:hover { background: var(--wash-white-10); }
     .snake-info-container { margin-bottom: var(--space-15); }
     .snake-info-list {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -128,7 +128,7 @@
     .team-group-score {
       margin-left: auto; flex-shrink: 0;
       font-size: var(--size-16); font-weight: var(--weight-heavy); letter-spacing: 0; color: var(--ink-bright);
-      background: rgba(255,255,255,0.08); border-radius: var(--radius-5);
+      background: var(--wash-white-08); border-radius: var(--radius-5);
       padding: var(--space-1) var(--space-8); font-variant-numeric: tabular-nums;
     }
     .team-group .snake-info-item { margin-bottom: var(--space-6); }
@@ -162,7 +162,7 @@
        sub-step, participants and who walked away. */
     #clashInspectPopup {
       display: none; position: absolute; z-index: var(--z-roster-id); max-width: 260px;
-      background: rgba(20,24,28,0.97); color: var(--grey-eeeeee); border: 1px solid var(--amber-ffd54f);
+      background: var(--wash-ink-97); color: var(--grey-eeeeee); border: 1px solid var(--amber-ffd54f);
       border-radius: var(--radius-6); padding: var(--space-8) var(--space-10); font-size: var(--size-12); line-height: 1.45;
       box-shadow: var(--shadow-card);
     }
@@ -259,7 +259,7 @@
     .lens-list-source { font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--teal-9fb8b3); margin: -2px 0 4px; }
     .lens-table { width: 100%; border-collapse: collapse; font-size: var(--lens-size); }
     .lens-table td { padding: var(--space-3) var(--space-6); border-bottom: 1px solid var(--grey-3a3a3a); color: var(--grey-dddddd); }
-    .lens-row-cursor td { background: rgba(179,157,255,.14); color: var(--ink-bright); }
+    .lens-row-cursor td { background: var(--wash-violet-14); color: var(--ink-bright); }
     /* A stale complement is struck through and KEPT: the row was a real
        bracket of a real plan, and its question is what moved. */
     .lens-row-stale td { text-decoration: line-through; color: var(--grey-a6a6a6); }
@@ -316,7 +316,7 @@
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {
-      background: rgba(179,157,255,.14); border: 1px solid var(--lens-ink); border-radius: var(--radius-6);
+      background: var(--wash-violet-14); border: 1px solid var(--lens-ink); border-radius: var(--radius-6);
       padding: var(--space-6) var(--space-10); font-size: var(--size-12); color: var(--grey-dddddd); margin-bottom: var(--space-8);
     }
     .lens-banner button {
@@ -401,8 +401,8 @@
       background:
         repeating-linear-gradient(
           135deg,
-          rgba(0, 0, 0, 0.55) 0 3px,
-          rgba(0, 0, 0, 0) 3px 7px
+          var(--wash-black-55) 0 3px,
+          var(--wash-black-0) 3px 7px
         ),
         linear-gradient(90deg, var(--red-8a3b2a), var(--lens-warn));
     }
@@ -494,8 +494,8 @@
       position: relative; display: block; height: 6px; margin-top: var(--space-3);
       background: var(--grey-1b1b1b); border-radius: var(--radius-2); min-width: 54px;
     }
-    .lens-band-span { position: absolute; top: 0; bottom: 0; background: rgba(179,157,255,.55); border-radius: var(--radius-2); }
-    .lens-row-foil .lens-band-span { background: rgba(77,182,172,.5); }
+    .lens-band-span { position: absolute; top: 0; bottom: 0; background: var(--wash-violet-55); border-radius: var(--radius-2); }
+    .lens-row-foil .lens-band-span { background: var(--wash-teal-50); }
     .lens-band-open { border-right: 0; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); }
     .lens-band-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink-bright); }
     /* Depth as a depth: `h<n>` keeps the number and gains a gauge lit to it. */
@@ -515,7 +515,7 @@
     .lens-aff-note { color: var(--grey-a2a2a2); }
     .lens-aff-primary { border-color: var(--lens-ink); color: var(--ink-bright); }
     .lens-aff-undo { border-color: var(--lens-ours); color: var(--green-cfe9d1); }
-    .lens-aff-armed { border-color: var(--lens-warn); color: var(--orange-ffd2c2); background: rgba(255,138,101,.12); }
+    .lens-aff-armed { border-color: var(--lens-warn); color: var(--orange-ffd2c2); background: var(--wash-orange-12); }
     /* AN OFF CHIP IS STILL A SENTENCE. `opacity: .45` faded the ink onto the
        ground and took every off chip to 2.0–3.5 : 1 — `⛨ hold H pieces only`
        at 2.7, and `pins n of m`, the exact count `§1.2` calls what makes a
@@ -579,7 +579,7 @@
     }
     .login-gate-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.85); z-index: var(--z-login);
+      background: var(--wash-black-85); z-index: var(--z-login);
       justify-content: center; align-items: center;
     }
     .login-gate-overlay.active { display: flex; }
@@ -606,7 +606,7 @@
     .login-gate button:disabled { opacity: 0.4; cursor: not-allowed; }
     .confirm-dialog-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.6); z-index: var(--z-modal);
+      background: var(--wash-black-60); z-index: var(--z-modal);
       justify-content: center; align-items: center;
     }
     .confirm-dialog-overlay.active { display: flex; }
@@ -641,18 +641,18 @@
     .shortcuts-hint {
       display: inline-flex; align-items: center; gap: var(--space-4);
       padding: var(--space-3) var(--space-9); border-radius: var(--radius-4);
-      background: rgba(76,175,80,0.14); border: 1px solid var(--go);
+      background: var(--wash-green-14); border: 1px solid var(--go);
       color: var(--green-a5d6a7); font-family: ui-monospace, monospace;
       font-size: var(--size-11); font-weight: var(--weight-bold); cursor: pointer;
       user-select: none; white-space: nowrap;
     }
-    .shortcuts-hint:hover { background: rgba(76,175,80,0.28); color: var(--ink-bright); }
+    .shortcuts-hint:hover { background: var(--wash-green-28); color: var(--ink-bright); }
 
     /* ── Keyboard shortcuts pane (Ctrl+/) ────────────────────────────────── */
     .shortcuts-overlay {
       position: fixed; inset: 0; z-index: var(--z-modal);
       display: none; align-items: center; justify-content: center;
-      background: rgba(8, 10, 12, 0.72); padding: var(--space-24);
+      background: var(--wash-ink-72); padding: var(--space-24);
       backdrop-filter: blur(2px);
     }
     .shortcuts-overlay.open { display: flex; }
@@ -702,8 +702,8 @@
       font-size: var(--size-12); font-weight: var(--weight-bold); padding: var(--space-4) var(--space-10); border-radius: var(--radius-12);
       white-space: nowrap; letter-spacing: 0.03em;
     }
-    .view-mode-badge.live { background: rgba(76,175,80,0.18); color: var(--lens-ours); }
-    .view-mode-badge.historic { background: rgba(255,152,0,0.18); color: var(--lens-open); }
+    .view-mode-badge.live { background: var(--wash-green-18); color: var(--lens-ours); }
+    .view-mode-badge.historic { background: var(--wash-orange-18); color: var(--lens-open); }
     .turn-nav-row {
       display: flex; align-items: center; justify-content: center; gap: var(--space-10); margin-top: var(--space-10);
     }

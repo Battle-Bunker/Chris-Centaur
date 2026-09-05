@@ -46,8 +46,8 @@ size, font weight, z-index, shadow or spacing):
 
 | dimension | distinct values | occurrences |
 |---|---|---|
-| **colours** | **211** | **491** |
-| — of which neutral (chroma ≤ 12) | **69** | 267 |
+| **colours** | **211** | **520** |
+| — of which neutral (chroma ≤ 12) | **69** | 281 |
 | — of which chromatic | **87** | — |
 | — of which `rgba()` washes | 55 | — |
 | durations | 11 | 21 |
@@ -322,3 +322,128 @@ One change is intended and is not zero:
   is what `04-SECONDARY-SCREENS.md` §2 specified and a specificity accident
   prevented (§1.5). It is visible only while a nav link holds focus, which no
   screenshot in either drill does.
+
+---
+
+## 5. What it came to
+
+### 5.1 The count, after
+
+The same script over the same eleven files, with the token sheet excluded and
+`board-renderer.js`'s per-call fallback literals discounted (they are the
+sheet's value, written twice on purpose — §2):
+
+| | before | after |
+|---|---|---|
+| distinct colours | **211** | **24** |
+| colour occurrences | **520** | **43** |
+| distinct neutral greys | **69** | **10** |
+| distinct durations | **8** | **0** |
+| `prefers-reduced-motion` blocks | **4** (+1 catch-all) | **1** (+1 catch-all) |
+| tokens defined | 0 | **476** |
+
+`chrome.css`, `latency.js`, `alerts.js`, `tour.js`, `review.js`,
+`page-chrome.js`, `lens-panel.js` and `board-renderer.js` are at **zero**
+colour literals. Every one of the 43 that remain is in `play-game.html`'s own
+`<script>` — `ctx.strokeStyle`-style canvas calls and inline `cssText` for the
+toasts and the corner notes — which is the page's script rather than its
+stylesheet, and is the surface `ux-fixes` is editing. The canvas half of it
+wants exactly the `token(name, fallback)` treatment `board-renderer.js` has
+now; that is the next pass, and it is a small one because the names already
+exist.
+
+### 5.2 Dead CSS removed
+
+Five whole rules and four declarations from `chrome.css`'s base block, each
+of them shadowed declaration-for-declaration by the `UX-SECONDARY` block
+appended after it: `.header h1`, `.nav-links`, `.nav-links a`,
+`.nav-links a:hover`, `.game-card:hover`, the `prefers-reduced-motion`
+`.game-card` block, and from the two rules that survive, `.header`'s
+`display` / `justify-content` / `padding` and `.game-card`'s `transition` /
+`margin-bottom`. Plus the white focus ring, which was half dead and half a
+specificity accident (§1.5). Nothing was deleted on a reading of the file
+alone: every deletion was re-proved by capturing the complete computed style
+of every element on all five lobby pages, in both motion settings.
+
+`.lens-arrival-pulse` is **kept**, unused, because `05-EVALUATION.md` P-7
+asks for the animation it guards to be built.
+
+### 5.3 The gate, as measured
+
+**The screenshots.** `scripts/lens-walkthrough.js`, all four drills, exit 0;
+`scripts/alerts-drill.js`, 46/46 checks, exit 0.
+
+Two runs of the walkthrough against two fresh servers differ on **12 of its
+48 images** before any change is made — the full-page live shots, where turn
+timing, the ping readout and the tour's transition phase all move — at
+213,378 differing pixels. That is the floor the gate is stated against. With
+the whole tokenisation in and **the one named change (§4) neutralised**, the
+walkthrough was re-run and diffed against the baseline:
+
+| | images |
+|---|---|
+| **0 px, byte-identical** | **34** — every rail crop, every board crop (CANDIDATE, next rank, foil, pinned, replay), all seven review shots, the clock notch, both scheme shots, `d1-pin`, `d5-undone` |
+| differ only at maxΔ 1 (sub-perceptual antialiasing, ≤34 px each) | 8 |
+| the same live-board shots that already differ between two baseline runs | 6, at **161,485 px — less than the 213,378 px baseline pair** |
+
+The board crops at 0 px are the proof that matters for `board-renderer.js`:
+85 canvas colours now come off `:root` and every pixel they paint is the one
+they painted before.
+
+**The computed styles.** For every element in the DOM, at 31 states across
+the five lobby pages and the operator page — the rail at four cursor states,
+the shortcuts modal, the alert popover and ring, the ladder at each of its
+five rungs, the clock at each of its four, every command-chip grade, the tour,
+and all three densities — the *entire* resolved computed style, before and
+after: **0 differing painted values**. (The only entries are two header status
+chips swapping order and a card's text width, both of which are the live
+server's data and not a style.)
+
+**And the stylesheets, flattened.** Every `var()` resolved back to its
+literal and diffed against the original file, declaration by declaration:
+`chrome.css` differs only by the intended deletions; `play-game.html`'s style
+block differs only by `:root` losing the six `--lens-*` declarations that
+moved into the sheet, and by `.12s` being spelled `0.12s`.
+
+`npx tsc --noEmit -p .` 0 · `npx eslint "src/**/*.ts"` 0 · `npm run build:lens`
+0 · `node --check` on all five changed `.js` · `npx jest --maxWorkers=2
+"src/tests/lens-" "src/lobster/__tests__/lens-"
+src/tests/local-game-determinism.test.ts` — **22 suites, 345 tests, green**.
+
+### 5.4 The two named changes
+
+1. **The lobby nav links' focus ring**, `#ffffff` → `--focus` (`#8ab4f8`),
+   which is what `04-SECONDARY-SCREENS.md` §2 specified and a specificity
+   accident prevented. Visible only while a nav link holds focus, which no
+   screenshot in either drill does.
+2. **`.lens-movesets .lens-table tr` gets the rule it asked for.** It was
+   written as `border-bottom: 1px solid var(--line)`; `--line` lived in
+   `chrome.css`'s `:root` and the operator page does not link `chrome.css`,
+   so the var resolved to nothing, the declaration was invalid at
+   computed-value time, and `border-bottom` fell back to `none` — while the
+   cell rule above it dutifully turned its own border off to make room. The
+   moveset rows have had no rule between them since the day they were
+   written. One sheet, linked by every page, makes it draw: **+1 px per
+   moveset row, +5 px on the panel, and nothing else** — proved by re-running
+   the whole walkthrough with that one declaration pointed at a deliberately
+   undefined token and getting the table in §5.3.
+
+   This is the finding the pass exists to produce. A token is an abstraction
+   with a scope, and a value that six people can only reach from one file is
+   not shared — it is *silently absent* everywhere else, which is the same
+   failure `01-RESEARCH.md` §4 rules out for the ladder, in CSS.
+
+### 5.5 What is queued, not done
+
+* The seven remaining contrast failures of `05` §3 are untouched, and four of
+  them are now **one line each**: `--unit-colour-fallback` (4.05 : 1),
+  `--lat-num-ink` (2.77 : 1), `--lat-num-bad` (4.30 : 1), and the operator
+  badges' arbitrary hues (P-4). Fixing them is a design edit with a
+  screenshot to approve, and this pass moved no pixel it did not name.
+* The near-duplicates of §1.2 all still have their own token and their own
+  hex. Collapsing the eight secondary-ink greys, or the two greens one point
+  apart in adjacent rules of one file, is now a one-line edit in one file.
+* `--al-focus` (`#7aa2f7`) and `--font-ui-short` are kept apart from
+  `--focus` and `--font-ui` for the same reason: same intent, different
+  value, and the difference is a decision.
+* A light chrome (§2.1), when someone wants one.

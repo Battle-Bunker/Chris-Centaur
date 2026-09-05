@@ -202,6 +202,7 @@
 
   /* The washes. A colour with an alpha is a different value from the colour,
    * and `color-mix()` would round differently, so they are their own entries. */
+  --wash-black-0:       rgba(0, 0, 0, 0);
   --wash-black-25:      rgba(0,0,0,0.25);
   --wash-black-40:      rgba(0, 0, 0, 0.4);
   --wash-black-45:      rgba(0, 0, 0, 0.45);
