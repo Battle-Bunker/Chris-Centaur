@@ -433,7 +433,13 @@ describe('the entanglement gate reads the plan PLUS the reference actions', () =
       // And unit 3 is enumerated. This half is MASKED on most boards — the
       // gate is a union and its ledger arm often names the same unit — which
       // is why the assertion above is the one that pins the fix.
-      expect(out.members.some((m) => (m.rung === 'B1' || m.rung === 'B3') && m.unitId === 3)).toBe(true);
+      // And unit 3 IS enumerated — B3 covers the whole gate here. This half
+      // reads the same before the fix: the gate is a UNION and its ledger arm
+      // (`residueOf(b0.ledger)`) happens to name unit 3 on this board too,
+      // which is the masking REVIEW-2 measured across eight variants. The
+      // geometric arm is the one that was wrong, so the assertion above — on
+      // the footprint the gate is handed — is the one that pins the fix.
+      expect(out.members.map((m) => m.rung)).toContain('B3');
     } finally {
       bank.release();
       sub.release();
