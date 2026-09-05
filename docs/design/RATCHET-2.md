@@ -120,6 +120,35 @@ computed against the real settled board, to be taken per reading; the shells are
 interned per decision and shared by five members, so that doubles their cost for
 30 worlds of one class. Both are recorded and neither is taken.
 
+**AND THE REPAIR IS REVERTED. It closed 89% of the class and the play refused
+it, in the shape `b1-sound` was refused in.** The bound gates were clean —
+`command.hi` **600 → 65**, `totalLo` 0, `totalHi` 9, no other class moved, and
+`bounds/soundness.test.ts`, `bounds/exact-reply.test.ts` and the whole
+`lobster/__tests__` suite green (`lens-cost.test.ts`'s `mixed` recording moves,
+which is the same class of re-take its own header records three times, and
+`snake` stays byte-identical). Then the play, 60 turns, `--nodes`,
+`scripts/ab-compare.js` per board class, never pooled, against `02cd772`:
+
+| board | deaths | deaths/100 | meals/100 | note |
+|---|---:|---:|---:|---|
+| `snakes` 1–5 | 14 → 14 | 0.910 → 0.910 | 16.895 → 16.895 | every metric 0; `nodes` identical |
+| `sparse` 1–5 | 0 → 0 | 0 → 0 | 7.667 → 7.667 | byte-identical |
+| `sparse-lean` 1–5 | 2 → 2 | — | 6.85 → 6.85 | byte-identical |
+| `mixed` 1–5 | **12 → 14** | 0.608 → 0.771 (**+0.163**) | 18.394 → 19.205 | `edge` 0 → 2 and `wall` 0 → 2, both NEW causes |
+| `potions` 1–8 | **21 → 22** | 0.692 → 0.761 (**+0.069**) | 19.517 → 18.861 (**−0.66**) | `edge` 0 → 3; `lost` 4 → 10 |
+
+Deaths are UP on the two classes that have any and down on none — the exact
+finding that declined `b1-sound` (`docs/design/ab/2026-09-04-b1-sound-vs-57fd2da.md`),
+and the two death causes `mixed` gains are the two that
+`docs/design/BEHAVIOUR-AUDIT.md` §D1's shipped repair removed. On seeds 1–3
+alone it reads the same way: `mixed` 2 seeds up 1 down, `potions` 3 of 3 up.
+The mechanism is legible and is the price rather than an accident — widening
+the ceiling's ground board pays our own pieces for acting on a held enemy
+trail's cover, so a plan that walks past a claim looks better than it is, and
+the units walk into edges and walls. **A correct-and-tighter ceiling that loses
+more units is not a repair we ship**, by §7.1's own rule; `command.hi` stays
+open and stays pinned at 600.
+
 ## 2. `reach.hi` (220) and `reach.lo` (128) — plane 2 pays out on plane 1's cover
 
 `reach` is `(ours − theirs)/open` after displacement. Plane 1 gives a cell to

@@ -822,35 +822,13 @@ export const needOf = (length: number): number => Math.max(4, length + 2);
 /**
  * WHICH SUBJECTS BAR, IN THIS READING (§5).
  *
- * A BARRIER IS THE THING BEING FEARED, NOT A THING BEING COUNTED, AND THE TWO
- * WANT OPPOSITE ENDS. Everything else this file computes is ground OWNED, where
- * a barrier costs the reading and the worst world is the one with fewest of
- * them. `kept` is the input to `room`, which is a FEAR — fewer crowders means a
- * larger region, a smaller shortfall and a HIGHER floor. So the floor takes
- * every unit that could be standing there, `s.worstAlive || s.bestAlive`, and
- * not only the ones our worst world leaves alive.
- *
- * The predicate used to read `s.worstAlive` here, with the reasoning of a
- * counted quantity ("`lo` is our worst world, so a unit that is alive in it
- * bars"), and the two disagree on exactly one kind of subject: one of OURS the
- * settlement left contingent. Measured on `law-sweep.test.ts`'s 240 boards, 73
- * worlds had `room`'s own floor above `room`'s own value, and all 73 were that
- * one shape — a contingent teammate that the `lo` flood walked through and the
- * world did not (`docs/design/RATCHET-2.md` §3). For THEIRS the change is
- * nothing at all: `worstAlive` is already the weaker of the two predicates on
- * that side, held or not.
- *
- * `hi` is unchanged and admits a barrier only from a unit alive in BOTH — a
- * barrier from a unit that might be dead would push `hi` DOWN below a world it
- * claims to bound, which is precisely the direction that unsounds a ceiling.
- *
- * NOTHING BUT `room` MOVES. `barsIn` is read by `bodyBarriersOf` and
- * `cloudsOf`, whose output reaches `keptOf` and therefore `TrailRoom.kept`, and
- * `kept` is read by `features.ts::fearsOf` and by nothing else. The domain
- * boards, `ours`, `theirs` and plane 2 are all built above this line.
+ * `lo` is our worst world, so a unit that is alive in it bars; `hi` is our
+ * best, and admits a barrier only from a unit alive in BOTH — a barrier from a
+ * unit that might be dead would push `hi` DOWN below a world it claims to
+ * bound, which is precisely the direction that unsounds a ceiling.
  */
 const barsIn = (s: TerritorySubject & { worstAlive: boolean; bestAlive: boolean }, reading: 'lo' | 'hi'): boolean =>
-  reading === 'lo' ? s.worstAlive || s.bestAlive : s.worstAlive && s.bestAlive;
+  reading === 'lo' ? s.worstAlive : s.worstAlive && s.bestAlive;
 
 /**
  * CLAUSES (b) AND (c): every trail unit's body on its own vacating schedule,
