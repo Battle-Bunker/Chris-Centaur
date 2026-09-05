@@ -183,7 +183,13 @@ unit's own reading contains.
   (§5.1), so any threshold μ that refuses the 4× excess refuses as large a share
   of 1× moves: at μ = 1.0, 9 of 13 at 4× and 8 of 11 at 1×.
 
-## 6. The rule — `survivalDegree` κ. NOT SHIPPED.
+## 6. The rule — `survivalDegree` κ. NOT SHIPPED, AND NOW MEASURED — SEE §10.
+
+*(§10 builds the rule, proves it sound on the sweep and the oracle, measures it
+at three doses on both budgets, and deletes it. Read §10.4 before re-proposing
+anything shaped like this one: the boolean it replaces is not a coarsening of
+`c/R`, it is that quantity's indicator, and there is nothing between admitted
+and dropped for κ to grade.)*
 
 Fixed at the cause in §5.3 — the floor's death accounting is a boolean, so it is
 constant between the two plans and cannot decide.
@@ -254,7 +260,9 @@ Refuted unless **both** hold:
 One further check falsifies the DIAGNOSIS rather than the parameter: at the 29
 attributed decisions `material.lo` must stop being identical across the arms in
 at least 18 of the 24 class-(b) cases. **If deaths fall without that, §5.3 is
-wrong and the improvement is luck.**
+wrong and the improvement is luck.** — Measured in §10.4: `material.lo`
+separates on **0 of the 25** decisions where it was identical, at every dose.
+The diagnosis check fails, and it fails before the parameter does.
 
 ## 8. What this means for the deadline in production
 
@@ -297,3 +305,233 @@ per-feature breakdowns; `rung/`, `rung2/` the same with a lens on both arms;
 `room/` the `room` term on the played plan for all 2 160 `(turn, team)`
 evaluations; `rule/` the refuted headroom sweep. **Nothing in `src/` is changed
 by this document.**
+
+---
+
+## 10. STATUS — the rule implemented and measured (`survival-degree`)
+
+### 10.1 The baseline, at both budgets
+
+The `budget` worker's 96 outcome recordings reproduce BYTE FOR BYTE at this
+head — `mixed` seed 1 at 1× and `potions` seed 3 at 4× re-run here match on
+every game counter, on `deathsByCause`, and on `work` (`nodes`, `reads`,
+`slices`, `worstDecisionNodes`) — so they are reused as the baseline rather
+than re-run, and only `sparse-lean` (which that study did not carry) was
+recorded fresh.
+
+| class | budget | deaths | self-inflicted | meals | meals/100 | causes |
+|---|---|--:|--:|--:|--:|---|
+| `mixed` 1–6 | 1× | **14** | 3 | 446 | 18.108 | contest 11, bodyBlock 2, self 1 |
+| | 4× | **16** | 7 | 460 | 20.149 | contest 9, bodyBlock 4, edge 1, self 1, wall 1 |
+| `potions` 1–6 | 1× | **14** | 2 | 462 | 19.115 | contest 12, bodyBlock 2 |
+| | 4× | **22** | 9 | 476 | 21.278 | contest 13, bodyBlock 4, edge 3, self 2 |
+| `snakes` 1–3 | 1× / 4× | 7 / 7 | 7 / 7 | 157 / 157 | 16.236 | bodyBlock 4, self 3 (identical) |
+| `sparse` 1–3 | 1× / 4× | 0 / 0 | 0 | 52 / 52 | 7.222 | — (identical) |
+| `sparse-lean` 1–3 | 1× / 4× | 0 / 0 | 0 | 45 / 45 | 6.250 | — (identical) |
+
+§1's table is reproduced exactly, which is what licenses the falsifier in §7 to
+be read against these numbers.
+
+### 10.2 What was built, and what κ = 0 costs
+
+One knob, on the criterion profile so it folds into `evaluationIdentity` and
+two doses can never share an evaluation memo entry, and validated at
+construction beside the command knobs (`checkWeights` → `checkSurvivalDegree`:
+κ must be a finite fraction in [0, 1], because a negative one RAISES the floor
+above the boolean admission and one above 1 prices a live unit as worse than a
+dead one). `CENTAUR_SURVIVAL_DEGREE` seeds it once at module load, so a sweep
+arm is a run of the same build.
+
+The rule is `survivalWeightOf` in `evaluate/features.ts`, spent in
+`materialBounds` and NOWHERE ELSE:
+
+* R is the enemy replies the resolver enumerates on this board — one per live
+  enemy, its whole action set at once, the same enumeration `contest.ts`'s
+  `contestField` folds. Measured over 540 evaluations it is **4.23 on average**,
+  which is the `R = 4` §6's algebra assumed.
+* `c` is how many of those replies beat the unit where the plan stages it, by
+  the resolver's own `winsContest` at the resolver's own frozen tier.
+* `material` charges `(1 − w)` of the unit's own weight in the WORST reading.
+
+**Why not in `ourUnitTerm`, which §6 named.** A factor below 1 on a FEAR
+(`room`, `contest`, `momentum` — every `ourUnitTerm` member whose value is
+negative) SHRINKS a charge and RAISES the floor. That is the exact inversion
+`ourUnitTerm` exists to forbid, so the weight can only be spent where our unit's
+own contribution is non-negative, which is `material`'s worst side. `material`
+does not route through `ourUnitTerm` at all; the rule is `materialBounds`'s.
+
+**And it stops at a determinate world.** κ applies only while something is
+HELD. With every reply named the settlement has already said who dies, `c`
+counts replies that are no longer open, and a discount there would put `lo`
+under `hi` on a world that IS its own answer — breaking `material`'s declared
+discharge, the point-ness `bounds/exact-reply.ts` needs to compare a floor
+against a world at all (it would answer `world-not-a-point` and skip every
+check), and the law sweep's own worlds.
+
+**κ = 0 is byte-identical, and it is measured rather than argued.**
+`sum all 60 5 --nodes` — twenty-five 60-turn games across all five scenarios —
+prints the same transcript line for line as the head, deaths, meals, work and
+`Q` histogram included. At κ = 0 not one enemy action set is enumerated.
+
+### 10.3 The soundness argument, and what the instruments say about it
+
+**The argument.** `w ≤ 1` and one of our units' own material contribution is
+non-negative, so the weighted sum is `≤` the boolean one, term by term and on
+every board. Whatever set of worlds the old `lo` was a lower bound over, the
+new one is a lower bound over the same set: nothing is claimed about a world, a
+floor is lowered. `hi` is untouched — lowering a ceiling is what would not be
+sound — so the bracket stays the right way up, and refinement still only raises
+`lo`, because `c` and R are facts about the board and the plan and not about
+which units a reading admits.
+
+**And the instruments agree, at the largest dose tried.**
+
+| gate | κ = 0 | κ = 0.34 |
+|---|---|---|
+| `law-sweep` 240 boards / 8 637 worlds | `totalLo` 0, `totalHi` 9, `food.hi` 63, `reach.hi` 220, `command.hi` 600, `reach.lo` 128, `material.hi` 8, `energy.hi` 10, `momentum.lo` 27 | **identical, class for class** — no `material.lo`, no `contest.lo`, no `room.lo`, nothing above its pin |
+| `bounds/exact-reply`, four scenarios at seed 1, 30 turns | exact | **102 448 checks over 5 207 844 concrete worlds, 0 floor violations, 0 ceiling violations, and 0 skips** |
+| sixteen-arm `CENTAUR_DEBUG_INVERSION`, at 1× AND at 4× | no line | **no `INVERSION` line on any of the thirty-two arms** |
+
+The zero SKIPS matter as much as the zero violations: they are the held gate
+above doing its job. A discount that leaked into a determinate world would make
+every world non-a-point and turn the oracle's zero into a silence.
+
+**So the rule is sound, and that is not what refuses it.**
+
+### 10.4 The mechanism: the boolean is not a coarsening of `c/R`, it is its indicator
+
+§7's third check — the one that falsifies the DIAGNOSIS rather than the
+parameter — is the whole story. The 29 attributed decisions of §3 were replayed
+at this head (the game driven at 4×, the 1× arm re-decided on the same board,
+both plans priced under ONE bank per κ) and `material.lo` was read on both arms
+at κ = 0, 0.08, 0.16 and 0.34:
+
+* `material.lo` is IDENTICAL across the two arms on **25 of 29** decisions at
+  κ = 0 — §5.3 reproduced.
+* at every κ it separates them on **0 of those 25**. §7 asked for at least 18
+  of 24. **The check fails outright.**
+* the floors move at all on **3 of 29**, and all three are the class-(d)
+  decisions where `material.lo` already differed. On two of them the 4× arm's
+  advantage GREW (mix s2 t11 `+0.83 → +1.68`, pot s6 t35 `+24.04 → +30.84` at
+  κ = 0.34) and on one it shrank (pot s3 t26 `+8.59 → +7.23`). The rule does not
+  control the sign.
+
+The reason is a fact about the two predicates, and it was measured directly.
+Over six 4× games (`mixed` and `potions`, seeds 1–3) — 1 080 `(turn, team)`
+evaluations, 2 261 readings of one of our units on the plan actually staged:
+
+| | n | of which `c > 0` |
+|---|--:|--:|
+| `ADMISSION.lo` ADMITS it (`worstAlive`, unheld) | 2 104 | **0** |
+| `ADMISSION.lo` DROPS it (contingent) | 157 | **84** |
+
+(1 880 of the 2 261 readings are of a unit that WOULD lose a contest somewhere
+on the board, so the zero is not a board with nothing to fear on it.)
+
+**Not one admitted unit was standing where an enumerated reply beats it.** That
+is not a coincidence and not a property of these boards: `worstAlive` is false
+exactly when the resolver's ledger names a contact this unit could lose, so
+"some enumerated reply beats it" is the very condition that DROPS it. The
+boolean is the indicator function of `c > 0`, not a coarsening of `c/R`, and
+between "admitted" and "dropped" there is no middle for κ to grade. §5.3's
+premise — that the floor's death accounting has no per-plan content — is right;
+its proposed cause, that the content is being lost to a boolean, is wrong. The
+content is not in the floor's own reading to lose.
+
+Where κ fires at all is a place §6 did not name: inside the bank's MODELLED
+branches, where one enemy has been named — so the ledger no longer condemns our
+unit — while another, still held, has a coarse arrival set that still covers its
+cell. That is the 0.20 that moves mix s2 t11's floor at κ = 0.08 (`10κ/R` at
+R = 4, exactly §6's arithmetic). It is a real quantity; it is just not the one
+that decides which plan kills, and its sign is whichever arm happens to have
+named a different enemy.
+
+### 10.5 The falsifier, three doses
+
+The 24 outcome games at each dose, 60 turns, `--nodes`, six seeds per class,
+never pooled.
+
+| | mixed 1× | potions 1× | mixed 4× | potions 4× |
+|---|--:|--:|--:|--:|
+| **κ = 0 (head)** | **14** | **14** | **16** | **22** |
+| §7's bar | ≤ 14 | ≤ 14 | ≤ 15 | ≤ 18 |
+| κ = 0.08 | **22** | **17** | **16** | **14** |
+| κ = 0.16 | **20** | **16** | **16** | **16** |
+| κ = 0.34 | **19** | **16** | **17** | **13** |
+
+By cause, against the 1× baseline (`contest` 11, `bodyBlock` 2, `self` 1 on
+`mixed`; `contest` 12, `bodyBlock` 2 on `potions`):
+
+| dose | mixed 1× causes | potions 1× causes |
+|---|---|---|
+| κ = 0.08 | contest 13, **bodyBlock 8**, self 1 | contest 15, bodyBlock 2 |
+| κ = 0.16 | contest 12, **bodyBlock 5**, self 2, wall 1 | contest 14, bodyBlock 2 |
+| κ = 0.34 | contest 13, **bodyBlock 4**, edge 1, self 1 | contest 14, bodyBlock 2 |
+
+**Meals are not what refuses it.** At 1× `mixed` runs 446 → 439 / 454 / 437
+(−1.6% / +1.8% / −2.0%) and `potions` 462 → 479 / 477 / 494 (+3.7% / +3.2% /
++6.9%), so every dose is inside the 3% meals budget on the class that has one
+and ahead of the head on the other. The refusal is deaths and only deaths.
+
+**Condition 1 fails at every dose, on both classes, by five to eight deaths on
+`mixed` — and it fails in the causes as well: `bodyBlock` at 1× goes 2 → 8, 5,
+4, which is the 4× DEATH SIGNATURE appearing at the shipped budget.** Condition
+2 is HALF-MET at every dose, and interestingly so: `potions` at 4× falls 22 →
+14 / 16 / 13, inside its ≤ 18 on all three, while `mixed` at 4× never moves off
+16 → 16 / 16 / 17 and never reaches its ≤ 15. The 4× half of the gap does close
+on one class. It closes because 1× has been dragged down to meet it, which is
+the one way §7 forbids.
+
+**Why a floor that only goes DOWN costs deaths at 1×.** §5.1 measured the
+accepting margins and found them the same size at both budgets — median 0.158 at
+1×. The shift this rule applies is `10κ·c/R`, which is 0.20 at κ = 0.08 and 0.85
+at κ = 0.34 for a single unit at R = 4: LARGER than the median margin. So it does
+not nudge an ordering, it re-decides one, and §6's own exposure argument — "up to
+8 of 28, and 0 of the 17 seed-staged, is the rule's entire exposure at 1×" — was
+optimistic in the one direction that matters. It counted the decisions the
+rule could reach and assumed the perturbation would be small against their
+margins; it is not.
+
+### 10.6 STATUS — NOT SHIPPED, and the knob is deleted
+
+κ is reverted to nothing at all: no field on `CriterionProfile`, no constant, no
+env seed, no `EvalContext` member. `git diff f98af15 -- src/` is EMPTY — the
+tree this branch leaves under `src/` is byte-for-byte the tree it started from,
+which is a stronger statement than any re-run, and the gates were taken anyway:
+`tsc --noEmit` and `eslint "src/**/*.ts"` clean, and the five suites green
+(`law-sweep` at its unchanged pins, `local-game-determinism` and
+`basic-intelligence` UNCHANGED — no fixture was re-pinned, because no move
+changed — `evaluate` and `territory-acceptance`, 122 tests).
+
+What was bought is the measurement, and it is worth having in three parts:
+
+1. **The rule was implemented and it is SOUND** — the law sweep does not move a
+   class, the exact-reply oracle stays exact over 5.2 million concrete worlds
+   with zero skips, and the sixteen-arm inversion gate is silent. §6's counter
+   ("`lo` stops being a floor and becomes an expectation") is answered by
+   construction: a floor lowered over the same worlds is still a floor. The
+   objection to a fractional `w` is real but it is about what the number MEANS,
+   not about whether the bound holds.
+2. **The diagnosis in §5.3 is half wrong, and now measurably so.** The floor's
+   death accounting has no per-plan content — that reproduces. But it is not
+   because a boolean is coarsening a graded quantity: the boolean IS that
+   quantity's indicator, and no unit is ever both admitted and contested. A
+   future attempt on this cause has to move `worstAlive` itself — i.e. price
+   the plan's own geometry somewhere the resolver's ledger already looks — and
+   not re-weight what the ledger has already decided.
+3. **The 1× floor is the binding constraint on any floor change**, and the
+   reason is §5.1's own finding read the other way: because the accepting
+   margins are the same size at both budgets, ANY perturbation big enough to
+   re-decide a 4× decision is big enough to re-decide a 1× one, and at 1× the
+   decisions being re-decided are the ones the head is already winning. That is
+   the shape of §7's first condition, and it is why it is the hard half.
+
+### 10.7 Recordings
+
+Under `/tmp/.../scratchpad/survival` (this container): `base/` the two-budget
+baseline (96 games reused from the `budget` study plus six fresh `sparse-lean`),
+`k0.08/`, `k0.16/`, `k0.34/` the 24 outcome games per dose, `dec/` the 29
+attributed decisions re-priced under one bank at four doses (`kappa-dec.js`),
+`scan/` the admitted-versus-contested support over six 4× games (`scan.js`),
+`why/` the per-unit `(c, R)` at six of the fatal decisions, and
+`transcript-head.txt` / `transcript-k0.txt`, the byte-identity pair.
