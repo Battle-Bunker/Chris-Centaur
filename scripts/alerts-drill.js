@@ -731,36 +731,6 @@ async function sceneOperator(browser) {
     );
     await page.evaluate(() => { window.__hidden = false; });
 
-    // THE PER-TURN EARCON CEILING. Six distinct raisings inside one turn; the
-    // module must let at most `earconPerTurn` of them through to the sound.
-    const flood = await page.evaluate(() => {
-      const before = window.__earcons.length;
-      const t = 9100;
-      window.Alerts.observe({
-        kind: 'in', at: Date.now(), type: 'board-update',
-        msg: { type: 'board-update', turn: t, stagedMoves: {}, activeIntentModes: {} },
-      });
-      for (let i = 0; i < 6; i++) {
-        window.Alerts.observe({
-          kind: 'in', at: Date.now(), type: 'lens-lock',
-          msg: { type: 'lens-lock', ok: false, refusal: 'off-head', detail: `flood-${i}` },
-        });
-      }
-      const raised = window.Alerts.log().filter((e) => e.turn === t);
-      return {
-        raised: raised.length,
-        sounded: raised.filter((e) => e.channels.includes('earcon')).length,
-        notes: window.__earcons.length - before,
-        limit: window.Alerts.limits.earconPerTurn,
-      };
-    });
-    check(
-      'operator',
-      `a flood of six raisings in one turn sounds at most ${flood.limit} of them`,
-      flood.sounded <= flood.limit,
-      flood
-    );
-    check('operator', 'the flood is still raised and still logged — limited, not discarded', flood.raised >= 1, flood);
   } finally {
     await page.close();
     await stopServer(server);
@@ -782,6 +752,49 @@ async function sceneDrift(browser) {
     await enter(page);
     await step();
     await sleep(500);
+
+    // THE PER-TURN EARCON CEILING, measured on a FRESH PAGE so the rolling
+    // minute is still empty and the ceiling under test is the per-turn
+    // one rather than the flood one. Six raisings, spaced wider than the
+    // 700 ms earcon floor so THAT is not the ceiling either: what is left is
+    // the per-turn cap, and the check asserts both of its sides.
+    const flood = await page.evaluate(async () => {
+      await new Promise((r) => setTimeout(r, window.Alerts.limits.earconMinGapMs + 150));
+      const before = window.__earcons.length;
+      const t = 9100;
+      window.Alerts.observe({
+        kind: 'in', at: Date.now(), type: 'board-update',
+        msg: { type: 'board-update', turn: t, stagedMoves: {}, activeIntentModes: {} },
+      });
+      for (let i = 0; i < 6; i++) {
+        window.Alerts.observe({
+          kind: 'in', at: Date.now(), type: 'lens-lock',
+          msg: { type: 'lens-lock', ok: false, refusal: 'off-head', detail: `flood-${i}` },
+        });
+        await new Promise((r) => setTimeout(r, 750));
+      }
+      const raised = window.Alerts.log().filter((e) => e.turn === t);
+      return {
+        raised: raised.length,
+        sounded: raised.filter((e) => e.channels.includes('earcon')).length,
+        notes: window.__earcons.length - before,
+        limit: window.Alerts.limits.earconPerTurn,
+        budgetRefusals: raised.filter((e) => e.suppressed.includes('budget')).length,
+      };
+    });
+    check(
+      'operator',
+      `six raisings in one turn, spaced past the earcon floor, sound at most ${flood.limit} of them`,
+      flood.sounded <= flood.limit,
+      flood
+    );
+    check(
+      'operator',
+      '…and the check is not vacuous: the per-turn cap, not silence, is what stopped them',
+      flood.sounded >= 1 && flood.budgetRefusals >= 1,
+      flood
+    );
+    check('drift', 'the flood is still raised and still logged — limited, not discarded', flood.raised >= 6, flood);
 
     const drift = await page.evaluate(() => {
       const t = 9200;
