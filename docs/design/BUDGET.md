@@ -131,11 +131,12 @@ property of the decisions rather than of the games.
 
 **Are 4× choices safer? No — they are different, and their differences do not
 survive contact with the outcome.** 22% of `mixed` and `potions` decisions move
-at 4×, by a median of one unit's staged cell. §2 measures what happens when
-every one of them moves: deaths worse on 7 of 12 seeds, better on 2, and the
-causes rotate from `contest` toward `bodyBlock`/`edge`. A move that a bigger
-search prefers is a move a longer plan justifies, and this bot's evaluator
-prices the end of a longer plan no better than the end of a short one.
+at 4×, by a median of one unit's staged cell — 105 of the 119 changed
+decisions move exactly one unit and the maximum anywhere is three. §2 measures
+what happens when every one of them moves: deaths worse on 7 of 12 seeds,
+better on 2, and the causes rotate from `contest` toward `bodyBlock`/`edge`.
+A move that a bigger search prefers is a move a longer plan justifies, and
+this bot's evaluator prices the end of a longer plan no better than the end of a short one.
 
 **Where the extra budget goes.** Mean nodes actually spent against the budget
 offered:
@@ -217,10 +218,11 @@ So: `kernel.ts` is unchanged, and this document is the deliverable.
 direction: a cheapness rule, not an enrichment rule.** Give a decision with
 `contact ≤ 1 AND product < 25` half the budget and keep the rest. On this
 corpus that is byte-identical on 2× and 4× and 1.4% changed at 0.5×, and it
-would return roughly a quarter of the corpus's total search cost. It buys wall
-time and not deaths, so it is not admissible under the standing rules as
-stated, and it would need re-measuring under the `ms` clock (where the saving is
-the point) before anyone leaned on it. It is recorded here so that the next
+would return 24.5% of the corpus's offered budget — the quiet half is 49.0% of
+the budget offered and 46.1% of the nodes actually spent. It buys wall time
+and not deaths, so it is not admissible under the standing rules as stated,
+and it would need re-measuring under the `ms` clock (where the saving is the
+point) before anyone leaned on it. It is recorded here so that the next
 worker to ask "can we go faster" does not have to re-run 108 games to find the
 selector.
 
