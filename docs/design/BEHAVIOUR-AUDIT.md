@@ -233,84 +233,97 @@ Fix `stationary` (D6) and add `longestPark`.
 * `snakes`, `sparse`: **byte-identical** — the `commandSum` loop skips `leavesTrail` kinds,
   so a board with no piece never reaches the new addend.
 
-### STATUS: BUILT, MEASURED, KEPT — the direction holds, the magnitude does not
+### STATUS: BUILT, SWEPT AT THREE DOSES, NOT TAKEN — it unparks the pawn by killing it
 
-`CommandKnobs.mobility = 1`, the addend `|F_u| · knobs.mobility` inside the same clamp
-(`features.ts`, `commandSum`), validated at construction by `checkWeights` — which now
-refuses a `command` block whose numeric knobs are missing or negative, because a knob
-that reaches the fold as `undefined` makes `c` NaN in every piece evaluation on the board
-and a stored binding is a plain object TypeScript never saw.
+`CommandKnobs.mobility`, the addend `|F_u| · knobs.mobility` inside the same clamp
+(`features.ts`, `commandSum`), was built exactly as the rule above states it and measured
+three times: arm-vs-arm on one build, branch-vs-branch against the working-branch head on
+the fixed D6 instrument, and finally as a DOSE SWEEP at 0.25, 0.5 and 1 — `mixed` seeds
+1–6 (six pairs, so the death-timing signal is not read off three), `potions` seeds 1–3,
+60 turns, `--nodes --json`, `scripts/ab-compare.js` per class against the same
+working-branch-head recordings. **It is not in the fold.** The evaluator at this branch's
+head reproduces the working-branch head byte for byte on all nine runs.
 
-MEASURED TWICE, and the second measurement is the one that counts. The first was
-arm-vs-arm at `mobility` 0 and 1 on one build, with the parked share recomputed off the
-traces because the runner could not then report it. The second, below, is
-BRANCH-vs-BRANCH: the working-branch head (`ab68d97`, which carries D6's fixed
-instrument) against this branch's head, `mixed`/`snakes`/`sparse`/`potions` seeds 1–3,
-60 turns, `--nodes --json`, subtracted per class by `scripts/ab-compare.js`. `parked`
-below IS the runner's `stationary` now, and the recomputation and the instrument agree to
-a tenth of a point on `mixed` (7.29 vs 7.15) — which is the check that the first
-measurement was measuring the same thing.
+| dose | class | parked | longestPark | meals/100 | meals | deaths | deaths/100 | mean death turn | `bodyBlock`+`self` (of which PIECES) |
+|---|---|---|---|---|---|---|---|---|---|
+| **0** | `mixed` | 8.70% | 20 | 19.14 | 462 | 21 | 0.870 | 37.8 | 4 (**0**) |
+| 0.25 | `mixed` | 6.01% | 4 | 18.93 | 416 | 22 | 1.001 | 29.0 | 5 (**1**) |
+| 0.5 | `mixed` | 7.16% | 8 | 18.29 | 429 | 20 | 0.853 | 33.3 | 7 (**3**) |
+| 1 | `mixed` | 5.52% | 6 | 20.87 | 476 | 17 | 0.745 | 24.8 | 6 (**3**) |
+| **0** | `potions` | 10.71% | 10 | 18.23 | 223 | 10 | 0.818 | 38.3 | 1 (1) |
+| 0.25 | `potions` | 7.64% | 5 | 20.96 | 236 | 9 | 0.799 | 25.1 | 0 (0) |
+| 0.5 | `potions` | 7.04% | 11 | 20.86 | 234 | 8 | 0.713 | 20.3 | 0 (0) |
+| 1 | `potions` | 7.87% | 5 | 19.85 | 232 | 9 | 0.770 | 29.9 | 1 (1) |
 
-| | parked | longestPark | meals/100 | meals | deaths | deaths/100 | unit-turns |
-|---|---|---|---|---|---|---|---|
-| `mixed` before | **7.15%** | 8 | 19.55 | 246 | 10 | 0.79 | 1258 |
-| `mixed` after | **6.30%** | 6 | 20.40 | 233 | 10 | **0.88** | 1142 |
-| `potions` before | **10.71%** | 10 | 18.23 | 223 | 10 | 0.82 | 1223 |
-| `potions` after | **7.87%** | 5 | 19.85 | 232 | 9 | 0.77 | 1169 |
-
-`snakes` and `sparse` are **byte-identical**: the two JSON summaries differ in the arm
-label and in nothing else, counter for counter, on all three seeds — the `commandSum`
+`snakes` and `sparse` are byte-identical at every dose, as predicted: the `commandSum`
 loop skips `leavesTrail` kinds, so a board with no piece never reaches the addend. All
-sixteen inversion arms clean under `CENTAUR_DEBUG_INVERSION=1` (four classes × seeds 1–3
-at 30 turns, plus `potions` seeds 4, 5, 6, 8 at 60), `crashed: null` on every one.
+sixteen inversion arms clean at every dose — the rule is SOUND, and that is not what is
+wrong with it.
 
-**THE COST, stated in the reading that shows it.** Deaths rise in COUNT on no class —
-`mixed` 4/4/2 → 4/4/2 seed for seed, `potions` 2/4/4 → 2/4/3, `snakes` 7 → 7, `sparse`
-0 → 0 — but on `mixed` they arrive EARLIER, on every seed: death turns (10,47,48,57) →
-(18,24,33,58), (28,51,53,57) → (9,30,39,51), (24,43) → (19,21), a mean death turn of
-**41.8 → 30.2**. That is the whole of the 9% fall in `mixed` unit-turns, and the
-denominator is why `deathsPer100` RISES there (0.79 → 0.88, up on 3/3 seeds) with the
-count flat, and why `mixed`'s ABSOLUTE meals fall (246 → 233) while its meals/100 rises.
-`potions` shows none of it: absolute meals 223 → 232, one death fewer, unit-turns off
-4%. Whoever reads only the rate column on `mixed` is reading a denominator.
+**THE GATE, AND WHY NO DOSE PASSES IT.** Keep the largest dose at which, on every class,
+`deathsPer100` does not rise and `bodyBlock`+`self` does not rise, while the parked share
+falls and meals do not fall.
 
-`mixed`'s death CAUSES move with the timing: `bodyBlock` + `self` **1 → 6** over three
-seeds, `contest` 7 → 4, `edge` 2 → 0. A pawn that stops parking meets things a parked
-pawn never met, and on `mixed` what it meets is a body. KEPT — every counter D2 named
-moves the right way on both classes, and no class buries a unit it did not bury before —
-but the class of death it trades into is D3's own, and D3's measurement is where to find
-out whether the trade is paid back.
+* **0.25** — `mixed` `deathsPer100` 0.870 → **1.001**, `bodyBlock`+`self` 4 → **5**,
+  meals/100 19.14 → **18.93**. Fails three ways.
+* **0.5** — `mixed` `bodyBlock`+`self` 4 → **7**, meals/100 19.14 → **18.29**.
+* **1** — everything else passes on both classes (`deathsPer100` 0.870 → 0.745 and
+  0.818 → 0.770, parked down, meals up) and `mixed` `bodyBlock`+`self` still goes 4 → **6**.
 
-**What the prediction got right, and what it did not.** Parked falls on both classes and
-`longestPark` roughly halves, meals rise on both, and the pawn's tie rate falls by a
-third — the direction is right on every counter. The MAGNITUDES are not met: parked
-reaches 6.3% / 7.9% against a predicted <4%, `longestPark` 6 / 5 against ≤3, and
-meals/100 rises 4.3% on `mixed` against a predicted ≥5% (`potions` clears it at 9.3%). The
-addend separates a rotation from a hold, which is what it was built to do; it does not
-make the pawn's whole option set gradient-rich, and 43% of parked pawn-turns still end in
-a tie the tie-break decides.
+The knob DOES what it was built to do at every dose — the parked share falls on both
+classes and `longestPark` falls from 20 to between 4 and 8 on `mixed` — and it is refused
+anyway, because the owner's rule is to err conservative and this trades tempo for
+self-inflicted deaths.
 
-**One thing the prediction did not anticipate, recorded because it is real.** The knob
-applies to every non-royal piece, and for a KNIGHT — which has no orientation — `|F_u|`
-is a pure centrality bonus, so a knight in a high-mobility cell is now paid to stay in
-it. `mixed` knight parked share rises 4.56% → 8.64% — it is the team total that falls,
-and it falls in spite of the knights, not with them. (Under the PRE-D6 counter this
-showed up as `stationary` rising on `mixed` while the true parked share fell; that
-counter is gone, and the branch-vs-branch table above is the fixed one.) Kept anyway —
-the team totals move the right way on both classes and on every
-counter D2 named — but a knight parking is a new thing to watch, and if it grows the
-right narrowing is to gate the addend on kinds that HAVE an orientation rather than to
-retune the level.
+**THE MECHANISM, and it is not a level that wants retuning.** Split `mixed`'s
+`bodyBlock`+`self` deaths by what died: a one-cell body is a PIECE, a longer one a snake.
 
-**A correction to this section's own prose.** D2 says blue-C escapes by "the east
-rotation". At (0,10) facing west the two side squares are (0,11) and (0,9)
-(`moveGrammar.planUnitAction`, the `rotate` branch: the sides are `±(−dy, dx)`), so east
-is two turns away and the rotation this term buys is the one ALONG the board. The
-mechanism is unchanged; the compass bearing was wrong. The boundary test
-(`evaluate.test.ts`, "D2 — a pawn at the wall, where a rotation and a hold used to tie")
-pins the geometry at the reproduction's own cell: with `mobility` at 0 all three of the
-pawn's options score identically, and at 1 the along-the-board rotation is the argmax
-while the into-the-wall rotation stays exactly level with the hold.
+| dose | 0 | 0.25 | 0.5 | 1 |
+|---|---|---|---|---|
+| pieces dead on a body | **0** | **1** | **3** | **3** |
+| snakes dead on a body | 4 | 4 | 4 | 3 |
+
+The whole rise is pieces, and the snakes' own body deaths are flat to falling. The addend
+is the one reading in `commandSum` intersected with NOTHING — which is exactly why it
+survives the domain collapse, and exactly why it is blind. `sh.frontAt(nextTurn)` is the
+raw step-relation union: `Shells.extendTo` (`shells.ts:159-197`) applies no barrier and no
+occupancy mask at all — `entrapment.md` §3.3 says so in as many words, and the `∩ ¬barrier`
+that entrapment adds is added downstream of it, not here. So `|F_u|` counts a cell whether
+or not a body is standing on it, and the term pays a piece to sit where the raw fan is
+widest and to keep moving to keep it wide. Near a crowd of trail units the widest raw fan
+is precisely where the bodies are. `ground` and `food` at least intersect the front with
+something before it is paid for; the cardinality is paid for as counted. `contest` does not
+cover the gap — it prices enemy ARRIVALS, and a body that simply stays put is not an
+arrival.
+
+That is why the ties it breaks come out wrong. At the wall in the reproduction all three
+of blue-C's options are SAFE and the addend picks the useful one; away from the wall the
+tie is often between a safe hold and a step into a cell a body will still occupy, and the
+addend breaks that tie on activity because it has nothing else to break it on. Deaths also
+land earlier at every dose (`mixed` mean death turn 37.8 → 29.0 / 33.3 / 24.8), which is
+the same fact read on the clock.
+
+**What a repair would have to be.** Not this term at a smaller number: the defect is that
+the quantity is unmasked, so shrinking it shrinks the signal and the harm together, which
+is what the dose table shows — 0.5 is worse on pieces than 1 is. The two candidates the
+measurement leaves standing are (a) intersect the front with the board's own occupancy
+before counting it, so a piece is paid for cells it can actually stand on, and (b) gate
+the addend on kinds that HAVE an orientation, since for a knight `|F_u|` is a pure
+centrality bonus and `mixed` knight parked share ROSE 4.56% → 8.64% under it. Both are
+guesses. Neither is measured. The dose table is.
+
+**A correction to this section's own prose, which stands whatever happens to the rule.**
+D2 says blue-C escapes by "the east rotation". At (0,10) facing west the two side squares
+are (0,11) and (0,9) (`moveGrammar.planUnitAction`, the `rotate` branch: the sides are
+`±(−dy, dx)`), so east is two turns away and the rotation in question is the one ALONG the
+board. The mechanism is unchanged; the compass bearing was wrong.
+
+**The boundary test is kept**, in `evaluate.test.ts` ("D2 — a pawn at the wall, where a
+rotation and a hold tie"), rewritten to pin the DEFECT rather than the refused repair: at
+the shipped weights all three of the pawn's options at the reproduction's own cell score
+identically to twelve digits, so nothing in the fold prefers the rotation that opens the
+board. That tie is what any future repair has to break, and the dose table above is what
+it has to beat while breaking it.
 
 ---
 
@@ -378,9 +391,14 @@ cannot be read as a soundness failure. The bound arithmetic is fine: `lo` still 
 `weightMax` for `need` and a constant denominator makes larger `need` a strictly larger
 fear, which is the direction that reading wants. It is SOUND, and it is still wrong.
 
-Measured against this branch's head (D2 in, which is byte-identical to the working-branch
-head on `snakes` and `sparse`), all four classes, seeds 1–3, 60 turns, `--nodes --json`,
-`scripts/ab-compare.js` per class:
+Measured against this branch's head as it then stood, all four classes, seeds 1–3, 60
+turns, `--nodes --json`, `scripts/ab-compare.js` per class. **That head had D2's
+`mobility` addend in it, and D2 has since been refused** — which leaves the `snakes` half
+of this measurement untouched, because D2 was byte-identical on `snakes` and `sparse` (no
+piece on those boards ever reaches its addend), and it is `snakes` that D3's prediction is
+written about. The `potions` and `mixed` columns were read against a base that no longer
+ships; they are kept as recorded rather than silently restated, and `mixed` was
+behaviourally identical under D3 on either base:
 
 | board | deaths | fatalEntrapments | `self`+`bodyBlock` | escaped | episodes | meals |
 |---|---|---|---|---|---|---|

@@ -271,32 +271,6 @@ export interface CommandKnobs {
   /** Multiplier on food cells inside the command set. */
   readonly food: number;
   /**
-   * Multiplier on the command set's OWN CARDINALITY — `|F_u|`, the cells the
-   * piece can act on next turn at all, before any intersection.
-   *
-   * THE ORIENTATION A PAWN BUYS, AND THE ONLY TERM THAT CAN SEE IT
-   * (`docs/design/BEHAVIOUR-AUDIT.md` D2). Every other member reads
-   * `Standing.cell`, and a rotation does not change it, so a rotation and a
-   * hold are literally the same position to them; `momentum.costOf` charges
-   * the two the same by its own account. `command` is the one member that
-   * reads a piece's NEXT-TURN front — but `ground` and `food` intersect that
-   * front with the contested trail domain and the food board, and on a board
-   * with a slider on it a queen's claim cloud collapses the trail domain near
-   * the perimeter (`entrapment.md` §4.4), so the one cell that differs between
-   * two orientations is in neither board and the two score identically. The
-   * measured consequence is a pawn parked for nineteen consecutive turns
-   * against the wall (`potions` seed 5, blue-C at (0,10), turns 27-45).
-   *
-   * The front's cardinality is in NEITHER board, so it survives that collapse:
-   * a piece facing into a wall commands fewer cells than the same piece turned
-   * along it, whatever the domain says. It reads the same shells `ground`
-   * reads and enters the same clamp, so `c` stays in [0, 1] and the range and
-   * the cliff inequality are untouched; it is identically zero on a board with
-   * no piece on it, because the loop below skips `leavesTrail` kinds before it
-   * is reached.
-   */
-  readonly mobility: number;
-  /**
    * Whether a ROYAL unit earns command. Off — and the honest account of why is
    * that the ARGUMENT survived and the MEASUREMENT did not settle it.
    *
@@ -373,14 +347,19 @@ export interface CommandKnobs {
  * before either knob existed — asserted, not asserted-by-comment, in
  * `src/tests/territory-slider.test.ts`.
  */
-export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, mobility: 1, royal: false };
+export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
 
 /**
- * `mobility` AT ONE, WHICH IS `ground`'S LEVEL AND AN ORDER OF MAGNITUDE UNDER
- * `food`'S. The addend is a tie-break and not a second objective: a piece is
- * still worth the contested ground it can act on and the meals it can take,
- * and the cardinality only decides between two options those two cannot tell
- * apart. Setting it at `food`'s level would buy orientation with meals.
+ * THERE IS NO `mobility` KNOB, AND THE ABSENCE IS A MEASUREMENT — BEHAVIOUR-AUDIT
+ * D2. A third addend paying the command set's own cardinality `|F_u|` was built
+ * exactly as D2's rule states it, swept at 0.25, 0.5 and 1 over `mixed` seeds 1-6
+ * and `potions` seeds 1-3, and taken at no dose. It does what it was built to do —
+ * the parked share falls at every dose and `longestPark` roughly halves — and it
+ * pays for it in the one currency the owner's rule will not spend: `mixed`
+ * bodyBlock deaths of PIECES go 0 -> 1 -> 3 -> 3 with the dose while the snakes'
+ * own body deaths stay flat, because the cardinality is intersected with nothing
+ * and so knows nothing about what is standing on the cells it counts. See D2's
+ * STATUS section for the dose table; do not re-derive it from the prediction.
  */
 
 /**

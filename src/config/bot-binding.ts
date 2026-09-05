@@ -163,7 +163,7 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
     weights: Record<string, number>;
     reachHorizonTurns: number;
     royalReachers?: boolean;
-    command?: { ground: number; food: number; mobility: number; royal: boolean };
+    command?: { ground: number; food: number; royal: boolean };
     energyReserveRatio?: number;
   } = { name: raw.name, weights, reachHorizonTurns: horizon };
 
@@ -181,16 +181,11 @@ function parseProfile(raw: unknown): { profile: CriterionProfile } | { error: st
       !Number.isFinite(c.ground) ||
       typeof c.food !== 'number' ||
       !Number.isFinite(c.food) ||
-      typeof c.mobility !== 'number' ||
-      !Number.isFinite(c.mobility) ||
       typeof c.royal !== 'boolean'
     ) {
-      return {
-        error:
-          'profile.command must be {ground: number, food: number, mobility: number, royal: boolean}',
-      };
+      return { error: 'profile.command must be {ground: number, food: number, royal: boolean}' };
     }
-    profile.command = { ground: c.ground, food: c.food, mobility: c.mobility, royal: c.royal };
+    profile.command = { ground: c.ground, food: c.food, royal: c.royal };
   }
   if (raw.energyReserveRatio !== undefined) {
     if (typeof raw.energyReserveRatio !== 'number' || !Number.isFinite(raw.energyReserveRatio)) {
