@@ -260,6 +260,15 @@ async function main() {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const context = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+  // THE TOUR'S FIRST-RUN OFFER IS SUPPRESSED FOR THE WHOLE WALK, and opened
+  // deliberately by the tour drill at the end of it. `src/web/tour.js` opens
+  // itself once per browser profile on the first game it can point at, which
+  // is right for an operator and wrong for a camera: a dim layer over every
+  // photograph below would change thirty-three pictures for a reason that has
+  // nothing to do with what they are of.
+  await context.addInitScript(() => {
+    try { localStorage.setItem('lensTourDone', '1'); } catch (e) { /* no storage */ }
+  });
   const page = await context.newPage();
   let at = 'boot';
   watch(page, () => at);
@@ -638,6 +647,176 @@ async function main() {
   // page: a reload re-enters through the login gate, and an operator who has
   // to take a numbered name does not own the units. Nothing follows it, so
   // nothing can be hurt by that.
+  // ── THE TOUR DRILL ──────────────────────────────────────────────────────
+  //
+  // `src/web/tour.js` is the operator manual in the page it is about, and the
+  // one property it has to have is the one a screenshot cannot show: THAT IT
+  // CHANGES NOTHING. A tour that stops the turn to explain the turn has taught
+  // the operator nothing they can use, so this asserts, in this order:
+  //
+  //  · it opens on the chord the manual documents (`?` then `T`);
+  //  · it visits EVERY region whose element is actually on screen — no more,
+  //    because a step pointing at nothing is worse than a step skipped, and no
+  //    fewer, because a region the tour never reaches is a region it does not
+  //    teach;
+  //  · `Enter` steps and the last `Enter` finishes, leaving the completion in
+  //    `localStorage` so it does not open itself again;
+  //  · and the LENS FRAME AND THE DECISION ARE BYTE-IDENTICAL ACROSS THE WHOLE
+  //    OF IT — the rail's markup, the cursor, the staged moves and the undo
+  //    stack, taken off the head so nothing may legitimately move underneath.
+  //
+  // A failed assertion fails the run, like the other two drills.
+  at = 'tour';
+  const tour = [];
+  const tourCheck = (name, ok, saw) => {
+    tour.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} tour/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+  const tourState = () =>
+    page.evaluate(() => ({
+      open: window.Tour ? window.Tour.isOpen() : null,
+      step: window.Tour ? window.Tour.stepId() : null,
+      shown: window.Tour ? window.Tour.shown() : null,
+      all: window.Tour ? window.Tour.steps() : null,
+      card: (document.querySelector('.tour-card') || {}).innerText || null,
+      link: !!document.querySelector('[data-tour-open]'),
+      done: (() => { try { return localStorage.getItem('lensTourDone'); } catch (e) { return null; } })(),
+    }));
+
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await focusUnit(page, 0);
+  await selectAnsweredCandidate(page, 'red-A');
+  await sleep(400);
+  tourCheck('the chrome link is on the page before anything is pressed', (await tourState()).link, null);
+
+  // WHICH REGIONS ARE ACTUALLY THERE, asked of the DOM and not of the tour,
+  // so the next assertion compares two independent answers.
+  const onScreen = await page.evaluate(() => {
+    const sels = {
+      clock: '#turnClock', wire: '#latency-mount', board: '#gameCanvas', roster: '#snakeInfoList',
+      stage: '.lens-stage-line', business: '.lens-biz', focus: '.lens-focus',
+      candidates: '.lens-candidates', movesets: '.lens-movesets', breakdown: '.lens-breakdown',
+      controls: '#lensControls', keys: '#lensKeys', lane: '#lensLane',
+    };
+    const out = [];
+    for (const [id, sel] of Object.entries(sels)) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width >= 2 && r.height >= 2) out.push(id);
+    }
+    return out;
+  });
+
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(600);
+  const opened = await tourState();
+  tourCheck('`?` then `T` opens it', opened.open === true && opened.step !== null, {
+    open: opened.open, step: opened.step,
+  });
+  tourCheck(
+    'it visits every region that is on screen, and only those',
+    JSON.stringify(opened.shown) === JSON.stringify(onScreen),
+    { shown: opened.shown, onScreen, all: opened.all }
+  );
+  await shot(page, 'd8-tour', 'the drill: the tour on its first region — the page under it is live', null);
+
+  // ONE `Enter` PER REGION. The step id has to change on every one of them: a
+  // tour whose Next button redraws the same card is a tour of one region.
+  at = 'tour/steps';
+  const visited = [opened.step];
+  let cards = 1;
+  for (let i = 1; i < (opened.shown || []).length; i++) {
+    await page.keyboard.press('Enter');
+    await sleep(220);
+    const st = await tourState();
+    if (st.step && st.step !== visited[visited.length - 1]) cards++;
+    visited.push(st.step);
+  }
+  tourCheck(
+    'Enter steps through every region in the manual’s own order',
+    JSON.stringify(visited) === JSON.stringify(opened.shown) && cards === (opened.shown || []).length,
+    { visited, expected: opened.shown }
+  );
+  // THE WHOLE PAGE, and not a crop of the card. The card is `position: fixed`
+  // and it moves with the region it explains, so both ways of cropping it have
+  // now photographed something else: an element shot scrolls it out from under
+  // its own clip, and a page clip is in page coordinates where the card's rect
+  // is in viewport ones. The full page is the honest picture anyway — the
+  // point of the shot is the LAST region lit with the page still live under
+  // it — and the card's text is in the report beside it.
+  report.notes.tourLastCard = (await tourState()).card;
+  await shot(page, 'd9-tour-last', 'the drill: the last region of the tour, with the page live under it');
+
+  // THE INVARIANT. Taken OFF THE HEAD, because at the head the kernel is still
+  // emitting and a rail that changed would prove nothing about the tour.
+  at = 'tour/invariant';
+  await page.keyboard.press('Enter'); // the last card finishes
+  await sleep(400);
+  await page.keyboard.press('Home');
+  await sleep(700);
+  const fingerprint = () =>
+    page.evaluate(() => ({
+      seq: typeof lensSeq === 'undefined' ? null : lensSeq,
+      atHead: typeof lensAtHead === 'undefined' ? null : lensAtHead,
+      rail: (document.getElementById('lensRail') || {}).innerHTML || null,
+      controls: (document.getElementById('lensControls') || {}).innerHTML || null,
+      transcript: typeof lensTranscript === 'undefined' ? null : JSON.stringify(lensTranscript),
+      cursor: typeof lensCursor === 'undefined' ? null : JSON.stringify(lensCursor),
+      staged: typeof stagedMoves === 'undefined' ? null : JSON.stringify(stagedMoves),
+      undo: typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length,
+    }));
+  const before = await fingerprint();
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(500);
+  const midTour = await tourState();
+  for (let i = 0; i < (midTour.shown || []).length; i++) {
+    await page.keyboard.press('Enter');
+    await sleep(160);
+  }
+  await sleep(400);
+  const after = await fingerprint();
+  const closed = await tourState();
+  tourCheck(
+    'the tour changed no lens frame and no decision',
+    before.rail === after.rail &&
+      before.transcript === after.transcript &&
+      before.cursor === after.cursor &&
+      before.staged === after.staged &&
+      before.undo === after.undo &&
+      before.seq === after.seq,
+    {
+      rail: before.rail === after.rail,
+      transcript: before.transcript === after.transcript,
+      cursor: before.cursor === after.cursor,
+      staged: before.staged === after.staged,
+      undo: [before.undo, after.undo],
+      seq: [before.seq, after.seq],
+    }
+  );
+  tourCheck('it closes on the last Enter and remembers it', closed.open === false && closed.done !== null, {
+    open: closed.open, done: closed.done,
+  });
+
+  // AND `Esc` LEAVES, from the middle, which is the way an operator who
+  // already knows the page gets out of it.
+  at = 'tour/escape';
+  await page.keyboard.press('?');
+  await page.keyboard.press('T');
+  await sleep(400);
+  await page.keyboard.press('Enter');
+  await sleep(200);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  const escaped = await tourState();
+  tourCheck('Esc leaves it from the middle', escaped.open === false && escaped.card === null, escaped);
+  await page.keyboard.press('n');
+  await sleep(500);
+  report.notes.tour = tour;
+
   at = 'scheme';
   const scheme = [];
   const schemeCheck = (name, ok, saw) => {
@@ -751,6 +930,7 @@ async function main() {
   // step that failed.
   const failed = [
     ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
+    ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
