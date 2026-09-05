@@ -187,6 +187,46 @@ byte-identical on `snakes`, `mixed`, `sparse`, `sparse-lean`, `potions`, `wide`,
 `dense`, `asym` and `potion-rich`; `long` may differ only after turn 100. If any
 class other than `long` moves, κ = 1 has been implemented wrong.
 
+### STATUS — CLOSED by `docs/design/TERMINAL-SOUND.md`; `CAP_RUNG_FLOOR(κ)` is not needed
+
+W1 is a soundness defect and it has been fixed as one, so the dose ladder above
+never has to be swept. The gate this section quotes —
+`possibleKinds.length !== 1 || possibleKinds[0] !== 'turn-limit'` — is gone from
+`terminal.ts`; what replaced it is not κ = 1's "read the loss half on every
+rung" but the predicate the rule was always about: `ended(kinds)`, i.e. *no
+world this settlement admits leaves the game running*. Past the cap `adjudicate`
+cannot return `continues` at all (`decide` emits it only when `reachedTurnLimit`
+is false), so `ended` holds on **every** rung including B0 — the rung κ was
+invented to reach — and it holds for the reason κ = 1 only asserted. Both
+corners are then read as BOUNDS off the bracket rather than as a verdict per
+winners list, and `clampTo`/`meetClamps` replace only the ends a member spoke
+for and widen on disagreement, so the assembly this section blames — a finite
+B0 floor standing above a −∞ B2 ceiling — cannot be built by any path through
+`finish`. κ = 2's warning ("a WIN floor is the direction that CAN invert") is
+answered by construction rather than by a sweep: `'win'` as a floor forces
+`possibleWinners = {us}`, which forces `'win'` as the ceiling too.
+
+Measured on the merged head (`87e8e87`), 120 turns, `--nodes`, seeds 1–10,
+mirror and `--opponent=material-only` — the same twenty arms as the table above:
+
+| gate | W1's measurement | merged head |
+|---|---|---|
+| `long` games with `crashed != null` | 9 / 20 | **0 / 20** |
+| `INVERSION` lines, `long 3 --opponent=material-only` | crashed T120 | **0**, exit 0 |
+| `INVERSION` lines, `long 9` mirror | crashed T105 | **0**, exit 0 |
+
+The second half of W1 — `buildBoard` putting the spec's `maxTurns` on the board
+— also landed (TERMINAL-SOUND §4), and the ordering warning ("it must not land
+before κ") was honoured: the corner repair and the algebra shipped in the same
+commit as the cap statement, which is why the class that this section predicted
+would crash on *every* board instead crashes on none.
+
+What W1's counter proposal still buys, and is NOT closed: `capFired` /
+`capFiredByRung` per decision. The member's reach is currently inferred from
+byte-identical arms rather than counted, which is enough to bound it and not
+enough to attribute a behaviour change to it. That is a runner instrument and
+belongs to whoever owns `local-game.ts`.
+
 ## W2 — `contest` prices the cell an enemy STANDS on and not the edge it CROSSES, and a slider's path is all edge
 
 **Rank 2. Twenty-eight deaths, on seven classes, of a cause audit 2 recorded as
