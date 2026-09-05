@@ -290,6 +290,68 @@ declined and would need its own A/B), or the certainty is spent somewhere the
 floor does not read — the candidate ORDERING, or `momentum`'s idleness charge,
 which is the 0.167 that actually decided reproduction A.
 
+### THIRD ATTEMPT — the floor repaired at its cause (`d1-three`)
+
+The second attempt's blocker was named exactly: `contest` charged each of our
+units at the charge of the cell the PARTIAL resolution settles it on, and a
+completion world can settle it elsewhere. `settlePartial` settles with every
+held unit ABSENT, so a mover walks as far along its own staged path as an empty
+board allows; a world can only ADD obstacles, halting it earlier along that same
+walk or refusing the move outright and leaving it where it started. The cell is
+therefore CONTINGENT and the term read it as a point.
+
+#### The repair
+
+`contest.ts`'s `settlesOn` names the set — nothing at all where the engine's own
+`fates` says the unit is not contingent, so the term stays a POINT wherever
+nothing is held and its `dischargeable` contract still holds; otherwise the
+cells the unit ENTERED in this timeline (`traversed`) union the cell it set out
+from. `costOf` brackets over it: the dearest cell in the worst reading, the
+cheapest in the best.
+
+Checked on the law sweep's own 240 boards before it was believed: over **8 637
+completion worlds and 1 956 relocations of one of our movers, the world's settle
+cell was inside the set every time**, and it was outside `traversed` ALONE
+1 854 times — the commonest world is the one where the move does not happen and
+the unit is still standing where it started, so the ORIGIN is the defect rather
+than a tightening. A kind filter over the ledger (only the divergences that can
+halt a unit) was measured too and moves the mean set size 1.605 → 1.603 cells:
+the contingency is a halting one nearly every time, and the filter is not worth
+its own paragraph in the code.
+
+    law-sweep: contest.lo 30 -> 0   totalLo 0   no contest.hi class
+
+The class is CLOSED, not lowered, and `bounds/exact-reply.test.ts` stays exact
+on all four seed-1 arms.
+
+#### What the repair costs, ALONE, per board class
+
+60 turns, `--nodes`, `scripts/ab-compare.js` per class, never pooled, paired by
+seed against a baseline re-recorded at the head this branch left from
+(`924d91a`, a clean detached worktree). The baseline reproduces the corpus table
+figure for figure — `mixed` 1258 unit-turns / 10 deaths / 246 meals / `lost` 5,
+`snakes` 967 / 7 / 157, `sparse` 720 / 0 / 52, `potions` 3044 / 26 / 595 /
+`lost` 4.
+
+| board | arm | unit-turns | deaths (by cause) | `edge` | `lost` | meals/100 |
+|---|---|---|---|---|---|---|
+| `mixed` 1–3 | A | 1258 | 10 — contest 7, edge 2, bodyBlock 1 | 2 | 5 | 19.564 |
+| | repair | 1242 | **9** — bodyBlock 4, contest 5 | **0** | **1** | 18.764 (**−4.1%**) |
+| `potions` 1–8 | A | 3044 | 26 — contest 24, bodyBlock 1, edge 1 | 1 | 4 | 19.660 |
+| | repair | 3052 | **24** — contest 20, bodyBlock 2, edge 1, self 1 | 1 | 6 | 20.251 (+3.0%) |
+| `snakes` 1–3 | both | 967 | 7 — bodyBlock 4, self 3 | 0 | 0 | 16.190 |
+| `sparse` 1–3 | both | 720 | 0 | 0 | 0 | 7.222 |
+
+`sparse` is byte-identical on every field of the summary; `snakes` is identical
+on every GAME counter and differs only in the work and loud accounting
+(`nodes` 66 195 → 66 193 on seed 1).
+
+**The repair alone is out on `mixed` meals**: −4.1% per 100 unit-turns against a
+3% budget, with the parked share 7.2% → 8.2%. It answers the `edge` deaths
+(2 → 0 on `mixed`) and takes `enemyOccupiedEntriesLost` 5 → 1 there, and it
+loses ground on `potions`' `lost` (4 → 6).
+
+
 ---
 
 ## D2 — a pawn's orientation is invisible to the fold, so it parks
