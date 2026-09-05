@@ -81,7 +81,14 @@ export type { ContestField } from './contest';
 export { energyCostOf, energyFeature, tripOf } from './energy';
 export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
-export { PERIL_WEIGHT, potionFeature, tierFeature, tierIsLive } from './window';
+export {
+  PERIL_CONCAVITY,
+  PERIL_WEIGHT,
+  perilOverHorizons,
+  potionFeature,
+  tierFeature,
+  tierIsLive,
+} from './window';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';

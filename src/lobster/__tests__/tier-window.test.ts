@@ -25,6 +25,8 @@ import type { EngineSubstrate } from '../substrate';
 import { GrammarCandidateGenerator, PRUNE } from '../candidates';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank } from '../tier-window';
 import { makeSnake, piece, boardOf } from '../../tests/board-fixtures';
+import { DEFAULT_WEIGHTS } from '../evaluate/calibration';
+import { PERIL_WEIGHT, perilOverHorizons } from '../evaluate/window';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -391,5 +393,103 @@ describe('a board with no live tier pays nothing', () => {
       }
     }
     sub.release();
+  });
+});
+
+// --------------------------------------------------- THE SHARE, AND ITS SHAPE
+
+/**
+ * P2 (`docs/design/BEHAVIOUR-AUDIT-2.md`). The peril half reads the FRACTION of
+ * the collector's own ground an enemy beats, so a wide collector dilutes
+ * identical danger; `PERIL_CONCAVITY = γ` shapes that fraction and nothing
+ * else. These cases pin the reproduction the audit is built on and the one
+ * property that separates this rule from the refuted D4.
+ */
+describe("the collector's exposure is a SHARE of its ground, and γ shapes it", () => {
+  /**
+   * `potions` seed 4, turn 36, red-C — the knight at (2,6) that plays the
+   * potion cell (0,7) over (4,5) on a margin of 0.04. Its ground, per horizon,
+   * exactly as the runner reads it at that decision: nine cells with three
+   * beaten at k = 1, and a tail that is fully beaten because by the second turn
+   * every unit on an 11x11 board can meet every other.
+   */
+  const RED_C_TURN_36: ReadonlyArray<readonly [number, number]> = [
+    [3, 9],
+    [34, 34],
+    [73, 73],
+  ];
+  const WINDOW = 3;
+
+  /** The margin the runner printed: (4,5) = -342.30 against (0,7) = -342.34. */
+  const MARGIN = 0.04;
+
+  /**
+   * What one point of peril is worth to the fold at that decision: the `potion`
+   * weight (2) times `PERIL_WEIGHT` (2), charged to the collector alone and
+   * divided by our unit count — red-A, red-B and red-C are all alive on turn 36.
+   */
+  const OUR_UNITS = 3;
+  const perilToScore = (peril: number): number =>
+    (DEFAULT_WEIGHTS.potion as number) * PERIL_WEIGHT * (peril / OUR_UNITS);
+
+  /**
+   * Today's term, written out rather than recomputed: `γ = 1` is
+   * `Σ_k (W − k + 1)·beaten_k / Σ_k (W − k + 1)` over the same three horizons.
+   */
+  const AT_GAMMA_ONE = (3 * (3 / 9) + 2 * 1 + 1 * 1) / 6;
+
+  it('reads two thirds at γ = 1, of which half is the saturated tail', () => {
+    expect(AT_GAMMA_ONE).toBeCloseTo(2 / 3, 12);
+    // The tail alone: 0.5 of the reading, a constant, and D4's whole finding.
+    expect((2 * 1 + 1 * 1) / 6).toBeCloseTo(0.5, 12);
+  });
+
+  it('prices red-C above the 0.04 margin the pickup was actually taken on', () => {
+    const shaped = perilOverHorizons(RED_C_TURN_36, WINDOW);
+    expect(shaped).toBeGreaterThan(AT_GAMMA_ONE);
+    const rise = perilToScore(shaped) - perilToScore(AT_GAMMA_ONE);
+    // The whole point of the knob: the extra charge has to clear the margin the
+    // trace records, or red-C plays the potion cell again.
+    expect(rise).toBeGreaterThan(MARGIN);
+    // At the shipped γ = 1/2 the number is 0.163 — four times the margin, and
+    // still an order inside the cliff, since `shaped` cannot leave [0, 1].
+    expect(rise).toBeCloseTo(0.1627, 3);
+    expect(shaped).toBeLessThanOrEqual(1);
+  });
+
+  it('raises the price of every pickup and cuts none — the opposite of D4', () => {
+    // `share^γ >= share` for every share in [0, 1] at γ <= 1, so no ground
+    // anywhere reads cheaper than it did. D4 moved mass off a saturated tail
+    // and cut every price; this moves nothing between horizons.
+    for (let beaten = 0; beaten <= 25; beaten++) {
+      const one = beaten / 25;
+      const shaped = perilOverHorizons([[beaten, 25]], WINDOW);
+      expect(shaped).toBeGreaterThanOrEqual(one - 1e-12);
+    }
+  });
+
+  it('leaves a fully beaten ground exactly where it was, at every horizon', () => {
+    // The counter in §P2: a saturated tail reads 1^γ = 1 and is untouched.
+    expect(perilOverHorizons([[9, 9], [34, 34], [73, 73]], WINDOW)).toBeCloseTo(1, 12);
+    expect(perilOverHorizons([[0, 9], [0, 34], [0, 73]], WINDOW)).toBeCloseTo(0, 12);
+  });
+
+  it('stops a wide collector diluting three beaten cells into nothing', () => {
+    // The mechanic itself: three beaten cells under a knight's nine and under a
+    // queen's twenty-five. At γ = 1 the queen reads a third of what the knight
+    // does at identical danger; at γ = 1/2 the gap closes by construction.
+    const knight = perilOverHorizons([[3, 9]], WINDOW);
+    const queen = perilOverHorizons([[3, 25]], WINDOW);
+    expect(3 / 25 / (3 / 9)).toBeCloseTo(0.36, 6);
+    expect(queen / knight).toBeGreaterThan(0.36);
+  });
+
+  it('a horizon the collector has no claim at carries no weight', () => {
+    // `[0, 0]` is "no claim", not "nothing beats it": it must not pull the
+    // reading toward zero the way a genuinely clear horizon does.
+    expect(perilOverHorizons([[3, 9], [0, 0], [0, 0]], WINDOW)).toBeCloseTo(
+      perilOverHorizons([[3, 9]], WINDOW),
+      12
+    );
   });
 });
