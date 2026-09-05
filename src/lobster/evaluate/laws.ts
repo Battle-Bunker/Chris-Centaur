@@ -114,7 +114,7 @@ export function* worldsOf(
   let rosters: Array<Map<UnitId, Candidate>> = [new Map(base)];
   let truncated = false;
   for (const unitId of held) {
-    const actions = sub.enumerate(unitId);
+    const actions = sub.actionsOf(unitId);
     const next: Array<Map<UnitId, Candidate>> = [];
     for (const roster of rosters) {
       for (const action of actions) {
@@ -123,12 +123,7 @@ export function* worldsOf(
           break;
         }
         const extended = new Map(roster);
-        extended.set(unitId, {
-          unitId,
-          from: -1,
-          to: action.dest,
-          path: action.action.kind === 'move' ? [...action.action.path] : [],
-        });
+        extended.set(unitId, action);
         next.push(extended);
       }
       if (truncated) break;
@@ -205,10 +200,10 @@ export function checkMonotone(evaluator: BoundEvaluator, c: LawCase): LawResult 
     held = heldOf(free, c);
     for (const unitId of held) {
       const wireId = free.unitOf(unitId)?.wireId as string;
-      const actions = free.enumerate(unitId);
+      const actions = free.actionsOf(unitId);
       if (actions.length < 2) continue;
       for (const size of [1, Math.max(1, Math.floor(actions.length / 2))]) {
-        const subset = actions.slice(0, size).map((a) => a.dest);
+        const subset = actions.slice(0, size).map((a) => a.to);
         const narrowed = substrateFor(c, new Map([[wireId, subset]]));
         try {
           const after = evaluator.evaluatePlan(
@@ -252,7 +247,7 @@ export function checkCollapse(evaluator: BoundEvaluator, c: LawCase): LawResult 
     const all = new Map<UnitId, Candidate>();
     for (const unit of sub.roster()) {
       const to = c.orders.get(unit.wireId);
-      const dest = to ?? (sub.enumerate(unit.unitId)[0]?.dest as number);
+      const dest = to ?? (sub.actionsOf(unit.unitId)[0]?.to as number);
       all.set(unit.unitId, {
         unitId: unit.unitId,
         from: -1,

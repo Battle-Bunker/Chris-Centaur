@@ -35,13 +35,12 @@ export type { BasisKey, BasisRefusal, BoundsInput, DominanceVerdict, FloorCompar
 export {
   EVALUATOR_RESIDUE_UNIT,
   evaluatorResidueEntry,
-  frozenUnitBySlot,
-  heldUnitsOf,
-  heldUnitsOfTeam,
   ledgerOf,
   residueOf,
-  teamOfHeld,
 } from "./ledger";
+
+export { materialOf, scopedTeamValue, teamValue, unitValuesOf } from "./material";
+export type { MaterialBounds, UnitValue } from "./material";
 
 export { candidateKey, cellsOf, footprintOf, planKey, sameCandidate, unitsOf, withMove, withMoves } from "./plan";
 
@@ -55,6 +54,9 @@ export { hasRoster, isModelling, modelledView } from "./substrate-ext";
 export type { ModelledView, ModellingSubstrate, RosterSubstrate } from "./substrate-ext";
 
 export { WitnessSet, refutedAt, sameWitness, witnessKey, witnessOf, witnessUnits } from "./witness";
+
+export { loudReadingOf, observeLoud } from "./loud";
+export type { LoudReading, LoudUnitCount } from "./loud";
 
 export { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG } from "./bank";
 export type { BankConfig, BankInput, BankResult, MemberReport, Rung } from "./bank";

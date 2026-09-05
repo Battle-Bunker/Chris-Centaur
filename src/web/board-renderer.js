@@ -1,4 +1,46 @@
 const BoardRenderer = (function () {
+  // ── THE TOKENS, READ FROM THE SHEET ───────────────────────────────────────
+  // A CANVAS DOES NOT CASCADE. Every colour in this file is a JS string, and
+  // before `src/web/tokens.css` there were eighty-odd of them that no
+  // stylesheet could see — which is how the board's violet and the rail's
+  // violet came to be two copies of one decision, and how `#888888` came to
+  // mean three different things in five files
+  // (docs/design/ux/09-DESIGN-TOKENS.md §1.2).
+  //
+  // So the values are declared once, on `:root`, and read off it here. The
+  // read is memoised per name — one `getComputedStyle` for the document
+  // element, then a map — because these are called inside draw loops.
+  //
+  // EVERY CALL CARRIES ITS OWN LITERAL AS THE FALLBACK, and that is not
+  // belt-and-braces: `board-test.html` links no stylesheet at all and has to
+  // keep drawing the board it always drew, and the jest suites load this file
+  // in a `node` environment where there is no `document` to ask. The fallback
+  // IS the value in both of those, and the sheet is the value in the browser.
+  let _tokenRead;
+  const _tokenCache = new Map();
+  function token(name, fallback) {
+    if (_tokenRead === undefined) {
+      _tokenRead = null;
+      try {
+        if (
+          typeof document !== "undefined" &&
+          document.documentElement &&
+          typeof getComputedStyle === "function"
+        ) {
+          const cs = getComputedStyle(document.documentElement);
+          _tokenRead = (n) => (cs.getPropertyValue(n) || "").trim();
+        }
+      } catch (e) {
+        _tokenRead = null;
+      }
+    }
+    if (_tokenCache.has(name)) return _tokenCache.get(name);
+    const read = _tokenRead ? _tokenRead(name) : "";
+    const value = read || fallback;
+    _tokenCache.set(name, value);
+    return value;
+  }
+
   let _potionImage = null;
   let _potionImageLoading = false;
 
@@ -15,8 +57,27 @@ const BoardRenderer = (function () {
     img.src = "/invulnerability-potion.png";
   }
 
+  // 912 KB, AND IT USED TO BE FETCHED ON EVERY COLD LOAD OF EVERY PAGE THAT
+  // INCLUDES THIS FILE — six times the whole script payload on the wire, in
+  // parallel with the fifteen scripts and the first board, for an icon most
+  // boards never draw. `docs/design/ux/03-LATENCY.md` §1.4 recorded that the
+  // DECODE is lazy; the FETCH was not.
+  //
+  // So it is asked for at the first of two moments instead:
+  //   · when the page goes idle after load — the cache is warm long before a
+  //     potion can appear, and nothing on the critical path waited for it;
+  //   · immediately, the first time a board that actually carries potions is
+  //     rendered, in case that happens before the page ever idles.
+  // Either way the draw path is unchanged: it already draws the 🧪 fallback
+  // whenever `_potionImage` is null, which is what it did for the first
+  // hundred milliseconds of every session before this change too.
   if (typeof window !== "undefined") {
-    loadPotionImage();
+    const idle =
+      typeof window.requestIdleCallback === "function"
+        ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
+        : (fn) => setTimeout(fn, 1200);
+    if (document.readyState === "complete") idle(loadPotionImage);
+    else window.addEventListener("load", () => idle(loadPotionImage), { once: true });
   }
 
   // ── Canvas resolution ─────────────────────────────────────────────────────
@@ -159,6 +220,8 @@ const BoardRenderer = (function () {
   function hexToRgba(hex, alpha) {
     let color = hex;
     if (!color || typeof color !== "string") {
+      // The unit-colour fallback, as a wash. One value, one name — see
+      // `--unit-colour-fallback` in tokens.css and 09-DESIGN-TOKENS §1.2.
       return `rgba(136, 136, 136, ${alpha})`;
     }
     color = color.replace("#", "");
@@ -197,7 +260,7 @@ const BoardRenderer = (function () {
         id: s.id,
         head: prevBody[0],
         body: prevBody.slice(),
-        color: s.customizations?.color || s.color || "#888888",
+        color: s.customizations?.color || s.color || token("--unit-colour-fallback", "#888888"),
       });
     });
     return dead;
@@ -249,7 +312,7 @@ const BoardRenderer = (function () {
   // eye surfacing at the faced edge. Drawn OUTSIDE the head-cell clip: the
   // brow's tips and apex deliberately overhang the cell by a few percent.
   // Callers skip it for ghosts/corpses (an orientation-less cell draws none).
-  const EYE_STROKE = "rgba(56, 174, 255, 0.8)";
+  const EYE_STROKE = token("--board-eye", "rgba(56, 174, 255, 0.8)");
   function drawOrientationEye(ctx, orientation, hx, hy, cellSize) {
     const u = orientationUnitVector(orientation);
     if (!u) return;
@@ -354,8 +417,8 @@ const BoardRenderer = (function () {
   // left unclaimed on this board — sky blue is facing, green is goto, blue is
   // near, red is death.
   const HOLD_SHIELD_COLORS = {
-    fill: "#ffca28",
-    line: "rgba(16, 20, 26, 0.9)",
+    fill: token("--board-food", "#ffca28"),
+    line: token("--board-food-line", "rgba(16, 20, 26, 0.9)"),
   };
 
   // The badge itself: a heater shield — flat top, straight shoulders, flanks
@@ -398,9 +461,9 @@ const BoardRenderer = (function () {
   // orientation eye on the cell edge (drawOrientationEye), which reads as a
   // direction at a glance where a rotated 2D icon does not.
   const ICON_COLORS = {
-    base: "#ffffff",
-    line: "rgba(0, 0, 0, 0.8)",
-    accent: "#e53935",
+    base: token("--grey-ffffff", "#ffffff"),
+    line: token("--board-line", "rgba(0, 0, 0, 0.8)"),
+    accent: token("--health-bar-low", "#e53935"),
   };
   // An Archimedean spiral sampled into a polyline, running outward from the
   // tail at the centre and finishing at `endAngle`. Round joins and caps make
@@ -646,9 +709,9 @@ const BoardRenderer = (function () {
     ctx.textBaseline = "middle";
     ctx.globalAlpha = (opts && opts.alpha) != null ? opts.alpha : 1;
     ctx.lineWidth = Math.max(size * 0.18, 1.5);
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.strokeStyle = token("--wash-black-85", "rgba(0, 0, 0, 0.85)");
     ctx.strokeText(glyph, x, y);
-    ctx.fillStyle = (opts && opts.color) || "#80d8ff";
+    ctx.fillStyle = (opts && opts.color) || token("--blue-80d8ff", "#80d8ff");
     ctx.fillText(glyph, x, y);
     ctx.restore();
   }
@@ -714,8 +777,8 @@ const BoardRenderer = (function () {
     ink: { x: 0.5, y: 3, w: 22.5, h: 16.5 },
   };
   const ANVIL_COLORS = {
-    fill: "#c2c7cd", // silver
-    line: "rgba(20, 24, 30, 0.75)", // the rim that keeps it legible on white
+    fill: token("--board-silver", "#c2c7cd"), // silver
+    line: token("--board-silver-line", "rgba(20, 24, 30, 0.75)"), // the rim that keeps it legible on white
   };
 
   // The anvil on a canvas, left-aligned at `x` and vertically centred on
@@ -772,8 +835,8 @@ const BoardRenderer = (function () {
     ink: { x: 0.9, y: 1.4, w: 22.2, h: 18.4 },
   };
   const HAZARD_COLORS = {
-    fill: "#d81b1b", // the hazard lattice's red, at full strength
-    inner: "#ffffff", // the exclamation, backing the even-odd holes
+    fill: token("--board-hazard", "#d81b1b"), // the hazard lattice's red, at full strength
+    inner: token("--grey-ffffff", "#ffffff"), // the exclamation, backing the even-odd holes
   };
 
   // The hazard mark on a canvas, left-aligned at `x` and vertically centred on
@@ -842,11 +905,11 @@ const BoardRenderer = (function () {
 
   // Health-bar track: the dark under-layer the units-table health bar draws
   // its fill on. The on-cell bar uses HEALTH_BAR_CELL_TRACK instead.
-  const HEALTH_BAR_TRACK = "rgba(0, 0, 0, 0.4)";
+  const HEALTH_BAR_TRACK = token("--health-bar-track", "rgba(0, 0, 0, 0.4)");
   // The on-cell bar's track is SOLID BLACK: it sits on the unit's own body
   // colour, and only an opaque track keeps the empty part of the bar reading
   // as "missing health" rather than as a tint of the team colour.
-  const HEALTH_BAR_CELL_TRACK = "#000000";
+  const HEALTH_BAR_CELL_TRACK = token("--grey-000000", "#000000");
 
   // The invulnerability mark for a level, as a stat descriptor: the shield
   // GLYPH when protected, the drawn red hazard MARK when the level is negative
@@ -875,9 +938,20 @@ const BoardRenderer = (function () {
   // orange when low, green otherwise. Shared by the board bar and the unit
   // info panel so the two readouts always agree.
   function healthBarColor(frac) {
-    if (frac < 0.1) return "#e53935";
-    if (frac < 0.25) return "#fb8c00";
-    return "#43a047";
+    if (frac < 0.1) return token("--health-bar-low", "#e53935");
+    if (frac < 0.25) return token("--health-bar-mid", "#fb8c00");
+    return token("--health-bar-high", "#43a047");
+  }
+
+  // THE SAME RAMP, AS TEXT. The bar is a non-text mark and 3 : 1 is its bar;
+  // the roster's `\u2665` is TEXT at 11 px and owes 4.5 : 1, which `#43a047`
+  // misses at 4.35 on the roster's own ground. Same three steps, same
+  // meaning, lifted just far enough to be readable — kept beside the bar's
+  // ramp so the two can never drift into saying different things.
+  function healthTextColor(frac) {
+    if (frac < 0.1) return token("--health-text-low", "#ef5350");
+    if (frac < 0.25) return token("--health-text-mid", "#ffa726");
+    return token("--health-text-high", "#66bb6a");
   }
 
   // Health fraction for a snake: health over its configured per-type max
@@ -923,9 +997,9 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    ctx.fillStyle = "rgba(220, 30, 30, 0.18)";
+    ctx.fillStyle = token("--board-hazard-wash", "rgba(220, 30, 30, 0.18)");
     ctx.fillRect(x, y, cellSize, cellSize);
-    ctx.strokeStyle = "rgba(200, 12, 12, 0.9)";
+    ctx.strokeStyle = token("--board-hazard-edge", "rgba(200, 12, 12, 0.9)");
     ctx.lineWidth = Math.max(1, cellSize / 11);
     const spacing = Math.max(4, cellSize / 3);
     // Half a spacing in from the edges, so the pattern is centred in the cell
@@ -982,8 +1056,8 @@ const BoardRenderer = (function () {
   // The plaque a stat item is drawn on: near-white, so a tinted heart, a
   // silver anvil and a dark number keep the same contrast on EVERY team
   // colour and over every terrain a body can lie on.
-  const BODY_ITEM_PLAQUE = "rgba(255, 255, 255, 0.94)";
-  const BODY_ITEM_TEXT = "#14181e";
+  const BODY_ITEM_PLAQUE = token("--board-item-plaque", "rgba(255, 255, 255, 0.94)");
+  const BODY_ITEM_TEXT = token("--board-item-text", "#14181e");
 
   // Every item — the head's letter and every stat behind it — is drawn on ONE
   // square of the same size, so a body reads as a run of identical plates
@@ -1238,16 +1312,16 @@ const BoardRenderer = (function () {
     ctx.save();
     drawBodyPlate(
       ctx, box, item.fill,
-      "rgba(255, 255, 255, 0.9)", Math.max(1, fit.fontSize * 0.11),
+      token("--wash-white-90", "rgba(255, 255, 255, 0.9)"), Math.max(1, fit.fontSize * 0.11),
     );
     ctx.font = fit.font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
     ctx.lineWidth = Math.max(1.5, fit.fontSize * 0.16);
-    ctx.strokeStyle = "rgba(12, 16, 22, 0.72)";
+    ctx.strokeStyle = token("--wash-slate-72", "rgba(12, 16, 22, 0.72)");
     ctx.strokeText(item.text, box.x + box.w / 2, box.y + box.h / 2);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillText(item.text, box.x + box.w / 2, box.y + box.h / 2);
     ctx.restore();
   }
@@ -1269,7 +1343,7 @@ const BoardRenderer = (function () {
 
     const cells = distinctBodyCells(body);
     const owner = opts && opts.owner;
-    const unitColor = snake.customizations?.color || snake.color || "#888888";
+    const unitColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const letterItem = {
       key: "letter",
       chip: true,
@@ -1407,17 +1481,6 @@ const BoardRenderer = (function () {
     return null;
   }
 
-  // Find the id of the snake whose Voronoi territory owns `cell`, or null.
-  function findTerritoryOwnerAtCell(territoryCells, cell) {
-    if (!territoryCells || !cell) return null;
-    for (const [sid, cells] of Object.entries(territoryCells)) {
-      if (cells && cells.some((c) => c.x === cell.x && c.y === cell.y)) {
-        return sid;
-      }
-    }
-    return null;
-  }
-
   // Draw a dead-head marker at a board cell. A solid marker (shadow=false) is a
   // filled disc in the snake's color with a white ✗; a shadow marker
   // (shadow=true) is a ghosted/translucent disc with a dashed outline and a
@@ -1428,7 +1491,7 @@ const BoardRenderer = (function () {
     const cx = head.x * cellSize + cellSize / 2;
     const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
     const r = cellSize * 0.34;
-    const markColor = color || "#888888";
+    const markColor = color || token("--unit-colour-fallback", "#888888");
     ctx.save();
     if (shadow) {
       ctx.globalAlpha = 0.35;
@@ -1453,7 +1516,7 @@ const BoardRenderer = (function () {
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
-      ctx.strokeStyle = "#000000";
+      ctx.strokeStyle = token("--grey-000000", "#000000");
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.stroke();
@@ -1461,7 +1524,7 @@ const BoardRenderer = (function () {
     const d = r * 0.55;
     ctx.lineCap = "round";
     ctx.lineWidth = Math.max(1.5, cellSize * 0.1);
-    ctx.strokeStyle = shadow ? markColor : "#ffffff";
+    ctx.strokeStyle = shadow ? markColor : token("--grey-ffffff", "#ffffff");
     ctx.globalAlpha = shadow ? 0.85 : 1;
     ctx.beginPath();
     ctx.moveTo(cx - d, cy - d);
@@ -1504,10 +1567,10 @@ const BoardRenderer = (function () {
   // ring, a controlled unit wears thin gold DASHES on its own body outline,
   // and the clash frame is a solid amber line on the cell's own edge, outside
   // all of them.
-  const CLASH_INK = "#FF8F00";
+  const CLASH_INK = token("--board-clash", "#FF8F00");
   // The same ink, lit, for the cell the pointer is resting on.
-  const CLASH_INK_HOT = "#FFC107";
-  const CLASH_HALO = "rgba(0, 0, 0, 0.5)";
+  const CLASH_INK_HOT = token("--board-clash-hot", "#FFC107");
+  const CLASH_HALO = token("--board-clash-halo", "rgba(0, 0, 0, 0.5)");
 
   // How far the frame sits in from the cell's edge. Kept well inside the
   // body's own inset (getSnakeGap) so the frame lives in the margin a unit
@@ -1529,7 +1592,7 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     ctx.rect(x + 1, y + 1, cellSize - 2, cellSize - 2);
     ctx.clip();
-    ctx.fillStyle = hot ? "rgba(255, 143, 0, 0.3)" : "rgba(255, 143, 0, 0.16)";
+    ctx.fillStyle = hot ? token("--wash-amber-30", "rgba(255, 143, 0, 0.3)") : token("--wash-amber-16", "rgba(255, 143, 0, 0.16)");
     ctx.fillRect(x, y, cellSize, cellSize);
 
     const inset = clashFrameInset(cellSize);
@@ -1611,7 +1674,7 @@ const BoardRenderer = (function () {
     const cx = head.x * cellSize + cellSize / 2;
     const cy = (boardHeight - 1 - head.y) * cellSize + cellSize / 2;
     const r = cellSize * 0.34;
-    const markColor = color || "#888888";
+    const markColor = color || token("--unit-colour-fallback", "#888888");
     ctx.save();
     // Disc background so the glyph reads on any board cell.
     ctx.fillStyle = markColor;
@@ -1619,13 +1682,13 @@ const BoardRenderer = (function () {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
 
     // Four arrows pointing outward (up, down, left, right) from the disc edge.
-    const arrowColor = "#000000";
+    const arrowColor = token("--grey-000000", "#000000");
     ctx.strokeStyle = arrowColor;
     ctx.fillStyle = arrowColor;
     ctx.lineCap = "round";
@@ -1667,57 +1730,12 @@ const BoardRenderer = (function () {
     }
 
     // "?" glyph centered in the disc.
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `bold ${Math.max(8, Math.round(cellSize * 0.5))}px sans-serif`;
     ctx.fillText("?", cx, cy + cellSize * 0.02);
     ctx.restore();
-  }
-
-  function getMoveQuality(score, allScores) {
-    if (score == null || allScores.length === 0) return "not-evaluated";
-    const maxScore = Math.max(...allScores);
-    const minScore = Math.min(...allScores);
-    const range = maxScore - minScore;
-    if (range === 0) return "neutral";
-    const normalized = (score - minScore) / range;
-    if (normalized >= 0.8) return "best";
-    if (normalized >= 0.5) return "good";
-    if (normalized >= 0.2) return "neutral";
-    return "bad";
-  }
-
-  // Candidate-tint ramp, worst → middling → best. It runs through a slate
-  // blue rather than through yellow, because fertile ground IS yellow: a
-  // mid-scored candidate must never wear the terrain's colour.
-  const CANDIDATE_TINT_STOPS = [
-    { r: 214, g: 44, b: 60 }, // crimson — worst of the offered moves
-    { r: 78, g: 108, b: 142 }, // slate blue — middling / unranked
-    { r: 40, g: 158, b: 78 }, // green — best of the offered moves
-  ];
-  const CANDIDATE_TINT_ALPHA = 0.52;
-
-  // Tint for a position 0..1 along the ramp, as an rgba() string.
-  function candidateTint(normalized) {
-    const t = Math.max(0, Math.min(1, normalized));
-    const seg = t < 0.5 ? 0 : 1;
-    const f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
-    const a = CANDIDATE_TINT_STOPS[seg];
-    const b = CANDIDATE_TINT_STOPS[seg + 1];
-    const mix = (k) => Math.round(a[k] + (b[k] - a[k]) * f);
-    return `rgba(${mix("r")}, ${mix("g")}, ${mix("b")}, ${CANDIDATE_TINT_ALPHA})`;
-  }
-
-  function getScoreColor(score, allScores) {
-    if (score == null || allScores.length === 0) return candidateTint(0.5);
-    const maxScore = Math.max(...allScores);
-    const minScore = Math.min(...allScores);
-    const range = maxScore - minScore;
-    if (range === 0 || allScores.length === 1) {
-      return candidateTint(score > 0 ? 0.85 : score < 0 ? 0.15 : 0.5);
-    }
-    return candidateTint((score - minScore) / range);
   }
 
   // Rounded-rect path, traced by hand so the renderer never depends on
@@ -1733,18 +1751,320 @@ const BoardRenderer = (function () {
     ctx.closePath();
   }
 
+  // ---------------------------------------------------------------------
+  // THE LENS INK
+  //
+  // ONE RULE: violet means hypothetical. Nothing else on this board is violet
+  // and nothing else may become violet — the eye is blue, the hold shield and
+  // the clash arms are amber, fatal is red, the bot is grey, goto is green,
+  // near is teal-blue, and staged arrows wear their operator's colour. The
+  // lens draws what is being CONSIDERED, and it must never be mistakable for
+  // any of those.
+  //
+  // SHAPE CARRIES THE MEANING; COLOUR ONLY REINFORCES IT. Filled, hollow and
+  // dotted separate the cursor's arrow, an implied member's arrow and the foil
+  // with the hues collapsed, so the vocabulary survives a deuteranope reader —
+  // and it survives the dark board too, which is why every token is a pair.
+  // ---------------------------------------------------------------------
+
+  const LENS_THEME = {
+    light: {
+      lens: token("--board-lens-on-light", "#7B4FE0"),
+      wash: token("--board-lens-wash-on-light", "rgba(123, 79, 224, 0.07)"),
+      foil: token("--board-foil-on-light", "#00897B"),
+      fixed: token("--board-fixed-on-light", "#6B6B6B"),
+      refuter: token("--board-refuter-on-light", "#D84315"),
+      chipText: token("--board-chiptext-on-light", "#ffffff"),
+    },
+    dark: {
+      lens: token("--board-lens-on-dark", "#B39DFF"),
+      wash: token("--board-lens-wash-on-dark", "rgba(179, 157, 255, 0.12)"),
+      foil: token("--board-foil-on-dark", "#4DB6AC"),
+      fixed: token("--board-fixed-on-dark", "#9A9A9A"),
+      refuter: token("--board-refuter-on-dark", "#FF8A65"),
+      chipText: token("--board-chiptext-on-dark", "#14181e"),
+    },
+  };
+  const LENS_INK = LENS_THEME.light;
+
+  function lensTheme(theme) {
+    return LENS_THEME[theme] || LENS_THEME.light;
+  }
+
+  // Below this cell size the interior wash turns to mud, so it is dropped —
+  // the tethers and the chips carry the constellation on their own.
+  const LENS_WASH_MIN_CELL = 22;
+
+  function cellCenter(cell, boardHeight, cellSize) {
+    return {
+      x: cell.x * cellSize + cellSize / 2,
+      y: (boardHeight - 1 - cell.y) * cellSize + cellSize / 2,
+    };
+  }
+
+  function headOf(board, unitId) {
+    const snake = (board.snakes || []).find((s) => s.id === unitId);
+    return snake && snake.body && snake.body[0] ? snake.body[0] : null;
+  }
+
+  // Where a lens move ENDS, in board cells: a direction steps one cell, a
+  // numeric destination is the piece's own full-board index, and a stay
+  // resolves to the unit's own square (which draws nothing).
+  function lensEndpoint(board, unitId, move) {
+    const head = headOf(board, unitId);
+    if (!head) return null;
+    if (isDirectionMove(move)) return applyDirection(head, move);
+    const dest = moveDestinationCell(move, board);
+    if (!dest) return null;
+    if (dest.x === head.x && dest.y === head.y) return null;
+    return dest;
+  }
+
+  /**
+   * GROUND PASS — tethers and the interior wash, beneath the units and beneath
+   * every arrow. A hull or a cell frame would collide with the clash corner
+   * arms and read as noise on a body-covered board; thin line-art radiating
+   * from heads to a centroid reads instantly as a constellation, and nothing
+   * else on this board draws that shape. NO TETHER IS EVER DRAWN TO AN
+   * EXCLUDED UNIT: that is the exclusion, drawn.
+   */
+  function renderLensGround(ctx, board, lens, cellSize) {
+    if (!lens || !lens.clusters || lens.clusters.length === 0) return;
+    const ink = lensTheme(lens.theme);
+    ctx.save();
+    // SCRUBBED frames draw their hypotheses faintly. The playhead is off the
+    // head, determinations are refused, and the ink says so before the
+    // affordance has to.
+    ctx.globalAlpha = lens.dim ? 0.7 : 1;
+    for (const cluster of lens.clusters) {
+      const heads = (cluster.members || [])
+        .map((id) => headOf(board, id))
+        .filter(Boolean);
+      if (heads.length === 0) continue;
+
+      if (cellSize >= LENS_WASH_MIN_CELL) {
+        ctx.save();
+        ctx.fillStyle = ink.wash;
+        for (const head of heads) {
+          ctx.fillRect(
+            head.x * cellSize,
+            (board.height - 1 - head.y) * cellSize,
+            cellSize,
+            cellSize,
+          );
+        }
+        ctx.restore();
+      }
+
+      if (heads.length < 2) continue;
+      const cx = heads.reduce((a, h) => a + h.x, 0) / heads.length;
+      const cy = heads.reduce((a, h) => a + h.y, 0) / heads.length;
+      const centre = cellCenter({ x: cx, y: cy }, board.height, cellSize);
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = ink.lens;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      for (const head of heads) {
+        const from = cellCenter(head, board.height, cellSize);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(centre.x, centre.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // A cluster chip on the unit's head plate, opposite the letter: violet with
+  // the cluster's glyph for a member, grey with a padlock for a unit the bot
+  // may not move. A HELD unit keeps its amber shield and gets no padlock — the
+  // shield IS the reason, and two glyphs for one fact is the collision this
+  // vocabulary exists to prevent.
+  function drawLensChip(ctx, cell, boardHeight, cellSize, glyph, ink, fill) {
+    const r = Math.max(5, cellSize * 0.17);
+    const cx = cell.x * cellSize + r + cellSize * 0.06;
+    const cy = (boardHeight - 1 - cell.y) * cellSize + cellSize - r - cellSize * 0.06;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = token("--wash-black-45", "rgba(0, 0, 0, 0.45)");
+    ctx.stroke();
+    ctx.fillStyle = ink;
+    ctx.font = `bold ${Math.max(7, Math.round(r * 1.2))}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(glyph, cx, cy + r * 0.05);
+    ctx.restore();
+  }
+
+  // The lens arrow. Same geometry as the staged arrow, one weight heavier when
+  // it is the cursor's own; HOLLOW — stroked outline, unfilled head — for a
+  // member whose implied move differs from what is staged, so it overlaps a
+  // solid staged arrow legibly instead of hiding it.
+  function drawLensArrow(ctx, from, to, cellSize, color, style) {
+    const width =
+      style === "filled" ? Math.max(cellSize * 0.22, 7) : Math.max(cellSize * 0.1, 3.5);
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const headSize = Math.max(cellSize * 0.45, 18) * (style === "filled" ? 1 : 0.85);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(style === "foil" ? [width * 1.8, width * 1.6] : []);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headSize * Math.cos(angle - Math.PI / 6),
+      to.y - headSize * Math.sin(angle - Math.PI / 6),
+    );
+    ctx.lineTo(
+      to.x - headSize * Math.cos(angle + Math.PI / 6),
+      to.y - headSize * Math.sin(angle + Math.PI / 6),
+    );
+    ctx.closePath();
+    if (style === "filled") {
+      ctx.fill();
+    } else {
+      ctx.lineWidth = Math.max(2, width * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * HANDLE PASS — chips, implied arrows, agreement rings, the foil.
+   *
+   * ONLY DISAGREEMENT DRAWS. A member whose implied move EQUALS what is staged
+   * gets a violet ring around the existing arrowhead rather than a second
+   * arrow, so in the common case — the operator looking at the incumbent — the
+   * board gains a constellation and one heavier arrow and nothing else moves.
+   * Walking down the moveset list lights the members that would move
+   * differently up one by one, which turns the board into a difference display,
+   * which is what it should have been all along.
+   */
+  function renderLensHandle(ctx, board, lens, cellSize) {
+    if (!lens) return;
+    const ink = lensTheme(lens.theme);
+    ctx.save();
+    ctx.globalAlpha = lens.dim ? 0.7 : 1;
+
+    for (const cluster of lens.clusters || []) {
+      for (const unitId of cluster.members || []) {
+        const head = headOf(board, unitId);
+        if (head) {
+          drawLensChip(ctx, head, board.height, cellSize, cluster.glyph, ink.chipText, ink.lens);
+        }
+      }
+      for (const bound of cluster.boundedBy || []) {
+        const head = headOf(board, bound.unit);
+        // A held unit already says why with its shield.
+        if (head && bound.why !== "hold") {
+          // THE PER-OPERATOR MARK (11-MOTION-AND-MARKS.md §5.3). This chip is
+          // where the board says a unit is FIXED, and it drew the same dot
+          // whoever fixed it — so two operators' pins were one mark on two
+          // heads. The mark is resolved by the page, on the same arrival index
+          // the palette is ordered by, and arrives on the ink; the renderer
+          // gains no palette, no directory and no state. `•` stays for a pin
+          // with no identified author, which is the honest drawing of one.
+          drawLensChip(
+            ctx,
+            head,
+            board.height,
+            cellSize,
+            bound.mark || "•",
+            ink.chipText,
+            ink.fixed,
+          );
+        }
+      }
+    }
+
+    for (const move of lens.arrows || []) {
+      const head = headOf(board, move.unit);
+      const dest = lensEndpoint(board, move.unit, move.to);
+      if (!head || !dest) continue;
+      drawLensArrow(
+        ctx,
+        cellCenter(head, board.height, cellSize),
+        cellCenter(dest, board.height, cellSize),
+        cellSize,
+        ink.lens,
+        move.style === "filled" ? "filled" : "hollow",
+      );
+    }
+
+    for (const ring of lens.rings || []) {
+      const dest = lensEndpoint(board, ring.unit, ring.to);
+      if (!dest) continue;
+      const at = cellCenter(dest, board.height, cellSize);
+      ctx.save();
+      ctx.strokeStyle = ink.lens;
+      ctx.lineWidth = Math.max(2, cellSize * 0.07);
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, Math.max(6, cellSize * 0.26), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const foil of lens.foil || []) {
+      const head = headOf(board, foil.unit);
+      const dest = lensEndpoint(board, foil.unit, foil.to);
+      if (!head || !dest) continue;
+      drawLensArrow(
+        ctx,
+        cellCenter(head, board.height, cellSize),
+        cellCenter(dest, board.height, cellSize),
+        cellSize,
+        ink.foil,
+        "foil",
+      );
+      if (typeof foil.delta === "number") {
+        const at = cellCenter(dest, board.height, cellSize);
+        ctx.save();
+        ctx.fillStyle = ink.foil;
+        ctx.font = `bold ${Math.max(9, Math.round(cellSize * 0.22))}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          `${foil.delta > 0 ? "+" : ""}${foil.delta.toFixed(1)}`,
+          at.x,
+          at.y - cellSize * 0.34,
+        );
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  // The neutral candidate plate. It used to be a quality tint; it is now one
+  // colour for every candidate, because ranking a unit's moves against each
+  // other is the comparison the bot stopped making.
+  const CANDIDATE_PLATE = token("--board-candidate-plate", "rgba(78, 108, 142, 0.34)");
+
   // Candidate move cell: a pale plate that flattens whatever terrain is
-  // underneath (fertile stripes, hazard red, bare board), the move's quality
-  // tint over it, then an inset ring — a dark halo under a bright inner
-  // stroke — so the affordance reads as a ring on ANY background and never as
-  // "this cell is fertile" or "this cell is a hazard". The selected candidate
-  // swaps the bright stroke for purple and thickens it, keeping the one
-  // selected cell unmistakable among its siblings.
+  // underneath (fertile stripes, hazard red, bare board), the neutral plate
+  // over it, then an inset ring — a dark halo under a bright inner stroke —
+  // so the affordance reads as a ring on ANY background and never as "this
+  // cell is fertile" or "this cell is a hazard". The selected candidate swaps
+  // the bright stroke for the LENS VIOLET and thickens it: the candidate under
+  // the cursor is a hypothesis, which is what violet means everywhere else on
+  // this board, so the cursor and the moveset it implies read as one thought.
   function drawCandidateCell(ctx, x, y, cellSize, tint, isSelected) {
     ctx.save();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.fillStyle = token("--wash-white-55", "rgba(255, 255, 255, 0.55)");
     ctx.fillRect(x, y, cellSize, cellSize);
-    ctx.fillStyle = tint || candidateTint(0.5);
+    ctx.fillStyle = tint || CANDIDATE_PLATE;
     ctx.fillRect(x, y, cellSize, cellSize);
     const inset = cellSize * 0.12;
     roundedRectPath(
@@ -1755,10 +2075,10 @@ const BoardRenderer = (function () {
       cellSize - inset * 2,
       cellSize * 0.16,
     );
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.strokeStyle = token("--wash-black-85", "rgba(0, 0, 0, 0.85)");
     ctx.lineWidth = Math.max(3, cellSize * 0.14);
     ctx.stroke();
-    ctx.strokeStyle = isSelected ? "#e040fb" : "#ffffff";
+    ctx.strokeStyle = isSelected ? LENS_INK.lens : token("--grey-ffffff", "#ffffff");
     ctx.lineWidth = isSelected
       ? Math.max(2.5, cellSize * 0.1)
       : Math.max(1.5, cellSize * 0.06);
@@ -1767,7 +2087,7 @@ const BoardRenderer = (function () {
   }
 
   function hexToRgb(hex) {
-    let color = hex || "#888888";
+    let color = hex || token("--unit-colour-fallback", "#888888");
     color = color.replace("#", "");
     if (color.length === 3)
       color = color
@@ -1779,144 +2099,6 @@ const BoardRenderer = (function () {
       g: parseInt(color.substring(2, 4), 16) || 136,
       b: parseInt(color.substring(4, 6), 16) || 136,
     };
-  }
-
-  function renderTerritoryBoundaries(
-    ctx,
-    territoryCells,
-    snakeColorMap,
-    boardHeight,
-    cellSize,
-    selectedSnake,
-    bodyOwnerMap,
-  ) {
-    const ownerMap = {};
-    Object.entries(territoryCells).forEach(([sid, cells]) => {
-      if (!cells || cells.length === 0) return;
-      cells.forEach((cell) => {
-        ownerMap[`${cell.x},${cell.y}`] = sid;
-      });
-    });
-
-    function shouldDrawBoundary(sid, nx, ny) {
-      const nk = `${nx},${ny}`;
-      if (ownerMap[nk] === sid) return false;
-      if (bodyOwnerMap && bodyOwnerMap[nk] === sid) return false;
-      return true;
-    }
-
-    const glowDepth = Math.max(4, Math.floor(cellSize * 0.4));
-    const lineWidth = Math.max(1.5, cellSize * 0.06);
-
-    Object.entries(territoryCells).forEach(([sid, cells]) => {
-      if (!cells || cells.length === 0) return;
-      const snakeColor = snakeColorMap[sid] || "#888888";
-      const rgb = hexToRgb(snakeColor);
-      const glowAlpha = selectedSnake === sid ? 0.6 : 0.45;
-
-      cells.forEach((cell) => {
-        const px = cell.x * cellSize;
-        const py = (boardHeight - 1 - cell.y) * cellSize;
-
-        const edges = [
-          { dx: 0, dy: 1, dir: "top" },
-          { dx: 0, dy: -1, dir: "bottom" },
-          { dx: -1, dy: 0, dir: "left" },
-          { dx: 1, dy: 0, dir: "right" },
-        ];
-
-        edges.forEach(({ dx, dy, dir }) => {
-          if (!shouldDrawBoundary(sid, cell.x + dx, cell.y + dy)) return;
-          let grad;
-          switch (dir) {
-            case "top":
-              grad = ctx.createLinearGradient(px, py, px, py + glowDepth);
-              grad.addColorStop(
-                0,
-                `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`,
-              );
-              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-              ctx.fillStyle = grad;
-              ctx.fillRect(px, py, cellSize, glowDepth);
-              break;
-            case "bottom":
-              grad = ctx.createLinearGradient(
-                px,
-                py + cellSize,
-                px,
-                py + cellSize - glowDepth,
-              );
-              grad.addColorStop(
-                0,
-                `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`,
-              );
-              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-              ctx.fillStyle = grad;
-              ctx.fillRect(px, py + cellSize - glowDepth, cellSize, glowDepth);
-              break;
-            case "left":
-              grad = ctx.createLinearGradient(px, py, px + glowDepth, py);
-              grad.addColorStop(
-                0,
-                `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`,
-              );
-              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-              ctx.fillStyle = grad;
-              ctx.fillRect(px, py, glowDepth, cellSize);
-              break;
-            case "right":
-              grad = ctx.createLinearGradient(
-                px + cellSize,
-                py,
-                px + cellSize - glowDepth,
-                py,
-              );
-              grad.addColorStop(
-                0,
-                `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glowAlpha})`,
-              );
-              grad.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-              ctx.fillStyle = grad;
-              ctx.fillRect(px + cellSize - glowDepth, py, glowDepth, cellSize);
-              break;
-          }
-        });
-      });
-    });
-
-    Object.entries(territoryCells).forEach(([sid, cells]) => {
-      if (!cells || cells.length === 0) return;
-      const snakeColor = snakeColorMap[sid] || "#888888";
-      const alpha = selectedSnake === sid ? 1.0 : 0.85;
-      ctx.strokeStyle = hexToRgba(snakeColor, alpha);
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = "square";
-
-      ctx.beginPath();
-      cells.forEach((cell) => {
-        const px = cell.x * cellSize;
-        const py = (boardHeight - 1 - cell.y) * cellSize;
-
-        if (shouldDrawBoundary(sid, cell.x, cell.y + 1)) {
-          ctx.moveTo(px, py);
-          ctx.lineTo(px + cellSize, py);
-        }
-        if (shouldDrawBoundary(sid, cell.x, cell.y - 1)) {
-          ctx.moveTo(px, py + cellSize);
-          ctx.lineTo(px + cellSize, py + cellSize);
-        }
-        if (shouldDrawBoundary(sid, cell.x - 1, cell.y)) {
-          ctx.moveTo(px, py);
-          ctx.lineTo(px, py + cellSize);
-        }
-        if (shouldDrawBoundary(sid, cell.x + 1, cell.y)) {
-          ctx.moveTo(px + cellSize, py);
-          ctx.lineTo(px + cellSize, py + cellSize);
-        }
-      });
-      ctx.stroke();
-      ctx.lineCap = "butt";
-    });
   }
 
   function getSnakeGap(cellSize) {
@@ -1952,7 +2134,7 @@ const BoardRenderer = (function () {
   function renderSnakeUnified(ctx, snake, boardHeight, cellSize, options) {
     if (snake.body.length === 0) return;
 
-    const snakeColor = snake.customizations?.color || snake.color || "#888888";
+    const snakeColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const gap = getSnakeGap(cellSize);
     const pathNeighbors = buildPathNeighbors(snake);
     const selectionGlow = options?.selectionGlow || null;
@@ -1999,7 +2181,7 @@ const BoardRenderer = (function () {
     if (invulnLevel !== 0) {
       const outerExpand = Math.max(2, cellSize * 0.06);
       const outerColor =
-        invulnLevel < 0 ? "rgba(255, 40, 40, 1)" : "rgba(40, 120, 255, 1)";
+        invulnLevel < 0 ? token("--board-invuln-down", "rgba(255, 40, 40, 1)") : token("--board-invuln-up", "rgba(40, 120, 255, 1)");
       const lineWidth = Math.max(2, cellSize * 0.08);
       ctx.save();
       ctx.strokeStyle = outerColor;
@@ -2161,7 +2343,7 @@ const BoardRenderer = (function () {
       const innerInset = Math.max(1, cellSize * 0.04);
       const dashLen = Math.max(2, cellSize * 0.1);
       ctx.save();
-      ctx.strokeStyle = "#FFD700";
+      ctx.strokeStyle = token("--board-highlight", "#FFD700");
       ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
       ctx.setLineDash([dashLen, dashLen]);
       ctx.lineCap = "square";
@@ -2218,17 +2400,28 @@ const BoardRenderer = (function () {
     return String(candidate.move);
   }
 
-  function processMoveEvaluations(
-    moveEvaluations,
-    safeMoves,
-    head,
-    chosenMove,
-  ) {
+  /**
+   * CANDIDATE ENUMERATION. The direction-keyed / destination-keyed split, the
+   * position index and the hold candidate — the half of this function that is
+   * correct and hard-won, and that `keynav-machine` depends on.
+   *
+   * The scoring half is gone (04 §5.3 #17). A per-candidate number was a view
+   * of a per-unit decision the bot no longer takes; what a candidate is worth
+   * is now `aggregate(L(C, u→m) rank 1)` — the best the CLUSTER can do given
+   * that candidate — and it arrives on the lens frame with a grade, never as a
+   * bare number.
+   *
+   * `safeMoves` is gone too (#18), and with it the idea that the BOARD knows
+   * which candidates are admissible. Admissibility is a ledger disposition
+   * now, with a grade that says strictly more than a boolean did; what the
+   * board offers is what is ENUMERATED, and the fatal marker still warns about
+   * the one determination that kills you. A candidate the operator cannot see
+   * is a candidate they cannot inspect.
+   */
+  function processMoveEvaluations(moveEvaluations, _offerable, head, chosenMove) {
     const moveState = {
       selectedMove: null,
       moves: {},
-      safeMoves: safeMoves || [],
-      territoryCells: {},
       selectedSnake: null,
     };
 
@@ -2238,7 +2431,6 @@ const BoardRenderer = (function () {
         evaluationsArray = moveEvaluations;
       } else if (moveEvaluations.evaluations) {
         evaluationsArray = moveEvaluations.evaluations;
-        moveState.territoryCells = moveEvaluations.territoryCells || {};
       }
     }
 
@@ -2266,8 +2458,7 @@ const BoardRenderer = (function () {
         direction: null,
         kind: evalData.kind || "move",
         position: evalData.dest || null,
-        // Enumerated candidates are legal by construction — "safe" here means
-        // exactly what safeMoves means for snakes: offerable.
+        // Enumerated candidates are legal by construction.
         isSafe: true,
       }));
     } else {
@@ -2293,7 +2484,7 @@ const BoardRenderer = (function () {
           direction: direction,
           kind: "move",
           position: candidatePos,
-          isSafe: moveState.safeMoves.includes(direction),
+          isSafe: true,
         };
       });
     }
@@ -2314,20 +2505,6 @@ const BoardRenderer = (function () {
         isSafe: candidate.isSafe,
         isChosen: candidate.key === chosenKey,
         isEvaluated: !!evalData,
-        score: evalData?.score ?? null,
-        breakdown: evalData?.breakdown ?? null,
-        numStates: evalData?.numStates ?? null,
-        displayScore: evalData?.score ?? (candidate.isSafe ? 0 : null),
-        // The bounds engine's own reading, when the row carries one: the full
-        // {lo, est, hi} bracket and which channel `score` reports. A single
-        // number out of a bounds engine is half the answer, and the panel says
-        // which half it is showing.
-        bounds: evalData?.bounds ?? null,
-        scoreChannel: evalData?.scoreChannel ?? null,
-        projectedTerritoryCells: evalData?.projectedTerritoryCells ?? null,
-        projectedCellOwnership: evalData?.projectedCellOwnership ?? null,
-        quality: null,
-        color: null,
       };
     });
 
@@ -2340,21 +2517,6 @@ const BoardRenderer = (function () {
     Object.values(moveState.moves).forEach((m) => {
       if (m.kind === "stay") moveState.holdCandidate = m;
       else if (m.positionKey) moveState.candidatesByPosition.set(m.positionKey, m);
-    });
-
-    const scoredMoves = Object.values(moveState.moves).filter(
-      (m) => m.displayScore != null,
-    );
-    const allScores = scoredMoves.map((m) => m.displayScore);
-
-    Object.values(moveState.moves).forEach((move) => {
-      if (move.displayScore != null && allScores.length > 0) {
-        move.quality = getMoveQuality(move.displayScore, allScores);
-        move.color = getScoreColor(move.displayScore, allScores);
-      } else {
-        move.quality = "not-evaluated";
-        move.color = candidateTint(0.5);
-      }
     });
 
     return moveState;
@@ -2388,10 +2550,10 @@ const BoardRenderer = (function () {
     // (e.g. an overlay that mutated globalAlpha without restoring it).
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     for (let x = 0; x <= board.width; x++) {
       const line = crispStroke(ctx, x * cellSize, 1.5);
       ctx.lineWidth = line.width;
@@ -2409,7 +2571,7 @@ const BoardRenderer = (function () {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
 
@@ -2429,7 +2591,7 @@ const BoardRenderer = (function () {
         ctx.beginPath();
         ctx.rect(x, y, cellSize, cellSize);
         ctx.clip();
-        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.strokeStyle = token("--board-ring-mark", "rgba(240, 198, 70, 0.85)");
         ctx.lineWidth = Math.max(1.5, cellSize / 7);
         const stripeSpacing = Math.max(4, cellSize / 3.5);
         for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
@@ -2442,45 +2604,11 @@ const BoardRenderer = (function () {
       });
     }
 
-    // Voronoi territory overlay. `showTerritory: false` skips the WHOLE block,
-    // not just the paint: no owner map, no per-snake colour/body maps, no
-    // per-cell boundary walk. It is the single gate for every territory grid
-    // the board can draw — the turn's partition and a candidate's projected
-    // one alike — so switching the overlay off costs the renderer nothing.
-    if (moveState && options?.showTerritory !== false) {
-      let activeTerritoryForDisplay = moveState.territoryCells;
-      if (
-        moveState.selectedMove &&
-        moveState.moves[moveState.selectedMove]?.projectedTerritoryCells
-      ) {
-        activeTerritoryForDisplay =
-          moveState.moves[moveState.selectedMove].projectedTerritoryCells;
-      }
-      if (
-        activeTerritoryForDisplay &&
-        Object.keys(activeTerritoryForDisplay).length > 0
-      ) {
-        const snakeColorMap = {};
-        const bodyOwnerMap = {};
-        board.snakes.forEach((snake) => {
-          snakeColorMap[snake.id] =
-            snake.customizations?.color || snake.color || "#888888";
-          snake.body.forEach((seg) => {
-            bodyOwnerMap[`${seg.x},${seg.y}`] = snake.id;
-          });
-        });
-        renderTerritoryBoundaries(
-          ctx,
-          activeTerritoryForDisplay,
-          snakeColorMap,
-          board.height,
-          cellSize,
-          moveState.selectedSnake,
-          bodyOwnerMap,
-        );
-      }
-    }
-
+    // The candidate plates. WHERE a candidate is, and which one the keyboard
+    // is on — no longer HOW GOOD it is: a per-candidate tint ranked one unit's
+    // moves against each other, which is the comparison the bot stopped making
+    // (04 §5.3 #17). What a candidate is worth is the cluster's best under it,
+    // and that reads on the rail with its grade, where a number can be graded.
     if (moveState) {
       Object.values(moveState.moves).forEach((move) => {
         if (move.position && (move.isSafe || move.isEvaluated)) {
@@ -2491,7 +2619,7 @@ const BoardRenderer = (function () {
             x,
             y,
             cellSize,
-            move.color,
+            CANDIDATE_PLATE,
             moveState.selectedMove === (move.key ?? move.direction),
           );
         }
@@ -2518,6 +2646,9 @@ const BoardRenderer = (function () {
       );
     }
 
+    // The lens's GROUND pass: the constellation, under everything.
+    renderLensGround(ctx, board, options?.lens, cellSize);
+
     board.food.forEach((food) => {
       const x = food.x * cellSize;
       const y = (board.height - 1 - food.y) * cellSize;
@@ -2525,7 +2656,7 @@ const BoardRenderer = (function () {
       ctx.beginPath();
       ctx.rect(x, y, cellSize, cellSize);
       ctx.clip();
-      ctx.fillStyle = "#000000";
+      ctx.fillStyle = token("--grey-000000", "#000000");
       const emojiSize = Math.max(cellSize * 0.7, 10);
       ctx.font = `${emojiSize}px serif`;
       ctx.textAlign = "center";
@@ -2538,6 +2669,8 @@ const BoardRenderer = (function () {
       board.invulnerabilityPotions &&
       board.invulnerabilityPotions.length > 0
     ) {
+      // The first potion board is the last moment this can still be lazy.
+      loadPotionImage();
       board.invulnerabilityPotions.forEach((potion) => {
         const x = potion.x * cellSize;
         const y = (board.height - 1 - potion.y) * cellSize;
@@ -2639,18 +2772,15 @@ const BoardRenderer = (function () {
       drawUnitBodyInfo(ctx, bodyPlans.get(snake.id));
 
       let arrowMove = null;
-      let arrowColor = "#4CAF50";
+      let arrowColor = token("--board-goto", "#4CAF50");
       let arrowCommitted = false;
-      // Replay styling (options.chosenMoveStyle):
-      //   'submitted' (default)   — solid arrow: the move actually sent to the
-      //                             game server (ground truth).
-      //   'recommendation-only'   — dashed grey arrow: no submitted_move was
-      //                             logged for this row, so the arrow shows the
-      //                             bot's recommendation only.
-      // options.secondaryMove — a thin dashed grey hint arrow for the bot's
-      // recommendation when it differs from the submitted move.
-      let arrowDashed = false;
-      let secondaryMove = null;
+      // The grey recommendation hint arrow is gone (04 §5.3 #15). The bot's
+      // recommendation is now BY DEFINITION the rank-1 moveset's assignment
+      // for this unit, and it draws in violet as the lens's incumbent. Two
+      // vocabularies for one fact is the collision the ink rule exists to
+      // prevent, and the loser is the one that could only ever say "somewhere
+      // else" without saying why.
+      const arrowDashed = false;
       // Ghost arrow: the REQUESTED move whenever it differs from the
       // Firebase-confirmed staged move (`move`). Rendered dashed and
       // translucent in the same colour — the optimistic layer of the
@@ -2658,11 +2788,6 @@ const BoardRenderer = (function () {
       let ghostMove = null;
       if (showChosenArrow && snake.id === snakeId && chosenMove) {
         arrowMove = chosenMove;
-        if (options?.chosenMoveStyle === "recommendation-only") {
-          arrowColor = "#9E9E9E";
-          arrowDashed = true;
-        }
-        secondaryMove = options?.secondaryMove || null;
       } else if (stagedForThisSnake) {
         // `move` is the confirmed staged move (null until Firebase's first
         // confirmation for the turn lands); `requestedMove` is what was asked
@@ -2678,7 +2803,7 @@ const BoardRenderer = (function () {
           (typeof move === "number" && !rotationStaged);
         const confirmedMove = stagedForThisSnake.move;
         arrowMove = arrowWorthy(confirmedMove) ? confirmedMove : null;
-        arrowColor = stagedForThisSnake.color || "#4CAF50";
+        arrowColor = stagedForThisSnake.color || token("--board-goto", "#4CAF50");
         arrowCommitted = !!stagedForThisSnake.committed;
         const requested = stagedForThisSnake.requestedMove;
         if (arrowWorthy(requested) && requested !== arrowMove) {
@@ -2767,11 +2892,6 @@ const BoardRenderer = (function () {
             return { ex, ey };
           };
 
-          // Secondary bot-recommendation hint FIRST so the primary draws over it.
-          if (secondaryMove && secondaryMove !== arrowMove) {
-            drawArrow(secondaryMove, "#9E9E9E", Math.max(cellSize * 0.08, 3), true, 0.6, 1);
-          }
-
           // Ghost arrow for the requested move: dashed + translucent, drawn
           // before the confirmed arrow so the solid state stays on top.
           if (ghostMove) {
@@ -2822,7 +2942,7 @@ const BoardRenderer = (function () {
             const r = cellSize * 0.32;
             ctx.setLineDash([]);
             ctx.lineWidth = Math.max(cellSize * 0.1, 3);
-            ctx.strokeStyle = "#ff1744";
+            ctx.strokeStyle = token("--board-danger-outline", "#ff1744");
             ctx.beginPath();
             ctx.arc(mx, my, r, 0, Math.PI * 2);
             ctx.stroke();
@@ -2855,6 +2975,12 @@ const BoardRenderer = (function () {
         isSameCell(cell, options?.clashHoverCell),
       );
     }
+
+    // The lens's HANDLE pass: chips, implied arrows, agreement rings and the
+    // foil, OVER the units and their staged arrows — a hypothesis has to be
+    // readable against the fact it is a hypothesis about — and before the tags
+    // and the death markers, which outrank it.
+    renderLensHandle(ctx, board, options?.lens, cellSize);
 
     // Unit tags: the FALLBACK readout, for the units whose own body could not
     // hold everything (`bodyPlans` says which). A compact tag whose letter
@@ -3089,7 +3215,7 @@ const BoardRenderer = (function () {
   // no operator has taken. Colour is then only ever "someone owns this, on our
   // side" — which is exactly what the eye should find first.
   const TAG_OUTLINE = {
-    unowned: "#8d949c",
+    unowned: token("--board-unowned", "#8d949c"),
     width(fontSize, selected) {
       return selected
         ? Math.max(5, fontSize * 0.36)
@@ -3182,7 +3308,7 @@ const BoardRenderer = (function () {
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(rect.x, rect.y, rect.w, tagH, r);
     else ctx.rect(rect.x, rect.y, rect.w, tagH);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fill();
     ctx.lineWidth = TAG_OUTLINE.width(fontSize, selected);
     ctx.strokeStyle = outlineColor || unitColor;
@@ -3206,7 +3332,7 @@ const BoardRenderer = (function () {
     ctx.fill();
     ctx.font = letterFont;
     ctx.textAlign = "center";
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillText(letter, chipX + chipW / 2, midY);
 
     // Stat pairs (icon + value), in the units table's icons and order, laid
@@ -3221,11 +3347,11 @@ const BoardRenderer = (function () {
       if (mark) {
         mark.draw(ctx, x, midY, iconH);
       } else {
-        ctx.fillStyle = stat.iconColor || "#1a1a1a";
+        ctx.fillStyle = stat.iconColor || token("--grey-1a1a1a", "#1a1a1a");
         ctx.fillText(stat.icon, x, midY);
       }
       x += statIconWidth(ctx, stat, iconH) + iconGap;
-      ctx.fillStyle = "#1a1a1a";
+      ctx.fillStyle = token("--grey-1a1a1a", "#1a1a1a");
       ctx.fillText(stat.text, x, midY);
       x += ctx.measureText(stat.text).width;
       if (letterAtEnd) x += gap;
@@ -3236,7 +3362,7 @@ const BoardRenderer = (function () {
     // holds the unit without the reader tracing the outline back to a legend.
     if (nameText) {
       if (!letterAtEnd) x += gap;
-      ctx.fillStyle = ownerColor || "#1a1a1a";
+      ctx.fillStyle = ownerColor || token("--grey-1a1a1a", "#1a1a1a");
       ctx.fillText(nameText, x, midY);
     }
     ctx.restore();
@@ -3338,7 +3464,7 @@ const BoardRenderer = (function () {
       if (visibility === "hidden" && hover !== TAG_HOVER.tag) return;
       const owner = owners[snake.id] || null;
       const unitColor =
-        snake.customizations?.color || snake.color || "#888888";
+        snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
       const outlineColor =
         ours && owner ? owner.color || unitColor : TAG_OUTLINE.unowned;
 
@@ -3720,7 +3846,7 @@ const BoardRenderer = (function () {
   function renderSnakeInfoItem(snake, ourSnakeId, opts, currentTurn) {
     const isOurSnake = snake.id === ourSnakeId;
     const isDead = !!(opts && opts.dead);
-    const snakeColor = snake.customizations?.color || snake.color || "#888888";
+    const snakeColor = snake.customizations?.color || snake.color || token("--unit-colour-fallback", "#888888");
     const invulnLevel = snake.invulnerabilityLevel || 0;
     let invulnDisplay = "";
     // The row writes the buff's TURNS, same as the body plate — its LEVEL is
@@ -3758,7 +3884,7 @@ const BoardRenderer = (function () {
     // Owner badge: shown for owned snakes in the owning player's colour.
     const owner = opts && opts.owner;
     const ownerBadge = owner
-      ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px 6px;border-radius:8px;font-weight:400;">${owner.name}</span>`
+      ? `<span style="border:1px solid ${owner.color};color:${owner.color};padding:1px var(--space-6);border-radius:var(--radius-8);font-weight:var(--weight-normal);">${owner.name}</span>`
       : "";
     const selectable = opts && opts.selectable;
     const active = opts && opts.active;
@@ -3768,12 +3894,18 @@ const BoardRenderer = (function () {
       (active ? " active-perspective" : "");
     const styleParts = [];
     if (selectable) styleParts.push("cursor:pointer;");
-    if (isDead) styleParts.push("opacity:0.45;filter:grayscale(0.6);");
+    // A DEAD ROW IS STILL A ROW SOMEBODY READS. `opacity: 0.45` faded its ink
+    // onto the ground and took `(dead)` — the word that says WHY the row is
+    // quiet — to 2.4 : 1. The grayscale carries "this unit is out of the
+    // game" on its own, which is the reading that matters and the one a
+    // deuteranope keeps; the fade only has to say "quieter than the living",
+    // and 0.72 says it while leaving the words legible.
+    if (isDead) styleParts.push("opacity:0.72;filter:grayscale(0.7);");
     const clickAttr =
       (selectable ? ` data-select-snake="${snake.id}"` : "") +
       (styleParts.length ? ` style="${styleParts.join("")}"` : "");
     const deadSuffix = isDead
-      ? ' <span style="color:#aaa;font-weight:400;">(dead)</span>'
+      ? ' <span style="color:var(--grey-c4c4c4);font-weight:var(--weight-normal);">(dead)</span>'
       : "";
     // Inline health readout: the shared heart icon, the same red/orange/green
     // bar as the board cell and the unit tag (fraction of the unit's
@@ -3788,8 +3920,8 @@ const BoardRenderer = (function () {
           : "";
       healthDisplay =
         `<span title="Health" style="display:inline-flex;align-items:center;gap:4px;">` +
-        `<span style="color:${healthBarColor(frac)};">${STAT_ICON.health}</span>` +
-        `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
+        `<span style="color:${healthTextColor(frac)};">${STAT_ICON.health}</span>` +
+        `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid var(--wash-black-25);border-radius:var(--radius-4);overflow:hidden;">${fill}</span>` +
         `${snake.health}</span>`;
     }
     // Unit icon: the SAME drawn icon as the unit's board head glyph
@@ -4074,7 +4206,7 @@ const BoardRenderer = (function () {
   function clashParticipantHTML(id, lookup, victimIds, clash) {
     const snake = lookup(id);
     const color =
-      (snake && (snake.customizations?.color || snake.color)) || "#888888";
+      (snake && (snake.customizations?.color || snake.color)) || token("--unit-colour-fallback", "#888888");
     const team = snake ? teamDisplayName(snake) : "";
     const letter = snake && snake.letter ? snake.letter : "";
     const label = snake
@@ -4214,7 +4346,7 @@ const BoardRenderer = (function () {
         const teamColor =
           teamSnakes[0].customizations?.color ||
           teamSnakes[0].color ||
-          "#888888";
+          token("--unit-colour-fallback", "#888888");
         // The team's HUMAN name, never its document id. "(our team)" is a
         // separate marker rather than part of the name so a neutral spectator's
         // scoreboard is the same scoreboard with that one span absent.
@@ -4275,490 +4407,6 @@ const BoardRenderer = (function () {
     }
   }
 
-  function updateStatsTable(tbody, move, moveState) {
-    if (!move || !move.breakdown) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="5" style="text-align: center; color: #888;">Select a move to see breakdown</td>
-        </tr>
-      `;
-      return;
-    }
-
-    const breakdown = move.breakdown;
-    // WHICH VOCABULARY IS THIS. The metric list below is the legacy heuristic
-    // registry's, by name; the team engine's breakdown is keyed by its OWN
-    // feature names (material / reach / room / command / …), so running a
-    // lobster row through it renders thirty zero rows and hides every number
-    // the row actually carries. A row that says which engine wrote it gets its
-    // metrics derived from its own weights table instead — same five columns,
-    // same marginal-impact reading, same component.
-    if (breakdown.engine === "lobster") {
-      updateLobsterStatsTable(tbody, move, moveState, breakdown);
-      return;
-    }
-    // Key-presence-driven rows: a breakdown carrying no heuristic keys at all
-    // (no stats, empty weights/weighted tables — the piece stub evaluator's
-    // shape) renders a genuinely EMPTY table through this same component.
-    // Every real snake breakdown carries keys and renders exactly as before.
-    const hasBreakdownKeys =
-      Object.keys(breakdown).some(
-        (k) => k !== "weights" && k !== "weighted" && k !== "stats",
-      ) ||
-      Object.keys(breakdown.weights || {}).length > 0 ||
-      Object.keys(breakdown.weighted || {}).length > 0;
-    if (!hasBreakdownKeys) {
-      tbody.innerHTML = "";
-      return;
-    }
-    const candidateMoves = Object.values(moveState.moves).filter(
-      (m) => m.isEvaluated || m.isSafe,
-    );
-    const averageWeighted = {};
-
-    if (candidateMoves.length > 0) {
-      const weightedSums = {
-        myLengthScore: 0,
-        myTerritoryScore: 0,
-        myControlledFoodScore: 0,
-        myControlledFertileScore: 0,
-        teamLengthScore: 0,
-        teamTerritoryScore: 0,
-        teamControlledFoodScore: 0,
-        foodProximityScore: 0,
-        foodEatenScore: 0,
-        enemyTerritoryScore: 0,
-        enemyLengthScore: 0,
-        edgePenaltyScore: 0,
-        selfSpaceScore: 0,
-        alliesEnoughSpaceScore: 0,
-        opponentsEnoughSpaceScore: 0,
-        killsScore: 0,
-        deathsScore: 0,
-        enemyH2HRiskScore: 0,
-        allyH2HRiskScore: 0,
-        enemyPieceThreatScore: 0,
-        allyPieceThreatScore: 0,
-        gotoProgressScore: 0,
-        nearProgressScore: 0,
-        aggressionScore: 0,
-        trappedScore: 0,
-        healthLossScore: 0,
-        allyCasualtyScore: 0,
-        regicideScore: 0,
-        enemyRegicideScore: 0,
-        fertileScore: 0,
-      };
-
-      candidateMoves.forEach((candidateMove) => {
-        if (candidateMove.breakdown?.weighted) {
-          const weighted = candidateMove.breakdown.weighted;
-          for (const key in weightedSums) {
-            weightedSums[key] += weighted[key] ?? 0;
-          }
-        }
-      });
-
-      const count = candidateMoves.length;
-      for (const key in weightedSums) {
-        averageWeighted[key] = weightedSums[key] / count;
-      }
-    }
-
-    function formatValue(value) {
-      if (typeof value === "number") {
-        if (Number.isInteger(value)) return value.toString();
-        return value.toFixed(2);
-      }
-      return value;
-    }
-
-    const metricsConfig = [
-      {
-        name: "My Length",
-        value: breakdown.myLength ?? 0,
-        weight: breakdown.weights?.myLength ?? 10,
-        weightedScore: breakdown.weighted?.myLengthScore ?? 0,
-        averageWeighted: averageWeighted.myLengthScore ?? 0,
-      },
-      {
-        name: "My Territory",
-        value: breakdown.myTerritory ?? 0,
-        weight: breakdown.weights?.myTerritory ?? 1,
-        weightedScore: breakdown.weighted?.myTerritoryScore ?? 0,
-        averageWeighted: averageWeighted.myTerritoryScore ?? 0,
-      },
-      {
-        name: "My Controlled Food",
-        value: breakdown.myControlledFood ?? breakdown.myFoodCount ?? 0,
-        weight: breakdown.weights?.myControlledFood ?? 10,
-        weightedScore: breakdown.weighted?.myControlledFoodScore ?? 0,
-        averageWeighted: averageWeighted.myControlledFoodScore ?? 0,
-      },
-      {
-        name: "My Fertile Ground",
-        value: breakdown.myControlledFertile ?? 0,
-        weight: breakdown.weights?.myControlledFertile ?? 2,
-        weightedScore: breakdown.weighted?.myControlledFertileScore ?? 0,
-        averageWeighted: averageWeighted.myControlledFertileScore ?? 0,
-      },
-      {
-        name: "Team Length",
-        value: breakdown.teamLength ?? 0,
-        weight: breakdown.weights?.teamLength ?? 10,
-        weightedScore: breakdown.weighted?.teamLengthScore ?? 0,
-        averageWeighted: averageWeighted.teamLengthScore ?? 0,
-      },
-      {
-        name: "Team Territory",
-        value: breakdown.teamTerritory ?? 0,
-        weight: breakdown.weights?.teamTerritory ?? 1,
-        weightedScore: breakdown.weighted?.teamTerritoryScore ?? 0,
-        averageWeighted: averageWeighted.teamTerritoryScore ?? 0,
-      },
-      {
-        name: "Team Controlled Food",
-        value: breakdown.teamControlledFood ?? breakdown.teamFoodCount ?? 0,
-        weight: breakdown.weights?.teamControlledFood ?? 10,
-        weightedScore: breakdown.weighted?.teamControlledFoodScore ?? 0,
-        averageWeighted: averageWeighted.teamControlledFoodScore ?? 0,
-      },
-      {
-        name: "Food Distance",
-        value: breakdown.foodDistance ?? "N/A",
-        weight: 0,
-        weightedScore: 0,
-        averageWeighted: 0,
-      },
-      {
-        name: "Food Proximity",
-        value: breakdown.foodProximity ?? breakdown.foodDistanceInverse ?? 0,
-        weight: breakdown.weights?.foodProximity ?? 50,
-        weightedScore: breakdown.weighted?.foodProximityScore ?? 0,
-        averageWeighted: averageWeighted.foodProximityScore ?? 0,
-      },
-      {
-        name: "Food Eaten",
-        value: breakdown.foodEaten ?? 0,
-        weight: breakdown.weights?.foodEaten ?? 200,
-        weightedScore: breakdown.weighted?.foodEatenScore ?? 0,
-        averageWeighted: averageWeighted.foodEatenScore ?? 0,
-      },
-      {
-        name: "Enemy Territory",
-        value: breakdown.enemyTerritory ?? 0,
-        weight: breakdown.weights?.enemyTerritory ?? 0,
-        weightedScore: breakdown.weighted?.enemyTerritoryScore ?? 0,
-        averageWeighted: averageWeighted.enemyTerritoryScore ?? 0,
-      },
-      {
-        name: "Enemy Length",
-        value: breakdown.enemyLength ?? 0,
-        weight: breakdown.weights?.enemyLength ?? 0,
-        weightedScore: breakdown.weighted?.enemyLengthScore ?? 0,
-        averageWeighted: averageWeighted.enemyLengthScore ?? 0,
-      },
-      {
-        name: "Edge Penalty",
-        value: breakdown.edgePenalty ?? breakdown.stats?.edgePenalty ?? 0,
-        weight: breakdown.weights?.edgePenalty ?? 50,
-        weightedScore: breakdown.weighted?.edgePenaltyScore ?? 0,
-        averageWeighted: averageWeighted.edgePenaltyScore ?? 0,
-      },
-      {
-        name: "Self Space",
-        value:
-          breakdown.selfSpace ?? breakdown.stats?.selfSpace ?? "—",
-        weight: breakdown.weights?.selfSpace ?? 120,
-        weightedScore: breakdown.weighted?.selfSpaceScore ?? "—",
-        averageWeighted: averageWeighted.selfSpaceScore ?? "—",
-      },
-      {
-        name: "Allies Space",
-        value:
-          breakdown.alliesEnoughSpace ??
-          breakdown.stats?.alliesEnoughSpace ??
-          0,
-        weight: breakdown.weights?.alliesEnoughSpace ?? 15,
-        weightedScore: breakdown.weighted?.alliesEnoughSpaceScore ?? 0,
-        averageWeighted: averageWeighted.alliesEnoughSpaceScore ?? 0,
-      },
-      {
-        name: "Opponents Space",
-        value:
-          breakdown.opponentsEnoughSpace ??
-          breakdown.stats?.opponentsEnoughSpace ??
-          0,
-        weight: breakdown.weights?.opponentsEnoughSpace ?? -15,
-        weightedScore: breakdown.weighted?.opponentsEnoughSpaceScore ?? 0,
-        averageWeighted: averageWeighted.opponentsEnoughSpaceScore ?? 0,
-      },
-      {
-        name: "Kills",
-        value: breakdown.kills ?? 0,
-        weight: breakdown.weights?.kills ?? 0,
-        weightedScore: breakdown.weighted?.killsScore ?? 0,
-        averageWeighted: averageWeighted.killsScore ?? 0,
-      },
-      {
-        name: "Deaths",
-        value: breakdown.deaths ?? 0,
-        weight: breakdown.weights?.deaths ?? 0,
-        weightedScore: breakdown.weighted?.deathsScore ?? 0,
-        averageWeighted: averageWeighted.deathsScore ?? 0,
-      },
-      {
-        name: "Enemy H2H Risk",
-        value: breakdown.enemyH2HRisk ?? 0,
-        weight: breakdown.weights?.enemyH2HRisk ?? 0,
-        weightedScore: breakdown.weighted?.enemyH2HRiskScore ?? 0,
-        averageWeighted: averageWeighted.enemyH2HRiskScore ?? 0,
-      },
-      {
-        name: "Ally H2H Risk",
-        value: breakdown.allyH2HRisk ?? 0,
-        weight: breakdown.weights?.allyH2HRisk ?? 0,
-        weightedScore: breakdown.weighted?.allyH2HRiskScore ?? 0,
-        averageWeighted: averageWeighted.allyH2HRiskScore ?? 0,
-      },
-      {
-        name: "Enemy Piece Threat",
-        value: breakdown.enemyPieceThreat ?? 0,
-        weight: breakdown.weights?.enemyPieceThreat ?? 0,
-        weightedScore: breakdown.weighted?.enemyPieceThreatScore ?? 0,
-        averageWeighted: averageWeighted.enemyPieceThreatScore ?? 0,
-      },
-      {
-        name: "Ally Piece Threat",
-        value: breakdown.allyPieceThreat ?? 0,
-        weight: breakdown.weights?.allyPieceThreat ?? 0,
-        weightedScore: breakdown.weighted?.allyPieceThreatScore ?? 0,
-        averageWeighted: averageWeighted.allyPieceThreatScore ?? 0,
-      },
-      {
-        name: "Goto progress (green)",
-        value: breakdown.gotoProgress ?? 0,
-        weight: breakdown.weights?.gotoProgress ?? 0,
-        weightedScore: breakdown.weighted?.gotoProgressScore ?? 0,
-        averageWeighted: averageWeighted.gotoProgressScore ?? 0,
-      },
-      {
-        name: "Near progress (blue)",
-        value: breakdown.nearProgress ?? 0,
-        weight: breakdown.weights?.nearProgress ?? 0,
-        weightedScore: breakdown.weighted?.nearProgressScore ?? 0,
-        averageWeighted: averageWeighted.nearProgressScore ?? 0,
-      },
-      {
-        name: "Aggression (hunt weaker)",
-        value: breakdown.aggression ?? "—",
-        weight: breakdown.weights?.aggression ?? 0,
-        weightedScore: breakdown.weighted?.aggressionScore ?? 0,
-        averageWeighted: averageWeighted.aggressionScore ?? 0,
-      },
-      {
-        name: "Trapped (fatal pocket)",
-        value: breakdown.trapped ?? "—",
-        weight: breakdown.weights?.trapped ?? 0,
-        weightedScore: breakdown.weighted?.trappedScore ?? 0,
-        averageWeighted: averageWeighted.trappedScore ?? 0,
-      },
-      {
-        name: "Health Loss",
-        value: breakdown.healthLoss ?? 0,
-        weight: breakdown.weights?.healthLoss ?? 0,
-        weightedScore: breakdown.weighted?.healthLossScore ?? 0,
-        averageWeighted: averageWeighted.healthLossScore ?? 0,
-      },
-      // Friendly fire and the two team-ending cases. The engine's contests
-      // carry no friendly exemption, so our own move can destroy our own
-      // units; the value here is the WEIGHT we destroy, which is exactly what
-      // team score is counted in.
-      {
-        name: "Ally Casualty (our weight killed)",
-        value: breakdown.allyCasualty ?? 0,
-        weight: breakdown.weights?.allyCasualty ?? 0,
-        weightedScore: breakdown.weighted?.allyCasualtyScore ?? 0,
-        averageWeighted: averageWeighted.allyCasualtyScore ?? 0,
-      },
-      {
-        name: "Regicide (our last king)",
-        value: breakdown.regicide ?? 0,
-        weight: breakdown.weights?.regicide ?? 0,
-        weightedScore: breakdown.weighted?.regicideScore ?? 0,
-        averageWeighted: averageWeighted.regicideScore ?? 0,
-      },
-      {
-        name: "Enemy Regicide (their last king)",
-        value: breakdown.enemyRegicide ?? 0,
-        weight: breakdown.weights?.enemyRegicide ?? 0,
-        weightedScore: breakdown.weighted?.enemyRegicideScore ?? 0,
-        averageWeighted: averageWeighted.enemyRegicideScore ?? 0,
-      },
-      ...(breakdown.fertileTerritory !== undefined && !breakdown.myTerritory
-        ? [
-            {
-              name: "Fertile Territory",
-              value: breakdown.fertileTerritory ?? 0,
-              weight: breakdown.weights?.fertileTerritory ?? 1,
-              weightedScore: breakdown.weighted?.fertileScore ?? 0,
-              averageWeighted: averageWeighted.fertileScore ?? 0,
-            },
-          ]
-        : []),
-    ];
-
-    // Coerce defensively: these values come from stored decision-log rows as
-    // well as live evaluations, and a single non-numeric field must not
-    // abort the table build partway. The table is diagnostics — it must
-    // degrade to a dash rather than take the rest of the UI update down with it.
-    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-    metricsConfig.forEach((metric) => {
-      metric.value = num(metric.value);
-      metric.weight = num(metric.weight);
-      metric.weightedScore = num(metric.weightedScore);
-      metric.averageWeighted = num(metric.averageWeighted);
-      metric.marginalImpact = metric.weightedScore - metric.averageWeighted;
-    });
-
-    metricsConfig.sort(
-      (a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact),
-    );
-
-    let rows = metricsConfig.map((metric) => {
-      const weightDisplay = metric.weight !== 0 ? metric.weight : "";
-      const scoreDisplay =
-        metric.weight !== 0 ? metric.weightedScore.toFixed(2) : "";
-      const impactDisplay =
-        metric.weight !== 0
-          ? (metric.marginalImpact >= 0 ? "+" : "") +
-            metric.marginalImpact.toFixed(2)
-          : "";
-      let impactColor = "#888";
-      if (metric.marginalImpact > 0) impactColor = "#4CAF50";
-      else if (metric.marginalImpact < 0) impactColor = "#f44336";
-      return `
-        <tr>
-          <td>${metric.name}</td>
-          <td>${formatValue(metric.value)}</td>
-          <td>${weightDisplay}</td>
-          <td>${scoreDisplay}</td>
-          <td style="color: ${impactColor}; font-weight: 600;">${impactDisplay}</td>
-        </tr>
-      `;
-    });
-
-    const totalMarginalImpact =
-      move.score -
-      candidateMoves.reduce((sum, m) => sum + (m.score ?? 0), 0) /
-        (candidateMoves.length || 1);
-    rows.push(`
-      <tr class="total-row">
-        <td>Total Score</td>
-        <td colspan="2">States: ${move.numStates || 1}</td>
-        <td>${(move.score ?? 0).toFixed(2)}</td>
-        <td style="color: ${totalMarginalImpact >= 0 ? "#4CAF50" : "#f44336"}; font-weight: 600;">
-          ${totalMarginalImpact >= 0 ? "+" : ""}${totalMarginalImpact.toFixed(2)}
-        </td>
-      </tr>
-    `);
-
-    tbody.innerHTML = rows.join("");
-  }
-
-  // The stats table for a TEAM-ENGINE row. The lobster evaluator is a weighted
-  // fold, so its breakdown carries `weights[key]` and `weighted[key + "Score"]`
-  // with the unweighted reading at the top level under the feature's own name —
-  // the same arrangement the legacy rows use, in a different vocabulary. The
-  // rows are therefore derived from the weights table rather than from a fixed
-  // list, so a feature added to the evaluator shows up here without this file
-  // being touched.
-  function updateLobsterStatsTable(tbody, move, moveState, breakdown) {
-    const keys = Object.keys(breakdown.weights || {}).sort();
-    if (keys.length === 0) {
-      tbody.innerHTML = "";
-      return;
-    }
-
-    // The comparison set is the same one the legacy table uses: this unit's
-    // other candidates this turn, so a metric's "impact" is how far it moved
-    // THIS move away from the average move, not an absolute reading.
-    const candidateMoves = Object.values(moveState.moves).filter(
-      (m) => m.isEvaluated || m.isSafe,
-    );
-    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-    const averageWeighted = {};
-    if (candidateMoves.length > 0) {
-      for (const key of keys) {
-        let sum = 0;
-        candidateMoves.forEach((m) => {
-          sum += num(m.breakdown?.weighted?.[`${key}Score`]);
-        });
-        averageWeighted[key] = sum / candidateMoves.length;
-      }
-    }
-
-    const metrics = keys.map((key) => {
-      const weightedScore = num(breakdown.weighted?.[`${key}Score`]);
-      const average = num(averageWeighted[key]);
-      return {
-        name: key,
-        value: num(breakdown[key]),
-        weight: num(breakdown.weights[key]),
-        weightedScore,
-        marginalImpact: weightedScore - average,
-      };
-    });
-    metrics.sort((a, b) => Math.abs(b.marginalImpact) - Math.abs(a.marginalImpact));
-
-    const fmt = (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(2));
-    const rows = metrics.map((metric) => {
-      const impactColor =
-        metric.marginalImpact > 0
-          ? "#4CAF50"
-          : metric.marginalImpact < 0
-            ? "#f44336"
-            : "#888";
-      return `
-        <tr>
-          <td>${metric.name}</td>
-          <td>${fmt(metric.value)}</td>
-          <td>${metric.weight}</td>
-          <td>${metric.weightedScore.toFixed(2)}</td>
-          <td style="color: ${impactColor}; font-weight: 600;">${
-            metric.marginalImpact >= 0 ? "+" : ""
-          }${metric.marginalImpact.toFixed(2)}</td>
-        </tr>
-      `;
-    });
-
-    // The total row names the CHANNEL the score is on (the floor that
-    // adjudicates, or the estimate when every floor ties) and the bracket the
-    // decision actually proved, because a single number from a bounds engine
-    // is half the answer.
-    const bounds = move.bounds || null;
-    const channel = move.scoreChannel || "est";
-    const bracket = bounds
-      ? `[${num(bounds.lo).toFixed(2)}, ${num(bounds.hi).toFixed(2)}]`
-      : "—";
-    const totalMarginal =
-      num(move.score) -
-      candidateMoves.reduce((sum, m) => sum + num(m.score), 0) /
-        (candidateMoves.length || 1);
-    rows.push(`
-      <tr class="total-row">
-        <td>Total (${channel})</td>
-        <td colspan="2">${breakdown.profile || "lobster"} ${bracket}</td>
-        <td>${num(move.score).toFixed(2)}</td>
-        <td style="color: ${totalMarginal >= 0 ? "#4CAF50" : "#f44336"}; font-weight: 600;">
-          ${totalMarginal >= 0 ? "+" : ""}${totalMarginal.toFixed(2)}
-        </td>
-      </tr>
-    `);
-
-    tbody.innerHTML = rows.join("");
-  }
-
   function renderMinimap(canvas, gameState, ourSnakeId) {
     if (!gameState || !gameState.board) return;
     const board = gameState.board;
@@ -4772,10 +4420,10 @@ const BoardRenderer = (function () {
 
     ctx.imageSmoothingEnabled = false;
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = token("--grey-ffffff", "#ffffff");
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     for (let x = 0; x <= board.width; x++) {
       const line = crispStroke(ctx, x * cellSize, 1);
       ctx.lineWidth = line.width;
@@ -4793,7 +4441,7 @@ const BoardRenderer = (function () {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = "#000000";
+    ctx.strokeStyle = token("--grey-000000", "#000000");
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, boardW - 2, boardH - 2);
 
@@ -4813,7 +4461,7 @@ const BoardRenderer = (function () {
         ctx.beginPath();
         ctx.rect(x, y, cellSize, cellSize);
         ctx.clip();
-        ctx.strokeStyle = "rgba(240, 198, 70, 0.85)";
+        ctx.strokeStyle = token("--board-ring-mark", "rgba(240, 198, 70, 0.85)");
         ctx.lineWidth = Math.max(1.5, cellSize / 7);
         const stripeSpacing = Math.max(4, cellSize / 3.5);
         for (let offset = 0; offset <= cellSize * 2; offset += stripeSpacing) {
@@ -4845,6 +4493,8 @@ const BoardRenderer = (function () {
       board.invulnerabilityPotions &&
       board.invulnerabilityPotions.length > 0
     ) {
+      // The first potion board is the last moment this can still be lazy.
+      loadPotionImage();
       board.invulnerabilityPotions.forEach((potion) => {
         const x = potion.x * cellSize;
         const y = (board.height - 1 - potion.y) * cellSize;
@@ -4878,17 +4528,19 @@ const BoardRenderer = (function () {
 
   return {
     hexToRgba,
-    getMoveQuality,
-    getScoreColor,
     processMoveEvaluations,
     moveDestinationCell,
     renderBoard,
     createBoardOverlay,
     renderSnakeInfo,
-    updateStatsTable,
     renderMinimap,
-    renderTerritoryBoundaries,
     renderSnakeUnified,
+    renderLensGround,
+    renderLensHandle,
+    drawLensArrow,
+    drawLensChip,
+    lensTheme,
+    LENS_THEME,
     getTeamKey,
     getDisappearedSnakes,
     drawDeathMarker,
@@ -4919,7 +4571,6 @@ const BoardRenderer = (function () {
     anvilIconSVG,
     hazardIconSVG,
     findSnakeAtCell,
-    findTerritoryOwnerAtCell,
     isPieceUnit,
     renderScale,
     prepareCanvas,

@@ -34,7 +34,7 @@
   }
 
   // Per-type legal orientation sets in WIRE coords (y grows DOWNWARD), copied
-  // verbatim from legalOrientations() in src/logic/piece-moves.ts — the
+  // verbatim from legalOrientations() in src/logic/staging-legality.ts — the
   // lockstep mirror of the engine's pieceMoves.ts. Keep all three in step;
   // src/tests/keynav-machine.test.ts asserts the parity.
   const WIRE_ORTHOGONALS = [

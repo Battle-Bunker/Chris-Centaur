@@ -4,6 +4,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "build:lens": "node scripts/build-lens-view.js",
     "build:watch": "tsc --watch",
     "start": "node --max-old-space-size=512 dist/index.js",
     "dev": "NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true node --watch --max-old-space-size=512 -r ts-node/register src/index.ts",
@@ -11,11 +12,17 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "gate:exact": "jest src/lobster/bounds/exact-reply.gate.test.ts --testPathIgnorePatterns=/node_modules/",
     "lint": "eslint \"src/**/*.ts\"",
     "sync-engine": "node scripts/sync-engine.js",
-    "sync-partial-engine": "node scripts/sync-partial-engine.js",
+    "corpus:wide": "bash scripts/wide-corpus.sh",
+    "corpus:table": "node scripts/wide-corpus.js table docs/design/wide",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "lens:rebuild": "node scripts/lens-rebuild.js",
+    "lens:check": "node scripts/lens-rebuild.js --check",
+    "round-robin": "bash scripts/round-robin.sh",
+    "round-robin:report": "node scripts/round-robin-report.js"
   },
   "keywords": [
     "battlesnake",
@@ -50,6 +57,7 @@
     "@typescript-eslint/eslint-plugin": "^8.44.0",
     "@typescript-eslint/parser": "^8.44.0",
     "concurrently": "^8.2.2",
+    "esbuild": "^0.25.12",
     "eslint": "^9.35.0",
     "jest": "^30.1.3",
     "nodemon": "^3.1.10",

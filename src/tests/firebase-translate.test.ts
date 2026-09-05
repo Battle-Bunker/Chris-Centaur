@@ -41,7 +41,7 @@ function makeSetup(overrides: Partial<TTGameSetup> = {}): TTGameSetup {
 
 function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
   return {
-    playerHealth: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
+    playerEnergy: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
     startTime: null as any,
     endTime: null as any,
     moves: {},
@@ -281,7 +281,7 @@ describe('maxHealth from setup.maxHealthPerUnit', () => {
         { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
         { id: 'centB#2', teamID: 'centB', letter: 'B' },
       ],
-      maxHealthPerUnit: { snake: 150, pawn: 30, queen: 80 },
+      maxEnergyPerUnit: { snake: 150, pawn: 30, queen: 80 },
     });
     // centA#2 promoted mid-game: the QUEEN max applies, not the pawn's.
     const turn = makeTurn({ unitTypes: { 'centA#2': 'queen' } });
@@ -332,7 +332,7 @@ describe('pawnPromotionWeight and maxHealthPerUnit ride on the board for the Sim
     // pawn promotes — the map is config, not derived from what is on board.
     const state = buildGameState(
       'g1',
-      makeSetup({ maxHealthPerUnit: { pawn: 100, queen: 30 } }),
+      makeSetup({ maxEnergyPerUnit: { pawn: 100, queen: 30 } }),
       makeTurn(),
       0,
       'centA',

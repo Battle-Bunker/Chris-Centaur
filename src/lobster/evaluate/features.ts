@@ -45,29 +45,35 @@
  * file only chooses the horizon and reads the answer.
  */
 
-import { Fate, profileOf } from '../../partial-engine/index';
-import type {
-  Board,
-  FieldSlot,
-  Resolution,
-  ScoreBounds,
-  UnitKind,
-} from '../../partial-engine/index';
+import { isPieceType, leavesTrail } from '../../engine-vendor/engine/moveGrammar';
+import type { UnitType } from '../../engine-vendor/shared/types/Game';
+import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
+import { boardOf, popcount32 } from '../bits';
+import type { Bitboard } from '../bits';
+import type { MaterialBounds } from '../bounds/material';
+import {
+  claimSurvivals,
+  claimsById,
+  moverSeverLoss,
+  moverSurvival,
+  moverWeightCeiling,
+} from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
-import { type Bound, type Feature, bound, point } from './bound';
+import { type Bound, type Feature, envelope, ourUnitTerm, perReading, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
+import { perBoard } from './memo';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
 import { contestFeature } from './contest';
 import { energyFeature } from './energy';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
-import { tierFeature } from './tier';
+import { potionFeature, tierFeature } from './window';
 
 // ---------------------------------------------------------------------------
 // Standing: who is on the board, in each of the two worlds
@@ -76,8 +82,8 @@ import { tierFeature } from './tier';
 export interface Standing {
   readonly unitId: UnitId;
   readonly team: number;
-  /** The rules' own kind index. Read for CLASS properties, never by name. */
-  readonly kind: UnitKind;
+  /** The rules' own kind. Read for CLASS properties through the grammar. */
+  readonly kind: UnitType;
   readonly isKing: boolean;
   /** True for a unit carried as a CLAIM rather than as a mover. */
   readonly held: boolean;
@@ -86,26 +92,47 @@ export interface Standing {
   /** Invulnerability tier, as an interval: a held unit's is not known exactly. */
   readonly tierMin: number;
   readonly tierMax: number;
-  /** The turn the tier reverts toward 0, when known. Contests read tier at the
-   * ARRIVAL turn, so a claim's tier ceiling drops at the expiry. */
+  /** The tier this unit carries into the ARRIVAL turn if nothing moves it —
+   * the engine's own lapse of the effect schedule, for a claim; its own frozen
+   * tier for a mover. */
+  readonly tierAtArrival: number;
+  /** The turn the tier reverts toward 0, when known. */
   readonly tierExpiresAtTurn: number | null;
   /** Weight a trail unit could lose to a sever without dying. */
   readonly partialLossMax: number;
-  /** Observed health. A held unit's true health is at most this. */
-  readonly health: number;
+  /** Observed energy. A held unit's true energy is at most this. */
+  readonly energy: number;
   readonly cell: number;
+  /**
+   * EVERY CELL THIS UNIT STANDS ON, HEAD FIRST — the settled occupancy for a
+   * mover, the observed record's for a held unit. `cell` is `occupancy[0]` and
+   * is kept because most readers only want the head.
+   *
+   * The barred flood (`territory.ts`) indexes the vacating schedule into this:
+   * `O[i]` is still held at horizon turn `t` exactly while `i ≤ L − 1 − t`, and
+   * `certainIfAlive` cannot answer that — the claim sorts its set by cell, so it
+   * says which cells are held and never which one leaves next.
+   */
+  readonly occupancy: ReadonlyArray<number>;
+  /** The cells a HELD unit still occupies in every world it survives — the
+   * engine's `Claim.certainIfAlive`. Empty for a mover: a mover's occupancy is
+   * settled, not conditional. */
+  readonly certainIfAlive: ReadonlyArray<number>;
   /** Alive in the subject's WORST world. */
   readonly worstAlive: boolean;
   /** Alive in the subject's BEST world. */
   readonly bestAlive: boolean;
 }
 
+/** One frozen empty list, so a mover's `certainIfAlive` is not an allocation. */
+const EMPTY_CELLS: ReadonlyArray<number> = Object.freeze([]);
+
 export interface EvalContext {
   readonly sub: EngineSubstrate;
   readonly asTeam: number;
-  readonly resolution: Resolution;
-  /** The ENGINE's own subject-frame fold, carried for comparison and telemetry. */
-  readonly engineMaterial: ScoreBounds;
+  readonly resolution: PartialSettlement;
+  /** The subject-frame material fold, carried for comparison and telemetry. */
+  readonly engineMaterial: MaterialBounds;
   readonly standing: ReadonlyArray<Standing>;
   readonly horizonTurns: number;
   /**
@@ -151,11 +178,23 @@ export interface EvalContext {
   readonly royalReachers: boolean;
   /** The command term's multipliers, or null when the feature is switched off. */
   readonly command: CommandKnobs | null;
-  /** The health-budget reserve fraction, or null for the linear reading. */
-  readonly healthReserveRatio: number | null;
+  /** The energy-budget reserve fraction, or null for the linear reading. */
+  readonly energyReserveRatio: number | null;
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
-  food(): Board;
+  food(): Bitboard;
+  /**
+   * THE FOOD NO HELD UNIT COULD HAVE TAKEN — `food()` minus every cell a held
+   * unit's cloud could have its head on when the turn closes.
+   *
+   * `food()` is the food the SETTLEMENT closed with, and a settlement leaves a
+   * held unit's meal uneaten because it does not know whether the unit went
+   * there. That is the right board for a term counting what THEY can reach and
+   * the wrong one for a term counting what WE can: a meal a held enemy may
+   * already have eaten is not ours to count in a floor. Equal to `food()` when
+   * nothing is held, so the readings still collapse to a point.
+   */
+  certainFood(): Bitboard;
 }
 
 /**
@@ -169,69 +208,97 @@ export interface EvalContext {
  */
 export function standingOf(
   sub: EngineSubstrate,
-  resolution: Resolution,
+  settlement: PartialSettlement,
   asTeam: number
 ): Standing[] {
-  const fates = new Map(resolution.fates.map((f) => [f.unitId, f.fate]));
   const out: Standing[] = [];
+  const claimById = claimsById(settlement);
+  // ONE READING OF SURVIVAL, shared with the material fold: the peril this
+  // plan cannot change, united with the peril it just made. See
+  // `bounds/material.ts` — a fold that disagreed with the bank about who is
+  // alive would be a second scoring pipeline in the one place it matters.
+  const survivals = claimSurvivals(settlement, sub.perilOf());
 
-  for (const view of sub.engine.units(resolution.state)) {
-    const mine = view.team === asTeam;
-    const fate = fates.get(view.unitId);
-    const dead = fate === Fate.Dead || !view.alive;
-    const contingent = fate === Fate.Contingent;
+  for (const unit of sub.roster()) {
+    const mine = unit.team === asTeam;
+    const claim = claimById.get(unit.wireId);
+    if (claim !== undefined) {
+      // A HELD unit, bracketed by what could have become of it.
+      const contested = (survivals.get(claim.id) ?? 'maybe') === 'maybe';
+      out.push({
+        unitId: unit.unitId,
+        team: unit.team,
+        kind: claim.kinds[0] ?? unit.type,
+        isKing: unit.isKing,
+        held: true,
+        weightMin: claim.weightMin,
+        weightMax: claim.weightMax,
+        tierMin: claim.tierMin,
+        tierMax: claim.tierMax,
+        tierAtArrival: claim.tierAtArrival,
+        tierExpiresAtTurn: unit.tierExpiresAtTurn,
+        partialLossMax: Math.max(0, unit.weight - claim.weightMin),
+        energy: claim.energyMax,
+        cell: unit.cells[0] as number,
+        occupancy: unit.cells,
+        certainIfAlive: claim.certainIfAlive,
+        worstAlive: !claim.certainlyGone && (!mine || !contested),
+        bestAlive: !claim.certainlyGone && (mine || !contested),
+      });
+      continue;
+    }
+
+    // A MOVER. The settlement says where it ended and what it weighs; the
+    // ledger says whether anything unknown could have TAKEN it — which is not
+    // the same as whether anything unknown could have changed its turn, and
+    // not the same again as whether anything unknown could have CUT it: a
+    // sever is the engine's one non-fatal contact, and a mover carries the
+    // weight it could lose to one exactly as a held unit does
+    // (`moverSeverLoss`).
+    const settled = settlement.board[unit.wireId];
+    const survival = moverSurvival(settlement, unit.wireId);
+    const dead = survival === 'no';
+    const contingent = survival === 'maybe';
+    // A MOVER THE OPTIMISTIC TIMELINE KILLED AND THE LEDGER LEFT CONTINGENT is
+    // alive in some world and has no settled board entry to read. Its weight
+    // there is bounded by `moverWeightCeiling`, its energy by what it carried
+    // in (a turn only spends energy), and its cell by the furthest the
+    // settlement saw it get — which is where it stands in the world where
+    // nothing stopped it and the closest thing the settlement holds to a
+    // position for one where something did. See `bounds/material.ts`.
+    const gone = settled === undefined;
+    const possible = gone && !dead;
+    const traversed = settlement.traversed[unit.wireId] ?? [];
+    const weight = settled?.occupancy.length ?? 0;
+    const weightMax = possible ? moverWeightCeiling(sub, unit) : weight;
+    // NOT `settlement.tiers`, which already carries this turn's pickup. A
+    // standing's tier is the one the unit CARRIES IN, and the pickup's effect
+    // enters the fold once, through `tiersAfterPickupBy`, priced over the
+    // window it actually opens. Reading the settled figure here would charge
+    // the same +1 twice, once for the window and once for the turn.
     out.push({
-      unitId: view.unitId,
-      team: view.team,
-      kind: view.kind,
-      isKing: sub.unitOf(view.unitId)?.isKing === true,
+      unitId: unit.unitId,
+      team: unit.team,
+      kind: settlement.unitTypes[unit.wireId] ?? unit.type,
+      isKing: unit.isKing,
       held: false,
-      weightMin: view.weight,
-      weightMax: view.weight,
-      tierMin: view.tier,
-      tierMax: view.tier,
-      tierExpiresAtTurn: view.tierExpiresAtTurn,
-      partialLossMax: 0,
-      health: view.health,
-      cell: view.cells[0] as number,
+      weightMin: weight,
+      weightMax,
+      tierMin: unit.tier,
+      tierMax: unit.tier,
+      tierAtArrival: unit.tier,
+      tierExpiresAtTurn: unit.tierExpiresAtTurn,
+      partialLossMax: moverSeverLoss(settlement, unit.wireId, unit.cells[0] as number),
+      energy: settled?.energy ?? (possible ? unit.energy : 0),
+      cell:
+        settled?.occupancy[0] ??
+        (possible ? (traversed[traversed.length - 1] ?? (unit.cells[0] as number)) : (unit.cells[0] as number)),
+      // A mover the optimistic timeline killed has no settled occupancy to read
+      // and no body left to bar with; its head still rides in `cell`.
+      occupancy: settled?.occupancy ?? EMPTY_CELLS,
+      certainIfAlive: EMPTY_CELLS,
       worstAlive: !dead && (!mine || !contingent),
       bestAlive: !dead && (mine || !contingent),
-    });
-  }
-
-  for (const slot of resolution.state.field.slots) {
-    const mine = slot.record.team === asTeam;
-    const cloud = slot.cloud;
-    // A cloud's `deathPossible` is derived from terrain and from the other
-    // CLAIMS — mobile units never narrow a cloud — so on its own it still
-    // reports a held unit that would walk straight into one of this turn's
-    // movers as certainly alive. That is harmless in a FLOOR (an enemy we
-    // assume survives is the pessimistic reading anyway) and a false proof in
-    // a CEILING: the world where the enemy blunders into us really exists.
-    //
-    // This file used to widen it here, by intersecting the cloud with a
-    // snapshot of every cell a mover touched. THE ENGINE ANSWERS IT NOW:
-    // `Resolution.mayHaveDied` is exactly that question, computed inside the
-    // resolution that knows it, and the engine's own reading of a slot's fate
-    // is `deathPossible || mayHaveDied`. Reading the engine's answer instead
-    // of recomputing it is what stops the two drifting apart.
-    const contested = cloud.deathPossible || (resolution.mayHaveDied & (1 << slot.slot)) !== 0;
-    out.push({
-      unitId: slot.record.unitId,
-      team: slot.record.team,
-      kind: slot.record.kind,
-      isKing: sub.unitOf(slot.record.unitId)?.isKing === true,
-      held: true,
-      weightMin: slot.bounds.weightMin,
-      weightMax: slot.bounds.weightMax,
-      tierMin: slot.bounds.tierMin,
-      tierMax: slot.bounds.tierMax,
-      tierExpiresAtTurn: slot.record.tierExpiresAtTurn ?? null,
-      partialLossMax: Math.max(0, slot.record.weight - slot.bounds.weightMin),
-      health: slot.record.health,
-      cell: slot.record.occupancy[0] as number,
-      worstAlive: !cloud.certainlyGone && (!mine || !contested),
-      bestAlive: !cloud.certainlyGone && (mine || !contested),
     });
   }
   return out;
@@ -252,9 +319,9 @@ export function standingOf(
  */
 export function buildArrivals(
   sub: EngineSubstrate,
-  resolution: Resolution,
+  resolution: PartialSettlement,
   horizonTurns: number,
-  table: ShellTable = new ShellTable(sub.grid)
+  table: ShellTable = new ShellTable(sub)
 ): Map<UnitId, Int32Array> {
   const out = new Map<UnitId, Int32Array>();
   for (const [unitId, sh] of buildShells(sub, resolution, horizonTurns, table)) {
@@ -265,8 +332,8 @@ export function buildArrivals(
 
 export function makeContext(
   sub: EngineSubstrate,
-  resolution: Resolution,
-  engineMaterial: ScoreBounds,
+  resolution: PartialSettlement,
+  engineMaterial: MaterialBounds,
   asTeam: number,
   horizonTurns: number = REACH_HORIZON_TURNS,
   /**
@@ -282,16 +349,23 @@ export function makeContext(
    * `CriterionProfile` field that I1 itself added. Both defaults are preserved
    * exactly; see the context construction below.
    */
-  profile?: Pick<CriterionProfile, 'command' | 'healthReserveRatio' | 'royalReachers'>
+  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
-  const teams = new Set(sub.roster().map((u) => u.team));
   const ws = workspaceFor(sub);
-  const roomScale = trailScaleOf(sub);
-  const pieceScale = pieceScaleOf(sub);
+  // THE ROSTER CONSTANTS, ONCE PER SUBSTRATE. All three are folds over
+  // `sub.roster()`, which is fixed for the life of a substrate — and this
+  // function runs once per EVALUATION, tens of thousands of times a decision.
+  // Cached on the substrate object, so a modelled sibling recomputes its own
+  // (there are a handful of them) and nothing is shared across decisions.
+  const constants = rosterConstantsOf(sub);
+  const teams = constants.teams;
+  const roomScale = constants.roomScale;
+  const pieceScale = constants.pieceScale;
   let shellsCache: ReadonlyMap<UnitId, UnitShells> | null = null;
   let arrivalsCache: ReadonlyMap<UnitId, Int32Array> | null = null;
-  let foodCache: Board | null = null;
+  let foodCache: Bitboard | null = null;
+  let certainFoodCache: Bitboard | null = null;
   const parts: { lo: Partition<Standing> | null; hi: Partition<Standing> | null } = {
     lo: null,
     hi: null,
@@ -309,10 +383,10 @@ export function makeContext(
     // on `undefined`; reading it off the optional bag with the same fallback is
     // the identical behaviour for a caller that passes no profile and for a
     // profile that does not set the field.
-    royalReachers: profile?.royalReachers ?? royalMargin(),
+    royalReachers: profile?.royalReachers ?? constants.royalReachers,
     pieceScale,
     command: profile?.command ?? null,
-    healthReserveRatio: profile?.healthReserveRatio ?? null,
+    energyReserveRatio: profile?.energyReserveRatio ?? null,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -322,13 +396,40 @@ export function makeContext(
     partition(reading) {
       const hit = parts[reading];
       if (hit !== null) return hit;
+      // ONE SWEEP WHEN THE TWO READINGS ADMIT THE SAME SUBJECTS.
+      //
+      // `partitionOf` is a pure function of (workspace, standing, shells,
+      // asTeam, admission) — the domain boards it fills are OUTPUTS, taken
+      // from the workspace by reading — so two readings whose admission
+      // predicates agree on every subject compute the same sweep twice. They agree exactly when nothing
+      // is contingent and nothing is held, which is what a FULLY MODELLED
+      // board is: 30.6% of the evaluations on `mixed 20 1 --nodes`, each
+      // paying twice for one answer.
+      //
+      // The other reading is then this partition with its OWN domain board —
+      // the two boards stay separate, as `Partition.domain` requires, and the
+      // contents are the same because the sweep is. Every other field is a
+      // number or a read-only array nothing here mutates, so it is shared.
+      const other = reading === 'lo' ? 'hi' : 'lo';
+      const twin = parts[other];
+      if (twin !== null && sameAdmission(standing, asTeam)) {
+        const board = ws.domainFor(reading);
+        board.set(twin.domain);
+        const certain = ws.certainDomainFor(reading);
+        certain.set(twin.certainDomain);
+        const shared: Partition<Standing> = { ...twin, domain: board, certainDomain: certain };
+        parts[reading] = shared;
+        return shared;
+      }
       const made = partitionOf(
         ws,
         standing,
         ctx.shells(),
         asTeam,
         ADMISSION[reading],
-        ws.domainFor(reading)
+        reading,
+        sub.arrivalTurn,
+        sub.arrivalTurn + horizonTurns
       );
       parts[reading] = made;
       return made;
@@ -341,11 +442,32 @@ export function makeContext(
       }
       return arrivalsCache;
     },
+    certainFood() {
+      if (certainFoodCache === null) {
+        const board = ws.certainFoodOut;
+        board.set(ctx.food());
+        const words = sub.grid.words;
+        // A HELD unit of EITHER side, because either can eat: our own held
+        // team-mate is not admitted to `lo` and can still take the meal.
+        for (const s of standing) {
+          if (!s.held) continue;
+          const sh = ctx.shells().get(s.unitId);
+          if (sh === undefined) continue;
+          const front = sh.frontAt(sub.arrivalTurn);
+          if (front === null) continue;
+          for (let i = 0; i < words; i++) {
+            board[i] = ((board[i] as number) & ~(front[i] as number)) >>> 0;
+          }
+        }
+        certainFoodCache = board;
+      }
+      return certainFoodCache;
+    },
     food() {
       if (foodCache === null) {
-        const board = ws.foodOut;
-        sub.engine.foodBoard(resolution.state, board);
-        foodCache = board;
+        // The food the turn CLOSED with: what a reach term should reach for is
+        // what is still on the board once every eater has eaten.
+        foodCache = boardOf(sub.grid, resolution.food);
       }
       return foodCache;
     },
@@ -396,10 +518,39 @@ export function makeContext(
  * feature carries proportionally less of the ordering everywhere. It is gated
  * on its own measured arm, not folded into anything else.
  */
+interface RosterConstants {
+  readonly teams: Set<number>;
+  readonly roomScale: number;
+  readonly pieceScale: number;
+  /**
+   * `CENTAUR_ROYAL_MARGIN`, read ONCE PER SUBSTRATE — which is once per
+   * decision, the cadence `stagingSafety()` next to it already documents
+   * ("read once per decision, never in a hot loop"). It was being read from
+   * `process.env` on every evaluation, and a `process.env` lookup is a trip
+   * through the real environment: 1.4% of total self time on `mixed 40 1
+   * --nodes`. Still read LIVE rather than at import — a case that flips the
+   * variable builds its own substrate, which is what the test that pins this
+   * behaviour does.
+   */
+  readonly royalReachers: boolean;
+}
+
+const rosterConstants = new WeakMap<EngineSubstrate, RosterConstants>();
+
+/** `teams`, `trailScaleOf` and `pieceScaleOf` — one roster walk, memoised. */
+function rosterConstantsOf(sub: EngineSubstrate): RosterConstants {
+  return perBoard(rosterConstants, sub, () => ({
+    teams: new Set(sub.roster().map((u) => u.team)),
+    roomScale: trailScaleOf(sub),
+    pieceScale: pieceScaleOf(sub),
+    royalReachers: royalMargin(),
+  }));
+}
+
 export function trailScaleOf(sub: EngineSubstrate): number {
   let total = 0;
   for (const u of sub.roster()) {
-    if (!profileOf(u.kind).leavesTrail) continue;
+    if (!leavesTrail(u.type)) continue;
     total += 1;
   }
   return Math.max(1, total);
@@ -412,16 +563,30 @@ export function trailScaleOf(sub: EngineSubstrate): number {
 export function pieceScaleOf(sub: EngineSubstrate): number {
   const byTeam = new Map<number, number>();
   for (const u of sub.roster()) {
-    if (profileOf(u.kind).leavesTrail) continue;
+    if (leavesTrail(u.type)) continue;
     byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
   }
   return Math.max(1, ...byTeam.values());
 }
 
 export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
-  lo: { ours: (s) => s.worstAlive && !s.held, theirs: (s) => s.worstAlive },
-  hi: { ours: (s) => s.bestAlive, theirs: (s) => s.bestAlive && !s.held },
+  lo: { admits: (s, mine) => (mine ? s.worstAlive && !s.held : s.worstAlive) },
+  hi: { admits: (s, mine) => (mine ? s.bestAlive : s.bestAlive && !s.held) },
 };
+
+/**
+ * Whether the two readings admit exactly the same subjects — the predicates
+ * above, evaluated side by side rather than restated. A subject on which they
+ * disagree is one the settlement left contingent (or a held stand-in), and one
+ * such subject is enough to make the two sweeps different questions.
+ */
+function sameAdmission(standing: ReadonlyArray<Standing>, asTeam: number): boolean {
+  for (const s of standing) {
+    const mine = s.team === asTeam;
+    if (ADMISSION.lo.admits(s, mine) !== ADMISSION.hi.admits(s, mine)) return false;
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // F1 — material (the cliff lives inside it)
@@ -451,7 +616,7 @@ export const materialFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     const { worst, best } = materialBounds(ctx);
-    return bound(worst, (worst + best) / 2, best);
+    return envelope(worst, best);
   },
 };
 
@@ -511,113 +676,159 @@ export const reachFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    if (ctx.horizonTurns <= 0) return point(0);
-    const lo = ctx.partition('lo').balance;
-    const hi = ctx.partition('hi').balance;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    return perReading(ctx, (c, reading) => c.partition(reading).balance);
   },
 };
 
 // ---------------------------------------------------------------------------
-// F3 — per-unit room (the death predictor a team partition cannot see)
+// F3 — per-unit room: THE GROUND A UNIT CAN KEEP, not the race it can win
 // ---------------------------------------------------------------------------
 
 /**
  * A team-partition difference is blind to WHICH of our units is suffocating:
  * one boxed snake and two roomy ones nets a perfectly healthy team territory,
- * and then the boxed one dies. The signal that actually discriminates is
- * per-unit and continuous — a unit's own region dropping through its own body
- * length, five to nine turns before the death, on positions where material is
- * flat and the binary trapped flag never fires at all.
+ * and then the boxed one dies. `room` is the per-unit answer to that, and it is
+ * billed as the death predictor.
  *
- *     R(u)  cells u reaches strictly before every other admitted trail unit,
- *           teammates included — plane 1 only, so the tie-dominated all-kinds
- *           reading can never starve it
- *     g(u)  min(1, sqrt(R(u) / len(u)))
- *     room  ( Σ ours g(u) − Σ theirs g(u) ) / one team's worth of trail units
+ * IT WAS MEASURING A RACE. `owned` was plane 1 of the territory partition —
+ * cells this unit reaches strictly before every other admitted trail unit —
+ * computed on dilation shells that step against the real board for the first
+ * unknown turn and against the PERMISSIVE board for every turn after it. That
+ * is exactly right for a race and exactly wrong for a box: on a permissive
+ * board a snake's own body is not there, so a snake coiled into a pocket of
+ * four cells walked out through itself on the second shell and read as roomy
+ * several turns before it suffocated. Nothing else in the fold saw the pocket
+ * either — `material`'s cliff fires on what kills us THIS turn, and a unit that
+ * steps into a pocket dies next turn or the turn after.
  *
- * A SUM OF SATURATING TERMS, NEVER A MIN. A min over our units is unbounded
- * below the moment any teammate is held — `lo` collapses to 0 and reproduces
- * exactly the vacuity the bound exists to avoid. The sum bounds cleanly (a held
- * teammate contributes between 0 and 1), still punishes confinement, collapses
- * under R3 and is monotone under R2.
+ * So the quantity behind the name changed, and nothing else did: same key, same
+ * weight, same position in `FEATURES`. It is now
  *
- * A BARE SUM, THOUGH, IS NOT A CONSTANT-WEIGHTABLE FEATURE. Its range across
- * candidates is roughly the number of units we command, so a weight that sits
- * safely under the cliff on a three-snake board sits over it on a five-snake
- * one — 3 × 5 = 15 against a lightest-unit cost of 10. `reach` already divides
- * by the open board for exactly this reason; `room` divides by the largest
- * trail count any team started the turn with, which is a BOARD constant rather
- * than a property of who a reading admits, so the sum keeps its monotonicity
- * and the feature keeps a bounded range on every board shape.
+ *     kept(u)  the cells u can KEEP over its own horizon — a flood from its
+ *              settled head in which a trail body bars on its own vacating
+ *              schedule (`O[i]` while `i ≤ L − 1 − t`, u's own included) and
+ *              any cell another unit's head can hold at or before t bars
+ *              outright (`territory.ts`, docs/design/entrapment.md §3)
+ *     need(u)  max(4, L + 2)
+ *     fear(u)  sqrt(clamp01((need − kept) / need))                    ∈ [0, 1]
+ *     room     − Σ over ours, live, unheld of fear(u) / |ours|        ∈ [−1, 0]
  *
- * The LENGTH each term divides by is an interval endpoint too, and it is chosen
- * against the term: a term being maximised in a reading takes the SMALLEST
- * admissible length, one being minimised takes the largest. For a located unit
- * the two are equal, so this only moves where something is genuinely held.
+ * ZERO WHEN THE REGION IS COMFORTABLY LARGER THAN THE BODY, by the cap: the
+ * flood stops at `need` and `fear` is exactly 0 there, so a roomy unit costs
+ * nothing and the term expresses no preference among its options — which is
+ * what keeps it from being a second, weaker `reach`. STEEP AS THE EXITS CLOSE:
+ * `sqrt` is convex-decreasing in `kept`, so the FIRST cell of shortfall costs
+ * `sqrt(1/need)` — a third of the whole term — and the last costs almost
+ * nothing more. Losing an exit costs a block of cells at once, so the shape
+ * prices the loss of the second-to-last exit hardest, which is where a decision
+ * can still be changed.
+ *
+ * A FEAR, NEVER A CREDIT, and ours only. The enemy half is retired: a held
+ * enemy has no head cell to flood from (its position is a cloud, and a region
+ * measured over a cloud is the whole board), `reach` already carries the
+ * contested-ground difference at the team level, and that half was the entire
+ * subject of the `crowdCertain` patch — the maximised side of a difference
+ * cannot be read off one sweep when an uncertain crowder is admitted. With no
+ * enemy half there is no maximised side and no patch. What is lost is an
+ * incentive to box the enemy in; that is the aggressive half of territory
+ * management and this is the conservative one, named as a deliberate omission.
+ *
+ * The range contracting from [−1, +1] to [−1, 0] strictly TIGHTENS the cliff
+ * inequality `territory-acceptance.test.ts` asserts: the certified span halves
+ * from 2 to 1, and at weight 3 against `CLIFF_MATERIAL_WEIGHT` = 10 the term
+ * can never outrank the lightest death anywhere on the board.
+ *
+ * A UNIT THIS READING DOES NOT ADMIT is charged the full fear rather than
+ * nothing. `ADMISSION.lo.ours` drops a contingent unit of ours, and a term that
+ * gave it zero would let a death RAISE our floor — the inversion `ourUnitTerm`
+ * exists to forbid. Charging 1 is sound because a dead unit contributes 0 to
+ * every world and 0 ≥ −1.
  */
 export const roomFeature: Feature<EvalContext> = {
   key: 'room',
   defaultWeight: 3,
   contract: {
     reads: [
-      { input: 'held-arrival', monotone: 'up' },
+      // Later arrival ⇒ the cloud reaches fewer cells ⇒ fewer barriers ⇒ less
+      // fear ⇒ a higher reading, so the term moves DOWN with the input.
+      { input: 'held-arrival', monotone: 'down' },
       { input: 'held-weight', monotone: 'down' },
+      { input: 'maybe-body-presence', monotone: 'down' },
       { input: 'contingent-survival', monotone: 'down' },
     ],
+    // IT MUST SLIDE, NEVER JUMP: material owns the cliff. A trapped unit is not
+    // a dead unit, and a term that jumped would make `lo` FALL when a feared
+    // death is merely confirmed.
     cliff: false,
     dischargeable: true,
   },
   evaluate(ctx) {
     if (ctx.horizonTurns <= 0) return point(0);
-    const lo = roomSum(ctx.partition('lo'), 'lo') / ctx.roomScale;
-    const hi = roomSum(ctx.partition('hi'), 'hi') / ctx.roomScale;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    const lo = fearsOf(ctx.partition('lo'));
+    const hi = fearsOf(ctx.partition('hi'));
+    return ourUnitTerm(ctx, (s) => [-fearOf(lo, s), -fearOf(hi, s)]);
   },
 };
 
-function roomSum(partition: Partition<Standing>, reading: 'lo' | 'hi'): number {
-  let total = 0;
+/**
+ * ONE UNIT'S FEAR IN ONE READING.
+ *
+ * EXACTLY ZERO FOR A PIECE, and that is load-bearing rather than tidy: a piece
+ * has no trail, no region to keep and no entry in the partition's trail list,
+ * so the missing-unit fallback would charge it the FULL fear — and
+ * `ourUnitTerm` divides by our own non-held count, which GROWS when a held
+ * teammate becomes a mover in a world the soundness law enumerates. A knight
+ * priced at 1 in the world and absent from the partial reading's divisor put
+ * `lo` 1.5 above ninety worlds of `evaluate.test.ts`'s two-held-enemies board.
+ * The term is a statement about trail units; for anything else it is silent.
+ */
+function fearOf(fears: ReadonlyMap<UnitId, number>, s: Standing): number {
+  if (!leavesTrail(s.kind)) return 0;
+  return fears.get(s.unitId) ?? 1;
+}
+
+/** `sqrt(clamp01((need − kept)/need))` per unit of OURS, by unit id. */
+function fearsOf(partition: Partition<Standing>): Map<UnitId, number> {
+  const out = new Map<UnitId, number>();
   for (const t of partition.trails) {
-    // The endpoint that hurts the reading: our term shrinks, theirs grows.
-    const wantSmall = reading === 'lo' ? t.mine : !t.mine;
-    const len = Math.max(1, wantSmall ? t.subject.weightMax : t.subject.weightMin);
-    const g = Math.min(1, Math.sqrt(t.owned / len));
-    total += t.mine ? g : -g;
+    if (!t.mine) continue;
+    const need = Math.max(1, t.need);
+    const short = Math.min(1, Math.max(0, (need - t.kept) / need));
+    out.set(t.subject.unitId, Math.sqrt(short));
   }
-  return total;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
-// F4 — health economy
+// F4 — energy economy
 // ---------------------------------------------------------------------------
 
 /**
- * Health is a movement budget, not a clock: a unit loses health only by
+ * Energy is a movement budget, not a clock: a unit loses energy only by
  * entering cells, and a piece that stands still spends nothing and can stand
  * still forever. So this term is "how many cells may my side still enter",
  * normalised, minus theirs.
  *
- * A HELD unit's health is bounded above by what we last observed and below by
+ * A HELD unit's energy is bounded above by what we last observed and below by
  * zero, and nothing cheaper than a world enumeration tightens that. So the
  * worst reading gives our held units nothing and theirs everything, and the
  * best reading the reverse — loose, sound, and collapsing the moment nothing is
  * held.
  */
-export const healthEconomyFeature: Feature<EvalContext> = {
-  key: 'healthEconomy',
+export const energyEconomyFeature: Feature<EvalContext> = {
+  key: 'energyEconomy',
   defaultWeight: 0.5,
   contract: {
     reads: [
-      { input: 'held-health', monotone: 'up' },
+      { input: 'held-energy', monotone: 'up' },
       { input: 'contingent-survival', monotone: 'down' },
     ],
     cliff: false,
     dischargeable: true,
   },
   evaluate(ctx) {
-    const cap = Math.max(1, ctx.sub.engine.config.maxHealth);
-    const reserve = ctx.healthReserveRatio;
+    const cap = Math.max(1, ctx.sub.defaultMaxEnergy);
+    const reserve = ctx.energyReserveRatio;
     let lo = 0;
     let hi = 0;
     for (const s of ctx.standing) {
@@ -631,20 +842,18 @@ export const healthEconomyFeature: Feature<EvalContext> = {
         if (s.bestAlive && !s.held) hi -= share;
       }
     }
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return envelope(lo, hi);
   },
 };
 
 /**
  * A UNIT'S SHARE OF THE MOVEMENT BUDGET.
  *
- * `health / max` is the reading for a kind that has no choice: a trail unit
- * must step every turn, so its health really is a clock and every point of it
+ * `energy / max` is the reading for a kind that has no choice: a trail unit
+ * must step every turn, so its energy really is a clock and every point of it
  * is worth the same. A kind that may DECLINE to spend — `stayLegal`, which is a
  * rule and not a taxonomy — is in a different situation, and the linear reading
- * misprices it badly: it charges the 98th health point exactly as much as the
+ * misprices it badly: it charges the 98th energy point exactly as much as the
  * 2nd, which turns a survival term into a per-cell travel tax. Measured on the
  * budget ladder's own replays, that tax was the ONLY term with dynamic range
  * over a slider's own options — 0.23–0.37 weighted against `reach`'s
@@ -655,17 +864,17 @@ export const healthEconomyFeature: Feature<EvalContext> = {
  * do in one turn brings the budget near binding, so the term says nothing about
  * where it should go. Below it the term slides to zero over the reserve rather
  * than over the whole maximum, so exhaustion is priced MORE sharply than before,
- * not less. Monotone increasing in health either way, so both bound endpoints
+ * not less. Monotone increasing in energy either way, so both bound endpoints
  * keep the direction the contract declares.
  */
 export function budgetShare(
-  s: Pick<Standing, 'health' | 'kind'>,
+  s: Pick<Standing, 'energy' | 'kind'>,
   cap: number,
   reserveRatio: number | null
 ): number {
-  if (reserveRatio === null || !profileOf(s.kind).stayLegal) return s.health / cap;
+  if (reserveRatio === null || !isPieceType(s.kind)) return s.energy / cap;
   const reserve = Math.max(1, reserveRatio * cap);
-  return Math.min(1, s.health / reserve);
+  return Math.min(1, s.energy / reserve);
 }
 
 // ---------------------------------------------------------------------------
@@ -702,13 +911,28 @@ export function budgetShare(
  * board and carries no information at all, and it is the intersection with the
  * trail domain and with food that discriminates.
  *
- * SOUNDNESS. It reads exactly the inputs `reach` reads, through the same
- * ADMISSION, and in the same direction. A held enemy's front is its cloud's
- * head-possible set, which is a SUPERSET of the truth, so `theirs` is over-
- * counted in `lo` and narrowing it can only raise our floor (R2 up in
- * held-arrival). Our own held units are dropped from `lo` and theirs from `hi`,
- * so with nothing held the two readings are the same set at the same fronts and
- * the feature collapses to a point (R3).
+ * SOUNDNESS, AND WHY EACH SIDE READS ITS OWN BOARDS. It reads exactly the
+ * inputs `reach` reads, through the same ADMISSION, and in the same direction.
+ * A held enemy's front is its cloud's head-possible set, which is a SUPERSET of
+ * the truth, so `theirs` is over-counted in `lo` and narrowing it can only
+ * raise our floor (R2 up in held-arrival). Our own held units are dropped from
+ * `lo` and theirs from `hi`, so with nothing held the two readings are the same
+ * set at the same fronts and the feature collapses to a point (R3).
+ *
+ * A superset is only conservative on the side it SUBTRACTS from, though, and
+ * both of this term's boards are supersets when something is held: the trail
+ * domain carries a held enemy's whole claim cloud, and `resolution.food` still
+ * carries the meal a held unit may already have taken. Read for OUR pieces
+ * either one lifts the floor above worlds it claims to bound — measured by a
+ * randomised R1 sweep at `command.lo` 1.000 against worlds of 0.776 and 0.694.
+ * So a term the reading ADDS is read off `Partition.certainDomain` and
+ * `EvalContext.certainFood` — the same two boards minus what a held cloud
+ * merely MIGHT hold — and a term it SUBTRACTS off the wide ones. Which side
+ * that makes ours is the READING's business and not the side's: `lo` adds our
+ * pieces and subtracts theirs, `hi` does the reverse, and the boards swap with
+ * it, or the ceiling ends up under its own worlds. Both narrowings vanish when
+ * nothing is held, so R3 is untouched, and both can only shrink under a
+ * refinement, so R2 is too.
  *
  * NOT FOR A ROYAL UNIT. `knobs.royal` is off, and it is off for a reason the
  * rules supply rather than a tuning one — see `CommandKnobs.royal`.
@@ -730,10 +954,8 @@ export const commandFeature: Feature<EvalContext> = {
   },
   evaluate(ctx) {
     const knobs = ctx.command;
-    if (knobs === null || ctx.horizonTurns <= 0) return point(0);
-    const lo = commandSum(ctx, 'lo', knobs);
-    const hi = commandSum(ctx, 'hi', knobs);
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    if (knobs === null) return point(0);
+    return perReading(ctx, (c, reading) => commandSum(c, reading, knobs));
   },
 };
 
@@ -747,29 +969,68 @@ function commandSum(
   if (open === 0) return 0;
   const admit = ADMISSION[reading];
   const words = ctx.sub.grid.words;
-  // Contested ground, or the whole open board when plane 1 is contesting
-  // nothing. A team whose last trail unit died has an EMPTY trail domain, and a
-  // term that read only the domain would go blind on exactly the position where
-  // the pieces are the entire game — the late mixed board this repair is for.
-  let domain = partition.domain;
+  // TWO DOMAINS, ONE PER DIRECTION THE ERROR MAY POINT — AND THE DIRECTION IS
+  // THE READING'S, NOT THE SIDE'S.
+  //
+  // `partition.domain` is a SUPERSET of the contested ground: a held enemy
+  // trail is dilated from where it was observed, so its front is its claim
+  // cloud. `partition.certainDomain` is the same board minus what such a cloud
+  // merely MIGHT hold, so it is a subset. Every term here is a bound in one
+  // direction, and which board bounds it is decided by whether the reading is
+  // MAXIMISING that term or minimising it:
+  //
+  //   lo  ours ← certain (a term we add, bounded below)
+  //       theirs ← wide  (a term we subtract, bounded above)
+  //   hi  ours ← wide    (added, bounded above)
+  //       theirs ← certain (subtracted, bounded below)
+  //
+  // The floor half of that was the first repair (measured: `command.lo` 1.000
+  // against worlds of 0.776 and 0.694 on a held-snake board). The ceiling half
+  // is the same statement mirrored, and leaving it unmirrored made `hi` a
+  // CEILING BELOW ITS OWN WORLDS: our piece was priced on the ground a held
+  // cloud might take from it while their piece was priced on the ground that
+  // cloud might give it, in the reading where both should be read the other
+  // way. Measured by a randomised R1 sweep over 205 held boards: five ceilings
+  // under a world, all of them here.
+  //
+  // Both fall back to the open board when plane 1 is contesting NOTHING — a
+  // team whose last trail unit died has an empty domain, and a term that read
+  // only the domain would go blind on exactly the position where the pieces
+  // are the entire game. The fallback is gated on the FULL domain, never on
+  // the certain one: an empty certain domain under a non-empty full one is the
+  // defect above, not a piece-only board, and widening a side there would
+  // restore precisely what this fixes.
+  const wide = partition.domain;
+  const certain = partition.certainDomain;
+  let ourDomain = reading === 'lo' ? certain : wide;
+  let theirDomain = reading === 'lo' ? wide : certain;
   let any = 0;
-  for (let i = 0; i < words; i++) any |= domain[i] as number;
-  if (any === 0) domain = partition.openBoard;
-  const food = ctx.food();
-  const nextTurn = ctx.resolution.state.turn + 1;
+  for (let i = 0; i < words; i++) any |= wide[i] as number;
+  if (any === 0) {
+    ourDomain = partition.openBoard;
+    theirDomain = partition.openBoard;
+  }
+  // TWO FOOD BOARDS, for the same reason and with the same flip: a meal a held
+  // unit's cloud covers is one our floor may not count for our own piece and
+  // one our ceiling may not withhold from it.
+  const ourFood = reading === 'lo' ? ctx.certainFood() : ctx.food();
+  const theirFood = reading === 'lo' ? ctx.food() : ctx.certainFood();
+  const nextTurn = ctx.sub.arrivalTurn + 1;
   let total = 0;
   for (const s of ctx.standing) {
-    if (profileOf(s.kind).leavesTrail) continue;
+    if (leavesTrail(s.kind)) continue;
     // A royal unit is not paid for activity: see CommandKnobs.royal.
     if (s.isKing && !knobs.royal) continue;
     const mine = s.team === ctx.asTeam;
-    if (mine ? !admit.ours(s) : !admit.theirs(s)) continue;
+    if (!admit.admits(s, mine)) continue;
     const sh = ctx.shells().get(s.unitId);
     if (sh === undefined) continue;
     const front = sh.frontAt(nextTurn);
     if (front === null) continue;
     let ground = 0;
     let meals = 0;
+    const domain = mine ? ourDomain : theirDomain;
+    const food = mine ? ourFood : theirFood;
     for (let i = 0; i < words; i++) {
       const f = front[i] as number;
       if (f === 0) continue;
@@ -780,13 +1041,6 @@ function commandSum(
     total += mine ? c : -c;
   }
   return total / ctx.pieceScale;
-}
-
-function popcount32(x: number): number {
-  let v = x - ((x >>> 1) & 0x55555555);
-  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
-  v = (v + (v >>> 4)) & 0x0f0f0f0f;
-  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
 }
 
 // ---------------------------------------------------------------------------
@@ -848,7 +1102,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
     // is "can this unit be on that ONE square by next turn".
     const shells = ctx.shells();
     const cap = Math.max(1, ...ctx.standing.map((s) => s.weightMax));
-    const nextTurn = ctx.resolution.state.turn + 1;
+    const nextTurn = ctx.sub.arrivalTurn + 1;
 
     const friendlyReachers = ctx.royalReachers;
 
@@ -870,9 +1124,7 @@ export const kingMarginFeature: Feature<EvalContext> = {
       hi = Math.min(hi, (king.weightMax - bestThreat) / cap);
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return point(0);
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return envelope(lo, hi);
   },
 };
 
@@ -930,7 +1182,7 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   materialFeature,
   reachFeature,
   roomFeature,
-  healthEconomyFeature,
+  energyEconomyFeature,
   kingMarginFeature,
   commandFeature,
   foodFeature,
@@ -938,10 +1190,9 @@ export const FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   contestFeature,
   tierFeature,
   energyFeature,
+  potionFeature,
 ];
 
-/** Re-exported so a consumer can read a held unit's interval without the engine. */
-export type { FieldSlot };
 export type { Bound };
 export type { UnitShells } from './shells';
 export type { Partition, TrailRoom } from './territory';

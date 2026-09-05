@@ -49,13 +49,13 @@
  * They enter by MEET and JOIN, never by addition — see `clampTo`.
  */
 
-import { DEAD as ENGINE_DEAD } from '../../partial-engine/index';
+
 import type { Bound } from '../contracts';
 
 export type { Bound };
 
-/** The lattice bottom: our team is gone. Shared with the engine's own. */
-export const DEAD: number = ENGINE_DEAD;
+/** The lattice bottom: our team is gone. */
+export const DEAD: number = Number.NEGATIVE_INFINITY;
 /** The lattice top: every other team is gone. */
 export const WIN: number = Number.POSITIVE_INFINITY;
 
@@ -85,12 +85,15 @@ export const scale = (a: Bound, k: number): Bound => {
   return bound(a.lo * k, a.est * k, a.hi * k);
 };
 
-/** Sound negation: the interval flips end for end. */
-export const negate = (a: Bound): Bound => bound(-a.hi, -a.est, -a.lo);
-
 /** Union of the possible: widens. Used when extremizing a non-monotone input. */
 export const join = (a: Bound, b: Bound): Bound =>
   bound(Math.min(a.lo, b.lo), (a.est + b.est) / 2, Math.max(a.hi, b.hi));
+
+/**
+ * The two-reading envelope: which endpoint is which is a property of the
+ * term's sign, not of the reading, so the constructor decides it.
+ */
+export const envelope = (a: number, b: number): Bound => bound(Math.min(a, b), (a + b) / 2, Math.max(a, b));
 
 /**
  * Put `est` back inside `[lo, hi]`. Written so that an infinite end behaves:
@@ -104,21 +107,162 @@ export const clampEst = (e: number, lo: number, hi: number): number => {
 };
 
 /**
- * Replace the ends with lattice elements, ORDERED, never added.
+ * WHAT A TERMINAL MEMBER SAYS ABOUT ONE READING, and the silence that is not a
+ * number.
+ *
+ * A member that reads the boundary answers per READING — the worst-case world
+ * and the best-case one — and each answer is either the lattice element that
+ * world is WORTH (`DEAD`, `WIN`) or nothing at all. `null` is the nothing, and
+ * it is a distinct value rather than a sentinel number because DEAD and "no
+ * floor to state" are both `-Infinity`: collapsing them is exactly how a
+ * silence becomes a claim.
+ *
+ * `lo` is the worst reading's value and `hi` the best reading's, and a member
+ * MUST hand them over already ordered (`lo <= hi` where both speak). That is
+ * not a convenience: the two are a floor and a ceiling over the same set of
+ * completion worlds, so an unordered pair is a member that has contradicted
+ * itself, and no reordering here can turn it back into a bound — see
+ * `docs/design/TERMINAL-SOUND.md` for what `Math.min`/`Math.max` did instead.
+ */
+export interface TerminalClamp {
+  /** The worst reading's terminal value, or null where it has none to state. */
+  readonly lo: number | null;
+  /** The best reading's terminal value, or null where it has none to state. */
+  readonly hi: number | null;
+}
+
+/** A member with nothing to say about either end. */
+export const NO_CLAMP: TerminalClamp = { lo: null, hi: null };
+
+/**
+ * MEET the terminal readings of two independent members of the SAME board.
+ *
+ * Per side: a member that is silent yields to one that speaks, and where both
+ * speak the result CONTAINS both claims — the lower floor, the higher ceiling.
+ * That direction is the load-bearing one. Two sound members of the same board
+ * cannot disagree (elimination and the turn cap both read the same
+ * adjudication, and a team that is gone is not the sole winner of anything), so
+ * a disagreement is a defect somewhere, and the only combination that cannot
+ * MANUFACTURE a bound out of one is the widening one. Narrowing on a
+ * disagreement is how a ceiling ends up standing in for a floor.
+ */
+export const meetClamps = (a: TerminalClamp, b: TerminalClamp): TerminalClamp => ({
+  lo: a.lo === null ? b.lo : b.lo === null ? a.lo : Math.min(a.lo, b.lo),
+  hi: a.hi === null ? b.hi : b.hi === null ? a.hi : Math.max(a.hi, b.hi),
+});
+
+/**
+ * Replace the ends the terminal members SPOKE FOR with their lattice elements,
+ * ORDERED, never added, and never crossed.
  *
  * The ordering is the rules' own: a team whose last unit dies has lost,
  * WHATEVER happened to anyone else. Scoring the two terminal outcomes
  * additively makes them cancel, and a mutual annihilation then reads as a wash
  * — which is how an evaluator ends up trading its own last unit for the
- * opponent's. So the caller passes the two verdicts already ordered, and this
- * function only refuses to let an inverted interval out.
+ * opponent's.
+ *
+ * A REPLACEMENT AND NOT AN INTERSECTION WITH `total`, because the interior fold
+ * is defined only in the interior: on a board that has ENDED its number is not
+ * a bound on anything, so meeting with it would keep a floor no world stands
+ * under. A side the clamp is SILENT on is the other case, and there the
+ * interior endpoint is all there is — that is the meet, and it is why `lo` can
+ * only ever be a lattice element or the interior FLOOR, and `hi` a lattice
+ * element or the interior CEILING. An interior ceiling can no longer reach the
+ * floor by any path through this function.
+ *
+ * An inverted pair throws. It is a member contradicting itself about the same
+ * world set, the fatal bug class the bank exists to catch, and there is no
+ * repair for it here that is not a guess.
  */
-export const clampTo = (total: Bound, lo: number, hi: number): Bound => {
+export const clampTo = (total: Bound, clamp: TerminalClamp): Bound => {
+  const lo = clamp.lo ?? total.lo;
+  const hi = clamp.hi ?? total.hi;
   if (hi < lo) {
-    throw new Error(`terminal clamps inverted the interval: [${lo}, ${hi}]`);
+    throw new Error(
+      `terminal clamps inverted the interval: [${lo}, ${hi}] ` +
+        `(clamp [${String(clamp.lo)}, ${String(clamp.hi)}], interior [${total.lo}, ${total.hi}])`
+    );
   }
   return bound(lo, clampEst(total.est, lo, hi), hi);
 };
+
+/**
+ * A term that is a mean over OUR live, non-held units of a per-unit signed
+ * reading, folded so a dead unit can never invert the bracket.
+ *
+ * ── THE ALIVE-SET POLARITY RULE, STATED HERE AND NOWHERE ELSE ───────────────
+ *
+ * Costs over the SUPERSET, credits over the subset, in the worst reading; the
+ * other way round in the best — a dead unit contributes nothing to either
+ * accumulator, whichever reading killed it. Our best world keeps a superset of
+ * the units our worst world keeps, so that bracket contains every world between
+ * the two and cannot invert, whatever sign the per-unit reading carries.
+ * `valueOf` returns `[lo, hi]` for one unit; a term that is never positive (a
+ * straight cost) passes `[-cost, -cost]`, which is the special case of the
+ * signed rule below. Every member that means this inherits it from this
+ * signature rather than restating it in a paragraph of its own.
+ *
+ * `gate`, when given, may zero the whole term even though `ours` is
+ * non-empty — the board has nothing the term can price at all, not merely
+ * nothing that costs anything this decision.
+ *
+ * `aliveOf` names the pair of worlds a unit's reading is PAID IN, which is not
+ * always the pair the unit survives in: where the rules pay a reading only if
+ * some OTHER unit also lives — a pickup's credit and its cost both die with the
+ * collector — the pair is conjoined with that unit's. The default is the unit's
+ * own survival. A conjunction is the only admissible shape: a reading paid in
+ * MORE worlds than the unit lives in is exactly the inversion this fold exists
+ * to refuse.
+ */
+export function ourUnitTerm<S extends { readonly team: number; readonly held: boolean; readonly bestAlive: boolean; readonly worstAlive: boolean }>(
+  ctx: { readonly asTeam: number; readonly standing: ReadonlyArray<S> },
+  valueOf: (s: S) => readonly [lo: number, hi: number],
+  gate?: (ctx: { readonly asTeam: number; readonly standing: ReadonlyArray<S> }, ours: ReadonlyArray<S>) => boolean,
+  aliveOf?: (s: S) => readonly [best: boolean, worst: boolean]
+): Bound {
+  const ours: S[] = [];
+  for (const s of ctx.standing) if (s.team === ctx.asTeam && !s.held) ours.push(s);
+  if (ours.length === 0) return point(0);
+  if (gate !== undefined && !gate(ctx, ours)) return point(0);
+
+  let worst = 0;
+  let best = 0;
+  for (const s of ours) {
+    // The SKIP is the unit's own survival and never the conditioned pair: a
+    // unit gone from both readings prices nothing, and one whose payer is gone
+    // still has a reading to be paid zero of.
+    if (!s.bestAlive && !s.worstAlive) continue;
+    const [vLo, vHi] = valueOf(s);
+    // Not `aliveOf?.(s) ?? [s.bestAlive, s.worstAlive]`: the default must not
+    // allocate a pair per unit per node in the hottest loop in the fold.
+    const paid = aliveOf === undefined ? undefined : aliveOf(s);
+    const paidBest = paid === undefined ? s.bestAlive : paid[0];
+    const paidWorst = paid === undefined ? s.worstAlive : paid[1];
+    if (vLo < 0 && paidBest) worst += vLo;
+    if (vLo > 0 && paidWorst) worst += vLo;
+    if (vHi > 0 && paidBest) best += vHi;
+    if (vHi < 0 && paidWorst) best += vHi;
+  }
+  const lo = worst / ours.length;
+  const hi = best / ours.length;
+  return envelope(lo, hi);
+}
+
+/**
+ * A term that is one scalar per READING, with the horizon guard the three
+ * members that have one all write identically.
+ *
+ * The endpoint choice is `envelope`'s and so the constructor's, not the
+ * caller's — see `envelope` above — and the guard is here because a term whose
+ * horizon is zero has no reading to take, not because each member decided so.
+ */
+export function perReading<C extends { readonly horizonTurns: number }>(
+  ctx: C,
+  of: (ctx: C, reading: 'lo' | 'hi') => number
+): Bound {
+  if (ctx.horizonTurns <= 0) return point(0);
+  return envelope(of(ctx, 'lo'), of(ctx, 'hi'));
+}
 
 // ---------------------------------------------------------------------------
 // The admission contract
@@ -131,7 +275,7 @@ export type UncertainInput =
   | 'held-weight'
   | 'held-tier'
   | 'held-arrival'
-  | 'held-health'
+  | 'held-energy'
   | 'contingent-survival';
 
 export interface BoundContract {

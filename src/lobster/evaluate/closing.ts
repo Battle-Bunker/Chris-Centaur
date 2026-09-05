@@ -6,43 +6,23 @@
  * profile carries them. `I3_FEATURES` is the list an evaluator opts into, so a
  * baseline arm runs the identical code path at the identical cost.
  *
- * ── F6 regicideCascade — WHY A POSSIBLE REGICIDE IS PRICED AT ONE ───────────
+ * ── F6 regicideCascade — DELETED, BECAUSE THE ENGINE DOES IT ───────────────
  *
- * `applyRegicide` removes EVERY remaining unit of a team the moment its last
- * king dies. The resolver applies that inside a resolution, so a CERTAIN king
- * capture is already priced correctly: the whole team's fates come back Dead
- * and `materialBounds` folds the lot.
+ * There used to be a second feature here. `applyRegicide` removes EVERY
+ * remaining unit of a team the moment its last king dies, and the argument for
+ * F6 was that a claim could not be cascaded: a maybe-regicide was priced at the
+ * king's own weight, which is the LIGHTEST on the board, so a coin-flip shot at
+ * ending a whole team ordered below a single meal.
  *
- * A POSSIBLE one is not, and the reason is structural. The teammates of a king
- * we might kill are, on nearly every real board, HELD claims — and a cloud is
- * derived from terrain and from the other claims only (`features.ts` says so in
- * as many words: "mobile units never narrow a cloud"). So the resolver cannot
- * cascade a claim, `standingOf` reports every one of those teammates alive in
- * both readings, and the only thing the fold gains from a maybe-regicide is the
- * king's own weight.
- *
- * The king is the LIGHTEST unit on the board — `MATERIAL_WEIGHT[king] = 1`. So
- * the ordering channel prices a coin-flip shot at ending an entire enemy team
- * at half of one material point, while a single meal is worth a whole one, with
- * certainty. That is the offensive half of the self-regicide defect, and it is
- * a fair mechanical account of a corpus in which 5,027 reachable-king positions
- * were staged into 16% of the time.
- *
- * The fix is a CORRECTION TO MATERIAL, not a new objective: for an enemy team
- * whose kings are all gone in a reading, add back exactly what `materialBounds`
- * subtracted for its surviving units, at the same endpoint, so the two together
- * report what the rules would actually leave standing. It therefore carries
- * material's own weight, and a test pins that.
- *
- * SOUNDNESS. In any DETERMINATE world the feature is zero on both sides: the
- * resolver has already cascaded, so a team with no living king has no living
- * units to add back, and a team with one contributes nothing by construction.
- * `lo` fires only where a king is *proven* gone (`worstAlive === false` for an
- * enemy means `certainlyGone`, or a fate of Dead — both proofs over every
- * world), so it is a real floor improvement and not a hope. R2 holds on the
- * total because the two terms cancel exactly, unit for unit and endpoint for
- * endpoint: a team the cascade claims contributes zero to the sum, before and
- * after any refinement.
+ * That premise died with the partial engine. `computeClaims` folds
+ * `underRegicide` into `deathPossible` — "a unit that plays under regicide can
+ * be taken off the board by a king it never met" — so every unit of a
+ * king-bearing team comes back possibly-dead, `standingOf` reports it, and the
+ * material fold credits the victim's whole surviving roster in our best reading
+ * without anyone adding a correction on top. Adding one now would double-count
+ * the cascade, which is what a second encoding of a rule does to you when the
+ * first encoding catches up. So F6 is gone; `I3_FEATURES` is the shipped list
+ * plus ONE.
  *
  * ── F7 approach — THE MOVEMENT THAT MANUFACTURES THE MEAL ──────────────────
  *
@@ -65,91 +45,15 @@
  */
 
 import type { Bound, Feature } from './bound';
-import { bound, point } from './bound';
+import { perReading } from './bound';
 import type { CriterionProfile } from './calibration';
 import { DEFAULT_WEIGHTS, TERRITORY_PROFILE } from './calibration';
 import { ADMISSION, FEATURES } from './features';
-import type { EvalContext, Standing } from './features';
+import type { EvalContext } from './features';
 import { BoundEvaluator } from './index';
+import { perBoard } from './memo';
 import type { EngineSubstrate } from '../substrate';
 
-// ---------------------------------------------------------------------------
-// F6 — the regicide cascade
-// ---------------------------------------------------------------------------
-
-/**
- * What `materialBounds` subtracts for one enemy unit, at one endpoint. Mirrored
- * exactly — the cancellation is the whole soundness argument, so the two must
- * not drift.
- */
-const enemyWorstCost = (s: Standing): number => s.weightMax;
-const enemyBestCost = (s: Standing): number => Math.max(0, s.weightMin - s.partialLossMax);
-
-/**
- * Teams other than the subject that (a) play under regicide, (b) fielded a king
- * this turn, and (c) have no king left alive under `alive`. Everything such a
- * team still has standing in that reading is material the rules would remove.
- */
-function cascadeSum(
-  ctx: EvalContext,
-  alive: (s: Standing) => boolean,
-  cost: (s: Standing) => number
-): number {
-  const regicide = ctx.sub.regicideTeamNumbers();
-  let total = 0;
-  for (const team of ctx.teams) {
-    if (team === ctx.asTeam) continue;
-    if (!regicide.has(team)) continue;
-    let hadKing = false;
-    let kingAlive = false;
-    let standing = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== team) continue;
-      if (s.isKing) {
-        hadKing = true;
-        if (alive(s)) kingAlive = true;
-      }
-      if (alive(s)) standing += cost(s);
-    }
-    if (!hadKing || kingAlive) continue;
-    total += standing;
-  }
-  return total;
-}
-
-/**
- * The material a maybe-regicide would actually take off the board, on top of
- * the king itself.
- *
- * Denominated in material and carrying material's weight, because it IS
- * material: the fold subtracts a claim it cannot cascade, and this adds the
- * same quantity back at the same endpoint. Zero in every determinate world.
- */
-export const regicideCascadeFeature: Feature<EvalContext> = {
-  key: 'regicideCascade',
-  // Zero, so that a profile which does not name the key gets the shipped
-  // behaviour exactly. The I3 profiles name it, at material's weight.
-  defaultWeight: 0,
-  contract: {
-    reads: [
-      { input: 'contingent-survival', monotone: 'down' },
-      { input: 'held-weight', monotone: 'down' },
-    ],
-    // It is the cliff's other face: a proven regicide enters `lo` whole.
-    cliff: true,
-    dischargeable: true,
-  },
-  evaluate(ctx): Bound {
-    const lo = cascadeSum(ctx, (s) => s.worstAlive, enemyWorstCost);
-    const hi = cascadeSum(ctx, (s) => s.bestAlive, enemyBestCost);
-    // `lo` is the reading in which our contingent units died and theirs lived,
-    // so it can only ever claim a cascade the rules prove; `hi` is the mirror.
-    // They are not ordered a priori — take the interval either way round.
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
-  },
-};
 
 // ---------------------------------------------------------------------------
 // F7 — approach
@@ -167,13 +71,11 @@ export const regicideCascadeFeature: Feature<EvalContext> = {
 const foodCache = new WeakMap<EngineSubstrate, Int32Array>();
 
 function foodCellsOf(sub: EngineSubstrate): Int32Array {
-  const hit = foodCache.get(sub);
-  if (hit !== undefined) return hit;
-  const cells: number[] = [];
-  for (let c = 0; c < sub.grid.cells; c++) if (sub.foodAt(c)) cells.push(c);
-  const made = Int32Array.from(cells);
-  foodCache.set(sub, made);
-  return made;
+  return perBoard(foodCache, sub, () => {
+    const cells: number[] = [];
+    for (let c = 0; c < sub.grid.cells; c++) if (sub.foodAt(c)) cells.push(c);
+    return Int32Array.from(cells);
+  });
 }
 
 /**
@@ -187,13 +89,11 @@ function foodCellsOf(sub: EngineSubstrate): Int32Array {
 const scaleCache = new WeakMap<EngineSubstrate, number>();
 
 function unitScaleOf(sub: EngineSubstrate): number {
-  const hit = scaleCache.get(sub);
-  if (hit !== undefined) return hit;
-  const byTeam = new Map<number, number>();
-  for (const u of sub.roster()) byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
-  const made = Math.max(1, ...byTeam.values());
-  scaleCache.set(sub, made);
-  return made;
+  return perBoard(scaleCache, sub, () => {
+    const byTeam = new Map<number, number>();
+    for (const u of sub.roster()) byTeam.set(u.team, (byTeam.get(u.team) ?? 0) + 1);
+    return Math.max(1, ...byTeam.values());
+  });
 }
 
 /** Credit for a unit that can be on food in `d` turns. Linear, saturating at
@@ -209,12 +109,12 @@ function approachSum(ctx: EvalContext, reading: 'lo' | 'hi'): number {
   // `ctx.shells()` and not `ctx.arrivals()`: the latter builds a fresh Map per
   // evaluation to hold grids the shells already own and memoise.
   const shells = ctx.shells();
-  const turn = ctx.resolution.state.turn;
+  const turn = ctx.sub.arrivalTurn;
   const horizon = ctx.horizonTurns;
   let total = 0;
   for (const s of ctx.standing) {
     const mine = s.team === ctx.asTeam;
-    if (!(mine ? admit.ours(s) : admit.theirs(s))) continue;
+    if (!admit.admits(s, mine)) continue;
     const sh = shells.get(s.unitId);
     if (sh === undefined) continue;
     const grid = sh.earliest();
@@ -255,13 +155,7 @@ export const approachFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx): Bound {
-    if (ctx.horizonTurns <= 0) return point(0);
-    const scale = unitScaleOf(ctx.sub);
-    const lo = approachSum(ctx, 'lo') / scale;
-    const hi = approachSum(ctx, 'hi') / scale;
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return bound(a, (a + b) / 2, b);
+    return perReading(ctx, (c, reading) => approachSum(c, reading) / unitScaleOf(c.sub));
   },
 };
 
@@ -269,22 +163,15 @@ export const approachFeature: Feature<EvalContext> = {
 // The opt-in list and the profiles that carry it
 // ---------------------------------------------------------------------------
 
-/** The shipped features plus this file's two. Order is load-bearing for
- * reproducibility, so the additions go on the end. */
+/** The shipped features plus this file's one. Order is load-bearing for
+ * reproducibility, so the addition goes on the end. */
 export const I3_FEATURES: ReadonlyArray<Feature<EvalContext>> = [
   ...FEATURES,
-  regicideCascadeFeature,
   approachFeature,
 ];
 
-/**
- * `regicideCascade` is a correction to `material` and must carry material's
- * weight: the cancellation that makes the total monotone is unit-for-unit, and
- * a different weight breaks it. Asserted in the suite.
- */
 export const I3_WEIGHTS: Readonly<Record<string, number>> = {
   ...DEFAULT_WEIGHTS,
-  regicideCascade: DEFAULT_WEIGHTS.material as number,
   /**
    * ONE, like `reach`, and for the same reason: the cliff inequality wants
    * `w × range < 10 × lightest weight`, the range here is bounded by 2 by
@@ -306,10 +193,10 @@ export const I3_TERRITORY_PROFILE: CriterionProfile = {
 };
 
 /**
- * The material profile plus the cascade and nothing else — the arm that tests
- * whether the closing correction is profile-independent. `approach` is dark
- * here because the material profile runs no flood at all (horizon 0), which is
- * the honest reading of "guard-free": it needs no territory machinery.
+ * The material profile and nothing else — the guard-free arm. `approach` is
+ * dark here because the material profile runs no flood at all (horizon 0),
+ * which is the honest reading of "guard-free": it needs no territory
+ * machinery.
  */
 export const I3_MATERIAL_PROFILE: CriterionProfile = {
   name: 'i3-material',
@@ -317,7 +204,7 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     material: 10,
     reach: 0,
     room: 0,
-    healthEconomy: 0,
+    energyEconomy: 0,
     kingMargin: 0,
     command: 0,
     food: 0,
@@ -325,7 +212,7 @@ export const I3_MATERIAL_PROFILE: CriterionProfile = {
     contest: 0,
     tier: 0,
     energy: 0,
-    regicideCascade: 10,
+    potion: 0,
     approach: 0,
   },
   reachHorizonTurns: 0,

@@ -65,14 +65,19 @@ export interface Board {
   // readers use `board.hazardDamage ?? 100`.
   hazardDamage?: number;
   // Weight threshold at which a pawn promotes to a queen, from the game
-  // setup (GameSetup.pawnPromotionWeight). The Simulator reads this to mirror
+  // setup (GameSetup.pawnPromotionWeight). Lookahead reads this to mirror
   // the engine's post-eat/growth promotion step. Absent means the engine
   // default — readers use `board.pawnPromotionWeight ?? DEFAULT_PAWN_PROMOTION_WEIGHT`
-  // (piece-moves.ts).
+  // (logic/staging-legality.ts).
   pawnPromotionWeight?: number;
   // The turn count the game is adjudicated at (GameSetup.maxTurns): absent
   // means the engine's default limit, null means unlimited.
   maxTurns?: number | null;
+  // Energy one food replenishes (GameSetup.foodEnergy), added to the eater and
+  // clamped to its kind's max. Absent means the engine default of 100 — one
+  // meal, a full tank — which is the rule food has always played by. A meal
+  // grows the eater only when it FILLS it, so this is what growth costs.
+  foodEnergy?: number;
   // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
   // keyed by unit type regardless of whether that type is currently fielded —
   // a pawns-only setup can still configure the queen's max for the moment a

@@ -39,7 +39,7 @@ import type {
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
-import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
+import { DEAD, WIN, clampEst, clampTo, fold, meetClamps, type TerminalClamp } from './bound';
 import type { Evaluation, Feature, Weights } from './bound';
 import {
   DEFAULT_PROFILE,
@@ -48,6 +48,8 @@ import {
 } from './calibration';
 import type { CriterionProfile } from './calibration';
 import { FEATURES, makeContext, terminalVerdicts } from './features';
+// model/terminal@1 — the OTHER half of the boundary (06 F-7). See terminal.ts.
+import { capVerdicts } from './terminal';
 import type { EvalContext } from './features';
 
 export * from './bound';
@@ -58,7 +60,7 @@ export {
   budgetShare,
   buildArrivals,
   commandFeature,
-  healthEconomyFeature,
+  energyEconomyFeature,
   kingMarginFeature,
   makeContext,
   materialBounds,
@@ -71,14 +73,15 @@ export {
   trailScaleOf,
 } from './features';
 export type { EvalContext, Standing, UnitShells } from './features';
-export { ShellTable, buildShells, earliestShells, recordOfView } from './shells';
+export { NEVER, ShellTable, buildShells, earliestShells } from './shells';
+export type { ShellRequest } from './shells';
 export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export { CONTEST_LOSS, contestFeature, contestField, winsContest } from './contest';
 export type { ContestField } from './contest';
 export { energyCostOf, energyFeature, tripOf } from './energy';
 export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
-export { tierFeature, tierIsLive } from './tier';
+export { PERIL_WEIGHT, potionFeature, tierFeature, tierIsLive } from './window';
 export type { Admission, Partition, TrailRoom } from './territory';
 export { checkCollapse, checkMonotone, checkSoundness, worldsOf } from './laws';
 export type { LawCase, LawResult } from './laws';
@@ -137,6 +140,40 @@ export class BoundEvaluator implements Evaluator {
     return this.evaluatePlan(sub, plan, asTeam).bound;
   }
 
+  /**
+   * ONE EVALUATION PER RESOLVED WORLD — the memo BELOW the metered door.
+   *
+   * WHAT AN EVALUATION IS A FUNCTION OF. Everything `makeContext` and the
+   * fold read is (a) this evaluator — its profile, weights, features and
+   * horizon, all fixed at construction; (b) the RESOLUTION object; (c)
+   * `asTeam`; (d) the substrate FAMILY — grid, shape, roster, arrival turn,
+   * geometry caches, all shared by a substrate and every modelled sibling of
+   * it; and (e) exactly one view-dependent reading, `sub.perilOf()`. There is
+   * no `claimsOf`, no `entangled` and no `modeled` anywhere in the fold —
+   * audited, and the reason this cache can be keyed the way it is.
+   *
+   * WHY IT PAYS. `substrate.ts` now settles a plan once per FAMILY rather than
+   * once per view, so the same resolution OBJECT reaches the evaluator from
+   * every hold configuration the bank prices that plan under, and from the
+   * runner's trace pricing as well. The bank's own evaluation memo
+   * (`bounds/evalmemo.ts`) cannot collapse those: it namespaces on the view,
+   * because the view is what it can see. This one is keyed on what the
+   * evaluation actually depends on — the resolution, the peril set's identity
+   * and the frame — so a repeat is a lookup. Measured on `mixed 20 1 --nodes`:
+   * 72 068 evaluations over 45 942 distinct resolutions.
+   *
+   * IT DOES NOT MOVE THE CLOCK. The deterministic runner counts nodes at the
+   * METERED WRAPPER, which is above this call and still runs once per call, so
+   * the node budget spends exactly as it did — the work under it is what got
+   * cheaper. `WeakMap`s keyed on the resolution and on the peril set, so an
+   * entry dies with the settlement it describes and nothing outlives a
+   * decision.
+   */
+  private readonly evaluations = new WeakMap<
+    object,
+    { peril: object; byTeam: Map<number, PlanEvaluation> }
+  >();
+
   evaluatePlan(sub: Substrate, plan: JointPlan, asTeam: number): PlanEvaluation {
     if (!(sub instanceof EngineSubstrate)) {
       throw new TypeError(
@@ -145,6 +182,14 @@ export class BoundEvaluator implements Evaluator {
       );
     }
     return sub.withResolution(plan, asTeam, ({ resolution, bounds }) => {
+      const peril = sub.perilOf() as object;
+      let slot = this.evaluations.get(resolution as object);
+      if (slot === undefined || slot.peril !== peril) {
+        slot = { peril, byTeam: new Map<number, PlanEvaluation>() };
+        this.evaluations.set(resolution as object, slot);
+      }
+      const hit = slot.byTeam.get(asTeam);
+      if (hit !== undefined) return hit;
       const ctx = makeContext(
         sub,
         resolution,
@@ -152,11 +197,13 @@ export class BoundEvaluator implements Evaluator {
         asTeam,
         this.profile.reachHorizonTurns,
         // One bag, carrying I1's royalReachers and I2's command /
-        // healthReserveRatio. See makeContext's signature.
+        // energyReserveRatio. See makeContext's signature.
         this.profile
       );
       const evaluation: Evaluation = fold(this.features, ctx, this.weights);
-      return finish(ctx, evaluation);
+      const made = finish(ctx, evaluation);
+      slot.byTeam.set(asTeam, made);
+      return made;
     });
   }
 
@@ -215,11 +262,24 @@ export class BoundEvaluator implements Evaluator {
  * check turns a silent misconfiguration into a startup failure that names the
  * key. Every shipped profile passes; a caller assembling one for an experiment
  * finds out immediately.
+ *
+ * THE COMMAND KNOBS ARE CHECKED THE SAME WAY, AND FOR THE SAME REASON. They
+ * are the one part of a profile that is a number table and NOT the weight
+ * table, they reach the fold through `EvalContext.command`, and a profile
+ * assembled from a stored binding is a plain object that TypeScript never saw.
+ * A knob left out reads `undefined`, `undefined * anything` is `NaN`, and a
+ * `NaN` addend inside `Math.min(1, ...)` makes `c` NaN, which propagates
+ * through the fold to a bound that compares false against everything — a
+ * silent misconfiguration exactly like a forgotten weight, arriving by the
+ * same door. A negative one is the other half: `scale` already refuses a
+ * negative WEIGHT because it would flip which endpoint is the bound, and a
+ * negative knob inside the clamp does the same thing one level down.
  */
 export function checkWeights(
   profile: CriterionProfile,
   features: ReadonlyArray<Feature<EvalContext>>
 ): void {
+  checkCommandKnobs(profile);
   const folded = new Set(features.map((f) => f.key));
   const named = new Set(Object.keys(profile.weights));
   const missing: string[] = [];
@@ -240,6 +300,27 @@ export function checkWeights(
   throw new Error(`criterion profile "${profile.name}" ${parts.join('; and it ')}`);
 }
 
+/** The numeric knobs of `CommandKnobs`, named once so adding one cannot forget
+ *  to check it. `royal` is a flag and carries no arithmetic. */
+const COMMAND_KNOB_KEYS = ['ground', 'food'] as const;
+
+function checkCommandKnobs(profile: CriterionProfile): void {
+  const knobs = profile.command;
+  if (knobs === undefined) return;
+  const bad: string[] = [];
+  for (const key of COMMAND_KNOB_KEYS) {
+    const v = knobs[key] as unknown;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) bad.push(`${key}=${String(v)}`);
+  }
+  if (bad.length === 0) return;
+  throw new Error(
+    `criterion profile "${profile.name}" has command knobs that are not finite and ` +
+      `non-negative: ${bad.join(', ')} — every one of them multiplies a cell count ` +
+      'inside the same clamp, so a missing or negative knob is a NaN or an inverted ' +
+      'term in every piece evaluation on the board'
+  );
+}
+
 /**
  * The clamp step, kept separate so the law harness can exercise it directly.
  *
@@ -251,17 +332,48 @@ export function checkWeights(
  */
 export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation {
   const { worst, best } = terminalVerdicts(ctx);
+  // THE OTHER HALF OF THE BOUNDARY (06 F-7). Elimination above, the turn cap
+  // here, in the same ordering and by the same replacement — a game that ends
+  // on the count has ended, and the fold has nothing to say about a board with
+  // no next turn. `none` on every board but the last one, at the cost of one
+  // comparison; a DRAW is `none` too, because a draw is neither lattice element
+  // and replacing the interior value with either is the wash error again.
+  const cap = capVerdicts(ctx);
 
-  const lo = worst.subjectGone ? DEAD : worst.othersGone ? WIN : evaluation.total.lo;
-  const hi = best.subjectGone ? DEAD : best.othersGone ? WIN : evaluation.total.hi;
+  // EACH MEMBER STATES ITS OWN TWO ENDS, and a `null` is a silence rather than
+  // a number: DEAD and "nothing to say about the floor" are both -Infinity, so
+  // the two have to be different values or the silence becomes a claim.
+  const elimination: TerminalClamp = {
+    lo: worst.subjectGone ? DEAD : worst.othersGone ? WIN : null,
+    hi: best.subjectGone ? DEAD : best.othersGone ? WIN : null,
+  };
+  const capClamp: TerminalClamp = {
+    lo: cap.worst === 'loss' ? DEAD : cap.worst === 'win' ? WIN : null,
+    hi: cap.best === 'loss' ? DEAD : cap.best === 'win' ? WIN : null,
+  };
 
   // Elimination in the BEST world implies elimination in the worst (our
   // best-world alive set contains our worst-world one), and a clean sweep in
-  // the worst world implies one in the best. So the clamps can only ever
-  // tighten an interval, never invert it — asserted rather than assumed.
-  const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
+  // the worst world implies one in the best; each member's own pair is ordered
+  // by its own proof. So the MEET of the two is ordered, and `clampTo` is
+  // handed the pair AS GIVEN.
+  //
+  // WHAT USED TO BE HERE, AND WHY IT WAS THE BUG. The pair went through
+  // `Math.min(lo, hi)` / `Math.max(lo, hi)` under a comment asserting the
+  // clamps "can only ever tighten an interval, never invert it". That is true
+  // of the elimination corners, whose worlds are ordered by inclusion, and it
+  // was FALSE of the cap corners, which are read off two winner sets that are
+  // not — `cap.worst === 'win'` (a WIN floor) could stand beside `cap.best ===
+  // 'draw'` (no ceiling clamp at all, so `hi` stayed the INTERIOR ceiling), and
+  // `Math.min` then handed the interior ceiling over as the floor. The plan
+  // came back as `[interiorCeiling, +Infinity]`, a complete floor above another
+  // rung's sound ceiling: 5,195 inversions over the twelve 30-turn gate arms
+  // once the runner stated its cap. The cap's corners are ordered now
+  // (`terminal.ts`), and the swap that hid the disorder is gone with them.
+  const clamp = meetClamps(elimination, capClamp);
+  const clamped = clampTo(evaluation.total, clamp);
 
-  const basis = ctx.resolution.state.field.assumptions();
+  const basis = ctx.engineMaterial.assumptions;
   return {
     bound: {
       lo: clamped.lo,
@@ -276,19 +388,13 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
       clamped.lo === clamped.hi,
     basis,
     ledgerSize: ctx.resolution.ledger.length,
-    terminal: {
-      loClamped: worst.subjectGone || worst.othersGone,
-      hiClamped: best.subjectGone || best.othersGone,
-    },
+    terminal: { loClamped: clamp.lo !== null, hiClamped: clamp.hi !== null },
   };
 }
 
 /** The evaluator with the calibrated profile — the TERRITORY profile, which is
  * what production runs. */
 export const defaultEvaluator = new BoundEvaluator();
-
-/** The same thing under the name that says what it carries. */
-export const territoryEvaluator = defaultEvaluator;
 
 /** A material-only evaluator: the reflex rung's, the differential's, and the
  * explicit fallback profile if territory ever has to be backed out. */

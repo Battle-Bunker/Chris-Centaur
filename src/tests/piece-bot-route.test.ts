@@ -13,9 +13,10 @@
  * fatal-move consent gate must be exactly as unmovable as it was.
  */
 
-import { ActiveGameManager, TurnData } from '../server/active-game-manager';
+import { ActiveGameManager } from '../server/active-game-manager';
 import { CentaurMove, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { apiCoordToIndex } from '../firebase/translate';
+import { makeGameState as makeGameStateBase, makeTurnData } from './board-fixtures';
 
 jest.mock('../logic/command-logger', () => {
   const logEvent = jest.fn();
@@ -54,24 +55,9 @@ function makeUnit(
 }
 
 function makeGameState(gameId: string, turn: number, snakes: Snake[], youId: string): GameState {
-  const you = snakes.find((s) => s.id === youId)!;
-  return {
+  return makeGameStateBase(gameId, turn, snakes, youId, {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
-    board: { width: 11, height: 11, food: [], hazards: [], snakes },
-    you,
-  };
-}
-
-function makeTurnData(gs: GameState, move: CentaurMove | null): TurnData {
-  return {
-    gameState: gs,
-    moveEvaluations: [],
-    territoryCells: {},
-    safeMoves: [],
-    botRecommendation: move,
-    timestamp: Date.now(),
-  };
+  });
 }
 
 interface Published {

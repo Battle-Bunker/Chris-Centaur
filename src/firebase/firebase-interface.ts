@@ -61,23 +61,25 @@ import {
 } from 'firebase/functions';
 import { CentaurMove, Direction, GameState } from '../types/battlesnake';
 import { transientInterval, transientTimeout } from '../server/activity-controller';
-import { VoronoiStrategy } from '../logic/voronoi-strategy';
-import { BoardGraph } from '../logic/board-graph';
-import { MoveAnalyzer } from '../logic/move-analyzer';
 import { TeamDetector } from '../logic/team-detector';
 import { DecisionLogger } from '../logic/decision-logger';
 import { GameRegistry } from '../logic/game-registry';
 import { ServerEventLogger } from '../logic/server-event-logger';
 import { GameLogger } from '../utils/logger';
-import { ActiveGameManager, TurnData } from '../server/active-game-manager';
+import { ActiveGameManager } from '../server/active-game-manager';
 import { PendingGameRegistry } from '../logic/pending-game-registry';
+import {
+  grammarUnitOf,
+  quickStagingTarget,
+  stagingBoard,
+} from '../logic/staging-legality';
 import { TTGameInvite, TTGameSetup, TTGameStateDoc } from './tactictoes-types';
 import { MIN_RESERVE_MS, TurnDeadlineGuard, describeTiming } from '../wire/deadline';
 import { PinEventHub, UnitIdRegistry } from '../wire/pin-events';
 import { TeamBatchDoc, TeamBatchSubmitter, privateMoveDoc } from '../wire/team-submitter';
 import { minWriteIntervalFromEnv } from '../wire/stage-throttle';
-import { centaurEngine } from '../config/centaur-engine';
 import { TeamDecisionEngine } from '../lobster/team-decision-engine';
+import { makeInspectionPort, type InspectionPort } from '../lens/store/sources';
 import { botRegistry } from '../config/bot-store';
 import type { PinEvent } from '../lobster/contracts';
 import {
@@ -91,6 +93,7 @@ import {
   parseLatestTurn,
   parseTurn,
   snakeIdentity,
+  toApiCoord,
   unitTypeFor,
   withYou,
 } from './translate';
@@ -400,13 +403,10 @@ export class TacticToesFirebaseInterface {
     },
   }));
   /**
-   * The TEAM decision engine (CENTAUR_ENGINE=lobster only). Inert under the
-   * default flag: nothing constructs a substrate, subscribes an event, or
-   * enables team staging until the lobster full pass actually runs. Its ports
-   * are exactly the wire layer's documented integration surface — per-unit
-   * setBotRecommendation (precedence + consent gate untouched),
-   * enableTeamStaging, the typed pin-event stream, and the per-game unit-id
-   * registry's reverse lookup.
+   * THE decision engine. Its ports are exactly the wire layer's documented
+   * integration surface — per-unit setBotRecommendation (precedence + consent
+   * gate untouched), enableTeamStaging, the typed pin-event stream, and the
+   * per-game unit-id registry's reverse lookup.
    */
   private readonly teamEngine = new TeamDecisionEngine({
     setBotRecommendation: (gameId, snakeId, move, turnData) =>
@@ -414,33 +414,23 @@ export class TacticToesFirebaseInterface {
     enableTeamStaging: (gameId) => this.gameManager.enableTeamStaging(gameId),
     onPinEvent: (gameId, sink) => this.pinEvents.subscribe(gameId, sink),
     pinSnakeIdOf: (gameId, unitId) => this.unitIdsFor(gameId).snakeIdOf(unitId),
-    // REPLAY TELEMETRY, ATTACHED HERE AND NOWHERE INSIDE THE ENGINE. The
-    // DecisionLogger is a process-wide singleton with a database queue behind
-    // it; the lobster layer names a port and this file is what binds it, the
-    // same way the manager and the transport halves are bound above. The row
-    // arrives already shaped for the logger, so this is a forward and not a
-    // translation — `turn` is already in the decision-log domain (board turn
-    // + 1), which is what the submitted-move and server-move back-fills key on.
-    // THE PRODUCTION BOT BINDING SITE, bound here for the same reason the
-    // telemetry port is: the registry reads `config_store` over Postgres and
-    // the decision layer must stay one import away from no database at all.
+    // THE PRODUCTION BOT BINDING SITE. The registry reads `config_store` over
+    // Postgres and the decision layer must stay one import away from no
+    // database at all, so the binding is a port and this file is what binds
+    // it — the same way the manager and the transport halves are bound above.
     // Before this line the live process played ONE bot for every game and
     // every seat it held — see `TeamDecisionPorts.botBinding`.
     botBinding: (gameId, centaurId) => botRegistry().bindingFor(gameId, centaurId),
-    logDecision: (row) =>
-      DecisionLogger.getInstance().logDecision({
-        gameId: row.gameId,
-        snakeId: row.snakeId,
-        snakeName: row.snakeName,
-        turn: row.turn,
-        position: row.position,
-        health: row.health,
-        safeMoves: row.safeMoves,
-        botRecommendation: row.botRecommendation,
-        moveEvaluations: row.moveEvaluations,
-        decision: row.decision,
-        gameState: row.gameState,
-      }),
+    // THE LENS, per decision [CHANGE 3]. The manager is the one `seq` writer,
+    // so the sink the kernel is handed is the manager's: every frame the
+    // decision emits is stamped by the same writer the operator's commands
+    // are, and `seq` is one order over both producers rather than two that
+    // would have to be merged later and cannot be. A game the manager has no
+    // board for gets null, which is the state the cost gate measures — an
+    // unwatched decision must cost exactly what it cost before the lens
+    // existed (05 §(d) gate 7(ii)).
+    lensSink: (gameId, turn, decision) =>
+      this.gameManager.lensDecision(gameId, turn, decision),
   });
   // Pending (unstarted) lobbies this centaur is invited to: gameID → setup-doc
   // subscription. Display data lives in the PendingGameRegistry; no game-doc
@@ -456,7 +446,6 @@ export class TacticToesFirebaseInterface {
   private readonly gameManager = ActiveGameManager.getInstance();
   private readonly teamDetector = new TeamDetector();
   private readonly gameLogger = new GameLogger();
-  private readonly quickAnalyzer = new MoveAnalyzer();
 
   // Connection status surfaced to the web UI (banner + /api/firebase-status).
   // The centaur is nonfunctional without Firebase, so operators must be able to
@@ -473,10 +462,7 @@ export class TacticToesFirebaseInterface {
   // so a client that connects mid-suspend always wins (and vice versa).
   private desiredActive = true;
 
-  constructor(
-    private readonly strategy: VoronoiStrategy,
-    private readonly config: FirebaseInterfaceConfig
-  ) {}
+  constructor(private readonly config: FirebaseInterfaceConfig) {}
 
   getStatus(): FirebaseStatus {
     return { state: this.connState, error: this.connError, since: this.connSince };
@@ -1130,6 +1116,28 @@ export class TacticToesFirebaseInterface {
   }
 
   /**
+   * THE INSPECTION PORT, seen from the wire (04 §4.5).
+   *
+   * The websocket server serves `lens-conditional` and `lens-breakdown` out of
+   * the running decision's own reserve, and the running decision lives here —
+   * this interface owns the engine, and the engine holds the live kernel per
+   * game. Everything below either answers or REFUSES in the type of its own
+   * reply: with no decision running the answer is a typed refusal and never a
+   * silence, because a UI that cannot tell "nothing is running" from "nothing
+   * happened" draws the second when it means the first.
+   */
+  lensInspectionPort(): InspectionPort {
+    return makeInspectionPort({
+      // The RUNNING decision lives here — this interface owns the engine, and
+      // the engine holds the live kernel per game. Null is not a switch: it is
+      // the state "no decision is answering questions right now", which the
+      // port turns into a typed refusal.
+      portFor: (gameId) => this.teamEngine.lensPortFor(gameId),
+      cursorFor: (gameId) => this.gameManager.lensCursorFor(gameId),
+    });
+  }
+
+  /**
    * Subscribe to a game's pin events. The team decision engine's kernel takes
    * these as constraint-epoch changes; anything else may watch them too, since
    * a subscriber cannot influence staging.
@@ -1160,7 +1168,6 @@ export class TacticToesFirebaseInterface {
     this.pinEvents.release(watched.gameID);
     this.unitIds.delete(watched.gameID);
     this.teamSubmitter.abandon(watched.gameID);
-    this.strategy.onGameEnd(watched.gameID);
     console.log(`[tt-firebase] Stopped watching game ${watched.gameID}`);
   }
 
@@ -1313,9 +1320,12 @@ export class TacticToesFirebaseInterface {
         }
         this.gameManager.applyResolvedMoves(watched.gameID, turnNumber - 1, ours);
       }
-      // The decision-log row for the prior board turn is keyed by this
-      // arriving turn (decision_logs.turn = boardTurn + 1).
-      DecisionLogger.getInstance().recordServerMoves(watched.gameID, turnNumber, lastMoves);
+      // The resolved moves are NOT recorded here any more. `applyResolvedMoves`
+      // above is the one place a turn resolves: it stamps `turn.resolved` into
+      // the sequenced event log and fills `unit_outcomes` from it, in the BOARD
+      // turn domain. Writing them from here as well would be two writers for
+      // one fact, which is the exact shape of defect the single `seq` writer
+      // exists to prevent.
     }
 
     // Final turn: close the game everywhere off the canonical final state.
@@ -1341,10 +1351,10 @@ export class TacticToesFirebaseInterface {
       // Persist the FINAL board too — the death positions were never
       // replayable before (no /move is made on the final turn, so no decision
       // row ever covered it).
-      DecisionLogger.getInstance().logTurnState({
+      DecisionLogger.getInstance().logTurnBoard({
         gameId: watched.gameID,
         turn: turnNumber,
-        gameState: canonical,
+        settlement: canonical,
       });
       this.gameLogger.endGame(canonical);
       GameRegistry.getInstance().recordGameEnd(canonical);
@@ -1355,10 +1365,11 @@ export class TacticToesFirebaseInterface {
 
     // Persist this turn's canonical board onto the turn-state row (the
     // decision pass upserts the territory half; either order works).
-    DecisionLogger.getInstance().logTurnState({
+    DecisionLogger.getInstance().logTurnBoard({
       gameId: watched.gameID,
       turn: turnNumber,
-      gameState: canonical,
+      settlement: canonical,
+      deadlineMs: canonical.game?.timeout ?? null,
     });
 
     const aliveOurs = ourSnakes.filter((id) => pt.alive(id));
@@ -1391,18 +1402,7 @@ export class TacticToesFirebaseInterface {
     // after it, turn 0's last write would ride on luck instead of a timer. The
     // team engine's own enableTeamStaging call is idempotent on top of this.
     //
-    // AND THE FLAG IS READ AT CALL TIME, so it can flip back mid-game. Turning
-    // the team engine off without turning its TRANSPORT off leaves the batched
-    // submitter routing a per-snake game's staged writes (V4 H3): the switch
-    // has to be driven in both directions from the same branch, and the team
-    // engine's per-game state (its pin subscription included) goes with it.
-    if (centaurEngine() === 'lobster') {
-      this.gameManager.enableTeamStaging(watched.gameID);
-    } else {
-      this.gameManager.enableTeamStaging(watched.gameID, false);
-      this.teamEngine.release(watched.gameID);
-    botRegistry().release(watched.gameID);
-    }
+    this.gameManager.enableTeamStaging(watched.gameID);
 
     // Read-back + finalization for this turn: confirm what Firebase actually
     // holds as each snake's staged move, and detect the turn's final
@@ -1451,7 +1451,6 @@ export class TacticToesFirebaseInterface {
             gameState: view,
             moveEvaluations: [],
             territoryCells: {},
-            safeMoves: [],
             botRecommendation: quick,
             timestamp: Date.now(),
           });
@@ -1496,121 +1495,68 @@ export class TacticToesFirebaseInterface {
       Date.now()
     );
 
-    // CENTAUR_ENGINE=lobster: the full pass routes the TEAM decision through
-    // the LOBSTER kernel — one joint decision for every alive unit we control,
+    // THE FULL PASS: one joint decision for every alive unit we control,
     // pieces included, staged through the same per-unit manager surface the
-    // legacy pass uses (precedence and the consent gate run untouched) and
-    // batched by the team submitter. The fast pass above already ran
-    // identically; under the default flag this branch is completely inert.
-    if (centaurEngine() === 'lobster') {
-      const teamUnits: Array<{ snakeId: string; view: GameState }> = [];
-      for (const snakeId of aliveOurs) {
-        const view = views.get(snakeId) ?? withYou(canonical, snakeId);
-        if (view) teamUnits.push({ snakeId, view });
-      }
-      if (teamUnits.length > 0) {
-        void this.teamEngine
-          .decideTurn({
-            gameId: watched.gameID,
-            turn: turnNumber,
-            board: canonical.board,
-            ourTeamId: this.config.centaurId,
-            units: teamUnits,
-            deadlineMs,
-          })
-          .catch((err) => {
-            console.error(
-              `[tt-firebase] Team decision failed for ${watched.gameID} turn ${turnNumber}:`,
-              err
-            );
-          });
-      }
-      return;
+    // fast pass uses (precedence and the consent gate run untouched) and
+    // batched by the team submitter. There is one branch here now — the
+    // per-snake legacy fan-out that used to live beside it, and the flag that
+    // chose between them, are gone.
+    const teamUnits: Array<{ snakeId: string; view: GameState }> = [];
+    for (const snakeId of aliveOurs) {
+      const view = views.get(snakeId) ?? withYou(canonical, snakeId);
+      if (view) teamUnits.push({ snakeId, view });
     }
-
-    void Promise.all(
-      // views holds SNAKE units only (pieces took the intake branch above),
-      // so this fan-out is snake-only by construction.
-      [...views.keys()].map(async (snakeId) => {
-        const view = views.get(snakeId)!;
-        try {
-          const teams = this.teamDetector.detectTeams(view.board.snakes);
-          const ourTeam = teams.find((team) => team.snakes.some((s) => s.id === snakeId));
-          const waypoint = this.gameManager.getActiveWaypointTarget(watched.gameID, snakeId);
-
-          let lastForwarded: Direction | null = null;
-          const result = await this.strategy.getBestMoveIterative(view, ourTeam, waypoint, {
-            deadlineMs,
-            onRecommendation: (move, decision) => {
-              if (move === lastForwarded) return;
-              lastForwarded = move;
-              this.gameManager.setBotRecommendation(watched.gameID, snakeId, move, {
-                gameState: view,
-                moveEvaluations: [],
-                territoryCells: {},
-                safeMoves: decision.candidateMoves,
-                botRecommendation: move,
-                timestamp: Date.now(),
-              });
-            },
-          });
-
-          const turnData: TurnData = {
-            gameState: view,
-            moveEvaluations: result.moveEvaluations,
-            territoryCells: result.territoryCells,
-            safeMoves: result.safeMoves,
-            botRecommendation: result.move,
-            timestamp: Date.now(),
-            cellOwnership: result.cellOwnership,
-          };
-          this.gameManager.setBotRecommendation(watched.gameID, snakeId, result.move, turnData);
-        } catch (err) {
-          console.error(`[tt-firebase] Decision failed for ${snakeId} turn ${turnNumber}:`, err);
-          // The fallback staging itself must never throw: this whole pass is
-          // fire-and-forget (void Promise.all below), so a synchronous throw
-          // from setBotRecommendation here would reject the voided promise
-          // and land in index.ts's unhandledRejection handler — killing the
-          // process over one snake's failed fallback. Log and move on.
-          try {
-            this.gameManager.setBotRecommendation(watched.gameID, snakeId, 'up', {
-              gameState: view,
-              moveEvaluations: [],
-              territoryCells: {},
-              safeMoves: [],
-              botRecommendation: 'up',
-              timestamp: Date.now(),
-            });
-          } catch (stagingErr) {
-            console.error(`[tt-firebase] Fallback staging failed for ${snakeId} turn ${turnNumber} of ${watched.gameID}:`, stagingErr);
-          }
-        }
-      })
-    ).catch((err) => {
-      // Belt-and-braces: nothing above should be able to reject, but a voided
-      // Promise.all with no .catch would turn any future slip here into an
-      // unhandledRejection → process exit. Contain it to a log line instead.
-      console.error(`[tt-firebase] Decision pass rejected for game ${watched.gameID} turn ${turnNumber}:`, err);
-    });
+    if (teamUnits.length > 0) {
+      void this.teamEngine
+        .decideTurn({
+          gameId: watched.gameID,
+          turn: turnNumber,
+          board: canonical.board,
+          ourTeamId: this.config.centaurId,
+          units: teamUnits,
+          deadlineMs,
+        })
+        .catch((err) => {
+          console.error(
+            `[tt-firebase] Team decision failed for ${watched.gameID} turn ${turnNumber}:`,
+            err
+          );
+        });
+    }
   }
 
-  // A cheap (~1ms) safe move for the fast staging pass: prefer continuing
-  // straight when that is safe, else the analyzer's first safe move, else a
-  // risky one. Returns null when the snake has no non-lethal move at all.
+  /**
+   * A cheap safe move for the fast staging pass: the direction to stage for a
+   * snake before anything has been thought about, or null when the grammar
+   * offers it nothing.
+   *
+   * ASKED OF THE GRAMMAR, NOT OF A SAFETY MODEL. The option set is
+   * `legalTargets` — the same staging step `resolveTurn` runs — and the
+   * refusal is the two things that are certainly fatal by geometry alone: a
+   * staged wall, and the mover's own body, which is occupied next turn in
+   * every world. Preference goes to continuing the way the snake already
+   * faces, because that is the engine's own default and the least surprising
+   * answer to "something, quickly".
+   *
+   * What this deliberately does NOT do is weigh head-to-head risk or a
+   * piece's reach, which is what the analyzer it replaces spent a BoardGraph
+   * build per snake per turn on. Those are RISKS, not certainties, and this
+   * pass exists only so that a short turn deadline never catches a snake with
+   * nothing staged; the full pass above supersedes it within milliseconds and
+   * weighs all of it properly.
+   */
   private quickSafeMove(view: GameState): Direction | null {
-    const graph = new BoardGraph(view);
-    const analysis = this.quickAnalyzer.analyzeMoves(view.you, view, graph);
-    const head = view.you.head;
-    const neck = view.you.body[1];
-    let straight: Direction | null = null;
-    if (neck && (neck.x !== head.x || neck.y !== head.y)) {
-      if (head.x > neck.x) straight = 'right';
-      else if (head.x < neck.x) straight = 'left';
-      else if (head.y > neck.y) straight = 'up';
-      else straight = 'down';
-    }
-    if (straight && analysis.safe.includes(straight)) return straight;
-    return analysis.safe[0] ?? analysis.risky[0] ?? null;
+    const snake = view.you;
+    const shape = stagingBoard(view.board);
+    const target = quickStagingTarget(grammarUnitOf(snake, view.board), shape);
+    if (target === null) return null;
+    const dest = toApiCoord(target, shape.boardWidth, shape.boardHeight);
+    const head = snake.head;
+    if (dest.x > head.x) return 'right';
+    if (dest.x < head.x) return 'left';
+    if (dest.y > head.y) return 'up';
+    if (dest.y < head.y) return 'down';
+    return null;
   }
 
   // Sets up the per-turn read-back listeners and the finalization trigger:

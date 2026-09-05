@@ -14,7 +14,6 @@
  */
 
 import { Board, Coord, Snake } from '../../types/battlesnake';
-import { marshalBoard } from '../../logic/turn-oracle';
 import { NO_ORDER_MOVE, clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
 import {
@@ -37,48 +36,30 @@ import {
   contestField,
   defaultEvaluator,
   makeContext,
+  commandFeature,
+  worldsOf,
   tierFeature,
+  potionFeature,
+  PERIL_WEIGHT,
   materialBounds,
   materialEvaluator,
   scale,
   royalCommandEvaluator,
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
+import { makeSnake, piece, cellAt } from '../../tests/board-fixtures';
 
 // --------------------------------------------------------------------- fixtures
 
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
+// NOT converted to the shared `boardOf`: every one of this file's 36 call
+// sites relies on the 7×7 default, unlike the shared factory's 9×9 — see
+// SIMPLIFY-PLAN-3.md item 1.
 const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
   ({ width: 7, height: 7, food: [], hazards: [], snakes, ...extra }) as Board;
 
 const TURN = 40;
 
-const at = (board: Board, cell: Coord): number =>
-  marshalBoard(board, TURN).toIndex(cell);
+const at = (board: Board, cell: Coord): number => cellAt(board, TURN, cell);
 
 
 /** Every unit named with its own default — the zero-assumption joint plan. */
@@ -249,7 +230,190 @@ const LAW_CASES: LawCase[] = [
       orders: new Map([['me', at(board, { x: 2, y: 3 })]]),
     };
   })(),
+  (() => {
+    // A HELD ENEMY TRAIL AND OUR OWN PIECE — the board the two-domain rule is
+    // for. Everything of ours but the queen is held, so `lo` reads our piece
+    // against a blue snake carried as a CLAIM, and a claim's cloud is a
+    // superset of where the snake really is. See the block at the bottom of
+    // this file for what the cloud used to buy us.
+    const board = boardOf(
+      [
+        piece('q', { x: 2, y: 5 }, 'queen', 3, { teamID: 'red', health: 60 }),
+        makeSnake('rs', [
+          { x: 1, y: 1 },
+          { x: 2, y: 1 },
+          { x: 3, y: 1 },
+        ], { teamID: 'red', health: 80 }),
+        makeSnake('bs', [
+          { x: 2, y: 2 },
+          { x: 3, y: 2 },
+          { x: 4, y: 2 },
+        ], { teamID: 'blue', health: 80 }),
+        piece('bk', { x: 4, y: 4 }, 'king', 1, { teamID: 'blue', health: 60 }),
+      ],
+      { food: [{ x: 4, y: 3 }, { x: 5, y: 2 }] }
+    );
+    return {
+      name: 'our queen holding, against a held enemy snake and food',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['q'],
+      orders: new Map([['q', NO_ORDER_MOVE]]),
+    };
+  })(),
+  (() => {
+    // A MOVER WALKING OFF ITS OWN BODY, with two held units that can both
+    // reach the segment it leaves behind. The engine ledgers every contact
+    // naming our snake as a `sever` with `couldBeat: false` — the body rule's
+    // other half, "a cut is a weight loss rather than a death" — which is a
+    // proof of survival for ONE arrival and not for two: the first dies on the
+    // segment and registers the segment's OWNER into that cell's durable pile
+    // (`turnEngine.ts` c5), and the second arrival then contests the whole
+    // pile and takes everyone that is not its unique strict maximum (c4).
+    //
+    // Sixteen of the four hundred worlds enumerated here end
+    // `contest ... victimIDs ["br","rs"] Deadlock: no unique survivor`, and
+    // before `bounds/material.ts` refused the proof they were sixteen R1 floor
+    // violations against a finite floor — in the material profile too, where
+    // the floor read -50 for a world that is a wipe. The engine side of it is
+    // pinned as an executable defect report in
+    // `src/tests/settle-partial-sever-pile.test.ts`.
+    const board = boardOf([
+      makeSnake('rs', [
+        { x: 2, y: 5 },
+        { x: 3, y: 5 },
+        { x: 4, y: 5 },
+      ], { teamID: 'red', health: 80 }),
+      piece('rq', { x: 3, y: 4 }, 'queen', 3, { teamID: 'red', health: 60 }),
+      makeSnake('bs', [
+        { x: 3, y: 1 },
+        { x: 4, y: 1 },
+        { x: 5, y: 1 },
+      ], { teamID: 'blue', health: 80 }),
+      piece('br', { x: 2, y: 1 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+    ]);
+    return {
+      name: 'a snake stepping off its own body, under two claims that can pile on it',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['rs'],
+      orders: new Map([['rs', at(board, { x: 1, y: 5 })]]),
+    };
+  })(),
+  (() => {
+    // A PICKUP UNDER A CLAIM. Our taker steps onto a potion with a held enemy
+    // close enough to reach it, so the collector is CONTINGENT in the very
+    // world set this case enumerates — which is the case both potion terms are
+    // bracketed for, and the one that is unreachable from a board with no
+    // potion on it. The ally is one square from a contest of its own, so the
+    // buff half is live too.
+    const board = boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('ally', [{ x: 3, y: 1 }, { x: 2, y: 1 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('foe', [{ x: 5, y: 1 }, { x: 6, y: 1 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+          health: 60,
+        }),
+        piece('N', { x: 3, y: 4 }, 'knight', 2, { teamID: 'blue', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+    return {
+      name: 'a taker stepping onto a potion under a held knight',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['taker', 'ally'],
+      orders: new Map([
+        ['taker', at(board, { x: 2, y: 3 })],
+        ['ally', at(board, { x: 4, y: 1 })],
+      ]),
+    };
+  })(),
+  (() => {
+    // TWO OF OURS ON TWO POTIONS IN THE SAME TURN. The rule settles both — each
+    // takes -1 and each gives the other +1 — and a term that names ONE
+    // collector has to bracket every world in which the one it named is not the
+    // one it would name once the world is determinate. Both are contingent
+    // under the held rook.
+    const board = boardOf(
+      [
+        makeSnake('a', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        makeSnake('b', [{ x: 1, y: 5 }, { x: 0, y: 5 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: 60,
+        }),
+        piece('R', { x: 5, y: 4 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }, { x: 2, y: 5 }] }
+    );
+    return {
+      name: 'two of ours collecting two potions in the one turn',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['a', 'b'],
+      orders: new Map([
+        ['a', at(board, { x: 2, y: 3 })],
+        ['b', at(board, { x: 2, y: 5 })],
+      ]),
+    };
+  })(),
+  (() => {
+    // A SLIDER TAKING A POTION UNDER A CLAIM THAT CAN CONTEST THE CELL. The
+    // held rook's own grammar reaches the potion square our queen is staged to,
+    // so among the worlds this case enumerates are ones in which the queen does
+    // not arrive and collects nothing — the ONE thing that decides whether the
+    // pickup happens at all. Three teams, so the enemy field the term stamps is
+    // a union over two rosters rather than one.
+    const board = boardOf(
+      [
+        piece('q', { x: 1, y: 1 }, 'queen', 2, { teamID: 'red', health: 60 }),
+        piece('p', { x: 3, y: 3 }, 'pawn', 2, { teamID: 'red', health: 60 }),
+        piece('r', { x: 5, y: 5 }, 'rook', 3, { teamID: 'blue', health: 60 }),
+        piece('n', { x: 0, y: 6 }, 'knight', 2, { teamID: 'green', health: 60 }),
+      ],
+      { invulnerabilityPotions: [{ x: 5, y: 1 }] }
+    );
+    return {
+      name: 'a queen sliding onto a potion a held rook can contest',
+      board,
+      turn: TURN,
+      asTeam: 'red',
+      stages: ['q', 'p'],
+      orders: new Map([
+        ['q', at(board, { x: 5, y: 1 })],
+        ['p', at(board, { x: 3, y: 2 })],
+      ]),
+    };
+  })(),
 ];
+
+/**
+ * The law cases that carry no potion. The corpus grew three potion boards when
+ * `potion.ts` was seated — the terms that must be identically zero without one
+ * are checked over these, and the laws themselves over all of them.
+ */
+const POTIONLESS_LAW_CASES = LAW_CASES.filter(
+  (c) => (c.board as { invulnerabilityPotions?: unknown }).invulnerabilityPotions === undefined
+);
 
 describe('the admission laws, over the real world set', () => {
   test('R1 soundness: every world lies inside the interval', () => {
@@ -334,16 +498,16 @@ describe('the cliff', () => {
     // Now name the queen's move that actually takes the rook there, if one
     // exists: the confirmed death may not score below the feared one.
     let worstConfirmed = Number.POSITIVE_INFINITY;
-    for (const action of sub.enumerate(queen)) {
+    for (const action of sub.actionsOf(queen)) {
       const plan = new Map<UnitId, Candidate>([
         [rook, { unitId: rook, from: -1, to, path: sub.pathFor(rook, to) ?? [] }],
         [
           queen,
           {
             unitId: queen,
-            from: -1,
-            to: action.dest,
-            path: action.action.kind === 'move' ? [...action.action.path] : [],
+            from: action.from,
+            to: action.to,
+            path: action.path,
           },
         ],
       ]);
@@ -640,7 +804,7 @@ describe('tier value prices the window, and is free without one', () => {
     // is a point at zero, so every counter measured on a potion-free board is
     // the counter that was measured before it existed. Checked over the law
     // cases — pieces, snakes, kings, held units.
-    for (const c of LAW_CASES) {
+    for (const c of POTIONLESS_LAW_CASES) {
       const sub = makeSubstrate({
         board: c.board,
         turn: c.turn,
@@ -878,6 +1042,197 @@ describe('tier value prices the window, and is free without one', () => {
   });
 });
 
+// --------------------------------------------------------------- the pickup
+
+describe('the pickup trade — the team’s windows against the collector’s exposure', () => {
+  /** The `potion` part of one joint plan, and the whole fold’s floor with it. */
+  function pickupOf(
+    board: Board,
+    orders: ReadonlyArray<[string, Coord]>,
+    asTeam = 'red'
+  ): { potion: { lo: number; est: number; hi: number }; total: number } {
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam,
+      modeled: orders.map(([id]) => id),
+    });
+    try {
+      const plan = new Map<UnitId, Candidate>();
+      for (const [id, to] of orders) {
+        const unit = sub.unitOfWireId(id)?.unitId as UnitId;
+        const dest = at(board, to);
+        plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+      }
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(asTeam));
+      const part = ev.parts['potion'] as { lo: number; est: number; hi: number };
+      return { potion: { lo: part.lo, est: part.est, hi: part.hi }, total: ev.bound.est };
+    } finally {
+      sub.release();
+    }
+  }
+
+  /**
+   * THE PICKUP BOARD. Our taker steps onto the potion; our ally steps into a
+   * square an enemy TIES it at, which is a square it dies on at tier 0 and
+   * survives at +1 (`strictMaximum` gives a survivor only to a unique maximum).
+   * `hunter` is the knob: absent, nothing of theirs can be where the taker can
+   * be for the first turns of the window; present, the debuffed taker is beaten
+   * on its own ground straight away.
+   */
+  const pickupBoard = (hunter: Snake | null): Board =>
+    boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('ally', [{ x: 3, y: 1 }, { x: 2, y: 1 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 5, y: 1 }, { x: 6, y: 1 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+        ...(hunter === null ? [] : [hunter]),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }] }
+    );
+
+  const TAKES: ReadonlyArray<[string, Coord]> = [
+    ['taker', { x: 2, y: 3 }],
+    ['ally', { x: 4, y: 1 }],
+  ];
+
+  test('EXACTLY zero on every board with no potion on it', () => {
+    // The seating argument, executable: with no potion standing the term is a
+    // point at zero, so every counter measured on `mixed`, `snakes` and
+    // `sparse` is the counter that was measured before this member existed.
+    for (const c of POTIONLESS_LAW_CASES) {
+      const sub = makeSubstrate({
+        board: c.board,
+        turn: c.turn,
+        asTeam: c.asTeam,
+        modeled: c.stages,
+        observedTurns: c.observedTurns,
+      });
+      try {
+        const plan = new Map<UnitId, Candidate>();
+        for (const wireId of c.stages) {
+          const unit = sub.unitOfWireId(wireId)?.unitId as UnitId;
+          const dest = c.orders.get(wireId) as number;
+          plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+        }
+        const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(c.asTeam));
+        expect([c.name, ev.parts['potion']]).toEqual([c.name, { lo: 0, est: 0, hi: 0 }]);
+      } finally {
+        sub.release();
+      }
+    }
+  });
+
+  test('and zero on a plan that collects nothing, potion or no potion', () => {
+    // The term is about the TRADE, so a board with a potion on it that nobody
+    // is stepping on is not a trade and prices at nothing.
+    const board = pickupBoard(null);
+    expect(
+      pickupOf(board, [
+        ['taker', { x: 1, y: 4 }],
+        ['ally', { x: 4, y: 1 }],
+      ]).potion
+    ).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('and zero where the rules do not collect at all', () => {
+    // `invulnerabilityPotionsEnabled: false` makes a potion inert scenery. The
+    // gate reads the FLAG and not the cells, which is what keeps a fixture that
+    // happens to carry potion coordinates from paying for a rule that is off.
+    const board = boardOf(
+      [
+        makeSnake('taker', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+        }),
+        makeSnake('foe', [{ x: 5, y: 3 }, { x: 6, y: 3 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { invulnerabilityPotions: [{ x: 2, y: 3 }], invulnerabilityPotionsEnabled: false }
+    );
+    expect(pickupOf(board, [['taker', { x: 2, y: 3 }]]).potion).toEqual({ lo: 0, est: 0, hi: 0 });
+  });
+
+  test('the ally’s window is a credit at the cell the PLAN puts it', () => {
+    // The repair the deleted member's post-mortem asked for by name: the ally
+    // is priced where this plan sends it, not where it started the turn. Its
+    // destination is a tie it loses at tier 0 and wins at +1, so the pickup
+    // buys a real contest and the ceiling says so.
+    const takes = pickupOf(pickupBoard(null), TAKES);
+    expect(takes.potion.hi).toBeGreaterThan(0);
+  });
+
+  test('and the SAME pickup is worth less where the ally walks away from it', () => {
+    // The plan-cell reading, isolated: one collector, one potion, one ally,
+    // and the only difference between the two readings is which square the
+    // ally is sent to. Walking into the tie is where the +1 buys a contest;
+    // walking off it is where it buys less.
+    //
+    // Less, and not NOTHING — the window is three turns wide and this board is
+    // 7x7, so a snake two squares away is still an arrival the ally's +1
+    // answers at a later horizon. That is the window's dilation doing exactly
+    // what it is there for, and it is why the claim here is comparative.
+    const takes = pickupOf(pickupBoard(null), TAKES);
+    const away = pickupOf(pickupBoard(null), [
+      ['taker', { x: 2, y: 3 }],
+      ['ally', { x: 3, y: 0 }],
+    ]);
+    expect(away.potion.hi).toBeLessThan(takes.potion.hi);
+  });
+
+  test('the collector’s exposure is a debit, and it dominates the credit', () => {
+    // A rook down the column the taker is standing in can be where the taker
+    // can be on the FIRST turn of the window, and a debuffed unit loses to it
+    // on tier alone. Same ally, same credit, same everything else — so the
+    // whole difference between the two readings is the peril half.
+    const hunter = piece('hunter', { x: 1, y: 6 }, 'rook', 3, { teamID: 'blue' });
+    const safe = pickupOf(pickupBoard(null), TAKES);
+    const hunted = pickupOf(pickupBoard(hunter), TAKES);
+    expect(hunted.potion.lo).toBeLessThan(safe.potion.lo);
+    expect(hunted.potion.lo).toBeLessThan(0);
+    // PERIL DOMINATES: at `PERIL_WEIGHT` = 2 a single ally's flipped contest
+    // cannot pay for a collector that is beaten wherever it can go.
+    expect(hunted.potion.est).toBeLessThan(0);
+  });
+
+  test('the term is bounded by construction, on both ends', () => {
+    // Range [-PERIL_WEIGHT, 1]: the peril is a share in [0, 1] scaled by
+    // PERIL_WEIGHT and charged to one unit, each ally's profit is a share in
+    // [0, 1], and the sum is divided by our unit count. This is the inequality
+    // `calibration.ts` seats the weight on.
+    const hunter = piece('hunter', { x: 1, y: 6 }, 'rook', 3, { teamID: 'blue' });
+    for (const board of [pickupBoard(null), pickupBoard(hunter)]) {
+      const p = pickupOf(board, TAKES).potion;
+      expect(p.lo).toBeGreaterThanOrEqual(-PERIL_WEIGHT);
+      expect(p.hi).toBeLessThanOrEqual(1);
+      expect(p.lo).toBeLessThanOrEqual(p.est);
+      expect(p.est).toBeLessThanOrEqual(p.hi);
+    }
+  });
+
+  test('it is seated last, and every shipped profile names it', () => {
+    expect(FEATURES[FEATURES.length - 1]).toBe(potionFeature);
+    expect(potionFeature.key).toBe('potion');
+    expect(DEFAULT_WEIGHTS.potion).toBe(2);
+    // Under `contest` and `food`, like every other ordering term: a unit does
+    // not walk into a lost square, or past a meal, to arm somebody else.
+    expect(DEFAULT_WEIGHTS.potion as number).toBeLessThan(DEFAULT_WEIGHTS.contest as number);
+    expect(DEFAULT_WEIGHTS.potion as number).toBeLessThan(DEFAULT_WEIGHTS.food as number);
+    expect(materialEvaluator.profile.weights.potion).toBe(0);
+  });
+});
+
 // --------------------------------------------------------------- terminal clamps
 
 describe('terminal clamps are ORDERED, not additive', () => {
@@ -1053,7 +1408,7 @@ describe('the discharge theorem, locally', () => {
       piece('r', { x: 5, y: 5 }, 'rook', 2, { teamID: 'blue', health: 50 }),
     ]);
     const free = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['R'] });
-    const target = free.enumerate(free.unitOfWireId('r')?.unitId as UnitId)[0]?.dest as number;
+    const target = free.actionsOf(free.unitOfWireId('r')?.unitId as UnitId)[0]?.to as number;
     free.release();
 
     const sub = makeSubstrate({
@@ -1127,14 +1482,16 @@ describe('calibration is data', () => {
       'command',
       // Contest avoidance: the dominant remaining death cause.
       'contest',
-      // The price of a move, in the health the rules charge for it.
+      // The price of a move, in the energy the rules charge for it.
       'energy',
+      'energyEconomy',
       // The distance gradient to the nearest meal, and the anti-dither term.
       'food',
-      'healthEconomy',
       'kingMargin',
       'material',
       'momentum',
+      // The pickup trade: the team's windows against the collector's exposure.
+      'potion',
       'reach',
       'room',
       // Tier value: what a window is worth, over the window.
@@ -1148,5 +1505,668 @@ describe('calibration is data', () => {
     expect(materialEvaluator.profile.weights.reach).toBe(0);
     expect(materialEvaluator.profile.weights.room).toBe(0);
     expect(materialEvaluator.profile.reachHorizonTurns).toBe(0);
+  });
+});
+
+// ------------------------------------------------- command, and the two domains
+
+/**
+ * A HELD ENEMY'S CLOUD IS NOT OUR GROUND — the R1 defect a randomised sweep
+ * found in `commandFeature`, and the repair, pinned.
+ *
+ * `command` prices what a piece can act on next turn by intersecting its front
+ * with the reading's trail domain and with the food board. Both of those were
+ * read from the SAME reading for both sides, and both are supersets of the
+ * truth when something is held:
+ *
+ *   THE DOMAIN. A held enemy trail is dilated from where it was OBSERVED, so
+ *   its front is its whole claim cloud rather than where it is. Counted for
+ *   THEIR pieces that is conservative — it subtracts. Counted for OURS it hands
+ *   our own pieces ground no world guarantees.
+ *
+ *   THE FOOD. `resolution.food` is the food the settlement CLOSED with, and a
+ *   settlement leaves a held unit's meal on the board because it does not know
+ *   whether the unit went and took it. At `food: 20` against `ground: 1` one
+ *   uncertain meal is most of the term.
+ *
+ * On the board below — our queen holding, our snake and both blue units held —
+ * `command.lo` read 1.000 (saturated) against worlds at 0.776 and 0.694, and
+ * the fold's floor sat above the floor of the worlds it claimed to bound. Our
+ * own pieces now read `Partition.certainDomain` (a held enemy trail enters only
+ * at the cells it cannot have left) and `EvalContext.certainFood` (minus every
+ * cell a held cloud could be eating on); theirs still read the wide boards, so
+ * the error stays on the conservative side in both directions.
+ *
+ * The floor this produces is LOWER, and that is the point: it is under the
+ * worlds now instead of over them.
+ */
+describe('command reads two domains, because a claim cloud is not ground we hold', () => {
+  const CASE = LAW_CASES.find(
+    (c) => c.name === 'our queen holding, against a held enemy snake and food'
+  ) as LawCase;
+
+  const commandOf = (sub: ReturnType<typeof makeSubstrate>, plan: JointPlan, asTeam: number) =>
+    sub.withResolution(plan, asTeam, ({ resolution, bounds }) =>
+      commandFeature.evaluate(
+        makeContext(sub, resolution, bounds, asTeam, TERRITORY_PROFILE.reachHorizonTurns, TERRITORY_PROFILE)
+      )
+    );
+
+  const planOf = (sub: ReturnType<typeof makeSubstrate>, c: LawCase): JointPlan => {
+    const plan = new Map<UnitId, Candidate>();
+    for (const wireId of c.stages) {
+      const u = sub.unitOfWireId(wireId);
+      const to = c.orders.get(wireId) as number;
+      plan.set((u as { unitId: UnitId }).unitId, {
+        unitId: (u as { unitId: UnitId }).unitId,
+        from: -1,
+        to,
+        path: sub.pathFor((u as { unitId: UnitId }).unitId, to) ?? [],
+      });
+    }
+    return plan;
+  };
+
+  test('the whole fold is sound here, world by world', () => {
+    const result = checkSoundness(defaultEvaluator, CASE);
+    expect([CASE.name, result.violations]).toEqual([CASE.name, []]);
+    // The board is worth measuring only because the world set is big.
+    expect(result.checked).toBeGreaterThan(100);
+  });
+
+  test('and so is the command term on its own, which is where the defect was', () => {
+    const sub = makeSubstrate({
+      board: CASE.board,
+      turn: CASE.turn,
+      asTeam: CASE.asTeam,
+      modeled: [...CASE.stages],
+    });
+    try {
+      const asTeam = sub.teamNumber(CASE.asTeam);
+      const partial = commandOf(sub, planOf(sub, CASE), asTeam);
+      let worlds = 0;
+      let worst = Number.POSITIVE_INFINITY;
+      for (const w of worldsOf(sub, CASE, 400)) {
+        const v = commandOf(sub, w.plan, asTeam);
+        worlds++;
+        // A world names every unit, so the term must be a point there.
+        expect([worlds, v.lo]).toEqual([worlds, v.hi]);
+        worst = Math.min(worst, v.lo);
+      }
+      expect(worlds).toBeGreaterThan(100);
+      expect(partial.lo).toBeLessThanOrEqual(worst + 1e-9);
+      // NOT the saturated reading the wide boards produced: 1.000 was the
+      // measured value before the repair, and every world was under it.
+      expect(partial.lo).toBeLessThan(1);
+      expect(worst).toBeLessThan(1);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('the certain domain is a subset of the wide one, and strictly smaller here', () => {
+    const sub = makeSubstrate({
+      board: CASE.board,
+      turn: CASE.turn,
+      asTeam: CASE.asTeam,
+      modeled: [...CASE.stages],
+    });
+    try {
+      const asTeam = sub.teamNumber(CASE.asTeam);
+      sub.withResolution(planOf(sub, CASE), asTeam, ({ resolution, bounds }) => {
+        const ctx = makeContext(
+          sub,
+          resolution,
+          bounds,
+          asTeam,
+          TERRITORY_PROFILE.reachHorizonTurns,
+          TERRITORY_PROFILE
+        );
+        const p = ctx.partition('lo');
+        let wide = 0;
+        let certain = 0;
+        let outside = 0;
+        for (let i = 0; i < sub.grid.words; i++) {
+          const d = p.domain[i] as number;
+          const c = p.certainDomain[i] as number;
+          wide += popcount(d);
+          certain += popcount(c);
+          outside += popcount((c & ~d) >>> 0);
+        }
+        // A subset, by construction — never a different set.
+        expect(outside).toBe(0);
+        expect(certain).toBeLessThan(wide);
+        // And the food board narrows for the same reason: two meals sit inside
+        // the held snake's cloud.
+        let food = 0;
+        let certainFood = 0;
+        for (let i = 0; i < sub.grid.words; i++) {
+          food += popcount(ctx.food()[i] as number);
+          certainFood += popcount(ctx.certainFood()[i] as number);
+        }
+        expect(certainFood).toBeLessThan(food);
+        return null;
+      });
+    } finally {
+      sub.release();
+    }
+  });
+});
+
+// ----------------------------------- territory, read against the engine's board
+
+/**
+ * WHAT THE TWO TERRITORY MEMBERS CAN AND CANNOT SEE.
+ *
+ * `reach` is the two-plane partition's balance and `room` is its per-unit
+ * plane-1 ownership, both computed on the dilation shells. The shells step
+ * against the REAL board for the first unknown turn and against the PERMISSIVE
+ * board (every cell a pawn target) for every turn after it, and `shells.ts`
+ * gives the reason: after one unknown turn nobody knows where the bodies are,
+ * and over-approximating is the only direction a reach may be wrong in.
+ *
+ * That choice is sound and it has a price, and these three tests are the price
+ * written down as behaviour rather than as a paragraph. They are pins, not
+ * aspirations: two of them assert that the reading does NOT move, which is the
+ * honest record of a limitation the shells' soundness argument buys.
+ */
+describe('the territory members, read on a constructed board', () => {
+  function partsOf(
+    board: Board,
+    orders: ReadonlyArray<[string, Coord]>,
+    asTeam = 'red'
+  ): Record<string, { lo: number; est: number; hi: number }> {
+    const sub = makeSubstrate({
+      board,
+      turn: TURN,
+      asTeam,
+      modeled: orders.map(([id]) => id),
+    });
+    try {
+      const plan = new Map<UnitId, Candidate>();
+      for (const [id, to] of orders) {
+        const unit = sub.unitOfWireId(id)?.unitId as UnitId;
+        const dest = at(board, to);
+        plan.set(unit, { unitId: unit, from: -1, to: dest, path: sub.pathFor(unit, dest) ?? [] });
+      }
+      return defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber(asTeam)).parts as never;
+    } finally {
+      sub.release();
+    }
+  }
+
+  /**
+   * THE POCKET. Our snake's own body runs (0,2) (1,2) (2,2) (2,1) (2,0) (1,0),
+   * which together with the perimeter encloses exactly four free cells. Its
+   * head at (0,2) has one step INTO that pocket, (0,1), and one step OUT of it,
+   * (0,3). The enemy is in the far corner and reaches none of it.
+   */
+  const pocketBoard = (): Board =>
+    boardOf([
+      makeSnake(
+        'me',
+        [
+          { x: 0, y: 2 },
+          { x: 1, y: 2 },
+          { x: 2, y: 2 },
+          { x: 2, y: 1 },
+          { x: 2, y: 0 },
+          { x: 1, y: 0 },
+        ],
+        { teamID: 'red', orientation: { dx: -1, dy: 0 } }
+      ),
+      makeSnake('foe', [{ x: 6, y: 6 }, { x: 6, y: 5 }], {
+        teamID: 'blue',
+        orientation: { dx: 0, dy: 1 },
+      }),
+    ]);
+
+  test('walling ourselves in lowers `reach`, on both ends of the interval', () => {
+    const board = pocketBoard();
+    const into = partsOf(board, [['me', { x: 0, y: 1 }]])['reach'] as { lo: number; est: number };
+    const out = partsOf(board, [['me', { x: 0, y: 3 }]])['reach'] as { lo: number; est: number };
+    expect(into.est).toBeLessThan(out.est);
+    // And the FLOOR moves too, which is what makes it available to a decision
+    // rather than only to the estimate.
+    expect(into.lo).toBeLessThan(out.lo);
+  });
+
+  test('and `room` does not move at all — the executable form of a known limit', () => {
+    // A PIN ON A LIMITATION, not on a desired behaviour. `room` is the
+    // per-unit plane-1 count saturated at `min(1, sqrt(owned/len))`, and a
+    // snake in a four-cell pocket still owns cells on the FIRST shell — after
+    // which the permissive board lets its region walk out through its own
+    // body. So the term that is billed as the death predictor reads a box and
+    // the open board identically. `docs/design/entrapment.md` has the traces
+    // and what it would cost to close.
+    const board = pocketBoard();
+    expect(partsOf(board, [['me', { x: 0, y: 1 }]])['room']).toEqual(
+      partsOf(board, [['me', { x: 0, y: 3 }]])['room']
+    );
+  });
+
+  test('and plugging a chokepoint does not raise `reach` either, for the same reason', () => {
+    // Our snake lies across the board at y=3 from x=1 to x=5, so the only ways
+    // between the halves are the gaps at (0,3) and (6,3). The enemy is north,
+    // the two meals are south, and the head can PLUG the near gap at (0,3).
+    //
+    // Plugging scores BELOW both alternatives. The gap is only a gap on shell
+    // one: from shell two the enemy dilates on the permissive board, where our
+    // body is not there, so the cut buys nothing and the corner costs us our
+    // own arrivals. A partition that honoured the wall for longer would be
+    // claiming an enemy cannot go somewhere it might — which is the one
+    // direction `shells.ts` refuses to be wrong in.
+    const board = boardOf(
+      [
+        makeSnake(
+          'me',
+          [
+            { x: 1, y: 3 },
+            { x: 2, y: 3 },
+            { x: 3, y: 3 },
+            { x: 4, y: 3 },
+            { x: 5, y: 3 },
+          ],
+          { teamID: 'red', orientation: { dx: -1, dy: 0 } }
+        ),
+        makeSnake('foe', [{ x: 3, y: 6 }, { x: 4, y: 6 }], {
+          teamID: 'blue',
+          orientation: { dx: -1, dy: 0 },
+        }),
+      ],
+      { food: [{ x: 3, y: 0 }, { x: 1, y: 0 }] }
+    );
+    const plug = (partsOf(board, [['me', { x: 0, y: 3 }]])['reach'] as { est: number }).est;
+    const north = (partsOf(board, [['me', { x: 1, y: 4 }]])['reach'] as { est: number }).est;
+    const south = (partsOf(board, [['me', { x: 1, y: 2 }]])['reach'] as { est: number }).est;
+    expect(plug).toBeLessThan(north);
+    expect(plug).toBeLessThan(south);
+  });
+});
+
+// ------------------------------------- growth under the full-tank food rule
+
+/**
+ * THE RULE CHANGED AND THE FOLD DID NOT HAVE TO. A meal is `foodEnergy` added
+ * and CLAMPED to the eater's kind maximum, and it grows the eater by one weight
+ * ONLY when it brings the unit TO that maximum (`resolveTurn.ts` phase 4). So
+ * with a lean `foodEnergy` a hungry unit that eats gets fuel and no length, and
+ * only the meal that tops it off is worth a weight.
+ *
+ * These pin the division of labour that makes that work without any term
+ * knowing the rule: `food` is a POSITIONAL gradient scaled by the unit's own
+ * hunger against its own kind's ceiling, and the growth is `material`'s, read
+ * off the settlement the rules produced.
+ */
+describe('food and energy under the rule that only a full tank grows', () => {
+  const leanBoard = (energy: number, foodAt: Coord, foodEnergy?: number): Board =>
+    boardOf(
+      [
+        makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+          teamID: 'red',
+          orientation: { dx: 1, dy: 0 },
+          health: energy,
+        }),
+        makeSnake('foe', [{ x: 6, y: 6 }, { x: 6, y: 5 }], {
+          teamID: 'blue',
+          orientation: { dx: 0, dy: 1 },
+        }),
+      ],
+      { food: [foodAt], ...(foodEnergy === undefined ? {} : { foodEnergy }) }
+    );
+
+  function partOf(board: Board, to: Coord, key: string): { lo: number; est: number; hi: number } {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const me = sub.unitOfWireId('me')?.unitId as UnitId;
+      const dest = at(board, to);
+      const plan = new Map<UnitId, Candidate>([
+        [me, { unitId: me, from: -1, to: dest, path: sub.pathFor(me, dest) ?? [] }],
+      ]);
+      return defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber('red')).parts[key] as never;
+    } finally {
+      sub.release();
+    }
+  }
+
+  test('the hunger scale is the unit`s own energy against its own kind ceiling', () => {
+    // Strictly increasing as the unit empties, and it is the KIND MAX that
+    // divides — `maxEnergyOf(kind)`, never a literal hundred.
+    const away: Coord = { x: 3, y: 3 };
+    const full = partOf(leanBoard(100, away), { x: 2, y: 3 }, 'food').est;
+    const half = partOf(leanBoard(50, away), { x: 2, y: 3 }, 'food').est;
+    const empty = partOf(leanBoard(10, away), { x: 2, y: 3 }, 'food').est;
+    expect(full).toBeLessThan(half);
+    expect(half).toBeLessThan(empty);
+    expect(full).toBeGreaterThan(0);
+  });
+
+  test('and it does NOT read foodEnergy, because it is a distance and not a meal', () => {
+    // The same three readings with a lean `foodEnergy: 5`. Identical, and that
+    // is correct rather than an oversight: `food` answers "am I closing on a
+    // meal", which is a fact about the unit's position. What the meal is WORTH
+    // is `material`'s, below.
+    for (const energy of [100, 50, 10]) {
+      expect([
+        energy,
+        partOf(leanBoard(energy, { x: 3, y: 3 }, 5), { x: 2, y: 3 }, 'food'),
+      ]).toEqual([energy, partOf(leanBoard(energy, { x: 3, y: 3 }), { x: 2, y: 3 }, 'food')]);
+    }
+  });
+
+  test('material prices the meal that FILLS above the meal that merely feeds', () => {
+    // `foodEnergy: 5` against a hundred-point tank. At 96 the meal reaches the
+    // ceiling and the unit grows a length; at 50 it does not, and the unit gets
+    // fuel and nothing else. The fold reads both off the settlement, so the new
+    // rule needed no term to learn it.
+    const grows = partOf(leanBoard(96, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'material');
+    const feeds = partOf(leanBoard(50, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'material');
+    expect(grows.lo).toBeGreaterThan(feeds.lo);
+    expect(grows.est).toBeGreaterThan(feeds.est);
+    // And the hungrier unit still WANTS the meal more, which is the half that
+    // keeps a lean board from starving its own units.
+    const pullGrows = partOf(leanBoard(96, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'food').est;
+    const pullFeeds = partOf(leanBoard(50, { x: 2, y: 3 }, 5), { x: 2, y: 3 }, 'food').est;
+    expect(pullFeeds).toBeGreaterThan(pullGrows);
+  });
+});
+
+// --------------------------------- responsiveness to the invulnerability state
+
+/**
+ * A TIER CHANGES WHICH SQUARES ARE WORTH TAKING, and `contest` plus `tier`
+ * already carry it at the arrival turn. These are the two directions stated as
+ * behaviour: a buffed unit takes a square it would otherwise decline, and a
+ * debuffed one declines a square it would otherwise take.
+ */
+describe('a live tier moves which contested squares the fold will take', () => {
+  function totalAndParts(
+    board: Board,
+    to: Coord
+  ): { total: number; contest: { est: number }; tier: { est: number } } {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['me'] });
+    try {
+      const me = sub.unitOfWireId('me')?.unitId as UnitId;
+      const dest = at(board, to);
+      const plan = new Map<UnitId, Candidate>([
+        [me, { unitId: me, from: -1, to: dest, path: sub.pathFor(me, dest) ?? [] }],
+      ]);
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, sub.teamNumber('red'));
+      return {
+        total: ev.bound.est,
+        contest: ev.parts['contest'] as never,
+        tier: ev.parts['tier'] as never,
+      };
+    } finally {
+      sub.release();
+    }
+  }
+
+  /** Ours and theirs both weight 2. A tie kills everyone, so (2,3) is a square
+   *  we lose at tier 0 — and win outright at +1, where tier is read first. */
+  const evenBoard = (level: number): Board =>
+    boardOf([
+      makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }], {
+        teamID: 'red',
+        orientation: { dx: 1, dy: 0 },
+        ...(level === 0
+          ? {}
+          : { invulnerabilityLevel: level, invulnerabilityExpiryTurn: TURN + 5 }),
+      }),
+      makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }], {
+        teamID: 'blue',
+        orientation: { dx: -1, dy: 0 },
+      }),
+    ]);
+
+  test('a BUFFED unit takes the contested square it would otherwise decline', () => {
+    const bare = totalAndParts(evenBoard(0), { x: 2, y: 3 });
+    const buffed = totalAndParts(evenBoard(1), { x: 2, y: 3 });
+    // At tier 0 the square is a contest we lose; at +1 it is not a contest at
+    // all, and the window is worth its own edge on top.
+    expect(bare.contest.est).toBeLessThan(0);
+    expect(buffed.contest.est).toBe(0);
+    expect(buffed.tier.est).toBeGreaterThan(0);
+    // The behavioural half: bare declines the square, buffed prefers it.
+    const bareAway = totalAndParts(evenBoard(0), { x: 1, y: 2 });
+    const buffedAway = totalAndParts(evenBoard(1), { x: 1, y: 2 });
+    expect(bare.total).toBeLessThan(bareAway.total);
+    expect(buffed.total).toBeGreaterThan(buffedAway.total);
+  });
+
+  /** Ours weight 3 against theirs weight 2. We are the unique maximum at (2,3)
+   *  and live — until a −1 puts the enemy above us on TIER, before weight is
+   *  read at all. */
+  const heavyBoard = (level: number): Board =>
+    boardOf([
+      makeSnake('me', [{ x: 1, y: 3 }, { x: 0, y: 3 }, { x: 0, y: 2 }], {
+        teamID: 'red',
+        orientation: { dx: 1, dy: 0 },
+        ...(level === 0
+          ? {}
+          : { invulnerabilityLevel: level, invulnerabilityExpiryTurn: TURN + 5 }),
+      }),
+      makeSnake('foe', [{ x: 3, y: 3 }, { x: 4, y: 3 }], {
+        teamID: 'blue',
+        orientation: { dx: -1, dy: 0 },
+      }),
+    ]);
+
+  test('a DEBUFFED unit declines the square it would otherwise take', () => {
+    const bare = totalAndParts(heavyBoard(0), { x: 2, y: 3 });
+    const debuffed = totalAndParts(heavyBoard(-1), { x: 2, y: 3 });
+    expect(bare.contest.est).toBe(0);
+    expect(debuffed.contest.est).toBeLessThan(0);
+    // And `tier` names the debuff as the REASON, which is the half `contest`
+    // cannot say on its own.
+    expect(debuffed.tier.est).toBeLessThan(0);
+    // The behavioural half is a DIFFERENCE IN DIFFERENCES rather than a bare
+    // comparison, and the honest reason is worth stating: on this board the
+    // quiet square already outscores the contested one for the undebuffed unit
+    // too, because approaching a claim costs it `reach` and buys it no banked
+    // material — a floor may not credit a capture of a unit whose move it does
+    // not know. What the debuff must do is move the CHOICE further from the
+    // square, and it does, by more than the whole of `contest` on one unit.
+    const bareGap = bare.total - totalAndParts(heavyBoard(0), { x: 1, y: 2 }).total;
+    const debuffedGap = debuffed.total - totalAndParts(heavyBoard(-1), { x: 1, y: 2 }).total;
+    expect(debuffedGap).toBeLessThan(bareGap);
+  });
+
+  test('a debuff over a square that was already lost costs nothing', () => {
+    // The other half of the rule, and the reason the term is not just "fear a
+    // debuff": at equal weight the square is lost at tier 0 too, so the −1
+    // changed nothing and is not charged for it.
+    expect(totalAndParts(evenBoard(-1), { x: 2, y: 3 }).tier.est).toBe(0);
+  });
+});
+
+/** Bits set in a 32-bit word. Local: the production one is not exported. */
+function popcount(x: number): number {
+  let v = x - ((x >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (Math.imul(v, 0x01010101) >>> 24) & 0x3f;
+}
+
+// ---------------------------------------------------- model/terminal@1 (F-7)
+
+describe('the turn cap is seated, and it is the engine that decides it', () => {
+  /** Two teams alone on a board, at whatever weights, at `turn`. */
+  const capBoard = (ourWeight: number, theirWeight: number, maxTurns?: number | null): Board =>
+    boardOf(
+      [
+        piece('me', { x: 1, y: 1 }, 'rook', ourWeight, { teamID: 'red', health: 90 }),
+        piece('them', { x: 5, y: 5 }, 'rook', theirWeight, { teamID: 'blue', health: 90 }),
+      ],
+      maxTurns === undefined ? {} : ({ maxTurns } as Partial<Board>)
+    );
+
+  /** The bound the default evaluator gives the do-nothing joint plan. */
+  const priced = (board: Board): { lo: number; hi: number; clamped: [boolean, boolean] } => {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const ev = defaultEvaluator.evaluatePlan(sub, defaultPlan(sub), 0);
+    return {
+      lo: ev.bound.lo,
+      hi: ev.bound.hi,
+      clamped: [ev.terminal.loClamped, ev.terminal.hiClamped],
+    };
+  };
+
+  it('says nothing at all while the game is still running', () => {
+    // TURN is 40 and the arrival turn 41, so a default 100-turn game is nowhere
+    // near its limit and the fold's own value stands. This is the case that
+    // must cost nothing: one comparison, no board view, no adjudication.
+    const running = priced(capBoard(3, 1));
+    expect(Number.isFinite(running.lo)).toBe(true);
+    expect(Number.isFinite(running.hi)).toBe(true);
+    expect(running.clamped).toEqual([false, false]);
+    // And a game that opted out of the limit entirely stays unclamped AT the
+    // turn a limited game would end on.
+    const unlimited = priced(capBoard(3, 1, null));
+    expect(Number.isFinite(unlimited.lo)).toBe(true);
+  });
+
+  it('prices the last board by the rule the game actually settles by', () => {
+    // The arrival turn is 41, so a game capped at 41 ends on this board: the
+    // heaviest team wins. Nothing in this evaluator knew that before — a bot
+    // with no turn cap prices every line as if the game were infinite, which is
+    // 100% of the flow fold's residual and all of its game-length dependence.
+    const ahead = priced(capBoard(3, 1, TURN + 1));
+    expect(ahead.lo).toBe(WIN);
+    expect(ahead.clamped).toEqual([true, true]);
+
+    const behind = priced(capBoard(1, 3, TURN + 1));
+    expect(behind.hi).toBe(DEAD);
+    expect(behind.clamped).toEqual([true, true]);
+
+    // A DRAW is neither lattice element. Tied teams draw, and replacing the
+    // interior value with WIN or DEAD would be the mutual-annihilation wash
+    // error running in the other direction.
+    const level = priced(capBoard(2, 2, TURN + 1));
+    expect(Number.isFinite(level.lo)).toBe(true);
+    expect(Number.isFinite(level.hi)).toBe(true);
+    expect(level.clamped).toEqual([false, false]);
+  });
+
+  it('gives a bot a reason to prefer the shorter line — the turn-limit razor', () => {
+    // 16-TERMINAL's own cheap falsifier. One turn from the cap, holding a
+    // winning weight is a WIN and giving it away is a LOSS; one turn earlier
+    // the two are separated by a positional term and nothing more. A bot that
+    // cannot see the boundary cannot decline the trade, at any weighting,
+    // because the difference is unrepresentable to it.
+    const winning = priced(capBoard(3, 1, TURN + 1));
+    const traded = priced(capBoard(1, 3, TURN + 1));
+    expect(winning.lo).toBe(WIN);
+    expect(traded.hi).toBe(DEAD);
+    // The same two boards while the game continues: a real difference, but a
+    // finite one on the heuristic scale — no lattice element in sight.
+    const winningEarly = priced(capBoard(3, 1));
+    const tradedEarly = priced(capBoard(1, 3));
+    expect(Number.isFinite(winningEarly.lo)).toBe(true);
+    expect(Number.isFinite(tradedEarly.hi)).toBe(true);
+  });
+});
+
+// ------------------------------------------------ D2: the pawn that parks
+
+/**
+ * A PAWN'S ORIENTATION IS INVISIBLE TO THE FOLD — BEHAVIOUR-AUDIT D2, pinned at
+ * the coordinates it was found on, as the DEFECT it still is.
+ *
+ * The reproduction is `potions` seed 5, turn 27: blue-C, a pawn on (0,10) with
+ * the wall on two sides, facing INTO one of them, printing
+ *
+ *     T 27 blue-C pawn hp90 (0,10)->(0,10)  top3: (0,11)=91.23 (0,10)=91.23 (0,9)=91.23
+ *
+ * — a three-way tie between the hold and both rotations, and nineteen
+ * consecutive turns of it. Every member reads `Standing.cell` and a rotation
+ * does not move it, so a rotation and a hold are the same position to all of
+ * them but `command`, and `command` intersects the piece's front with the
+ * contested trail domain and the food board, both of which a queen's claim
+ * cloud collapses near the perimeter (`entrapment.md` §4.4). The one cell that
+ * differs between two orientations is in neither board.
+ *
+ * The board below is that geometry rebuilt: our pawn in the corner facing the
+ * wall, our snake and an enemy snake to give plane 1 a domain, an enemy queen
+ * whose cloud is what collapses it near the pawn, and the only food on the far
+ * side of the board.
+ *
+ * THE REPAIR D2 PROPOSED IS NOT IN THE FOLD, AND THIS TEST IS WHY IT IS STILL
+ * WORTH PINNING. A third `command` addend paying the front's own cardinality
+ * was built, swept at 0.25, 0.5 and 1 over `mixed` seeds 1–6 and `potions`
+ * seeds 1–3, and taken at no dose: it unparks the pawn at every dose and buys
+ * that with `mixed` bodyBlock deaths OF PIECES, 0 → 1 → 3 → 3 with the dose,
+ * because a cardinality intersected with nothing knows nothing about what is
+ * standing on the cells it counts. The tie below is the defect; the dose table
+ * in `BEHAVIOUR-AUDIT.md` §D2 is what a repair for it has to beat.
+ */
+describe('D2 — a pawn at the wall, where a rotation and a hold tie', () => {
+  const PARKED_TURN = 27;
+  const parkedBoard: Board = {
+    width: 11,
+    height: 11,
+    food: [{ x: 5, y: 5 }],
+    hazards: [],
+    snakes: [
+      piece('bC', { x: 0, y: 10 }, 'pawn', 1, {
+        teamID: 'blue',
+        health: 90,
+        orientation: { dx: -1, dy: 0 },
+      }),
+      makeSnake('bA', [{ x: 3, y: 3 }, { x: 3, y: 2 }, { x: 3, y: 1 }], { teamID: 'blue' }),
+      piece('rQ', { x: 8, y: 4 }, 'queen', 9, { teamID: 'red', health: 90 }),
+      makeSnake('rA', [{ x: 6, y: 6 }, { x: 6, y: 7 }, { x: 6, y: 8 }], { teamID: 'red' }),
+    ],
+  } as Board;
+
+  /** Every action the pawn has, scored by the WHOLE fold at shipped weights. */
+  const scored = (): Map<number, number> => {
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const asTeam = sub.teamNumber('blue');
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    const evaluator = new BoundEvaluator(TERRITORY_PROFILE);
+    const out = new Map<number, number>();
+    for (const action of sub.actionsOf(pawn)) {
+      const plan = new Map<UnitId, Candidate>(defaultPlan(sub));
+      plan.set(pawn, action);
+      out.set(action.to, evaluator.evaluatePlan(sub, plan as JointPlan, asTeam).bound.lo);
+    }
+    return out;
+  };
+
+  const hold = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 10 });
+  const alongTheBoard = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 9 });
+
+  test('the pawn has three options and the fold cannot tell them apart', () => {
+    const arm = scored();
+    // It really does have three, as the trace printed: the hold, the rotation
+    // along the board, and the rotation further into the wall.
+    expect(arm.size).toBe(3);
+    expect(arm.has(hold)).toBe(true);
+    expect(arm.has(alongTheBoard)).toBe(true);
+    const values = [...arm.values()];
+    for (const v of values) expect(v).toBeCloseTo(values[0] as number, 12);
+  });
+
+  test('so nothing in the fold prefers the rotation that opens the board', () => {
+    const arm = scored();
+    // Not "the rotation loses" — it does not even differ. A tie-break decides,
+    // and D2's corpus says the tie-break holds: 7.2% of `mixed` unit-turns and
+    // 10.4% of `potions` are a unit standing on the cell it stood on last turn.
+    expect(arm.get(alongTheBoard) as number).toBeCloseTo(arm.get(hold) as number, 12);
+  });
+
+  test("and the reason is `command`'s two boards, not the front itself", () => {
+    // The pawn's front DOES differ between the two orientations — the geometry
+    // is not degenerate. What is degenerate is what `command` intersects it
+    // with: at this cell neither the contested trail domain nor the food board
+    // contains the cell the rotation buys, so both addends read the same.
+    // (The unintersected cardinality is what D2 proposed to add, and what the
+    // dose sweep refused; see this block's header.)
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    expect(sub.actionsOf(pawn).length).toBe(3);
   });
 });

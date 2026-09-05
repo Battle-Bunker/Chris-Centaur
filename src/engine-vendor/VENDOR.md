@@ -27,6 +27,8 @@ Copy exactly these, together, keeping their relative layout:
 | `spawn.ts` | Where a food or a potion may land and how many arrive, behind an injected RNG. |
 | `moveGrammar.ts` | The movement grammar: staged cell → the path a unit of that kind walks, plus spawn orientation and the per-kind property flags. |
 | `queries.ts` | The grammar asked questions instead of applied: which cells may be staged, what a unit would walk, what it covers. |
+| `settlePartial.ts` | **The same turn with some units' moves unknown.** `settleTurn`'s phases over a board where some movers are held, plus the ledger of every point a concrete world could differ at. A mode of the one engine, not a second one. |
+| `claims.ts` | What a held unit could be doing: where it could be at each sub-step, how strong it could be, and whether it could be gone — derived from the grammar through `queries.ts`. |
 | `VENDOR.md` | This file. |
 
 Plus the one type module they depend on:
@@ -84,9 +86,10 @@ Two things, and they are not rules:
 - **Firestore, and the `Turn` wire assembly.** Documents, timestamps and
   transactions. The module takes plain numbers and hands plain numbers back.
 
-Everything else a turn does is in here, including the two that used to be
-argued out of it: spawning (the rules travel, the die is injected) and
-adjudication (who won, and on which board).
+Everything else a turn does is in here, including the three that used to be
+argued out of it: spawning (the rules travel, the die is injected),
+adjudication (who won, and on which board), and settling a turn whose movers
+are not all known (a mode, not a mirror).
 
 ## Using it
 
@@ -95,11 +98,12 @@ import { settleTurn } from "./engine/settleTurn"
 
 const settled = settleTurn({
   units: [
-    { id, type, teamID, isKing, tier, health, occupancy, orientation, stagedMove },
+    { id, type, teamID, isKing, tier, energy, occupancy, orientation, stagedMove },
     // ...one per unit alive at the start of the turn
   ],
   boardWidth, boardHeight, walls, hazards, hazardDamage, food,
-  maxHealth,          // per-kind overrides; the rest default to 100
+  maxEnergy,          // per-kind overrides; the rest default to 100
+  foodEnergy,         // energy one food replenishes (100)
   regicideTeamIDs,    // teams configured with at least one king
   turn,               // the turn being resolved
   teamOf,             // unit id -> team id, for every configured unit
@@ -113,7 +117,7 @@ const settled = settleTurn({
 }, randomSpawner({ foodSpawnRate, potionsEnabled, potionSpawnRate, fertileTiles },
                  { next: () => Math.random() }))   // or NO_SPAWN
 
-settled.board          // survivors: final occupancy and health
+settled.board          // survivors: final occupancy and energy
 settled.deaths         // every unit removed, with cell / subStep / cause
 settled.eliminatedTeamIDs
 settled.effects        // the schedule as the turn closed
@@ -137,13 +141,38 @@ this directory exists to prevent. Read `tiers`.
 only kind change in the game, and settlement is where it happens: the kinds a
 caller sends in are the kinds the turn was played at, and `unitTypes` is the
 kinds the next turn opens with. A caller that promotes for itself has written
-the threshold, the weight-1 collapse and the queen health clamp a second time.
+the threshold, the weight-1 collapse and the queen energy clamp a second time.
 
 Promotion runs last of the unit phases, after the food phase (so a pawn that
 ate its way to the threshold promotes on that turn) and after the orientation
 rewrite (so it was still a pawn when its facing was decided), and before
 spawning — which changes nothing either way, because a piece's occupancy is N
 copies of one square and the collapse frees no cell.
+
+**Eating adds `foodEnergy`, and only a FULL TANK grows.** A meal is
+`foodEnergy` (default 100) added to the eater and clamped to its kind's max,
+and it adds one weight/length only when it brings the unit TO that max. So
+growth is not what eating costs — it is what filling up costs. Three
+consequences a caller predicting a turn has to carry:
+
+- A unit already at max grows on every meal (the clamp leaves it at max, and
+  max is what the rule asks for). At the shipped defaults — food 100, tank 100
+  — every meal fills and every meal grows, which is the rule food always
+  played, so a default game is unchanged.
+- An exhausted unit's rescue is no longer automatic. It halts at or below
+  zero, eats `foodEnergy`, and lives only if that carries it above zero; if it
+  does not reach max it lives WITHOUT growing. Read `deaths`, never "it was on
+  food, so it survived".
+- Promotion follows weight, so it now follows full tanks. A pawn eating its way
+  to `pawnPromotionWeight` needs each of those meals to fill it.
+- A held unit's `Claim` is priced the same way: `energyMax` is what the unit
+  was observed carrying plus every meal it could reach, clamped to its kind's
+  max — not that max on the strength of any food at all being in reach.
+
+Food is eaten at the cell a unit ENDS on, and the spawner never stacks two
+items on one cell, so one meal per unit per turn is all that is reachable; the
+phase applies the rule per food in board order regardless, so a preset board
+that doubles up a cell settles each meal in turn.
 
 **Take `orientation` whole.** It is rebuilt each turn from the units still
 standing, with rotations folded in and the dead dropped. Carrying the previous
@@ -172,6 +201,177 @@ surface has one import site. Note what the answers include, because these are
 the three a re-derivation gets wrong: a trail unit may legally stage a WALL
 (fatal, and still a move the server accepts), a hazard blocks nothing, and a
 pawn's diagonal is legal only onto food or a body.
+
+**Settling a turn nobody has fully staged.** A search does not have a move for
+every unit; `settleTurn` demands one. That is a shape problem, not a rules
+problem, so it is a MODE of this module rather than an engine of its own:
+
+```ts
+import { settlePartial } from "./engine/settlePartial"
+
+const settled = settlePartial({
+  ...theSameInputSettleTurnTakes,
+  held: [{ id: "u3", observedTurn: turn }],   // ...and optionally `options`
+}, NO_SPAWN)                                   // the normal choice in this mode
+
+settled.ledger   // every (cell, subStep, unitId, heldId, via, kind) a world could differ at
+settled.fates    // per unit: "alive" and "dead" are proofs, "contingent" is a work list
+settled.claims   // where each held unit could be, and how strong — hoistable, see below
+settled.outcome  // the ENDING, BRACKETED — an OutcomeBracket, not an Outcome
+// ...and every other field settleTurn returns, for the units that WERE modelled.
+```
+
+**`outcome` is a BRACKET here, and the type says so.** `settleTurn` returns one
+`Outcome | null` because it settles one board. Partial settlement has no one
+board: a held unit could be standing or gone, and standing at a range of
+weights, and adjudication reads exactly those two things. Standing each held
+unit on its observed square at its observed weight and adjudicating once
+answers for ONE world and hands the answer over as the turn's — null where
+every world ends the game, and a winner no world produces. So the field is an
+`OutcomeBracket`:
+
+```ts
+settled.outcome.certain        // Outcome | null — the adjudication when every world
+                               //   produces exactly this one, `kind: "continues"`
+                               //   included; null means the worlds could disagree
+settled.outcome.possibleKinds  // every EndKind some world could produce, never empty
+settled.outcome.possibleWinners// teams winning in at least one world — a superset
+settled.outcome.certainWinners // teams winning in EVERY world — a subset
+```
+
+`possibleKinds.length === 1` is a proof about the kind of ending even when the
+weights are open, and `["continues"]` is the one a search wants most: the line
+does not stop here whatever the held units chose. It is derived from the claims
+and the ledger — `couldBeat: false` is the ledger's survival proof, and
+`certainlyGone`/`deathPossible`/`weightMin`/`weightMax` are the claims' — and
+never by settling a second board. The relaxation is rectangular: standing and
+weight are bracketed per unit and summed per team, so a world the bracket
+admits may be one no assignment produces. Never optimistic, only imprecise.
+With nothing held, `certain` is always set and is `settleTurn`'s own verdict.
+
+**`heldId` is always a HELD unit, and `via` is how the difference got there.**
+Contingency spreads: a modelled unit whose own outcome is unknown is, from its
+first divergence on and along its own traversal, a second source of unknown
+presence, and a second source of unknown absence at every clash it took part in
+afterwards. Every entry that spread produces is still charged to the held unit
+at the ROOT of the chain, with `via` listing the modelled units it travelled
+through, in order. A caller therefore partitions the worlds by a held unit's
+OPTIONS — which is the only enumeration that buys it anything — rather than by
+its own roster, whose moves it already knows. `via` is empty when the held unit
+acts on `unitId` directly.
+
+Two consequences worth naming, because a caller can spend them:
+
+- Everything a modelled unit did STRICTLY BEFORE the earliest sub-step the
+  ledger names it at is what it did in every world. A contingent unit is
+  contingent *there and afterwards*, not everywhere; its earlier cells are
+  certain and may be scored as such.
+- `kind: "regicide"` is the team-wide verdict off one king's fall — the one
+  divergence with no cell of its own to travel through. The king is the LAST
+  link of the chain, `via[via.length - 1] ?? heldId`, so a caller can price the
+  shot at that one unit instead of writing off the team. It is emitted only for
+  a king whose death is actually in doubt.
+
+**`couldBeat` is a property of the CONTACT, not of the cell, and one cell can
+carry two.** `false` is the strongest thing an entry says — the contact is real
+but this unit wins it in every world, so only its timing and its energy are in
+doubt — and a caller folding survival reads it as a proof. It is therefore
+per-entry: a claim landing on a trail cell either CUTS it, which is a weight
+loss and never fatal (`sever`, `couldBeat: false`), or, at a tier the owner
+matches or beats, DIES on it — and a death removes nothing from the board, so
+the cell becomes a durable pile with the segment's owner in it and the next
+arrival there contests the owner along with the corpse (`contest`,
+`couldBeat: true`). Both entries are emitted, at the same cell and sub-step,
+whenever the pile can form: either the claim's tier interval reaches down to
+the owner's and something else could still enter the cell after the death, or
+this timeline already settled a body block there and entered the owner in the
+pile, in which case the claim needs no tier argument and is itself the
+arrival. Ask "can this unit lose anything here" of every entry at the cell,
+never of the first one found.
+
+**A staged CELL is an action the grammar has still to plan, and one rule in
+the grammar reads the BOARD.** A pawn's diagonal step is an attack or a meal,
+so it is legal only onto food or a body standing there as the turn opens
+(`queries.ts::pawnTargetsOf`) — which means another unit's own square is what
+makes the capture a move at all. `settlePartial` settles its timeline over the
+units whose moves are known, so the held units are not in that roster, and the
+staged cells must not be re-read against it: take the held body away and the
+capture is not a legal action, the kind's default is substituted, a piece
+HOLDS, and the timeline settles a different move from the one it was handed —
+with nothing in the ledger, because a unit that never left its square ran into
+nothing to name. So the staged cells are read against the board the turn OPENS
+on, held units at their observed cells, through `ResolveTurnInput.presence`:
+cells that hold a body for STAGING LEGALITY only, invisible to the collision
+phase. `settlePartial` sets it; an ordinary `settleTurn` leaves it alone. It
+feeds `BoardShape.occupancy` and nothing else, so any occupancy read the
+grammar grows later is covered by the same field.
+
+**`kind: "grammar"` is that reading in doubt.** A unit observed on THIS board
+is standing where its record says when the staged cells are read — staging
+happens before anything moves — so the reading is a fact and no entry is
+emitted. A unit observed EARLIER has had a move since: its record cell may be
+empty by now, and it may be standing somewhere the timeline reads as open
+ground. Whether a staged action is legal AT ALL is then world-dependent, and
+the whole action turns over on it — a capture in one world, the kind's default
+in another. `settlePartial` writes that down, at the staged cell, at sub-step
+1, keyed to the held unit whose whereabouts decide it, with `couldBeat: true`,
+rather than picking a world. It is the one entry that is about a unit's own
+action rather than about a contact, and it can be the ONLY entry naming a unit
+that walks nowhere at all.
+
+**An empty ledger is a proof; a non-empty one is a work list.** With no
+entries, every modelled unit's disposition — where it went, whether it lived,
+its energy, its weight, what it ate — is what it is in every world the held
+units could have chosen. With entries, the entries name every place a world
+could differ and nothing else does. The game's ENDING is the exception, and it
+is why `outcome` is a bracket: a held unit nobody ran into leaves no entry and
+is still on the board being weighed. That property is
+established by ENUMERATION in `../settlePartial.spec.ts`: random boards with
+one to three held units, every legal concrete assignment settled with the
+ordinary `settleTurn`, and the two compared coordinate for coordinate. With no
+held units at all, `settlePartial` *is* `settleTurn`, which is the reduction
+that makes "one engine" a fact rather than a slogan.
+
+**`Claim.deathPossible` is conditional under regicide, and says on what.** A
+team that plays under regicide loses everything with its last king, so any unit
+of it can be taken off the board by a king it never met — but only by a king
+that could actually fall, and pricing that as an unconditional says the same
+thing about the plan that shoots at the king and the plan that walks away.
+So a claim carries three answers, not one:
+
+```ts
+claim.selfDeathPossible  // its OWN peril: terrain, exhaustion, its own body,
+                         // a modelled unit, another claim. No cascade.
+claim.regicideKingId     // the king whose fall would take it, or null
+claim.deathPossible      // selfDeathPossible, plus that king's fall
+```
+
+`!selfDeathPossible && regicideKingId !== null` is a unit that is in danger
+only because its king is, and the `regicide` ledger entry keyed to that king is
+where the shot gets priced. A HELD king's peril is settled inside
+`computeClaims`; a MODELLED king's cannot be — nothing there settles a turn —
+so `settlePartial` discharges it against the king's `fate`, and the claims it
+returns are the discharged ones. A regicide team with no king left on the
+roster is lost outright when the turn resolves: `deathPossible` is true and
+`regicideKingId` is null, because there is no shot to price.
+
+A held unit's OWN position is not in the ledger — it is inherently unknown, and
+what is known about it is its `Claim`. `Claim` is a pure function of the held
+records, the board, the terrain, the items, the effect schedule, the turn span
+and the narrowing — of nothing any particular plan does — so a caller sweeping
+many plans over one held set computes it ONCE with `computeClaims` and hands it
+back as `settlePartial`'s third argument.
+
+**A caller that computes a held unit's reach for itself has written the grammar
+a second time.** "Where could that unit get to over n turns" is a grammar
+question, and `claims.ts` answers it by asking `legalTargets`/`pathOf` — the
+same calls the server stages with. Read `claims`, exactly as you read `tiers`
+and `unitTypes`.
+
+`turnEngine.ts` exports the two rules a caller pricing a cell it has not walked
+into needs: `outranks(a, b)` is the contest comparison itself — tier, then
+frozen weight — and `COST_PER_CELL` is what a step costs in energy. Both are
+the engine's own; restating either is how the comparator came to exist twice.
 
 **`outcome` is the end of the game, not the score of it.** It names the kind
 of ending, the winning team ids, the weight behind each team and WHICH board

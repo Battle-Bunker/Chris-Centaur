@@ -1,0 +1,38 @@
+
+── lan ──
+  588 samples over 15.2s · 8 presses, 0 late · lag p50 25ms · miss 1.1% · false 17.1%
+
+── regional ──
+  525 samples over 13.7s · 8 presses, 1 late · lag p50 25ms · miss 0.7% · false 20.1%
+
+── continental ──
+  · turn 7: the surface refused the whole turn — pressed anyway
+  · turn 8: the surface refused the whole turn — pressed anyway
+  485 samples over 12.8s · 8 presses, 0 late · lag p50 50ms · miss 0.4% · false 17.2%
+
+── mobile ──
+  · turn 2: the surface refused the whole turn — pressed anyway
+  · turn 5: the surface refused the whole turn — pressed anyway
+  · turn 6: the surface refused the whole turn — pressed anyway
+  · turn 8: the surface refused the whole turn — pressed anyway
+  250 samples over 6.6s · 8 presses, 0 late · lag p50 0ms · miss 10.2% · false 39.4%
+
+── saturated ──
+  · turn 2: the surface refused the whole turn — pressed anyway
+  · turn 3: the surface refused the whole turn — pressed anyway
+  · turn 4: the surface refused the whole turn — pressed anyway
+  · turn 5: no press at all (no clickable row)
+  · turn 6: the surface refused the whole turn — pressed anyway
+  · turn 7: the surface refused the whole turn — pressed anyway
+  · turn 8: the surface refused the whole turn — pressed anyway
+  724 samples over 19.5s · 7 presses, 0 late · lag p50 0ms · miss 8.2% · false 0%
+
+| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | refused / of those, would have landed | press cost p50/p95 | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 4/17 ms | -30/-17 ms | 25/100 ms | 400/798 ms | 17.1% (8) | 1.1% (2) |
+| regional | 42/50 ms | 0/0 | 0 ms | 8 | 1 (≤582 ms) | 0 / 0 | 24/1941 ms | -47/1865 ms | 25/100 ms | 452/832 ms | 20.1% (8) | 0.7% (1) |
+| continental | 126/148 ms | 0/0 | 0 ms | 8 | 0 | 2 / 2 | 57/1241 ms | -74/718 ms | 50/77 ms | 321/548 ms | 17.2% (7) | 0.4% (1) |
+| mobile | 588/1736 ms | 1/0 | 0 ms | 8 | 0 | 4 / 4 | 333/421 ms | -597/-499 ms | 0/200 ms | 422/982 ms | 39.4% (5) | 10.2% (2) |
+| saturated | 4412/10652 ms | 29/0 | 6315 ms | 7 | 0 | 6 / 6 | 216/417 ms | -1182/-228 ms | 0/0 ms | 406/1192 ms | 0% (0) | 8.2% (4) |
+
+wrote /home/user/Chris-Centaur/.claude/worktrees/ux-latency-2/docs/design/ux/latency/sim/latency-sim.json

@@ -1,108 +1,67 @@
 /**
  * THE ENGINE SUBSTRATE — one translation from this repo's canonical board into
- * the possibility-cloud engine, and one place that resolves a turn.
+ * the one engine, and one place that settles a turn.
  *
  * Everything above this file (candidates, evaluation, search, kernel) talks to
- * the engine only through `Substrate` in ./contracts. Nothing above it may
- * build a `UnitSpec`, stamp a `heldAtTurn`, or call `resolve` — three things
- * that are silent when they are wrong and expensive to find later.
+ * the rules only through `Substrate` in ./contracts, and everything behind
+ * this file is `engine-vendor/`: `settleTurn` when every mover is known,
+ * `settlePartial` when some are not, `computeClaims` for what the unknown
+ * ones could be doing, and `queries` for the grammar asked questions. There is
+ * no second engine any more, no arena, no slab, and no cloud of our own.
  *
  * ── THE FIVE RULES THIS FILE EXISTS TO KEEP ────────────────────────────────
  *
  * 1. ONE TRANSLATION. The board arrives as the api-coordinate `Board` every
- *    other module in this repo reads, and goes through `marshalBoard` — the
- *    same marshalling the turn oracle uses — and then through
- *    `wire-adapter.toUnitSpec`. A `UnitSpec` is never hand-built here: the
- *    wire encodes a piece's WEIGHT as that many copies of its cell, and a
- *    hand-rolled spec is exactly where that gets dropped (silent on a board of
- *    weight-1 pieces, wrong the moment a rook eats).
+ *    other module in this repo reads and goes through `marshalBoard` — the
+ *    same marshalling the turn oracle uses. Nothing above this file builds an
+ *    engine roster, and nothing below it sees an api coordinate.
  *
- * 2. A DEFAULT IS NAMED, NEVER SILENT. `resolveBounded` refuses a partial
- *    assignment. This substrate satisfies that by construction: the plan's
- *    domain IS the modelled set and everything else is HELD, so no live unit
- *    can go unnamed. A caller that wants a unit live but undirected names it
- *    with `NO_ORDER_MOVE` — the kind's own default action, which is a rule of
- *    the game, not a guess about an agent. Omitting a unit is a different
- *    statement: it becomes a claim, not a mover.
+ * 2. A DEFAULT IS NAMED, NEVER SILENT. The plan's domain IS the modelled set:
+ *    a unit the plan names is a mover, a unit it omits is HELD and carries a
+ *    claim. A caller that wants a unit live but undirected names it with
+ *    `NO_ORDER_MOVE`, which asks the kind for its own default action — a rule
+ *    of the game, not a guess about an agent.
  *
- * 3. PESSIMISM SCOPE RIDES THE CALL. Worst case is worst FOR A DECLARED TEAM.
- *    `resolveBoundedFor(plan, asTeam)` is the only door; `evolveJoint` is
- *    never called from here, because adjudicating every participant at its own
- *    worst endpoint kills the enemy's movers too — our best case in worst
- *    case's clothing.
+ * 3. PESSIMISM SCOPE RIDES THE CALL. Worst case is worst FOR A DECLARED TEAM,
+ *    so `resolveBoundedFor(plan, asTeam)` is the only door and the material
+ *    fold behind it (`bounds/material.ts`) flips its endpoints per participant
+ *    relative to that team.
  *
- * 4. STALENESS IS `currentTurn − observedTurn`, AND IT IS APPLIED ONCE. The
- *    engine counts the other way (`turnsHeld`, from the freeze to the
- *    POST-ADVANCE field), and the two differ by exactly one. So the conversion
- *    is: stamp each held record's `heldAtTurn` with the turn the unit was
- *    OBSERVED, and add nothing. The repo's own head-start convention agrees —
- *    `board-evaluator.ts` gives a SIMULATED unit `startDelay: 1` and an
- *    unsimulated one `0`, i.e. the un-modelled unit's head start is already
- *    the one turn the post-advance field grants it. Adding a turn here would
- *    double it.
+ * 4. STALENESS IS `turn − observedTurn`, AND IT IS APPLIED ONCE. A held unit's
+ *    record carries the turn it was OBSERVED and the engine dilates from there
+ *    to the turn being settled. Adding this turn's unmade choice here as well
+ *    would double it.
  *
- * 5. SLABS ARE BORROWED AND RETURNED. `fork`, `holdMany` and `resolve` each
- *    take a slab from a fixed-size arena. A leak does not look like a leak: it
- *    looks like the engine getting slower, because every later allocation pays
- *    to grow the arena. Every handle this file takes is tracked and returned;
- *    `resolutions()` and `outstanding()` are there so a test can assert it.
- *
- * ── THE ONE PERFORMANCE DISCIPLINE ─────────────────────────────────────────
- *
- * The hold set is INTERNED and built BEFORE the working fork is taken. A sweep
- * holds the same set across every candidate, and rebuilding the cloud field per
- * call pays for the frozen half thousands of times over. Order matters as well
- * as memoisation: `makeHoldSet` forks internally, so calling it while our own
- * fork is outstanding lets the two allocations interact.
- *
- * The field itself is rebuilt by hand rather than taken from `makeHoldSet`,
- * because `holdMany` stamps every record with ONE turn and a bot's roster is
- * observed at DIFFERENT turns. `makeHoldSet` still owns the slot lifecycle and
- * the premise key; only its field is replaced.
+ * 5. CLAIMS ARE HOISTED, NEVER RECOMPUTED PER PLAN. `computeClaims` is a pure
+ *    function of the held records and the board — of nothing any assignment
+ *    does — so it is computed once per (held set, narrowing) and handed to
+ *    `settlePartial` as its third argument. That is the one performance
+ *    discipline this file keeps, and it replaces the whole arena the previous
+ *    engine needed.
  */
 
 import type { Board as ApiBoard } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
+import { marshalBoard, settleInputBase } from '../logic/turn-oracle';
 import type { MarshalledBoard } from '../logic/turn-oracle';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
+import type { UnitType } from '../engine-vendor/shared/types/Game';
+import type { Orientation } from '../engine-vendor/engine/moveGrammar';
+import type { BoardShape, GrammarUnit } from '../engine-vendor/engine/queries';
+import { coverOf, legalTargets, pathOf as pathOfQuery } from '../engine-vendor/engine/queries';
 import { settleTurn } from '../engine-vendor/engine/settleTurn';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
-import type { UnitType } from '../engine-vendor/shared/types/Game';
+import { computeClaims, NEVER } from '../engine-vendor/engine/claims';
+import type { Claim, HeldUnit, PartialSettleInput } from '../engine-vendor/engine/claims';
+import { settlePartial } from '../engine-vendor/engine/settlePartial';
+import type { PartialSettlement } from '../engine-vendor/engine/settlePartial';
 
-import {
-  MAX_FROZEN,
-  PartialEngine,
-  RiskAssessor,
-  bbSet,
-  bbTest,
-  emptyField,
-  enumerateActions,
-  headSubStepLBOf,
-  makeGrid,
-  makeTerrain,
-  newBoard,
-  pawnTargetsInto,
-  planAction,
-  resolveBounded,
-} from '../partial-engine/index';
-import type {
-  Board,
-  Candidate as GrammarCandidate,
-  CloudField,
-  FieldSlot,
-  FrozenRecord,
-  Grid,
-  HoldSet,
-  Resolution,
-  StateHandle,
-  Terrain,
-  UnitSpec,
-  UnitView,
-} from '../partial-engine/index';
-import { kindOfWireType, toUnitSpec } from '../partial-engine/wire-adapter';
-
+import { makeGrid, makeTerrain, bbTest } from './bits';
+import type { Grid, Terrain } from './bits';
+import { materialOf } from './bounds/material';
+import { planKey } from './bounds/plan';
+import { ledgerOf } from './bounds/ledger';
+import { assessPath } from './pathrisk';
 import { NO_ORDER_MOVE } from './contracts';
-import { potionBoardEnabled, tierExpiryEnabled } from './tier-truth';
 import type {
   BoundedResolution,
   Candidate,
@@ -110,40 +69,31 @@ import type {
   JointPlan,
   SubStep,
   Substrate,
+  TraversalVerdict,
   UnitId,
 } from './contracts';
 
 /**
- * The explicit "no order" destination — the contract's own sentinel, pinned by
- * test to the engine's NO_ORDER. Naming a unit with this asks for the KIND's
- * own default action (a trail unit continues straight, a piece holds).
- * Omitting the unit from a plan does something else entirely: it becomes a
- * held claim. Rule 4 of the build contract — a default is a narrowing and must
- * be named — lives on this constant.
+ * The explicit "no order" destination — the contract's own sentinel. Naming a
+ * unit with this asks for the KIND's own default action (a trail unit
+ * continues straight, a piece holds). Omitting the unit from a plan does
+ * something else entirely: it becomes a held claim.
  */
 export { NO_ORDER_MOVE };
 
-/** A `Candidate`-shaped explicit default for `unitId`. `from` may be omitted
- * when the caller cannot cheaply know the origin cell. */
-export function noOrderCandidate(unitId: UnitId, from: CellIndex = NO_ORDER_MOVE): Candidate {
-  return { unitId, from, to: NO_ORDER_MOVE, path: [] };
-}
-
-/**
- * What a bounded resolution actually produces — the contract's own shape.
- * `touched` is the ceiling widening: the claim layer answers "could this held
- * unit have died" from terrain and from the other CLAIMS — mobile units never
- * narrow a cloud — so a held unit that would walk straight into one of our
- * movers is still reported as certainly alive. That is sound for a floor and
- * NOT sound for a ceiling; a claim touching any cell a mover was on has a
- * world in which it dies. Snapshotted rather than read off `engine.touched`,
- * because the engine zeroes that at the start of the next resolve.
- */
+/** What one bounded settlement produces — the contract's own shape. */
 export type BoundedResolve = BoundedResolution;
 
 export interface SubstrateOptions {
   /** This repo's canonical board, in api coordinates. */
-  readonly board: ApiBoard;
+  readonly board?: ApiBoard;
+  /**
+   * The already-marshalled board, for a caller that HAS engine coordinates —
+   * the test harness, and nothing on the decision path. Exactly one of `board`
+   * and `marshalled` is given; `board` goes through `marshalBoard`, which is
+   * the one translation.
+   */
+  readonly marshalled?: MarshalledBoard;
   /** The absolute turn number the board describes. */
   readonly turn: number;
   /**
@@ -159,19 +109,24 @@ export interface SubstrateOptions {
   /**
    * Units whose moves this substrate's CLAIM VIEW treats as known. Defaults to
    * `asTeam`'s units; with neither, nothing is modelled and every unit carries
-   * a claim. This governs `entangled` / `influenceOf` / `claimField` only —
-   * `resolveBoundedFor` derives its own held set from the plan it is given.
+   * a claim. This governs `claimsOf` / `entangled` only — `resolveBoundedFor`
+   * derives its own held set from the plan it is given.
    */
   readonly modeled?: Iterable<string>;
   /** Held units narrowed to a declared first-move set (an ASSUMPTION). */
   readonly narrowings?: ReadonlyMap<string, ReadonlyArray<number>>;
   /**
-   * The game this substrate belongs to. Scopes the geometry (engine + arena)
-   * cache, so concurrent games do not share a slab arena and a finished game's
-   * engines can be dropped. Absent ⇒ a shared scope, which is the old
-   * behaviour and is what tests and probes want.
+   * The game this substrate belongs to. Scopes the geometry cache, so a
+   * finished game's boards can be dropped as a group.
    */
   readonly gameId?: string;
+  /**
+   * How a wire id becomes a unit id. Board order by default, which is what the
+   * decision path wants — the numbering is private to one decision. A harness
+   * that NAMES its units (fixtures that say "unit 3 kills unit 1") passes its
+   * own, so the numbers in a failing assertion are the numbers in the board.
+   */
+  readonly identify?: (wireId: string, index: number) => UnitId;
 }
 
 /** A unit as this substrate reads it back — the wire vocabulary, not the engine's. */
@@ -180,35 +135,27 @@ export interface SubstrateUnit {
   readonly wireId: string;
   readonly team: number;
   readonly teamId: string;
-  readonly kind: number;
-  readonly type: ResolveUnit['type'];
+  /** The rules' own kind. Read for CLASS properties through the grammar. */
+  readonly type: UnitType;
   readonly isKing: boolean;
+  /** Distinct board cells, head first. A piece's weight is NOT repeated here. */
   readonly cells: ReadonlyArray<CellIndex>;
+  /** Occupancy length — a piece's weight is its cell repeated that many times. */
   readonly weight: number;
-  readonly health: number;
+  readonly energy: number;
+  /** Invulnerability tier as it governs the ARRIVAL turn. */
   readonly tier: number;
   /**
    * The first absolute turn at which `tier` no longer governs a contest, or
    * null when the wire carries no effect schedule for this unit. EXCLUSIVE:
-   * the wire's `invulnerabilityExpiryTurn` is the LAST governing turn and the
-   * +1 is applied once, in `marshalBoard`.
+   * the wire's inclusive figure is converted once, in `marshalBoard`. The
+   * engine lapses the schedule itself for the turn being settled; this is what
+   * a reading over LATER turns has to work from.
    */
   readonly tierExpiresAtTurn: number | null;
-  readonly orientation: number;
+  readonly orientation: Orientation;
   /** `turn − observedTurn`; this turn's unmade choice is NOT counted. */
   readonly staleness: number;
-}
-
-/** Thrown when more units would be held than the engine's field can carry. */
-export class TooManyHeldError extends Error {
-  readonly code = 'too_many_held' as const;
-  constructor(readonly count: number) {
-    super(
-      `${count} units would be held at once; the cloud field carries at most ${MAX_FROZEN}. ` +
-        'Model more units (name them in the plan), or split the decision.'
-    );
-    this.name = 'TooManyHeldError';
-  }
 }
 
 /** Thrown when a plan names a unit this substrate does not have alive. */
@@ -222,11 +169,10 @@ export class UnknownUnitError extends Error {
 
 /**
  * Thrown when two DIFFERENT units share a turn-start cell. Not a board the
- * rules can produce — and B2's soundness harness measured the cost of letting
- * one through: the additive per-enemy floor lemma fails outright on such a
- * board (a floor above the exhaustive truth), which looks exactly like a
- * soundness bug in the bank until you look at the board. The engine's own
- * `create` does not check it, so the one translation door does.
+ * rules can produce — and the bound bank's soundness harness measured the cost
+ * of letting one through: the additive per-enemy floor lemma fails outright on
+ * such a board, which looks exactly like a soundness bug in the bank until you
+ * look at the board.
  */
 export class OverlappingUnitsError extends Error {
   readonly code = 'overlapping_units' as const;
@@ -250,263 +196,91 @@ interface Geometry {
   readonly key: string;
   readonly grid: Grid;
   readonly terrain: Terrain;
-  readonly engine: PartialEngine;
-  /** Live substrates holding this engine. An engine with references is being
-   * resolved against RIGHT NOW; dropping it would orphan a live arena. */
-  refs: number;
+  /**
+   * The step relation the reach shells iterate, shared by every substrate over
+   * the same board. Keyed `type|cell`; `evaluate/shells.ts` owns the entries
+   * and asks the engine's own queries for each one. Only the kinds whose
+   * legality reads no board contents are cached here — which is every kind but
+   * the pawn — so an entry is as true on turn 40 as on turn 1.
+   */
+  readonly steps: Map<string, Uint32Array>;
+  /**
+   * The same relation for the kind that DOES read a facing, on the permissive
+   * board — every cell a pawn target, which is what a reach past the first
+   * unknown turn is asked against. Board-independent for the same reason, and
+   * so shared for the same reason.
+   */
+  readonly orientedSteps: Map<string, ReadonlyArray<{ cell: number; ori: number }>>;
   lastUsed: number;
-  /** Marked for removal as soon as the last reference goes. */
-  retire: boolean;
 }
 
 /**
- * Grid shift masks and the engine's arena are functions of the BOARD, not of
- * the turn, and a match hands us a fresh board object every turn — so a
- * per-board-object cache misses every single time. Keyed by everything the
- * three of them read.
+ * Grid masks are a function of the BOARD, not of the turn, and a match hands
+ * us a fresh board object every turn — so a per-board-object cache misses
+ * every single time. Keyed by everything the geometry reads, scoped per game
+ * so a finished game's entries can be dropped as a group.
  *
- * SCOPED PER GAME, AND REFERENCE-COUNTED. Two things forced both:
- *
- *  - An engine is a slab ARENA and a cloud-source cache, and two games with
- *    identical geometry are two decisions that overlap by design (a turn
- *    resolves early, so turn N+1's decision starts while N's is still
- *    running). Sharing one arena between them makes their pressure additive
- *    and their lifetimes entangled for no benefit — a decision reuses its own
- *    game's engine turn after turn, which is where the whole saving comes
- *    from. The game id is part of the key.
- *  - The engine's cloud-source cache grows for the life of the engine (an
- *    upstream demand: it wants a WeakMap or a per-decision source), so an
- *    engine that never dies is retained heap that never stops growing. A
- *    per-game scope gives it a LIFETIME: when the game ends its engines go,
- *    and the growth is bounded by one game rather than by the process. This
- *    is a mitigation, not the fix, and it does not fight the fix — an engine
- *    whose sources evict themselves simply retires cheaper.
- *
- * Eviction never CLEARS: an entry with live substrates is retired instead, and
- * leaves when its last reference does. Wholesale `clear()` at a size limit
- * orphaned engines that live resolutions were still borrowing slabs from.
+ * There is no arena behind this any more, so an entry is a few typed arrays
+ * and a memo table; eviction is a plain LRU with nothing to orphan.
  */
 const GEOMETRIES = new Map<string, Geometry>();
 const GEOMETRY_CACHE_LIMIT = 24;
 let geometryTick = 0;
 
-/** Census for the soak: what the shared-arena decision actually costs. */
-export function geometryCacheStats(): {
-  entries: number;
-  live: number;
-  retiring: number;
-  scopes: number;
-} {
-  let live = 0;
-  let retiring = 0;
+export function geometryCacheStats(): { entries: number; scopes: number } {
   const scopes = new Set<string>();
-  for (const g of GEOMETRIES.values()) {
-    if (g.refs > 0) live++;
-    if (g.retire) retiring++;
-    scopes.add(g.key.slice(0, g.key.indexOf('\u0000')));
-  }
-  return { entries: GEOMETRIES.size, live, retiring, scopes: scopes.size };
+  for (const g of GEOMETRIES.values()) scopes.add(g.key.slice(0, g.key.indexOf(' ')));
+  return { entries: GEOMETRIES.size, scopes: scopes.size };
 }
 
-/**
- * THE HEALTH TABLE THE ENGINE READS, indexed by `UnitKind`.
- *
- * The wire configures `maxHealthPerUnit` per unit TYPE and the vendored
- * resolver reads it as `input.maxHealth[type]`; the partial engine wants the
- * same table indexed by kind. Absent entries mean the flat `maxHealth`, so a
- * board that configures nothing behaves exactly as it always did.
- *
- * This used to be flattened to the maximum of the configured values, because
- * the engine carried one ceiling. That kept ceilings sound and LOST FLOORS:
- * our own low-maximum units were credited with a refuel budget — and so a
- * reach — they do not have, which is a floor above the truth as soon as
- * anything reads reach on its lo side. The engine takes the table now.
- */
-function healthPerKind(
-  maxHealth: number,
-  table: Readonly<Record<string, number>> | undefined
-): ReadonlyArray<number> | null {
-  if (table === undefined) return null;
-  const out: number[] = [];
-  let diverges = false;
-  for (const [type, value] of Object.entries(table)) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-    let kind: number;
-    try {
-      kind = kindOfWireType(type as UnitType);
-    } catch {
-      continue; // a type this engine has no kind for cannot be indexed
-    }
-    while (out.length <= kind) out.push(maxHealth);
-    out[kind] = value;
-    if (value !== maxHealth) diverges = true;
-  }
-  return diverges ? out : null;
-}
-
-function geometryFor(
-  marshalled: MarshalledBoard,
-  scope: string,
-  maxUnits: number,
-  maxTrail: number,
-  maxHealth: number,
-  maxHealthPerKind: ReadonlyArray<number> | null,
-  hazardDamage: number,
-  promotionWeight: number,
-  potions: ReadonlyArray<number>
-): Geometry {
+function geometryFor(marshalled: MarshalledBoard, scope: string): Geometry {
   const { config, fullWidth, fullHeight } = marshalled;
   const key = [
-    // The game scope, first, so a game's entries are addressable as a group.
     scope,
     String(fullWidth),
     String(fullHeight),
     config.walls.join(','),
     config.hazards.join(','),
-    String(hazardDamage),
-    String(maxHealth),
-    // The per-kind table is part of the engine's premise: two boards that
-    // configure different ceilings are different engines.
-    (maxHealthPerKind ?? []).join(','),
-    String(promotionWeight),
-    String(maxUnits),
-    String(maxTrail),
-    // The cloud source's premise includes the food board, so a changed food
-    // layout must not reuse an engine built around the old one.
-    config.food.join(','),
-    // ...and the potion board, for exactly the same reason: `boundsAt` prices
-    // a tier interval against `premise.potions`, so two boards with different
-    // potion layouts are different engines even at identical terrain.
-    potions.join(','),
-  ].join('\u0000');
+  ].join(' ');
   const hit = GEOMETRIES.get(key);
-  if (hit !== undefined && !hit.retire) {
-    hit.refs++;
+  if (hit !== undefined) {
     hit.lastUsed = ++geometryTick;
     return hit;
   }
-
   const grid = makeGrid(fullWidth, fullHeight);
-  const terrain = makeTerrain(grid, config.walls, config.hazards);
-  const engine = new PartialEngine(
-    terrain,
-    { food: boardWith(grid, config.food), potions: boardWith(grid, potions) },
-    {
-      maxUnits,
-      maxTrail,
-      hazardDamage,
-      maxHealth,
-      maxHealthPerKind,
-      pawnPromotionWeight: promotionWeight,
-    }
-  );
   const geometry: Geometry = {
     key,
     grid,
-    terrain,
-    engine,
-    refs: 1,
+    terrain: makeTerrain(grid, config.walls, config.hazards),
+    steps: new Map(),
+    orientedSteps: new Map(),
     lastUsed: ++geometryTick,
-    retire: false,
   };
   GEOMETRIES.set(key, geometry);
-  evictGeometries();
+  while (GEOMETRIES.size > GEOMETRY_CACHE_LIMIT) {
+    let victim: Geometry | null = null;
+    for (const g of GEOMETRIES.values()) if (victim === null || g.lastUsed < victim.lastUsed) victim = g;
+    if (victim === null) break;
+    GEOMETRIES.delete(victim.key);
+  }
   return geometry;
 }
 
-/** Make room, without ever orphaning an engine a live substrate is using. */
-function evictGeometries(): void {
-  while (GEOMETRIES.size > GEOMETRY_CACHE_LIMIT) {
-    let victim: Geometry | null = null;
-    for (const g of GEOMETRIES.values()) {
-      if (g.refs > 0) continue;
-      if (victim === null || g.lastUsed < victim.lastUsed) victim = g;
-    }
-    if (victim === null) {
-      // Everything is live. Retire the oldest so it leaves the moment it can,
-      // and stop — over the limit is better than a use-after-free.
-      let oldest: Geometry | null = null;
-      for (const g of GEOMETRIES.values()) {
-        if (g.retire) continue;
-        if (oldest === null || g.lastUsed < oldest.lastUsed) oldest = g;
-      }
-      if (oldest !== null) oldest.retire = true;
-      return;
-    }
-    GEOMETRIES.delete(victim.key);
-  }
-}
-
-function releaseGeometry(geometry: Geometry): void {
-  geometry.refs = Math.max(0, geometry.refs - 1);
-  if (geometry.refs === 0 && geometry.retire) GEOMETRIES.delete(geometry.key);
-}
-
-/**
- * A game is over: its engines have no future. Entries with no live substrate
- * go now; the rest are retired and leave with their last reference. This is
- * the geometry cache's LIFETIME — without it a long-lived process keeps one
- * growing cloud-source cache per board it has ever seen.
- */
+/** A game is over: its geometry has no future. */
 export function releaseGeometriesFor(gameId: string): number {
-  const prefix = `${gameId}\u0000`;
+  const prefix = `${gameId} `;
   let dropped = 0;
-  for (const [key, g] of [...GEOMETRIES]) {
+  for (const key of [...GEOMETRIES.keys()]) {
     if (!key.startsWith(prefix)) continue;
-    if (g.refs > 0) {
-      g.retire = true;
-      continue;
-    }
     GEOMETRIES.delete(key);
     dropped++;
   }
   return dropped;
 }
 
-/**
- * The questions a modelled sibling cannot answer for itself, because it shares
- * its parent's claim view. See `EngineSubstrate.withModelled`.
- */
-const CLAIM_QUESTIONS: ReadonlySet<string> = new Set([
-  'claimField',
-  'entangled',
-  'influenceOf',
-  'modeled',
-]);
-
-/**
- * A claim question was asked of a modelled sibling whose modelled set is
- * NARROWER than its parent's, where the parent's shared claim view would
- * under-report entanglement — the unsound direction.
- */
-export class SharedClaimViewError extends Error {
-  readonly code = 'shared_claim_view' as const;
-  constructor(
-    readonly question: string,
-    readonly siblingModelled: ReadonlyArray<UnitId>,
-    readonly parentModelled: ReadonlyArray<UnitId>
-  ) {
-    super(
-      `substrate: ${question}() on a modelled sibling that expects ` +
-        `[${siblingModelled.join(',')}] live while its parent models ` +
-        `[${parentModelled.join(',')}]. The sibling shares the parent's claim view, so the ` +
-        'answer would be about the parent — and for a narrower sibling that UNDER-reports ' +
-        'entanglement, which is the direction a floor may not be built on. A consumer that ' +
-        'needs per-sibling claims needs a sibling with its own claim field.'
-    );
-    this.name = 'SharedClaimViewError';
-  }
-}
-
-/** Test hook: drop every cached engine. Never called on the decision path. */
+/** Test hook: drop every cached geometry. Never called on the decision path. */
 export function clearGeometryCache(): void {
   GEOMETRIES.clear();
-}
-
-function boardWith(grid: Grid, cells: Iterable<number>): Board {
-  const board = newBoard(grid);
-  for (const c of cells) bbSet(board, c);
-  return board;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,17 +288,19 @@ function boardWith(grid: Grid, cells: Iterable<number>): Board {
 // ---------------------------------------------------------------------------
 
 export class EngineSubstrate implements Substrate {
+  /** The turn the board describes. */
   readonly turn: number;
+  /** The turn the staged moves resolve into — what every contest is adjudicated at. */
+  readonly arrivalTurn: number;
   readonly grid: Grid;
   readonly terrain: Terrain;
-  readonly engine: PartialEngine;
-  /** Base state: every unit LIVE. Forked per resolution, never resolved. */
-  readonly state: StateHandle;
-  /** The api board this was built from, for consumers that need coordinates. */
   readonly marshalled: MarshalledBoard;
+  readonly hazardDamage: number;
+  readonly pawnPromotionWeight: number;
+  readonly defaultMaxEnergy: number;
 
-  private readonly specs: ReadonlyArray<UnitSpec>;
   private readonly units: ReadonlyArray<SubstrateUnit>;
+  private readonly records = new Map<UnitId, ResolveUnit>();
   private readonly byUnitId = new Map<UnitId, SubstrateUnit>();
   private readonly byWireId = new Map<string, SubstrateUnit>();
   private readonly teamNumbers = new Map<string, number>();
@@ -532,67 +308,88 @@ export class EngineSubstrate implements Substrate {
   private readonly regicideTeams = new Set<number>();
   private readonly narrowings: ReadonlyMap<UnitId, ReadonlyArray<number>>;
   private readonly modeledIds: ReadonlySet<UnitId>;
-
-  /** Interned hold configurations, keyed by the sorted held-id list. */
-  private readonly holdCache = new Map<string, HoldSet>();
-  /** Slabs handed out and not yet returned. A leak shows up here first. */
-  private readonly borrowed = new Set<number>();
-  private claimView: {
-    startField: CloudField;
-    field: CloudField;
-    assessor: RiskAssessor;
-    food: Board;
-  } | null = null;
-  private targets: Board | null = null;
-  /** The turn-start potion board, materialised on first ask. */
-  private potions: Board | null = null;
-  /** `tiersAfterPickupBy`, memoised. One settlement per collector per decision. */
-  private readonly pickupTiers = new Map<UnitId, ReadonlyMap<UnitId, number>>();
-  private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
-  private resolveCount = 0;
-  private released = false;
   private readonly geometry: Geometry;
 
-  constructor(options: SubstrateOptions) {
-    const { board, turn } = options;
-    this.turn = turn;
-    const marshalled = marshalBoard(board, turn);
-    this.marshalled = marshalled;
+  /**
+   * THE FAMILY THIS SUBSTRATE BELONGS TO — itself, for a real substrate, and
+   * the parent for every modelled sibling (`withModelled` builds siblings with
+   * `Object.create`, so this own property resolves up the chain unchanged).
+   *
+   * It is the key for anything that is a function of the POSITION rather than
+   * of which units a view holds live: the territory workspace and its shell
+   * table are the first such things, and a per-sibling copy of them was both
+   * a fresh set of slabs per view and a cold shell cache per view.
+   */
+  readonly family: EngineSubstrate;
 
-    const trailLengths = marshalled.units.map((u) => u.occupancy.length);
-    const maxUnits = Math.max(4, marshalled.units.length);
-    const maxTrail = Math.max(4, ...trailLengths, 1) + 2;
-    // The flat ceiling is the DEFAULT for kinds the board does not configure,
-    // and the per-kind table carries the ones it does. It used to be the
-    // maximum over the table with the table thrown away — sound ceilings,
-    // unsound floors (see `healthPerKind`).
-    const configured = marshalled.config.maxHealth ?? {};
-    const maxHealth = Math.max(
-      100,
-      ...Object.values(configured).filter((v): v is number => typeof v === 'number')
-    );
-    const maxHealthPerKind = healthPerKind(maxHealth, configured);
-    const promotionWeight = board.pawnPromotionWeight ?? 10;
-    // THE POTION BOARD, which used to be built empty here. It is the premise
-    // `CloudSource.boundsAt` prices a frozen unit's tier interval against; with
-    // no cells in it `reachablePotions` is identically zero and the whole
-    // tier-ceiling arithmetic collapses to the observed tier. See tier-truth.ts.
-    const potions = potionBoardEnabled() ? marshalled.potions : [];
-    const geometry = geometryFor(
-      marshalled,
-      options.gameId ?? '',
-      maxUnits,
-      maxTrail,
-      maxHealth,
-      maxHealthPerKind,
-      marshalled.config.hazardDamage,
-      promotionWeight,
-      potions
-    );
+  private shapeCache: BoardShape | null = null;
+  private readonly claimCache = new Map<string, ReadonlyArray<Claim>>();
+  /** Settlements this family has already run, by `planKey` — see settleFor. */
+  private readonly settleCache = new Map<string, SettleEntry>();
+  private readonly heldCache = new Map<string, HeldUnit[]>();
+  /**
+   * THE STAGED RECORD FOR ONE (unit, destination), INTERNED.
+   *
+   * `entryFor` spread a fresh `ResolveUnit` per unit per settlement — eight
+   * objects on every one of the tens of thousands of plans a decision prices,
+   * and every one of them a copy of a record that never changes with a
+   * destination drawn from a set the grammar already bounds at a few dozen.
+   * `resolveTurn`'s own contract is that it mutates nothing it is given
+   * ("mutating nothing it was given", and `occupancy` is "Never mutated"), so
+   * the same object can be handed to every settlement that stages that unit
+   * there. Per family, dropped by `release()`.
+   */
+  private readonly stagedRecords = new Map<UnitId, Map<CellIndex, ResolveUnit>>();
+  private templateCache: Omit<PartialSettleInput, 'units' | 'held'> | null = null;
+  /**
+   * ONE SETTLEMENT INPUT OBJECT, REWRITTEN PER CALL. The template is fifteen
+   * fields wide and was re-spread on every settlement; nothing downstream
+   * keeps the object — `settlePartial` copies it (`{ ...input, units: live }`)
+   * before handing it to `settleTurn` and reads the rest during the call — so
+   * one scratch record serves them all. It is used only by the settlement
+   * doors, never by the claims door, so no call can be inside another.
+   */
+  private settleScratch: PartialSettleInput | null = null;
+  /** The roster and the held-id list one settlement is staged into — see
+   *  `entryFor`. Reused per call; nothing downstream retains either. */
+  private readonly unitScratch: ResolveUnit[] = [];
+  private readonly heldScratch: UnitId[] = [];
+  private perilCache: ReadonlySet<string> | null = null;
+  private readonly pickupTiers = new Map<UnitId, ReadonlyMap<UnitId, number>>();
+  private readonly influenceCache = new Map<UnitId, ReadonlySet<CellIndex>>();
+  private readonly targetCache = new Map<UnitId, ReadonlyArray<Candidate>>();
+  private readonly promotable = new Map<UnitType, boolean>();
+  /**
+   * The two settlement counters, in ONE OBJECT ON THE FAMILY rather than as
+   * two own scalars — for the same reason `settleCache` lives there.
+   * `withModelled` builds a sibling with `Object.create(parent)`, and `x++` on
+   * an inherited scalar READS the parent's value and WRITES an own one, so a
+   * sibling's settlements would be invisible to `settlements()` on the
+   * substrate the search actually holds — zero on a family whose siblings have
+   * settled, while the docstring calls it "the currency the search's budget is
+   * denominated in". A shared object is mutated in place through the
+   * prototype, so every view of the family counts into the same pair.
+   */
+  private readonly counters: { settle: number; assess: number } = { settle: 0, assess: 0 };
+  private released = false;
+
+  constructor(options: SubstrateOptions) {
+    const { turn } = options;
+    this.family = this;
+    this.turn = turn;
+    const marshalled =
+      options.marshalled ??
+      marshalBoard(options.board as ApiBoard, turn);
+    this.marshalled = marshalled;
+    this.arrivalTurn = marshalled.arrivalTurn;
+    this.hazardDamage = marshalled.config.hazardDamage;
+    this.pawnPromotionWeight = marshalled.pawnPromotionWeight;
+    this.defaultMaxEnergy = marshalled.config.defaultMaxEnergy ?? 100;
+
+    const geometry = geometryFor(marshalled, options.gameId ?? '');
     this.geometry = geometry;
     this.grid = geometry.grid;
     this.terrain = geometry.terrain;
-    this.engine = geometry.engine;
 
     // Team numbering: the deciding team is 0 by convention, so a subject-frame
     // question never has to hunt for it.
@@ -609,64 +406,55 @@ export class EngineSubstrate implements Substrate {
     }
 
     const observed = options.observedTurns;
-    const specs: UnitSpec[] = [];
+    const identify = options.identify ?? ((_wireId: string, index: number): UnitId => index);
     const units: SubstrateUnit[] = [];
-    const expiries = marshalled.tierExpiry;
-    const useExpiry = tierExpiryEnabled();
     marshalled.units.forEach((unit, index) => {
       const team = this.teamNumbers.get(unit.teamID) as number;
-      // A tier is a WINDOW. `MarshalledBoard.tierExpiry` carries the first turn
-      // at which it no longer governs (exclusive — the conversion from the
-      // wire's inclusive figure is done once, in marshalBoard). Passing null
-      // here is what made the search price a three-turn buff as permanent.
-      const tierExpiresAtTurn = useExpiry ? (expiries[index] ?? null) : null;
-      const spec = toUnitSpec(unit, { unitId: index, team, tierExpiresAtTurn });
-      specs.push(spec);
+      const unitId = identify(unit.id, index);
       const seen = observed?.get(unit.id);
       const staleness = seen === undefined ? 0 : Math.max(0, turn - seen);
       const record: SubstrateUnit = {
-        unitId: index,
+        unitId,
         wireId: unit.id,
         team,
         teamId: unit.teamID,
-        kind: spec.kind,
         type: unit.type,
         isKing: unit.isKing === true,
-        cells: spec.cells,
-        weight: spec.weight ?? spec.cells.length,
-        health: unit.health,
+        // A piece's weight IS its cell repeated; the distinct cells are what
+        // every geometric consumer wants, and the repeat count is `weight`.
+        cells: [...new Set(unit.occupancy)],
+        weight: unit.occupancy.length,
+        energy: unit.energy,
         tier: unit.tier,
-        tierExpiresAtTurn,
-        orientation: spec.orientation ?? 0,
+        tierExpiresAtTurn: marshalled.tierExpiry[index] ?? null,
+        orientation: unit.orientation,
         staleness,
       };
       units.push(record);
-      this.byUnitId.set(index, record);
+      this.byUnitId.set(unitId, record);
       this.byWireId.set(unit.id, record);
-      if (unit.isKing === true) this.regicideTeams.add(team);
+      this.records.set(unitId, unit);
+      if (record.isKing) this.regicideTeams.add(team);
     });
-    this.specs = specs;
     this.units = units;
 
-    // The disjointness guard on the marshalling path: a piece's weight IS its
-    // cell repeated, so only cells shared between DIFFERENT units are
-    // impossible. See OverlappingUnitsError for what letting one through costs.
+    // The disjointness guard on the one translation door: only cells shared
+    // between DIFFERENT units are impossible.
     const owner = new Map<number, string>();
-    for (const spec of specs) {
-      const wireId = units[spec.unitId as number]?.wireId ?? String(spec.unitId);
-      for (const cell of new Set(spec.cells)) {
+    for (const unit of units) {
+      for (const cell of unit.cells) {
         const held = owner.get(cell);
-        if (held !== undefined && held !== wireId) {
-          throw new OverlappingUnitsError(cell, [held, wireId]);
+        if (held !== undefined && held !== unit.wireId) {
+          throw new OverlappingUnitsError(cell, [held, unit.wireId]);
         }
-        owner.set(cell, wireId);
+        owner.set(cell, unit.wireId);
       }
     }
 
     const narrowings = new Map<UnitId, ReadonlyArray<number>>();
-    for (const [wireId, options_] of options.narrowings ?? []) {
+    for (const [wireId, cells] of options.narrowings ?? []) {
       const unit = this.byWireId.get(wireId);
-      if (unit !== undefined) narrowings.set(unit.unitId, options_);
+      if (unit !== undefined) narrowings.set(unit.unitId, cells);
     }
     this.narrowings = narrowings;
 
@@ -681,14 +469,11 @@ export class EngineSubstrate implements Substrate {
       for (const unit of units) if (unit.team === team) modeled.add(unit.unitId);
     }
     this.modeledIds = modeled;
-
-    this.state = this.engine.create(specs, marshalled.config.food, potions, turn);
-    this.borrowed.add(this.state.slab);
   }
 
   // --- roster ---------------------------------------------------------------
 
-  /** Every live unit, in board order. Order IS the engine's slot order. */
+  /** Every live unit, in board order. */
   roster(): ReadonlyArray<SubstrateUnit> {
     return this.units;
   }
@@ -703,6 +488,16 @@ export class EngineSubstrate implements Substrate {
 
   unitOfWireId(wireId: string): SubstrateUnit | undefined {
     return this.byWireId.get(wireId);
+  }
+
+  /** The unit a settlement's wire id names. */
+  unitIdOf(wireId: string): UnitId | undefined {
+    return this.byWireId.get(wireId)?.unitId;
+  }
+
+  /** The engine record for a unit — the roster entry settlement is handed. */
+  recordOf(unitId: UnitId): ResolveUnit | undefined {
+    return this.records.get(unitId);
   }
 
   /** The engine-side number for a wire team id. Throws on an unknown team. */
@@ -726,73 +521,556 @@ export class EngineSubstrate implements Substrate {
     return this.modeledIds;
   }
 
-  /** A live engine view of a unit on the base state. */
-  viewOf(unitId: UnitId): UnitView | null {
-    const slot = this.engine.slotOfUnit(this.state, unitId);
-    if (slot < 0) return null;
-    return this.engine.unitAt(this.state, slot);
+  /** Live units on `asTeam` this decision is entitled to move. */
+  commandable(asTeam: number): ReadonlyArray<UnitId> {
+    return this.units.filter((u) => u.team === asTeam).map((u) => u.unitId);
   }
-
-  /** How many resolutions this substrate has run. A budget/telemetry hook. */
-  resolutions(): number {
-    return this.resolveCount;
-  }
-
-  /** Slabs borrowed and not yet returned (the base state included). */
-  outstanding(): number {
-    return this.borrowed.size;
-  }
-
-  // --- grammar --------------------------------------------------------------
 
   /**
-   * The pawn-attack target board: food ∪ every unit's turn-start occupancy.
-   * THE canonical construction, taken from the engine's own vocabulary — a
-   * pawn's diagonal is legal onto a cell that held food or ANY unit, with no
-   * friendly exemption.
+   * How many PLAN settlements this substrate has run — the currency the
+   * search's budget is denominated in. One per priced plan.
    */
-  targetsBoard(): Board {
-    if (this.targets !== null) return this.targets;
-    const food = newBoard(this.grid);
-    this.engine.foodBoard(this.state, food);
-    this.targets = pawnTargetsInto(
-      this.grid,
-      newBoard(this.grid),
-      food,
-      this.specs.map((s) => s.cells)
-    );
-    return this.targets;
+  settlements(): number {
+    return this.counters.settle;
   }
 
-  /** Is this cell a hazard? Terrain, so a fact — no claim is involved. */
+  /**
+   * How many ONE-MOVER settlements the candidate layer has run: one per ray,
+   * per unit, per decision. Counted apart from `settlements()` because they
+   * are a different budget — the option set is built once and priced many
+   * times, and mixing the two hides which of them a slice spent itself on.
+   */
+  assessments(): number {
+    return this.counters.assess;
+  }
+
+  /** The step relation cache the reach shells iterate. Shared per board. */
+  stepCache(): Map<string, Uint32Array> {
+    return this.geometry.steps;
+  }
+
+  /** The facing-sensitive step relation on the permissive board. Shared. */
+  orientedStepCache(): Map<string, ReadonlyArray<{ cell: number; ori: number }>> {
+    return this.geometry.orientedSteps;
+  }
+
+  // --- terrain and items ----------------------------------------------------
+
+  isWall(cell: CellIndex): boolean {
+    return bbTest(this.terrain.wall, cell);
+  }
+
   hazardAt(cell: CellIndex): boolean {
     return bbTest(this.terrain.hazard, cell);
   }
 
   /** Did this cell hold food at the start of the turn? */
   foodAt(cell: CellIndex): boolean {
-    return bbTest(this.claims().food, cell);
+    return this.marshalled.config.food.includes(cell);
   }
 
-  /**
-   * Does this cell hold an invulnerability potion?
-   *
-   * Item spawning is gated off while anything is frozen, so the turn-start
-   * board is the whole answer for the turn being decided. Read off the
-   * MARSHALLED board rather than off the engine state, deliberately: the
-   * engine's copy is what the cloud premise prices tier intervals against and
-   * is gated by the tier-truth seam, while this predicate answers a question
-   * about the rules ("would ending here collect a potion, and therefore take a
-   * −1") that is true whatever the search is allowed to model.
-   */
+  /** Does this cell hold an invulnerability potion? */
   potionAt(cell: CellIndex): boolean {
-    if (this.potions === null) this.potions = boardWith(this.grid, this.marshalled.potions);
-    return bbTest(this.potions, cell);
+    return this.marshalled.potions.includes(cell);
   }
 
   /** Are potions live at all? Off, and a potion cell is inert scenery. */
   potionsEnabled(): boolean {
     return this.marshalled.potionsEnabled;
+  }
+
+  /** The energy ceiling for a kind — what a full tank is worth to it. */
+  maxEnergyOf(type: UnitType): number {
+    return this.marshalled.config.maxEnergy?.[type] ?? this.defaultMaxEnergy;
+  }
+
+  // --- the grammar, asked ---------------------------------------------------
+
+  /** The board every query is asked against: terrain, bodies and food. */
+  shape(): BoardShape {
+    if (this.shapeCache !== null) return this.shapeCache;
+    const config = this.marshalled.config;
+    this.shapeCache = {
+      boardWidth: this.marshalled.fullWidth,
+      boardHeight: this.marshalled.fullHeight,
+      walls: config.walls,
+      hazards: config.hazards,
+      occupancy: this.marshalled.units.map((u) => ({ id: u.id, cells: u.occupancy })),
+      food: config.food,
+    };
+    return this.shapeCache;
+  }
+
+  private grammarUnitOf(unitId: UnitId): GrammarUnit {
+    const record = this.records.get(unitId);
+    if (record === undefined) throw new UnknownUnitError(unitId);
+    return { type: record.type, occupancy: record.occupancy, orientation: record.orientation };
+  }
+
+  /** Every distinct action this unit's own grammar admits — the engine's set. */
+  actionsOf(unitId: UnitId): ReadonlyArray<Candidate> {
+    const hit = this.targetCache.get(unitId);
+    if (hit !== undefined) return hit;
+    const unit = this.grammarUnitOf(unitId);
+    const from = unit.occupancy[0] as CellIndex;
+    const shape = this.shape();
+    const out = legalTargets(unit, shape).map((to) => ({
+      unitId,
+      from,
+      to,
+      path: (pathOfQuery(unit, to, shape) ?? []) as ReadonlyArray<CellIndex>,
+    }));
+    this.targetCache.set(unitId, out);
+    return out;
+  }
+
+  /** The cells a staged destination enters, or null when it is not legal. */
+  pathOf(unitId: UnitId, to: CellIndex): ReadonlyArray<CellIndex> | null {
+    if (to === NO_ORDER_MOVE) return [];
+    return pathOfQuery(this.grammarUnitOf(unitId), to, this.shape());
+  }
+
+  /** The name this repo has always used for `pathOf`. */
+  pathFor(unitId: UnitId, to: CellIndex): ReadonlyArray<CellIndex> | null {
+    return this.pathOf(unitId, to);
+  }
+
+  /**
+   * Could this unit still become another kind? Promotion is a RULE and the
+   * only kind change in the game, so it is asked of settlement rather than
+   * read off a name: the probe stands the unit still at the promotion weight
+   * and reads back the kind the turn closed with. Memoised per kind.
+   */
+  canPromote(unitId: UnitId): boolean {
+    const record = this.records.get(unitId);
+    if (record === undefined) throw new UnknownUnitError(unitId);
+    const hit = this.promotable.get(record.type);
+    if (hit !== undefined) return hit;
+    const m = this.marshalled;
+    const cell = record.occupancy[0] as number;
+    const settled = settleTurn(
+      {
+        ...m.config,
+        food: [],
+        units: [
+          {
+            ...record,
+            occupancy: new Array<number>(Math.max(1, m.pawnPromotionWeight)).fill(cell),
+            energy: Number.MAX_SAFE_INTEGER,
+            path: [],
+          },
+        ],
+        turn: m.arrivalTurn,
+        teamOf: Object.fromEntries(m.teamOf),
+        effects: [],
+        potions: [],
+        potionsEnabled: false,
+        potionWindowTurns: m.potionWindowTurns,
+        pawnPromotionWeight: m.pawnPromotionWeight,
+        maxTurns: m.maxTurns,
+        regicideTeamIDs: [],
+      },
+      NO_SPAWN
+    );
+    const promotes = (settled.unitTypes[record.id] ?? record.type) !== record.type;
+    this.promotable.set(record.type, promotes);
+    return promotes;
+  }
+
+  /** Does this unit's grammar walk rays — more than one cell in a step? */
+  slides(unitId: UnitId): boolean {
+    return this.actionsOf(unitId).some((c) => c.path.length > 1);
+  }
+
+  /**
+   * Does this unit have a RAY in this direction? Asked of the grammar: the
+   * cell two steps away is reachable, through the cell one step away. A jump
+   * enters no intermediate cell and so answers no, which is the whole point of
+   * the question (a knight casts no shadow).
+   */
+  slidesToward(unitId: UnitId, dx: number, dy: number): boolean {
+    const record = this.records.get(unitId);
+    if (record === undefined) throw new UnknownUnitError(unitId);
+    const step = dy * this.marshalled.fullWidth + dx;
+    const from = record.occupancy[0] as number;
+    const path = this.pathOf(unitId, from + 2 * step);
+    return path !== null && path.length === 2 && path[0] === from + step;
+  }
+
+  /** The cells this unit could contest next turn — the engine's own cover. */
+  coverOf(unitId: UnitId): ReadonlyArray<CellIndex> {
+    return coverOf(this.grammarUnitOf(unitId), this.shape());
+  }
+
+  /**
+   * INTERACTION FOOTPRINT — the cells this unit's options can influence this
+   * turn: its own occupancy (vacated or dragged) plus every cell any legal
+   * action of its own grammar enters.
+   *
+   * OVER-APPROXIMATION, AND ITS DIRECTION. This is the union over the whole
+   * option set, not the footprint of one chosen move. A footprint that is too
+   * big makes a cache transfer fail to apply (work repeated, never a wrong
+   * answer); one too small would silently keep an invalidated evaluation.
+   */
+  influenceOf(unitId: UnitId): ReadonlySet<CellIndex> {
+    const cached = this.influenceCache.get(unitId);
+    if (cached !== undefined) return cached;
+    const unit = this.byUnitId.get(unitId);
+    if (unit === undefined) throw new UnknownUnitError(unitId);
+    const cells = new Set<CellIndex>(unit.cells);
+    for (const candidate of this.actionsOf(unitId)) for (const cell of candidate.path) cells.add(cell);
+    const frozen: ReadonlySet<CellIndex> = cells;
+    this.influenceCache.set(unitId, frozen);
+    return frozen;
+  }
+
+  // --- claims ---------------------------------------------------------------
+
+  /**
+   * The claims for the MODELLED set: every unmodelled unit held at its own
+   * observation turn. Hoisted, because a claim is a pure function of the held
+   * records and the board and a decision prices thousands of plans against
+   * one held set.
+   */
+  claimsOf(): ReadonlyArray<Claim> {
+    return this.claimsFor(this.heldOutside(this.modeledIds));
+  }
+
+  /**
+   * The held units that could be gone by the end of this turn WITHOUT US —
+   * on terrain, on their own energy, or at each other's hands.
+   *
+   * `Claim.deathPossible` folds three sources together: what the unit could do
+   * to itself, what another unknown could do to it, and what the units we
+   * COMMAND could do to it. The third is a function of our whole option set
+   * rather than of any one plan — claims are hoisted, which is what makes them
+   * affordable — so read on its own it says "this enemy might die" about every
+   * enemy any of our units could conceivably reach, in every plan alike. That
+   * is sound and it is useless: a plan that TAKES a piece then scores exactly
+   * like one that ignores it, and the search loses its reason to capture.
+   *
+   * So the third source is separated from the other two here, by asking the
+   * same question of a board WE ARE NOT ON: the claims of the held roster
+   * alone. What comes back is peril the plan cannot change. What the plan CAN
+   * change is read per settlement, off the movers' own traversal
+   * (`material.ts`), and the two are unioned there.
+   *
+   * Over-approximate in the safe direction: with our units off the board the
+   * remaining ones have MORE room, so a peril this reports is at worst a
+   * peril that is not quite there, and a claim's survival stays bracketed.
+   */
+  perilOf(): ReadonlySet<string> {
+    if (this.perilCache !== null) return this.perilCache;
+    const held = this.heldOutside(this.modeledIds);
+    const ids = new Set(held.map((id) => this.byUnitId.get(id)?.wireId));
+    const units = this.marshalled.units.filter((u) => ids.has(u.id));
+    const out = new Set<string>();
+    if (units.length > 0) {
+      const claims = computeClaims({
+        ...this.inputTemplate(),
+        units,
+        held: this.heldUnitsFor(held),
+      });
+      for (const claim of claims) if (claim.deathPossible) out.add(claim.id);
+    }
+    this.perilCache = out;
+    return out;
+  }
+
+  claimOf(unitId: UnitId): Claim | undefined {
+    const wireId = this.byUnitId.get(unitId)?.wireId;
+    return this.claimsOf().find((c) => c.id === wireId);
+  }
+
+  /** The unit a claim belongs to. */
+  unitOfClaim(claim: Claim): SubstrateUnit | undefined {
+    return this.byWireId.get(claim.id);
+  }
+
+  private heldOutside(modeled: ReadonlySet<UnitId>): ReadonlyArray<UnitId> {
+    const out: UnitId[] = [];
+    for (const unit of this.units) if (!modeled.has(unit.unitId)) out.push(unit.unitId);
+    return out;
+  }
+
+  /** The held roster for a set, interned: a decision holds the same set of
+   *  units for every plan it prices. */
+  private heldUnitsFor(held: ReadonlyArray<UnitId>, heldKey?: string): HeldUnit[] {
+    const key = heldKey ?? keyOf(held);
+    const hit = this.heldCache.get(key);
+    if (hit !== undefined) return hit;
+    const out: HeldUnit[] = [];
+    for (const unitId of held) {
+      const unit = this.byUnitId.get(unitId);
+      if (unit === undefined) continue;
+      const options = this.narrowings.get(unitId);
+      out.push({
+        id: unit.wireId,
+        // RULE 4, and the whole of it: the record is stamped with the turn the
+        // unit was OBSERVED, and the engine dilates from there to the turn it
+        // is settling. Adding this turn's unmade choice here doubles it.
+        observedTurn: this.turn - unit.staleness,
+        ...(options === undefined ? {} : { options }),
+      });
+    }
+    this.heldCache.set(key, out);
+    return out;
+  }
+
+  private claimsFor(held: ReadonlyArray<UnitId>, heldKey?: string): ReadonlyArray<Claim> {
+    if (held.length === 0) return [];
+    const key = heldKey ?? keyOf(held);
+    const hit = this.claimCache.get(key);
+    if (hit !== undefined) return hit;
+    const input = this.settleInputFor(this.marshalled.units, this.heldUnitsFor(held));
+    const made = computeClaims(input);
+    this.claimCache.set(key, made);
+    return made;
+  }
+
+  // --- settlement -----------------------------------------------------------
+
+  /**
+   * The settlement input, minus the two fields that change per call.
+   *
+   * Built ONCE. A decision settles tens of thousands of plans against one
+   * board, and every field but `units` and `held` is the same in all of them —
+   * rebuilding the team map and re-spreading the config per settlement is a
+   * whole object allocation on the hottest path in the system.
+   */
+  private inputTemplate(): Omit<PartialSettleInput, 'units' | 'held'> {
+    if (this.templateCache !== null) return this.templateCache;
+    this.templateCache = settleInputBase(this.marshalled);
+    return this.templateCache;
+  }
+
+  private settleInputFor(units: ReadonlyArray<ResolveUnit>, held: HeldUnit[]): PartialSettleInput {
+    return { ...this.inputTemplate(), units: units as ResolveUnit[], held };
+  }
+
+  /** The scratch settlement input, re-pointed at this call's roster and hold. */
+  private settleScratchFor(units: ReadonlyArray<ResolveUnit>, held: HeldUnit[]): PartialSettleInput {
+    let scratch = this.settleScratch;
+    if (scratch === null) {
+      scratch = this.settleInputFor(units, held);
+      this.settleScratch = scratch;
+      return scratch;
+    }
+    const writable = scratch as unknown as { units: ResolveUnit[]; held: ReadonlyArray<HeldUnit> };
+    writable.units = units as ResolveUnit[];
+    writable.held = held;
+    return scratch;
+  }
+
+  /**
+   * This unit's record with `to` staged — interned, see `stagedRecords`.
+   *
+   * STAGE THE ACTION AND NOTHING ELSE. `resolveTurn` re-reads a staged cell
+   * through the movement grammar, and one rule in the grammar reads occupancy
+   * rather than the mover: a pawn's diagonal step is legal only onto a cell
+   * holding food or a body as the turn opens (`queries.ts::pawnTargetsOf`).
+   * `settlePartial` used to hand that re-reading a board with every held unit
+   * REMOVED, which could turn a staged capture into an illegal action and
+   * silently substitute the kind's default (a piece HOLDS) with nothing
+   * ledgered — the bug `f4b4a81` worked around by staging the walked path
+   * directly, bypassing the grammar's re-read.
+   *
+   * The engine now reads staging legality against `presence`: held units at
+   * their OBSERVED cells, visible to the grammar and invisible to the
+   * collision phase (`ResolveTurnInput.presence`, set by `settlePartial`
+   * itself off `input.held`). A capture onto a held body is legal again, and
+   * where a held unit's presence there is actually in doubt — observed on an
+   * earlier board it may since have left — the engine ledgers that itself as
+   * a `grammar` divergence (`settlePartial.ts::grammarDivergences`), keyed to
+   * the claim whose whereabouts decide it. `stagedMove` alone is what the
+   * plan named; the path workaround is gone.
+   */
+  private stagedRecordFor(unitId: UnitId, record: ResolveUnit, to: CellIndex): ResolveUnit {
+    let byTo = this.stagedRecords.get(unitId);
+    if (byTo === undefined) {
+      byTo = new Map<CellIndex, ResolveUnit>();
+      this.stagedRecords.set(unitId, byTo);
+    }
+    const hit = byTo.get(to);
+    if (hit !== undefined) return hit;
+    const made =
+      to === NO_ORDER_MOVE ? { ...record, stagedMove: undefined } : { ...record, stagedMove: to };
+    byTo.set(to, made);
+    return made;
+  }
+
+  /**
+   * Settle one turn with `plan` modelled and everything else held.
+   *
+   * The plan's domain IS the modelled set, so the engine never sees a partial
+   * assignment: a unit the plan names carries its staged cell (or the kind's
+   * own default, for `NO_ORDER_MOVE`), and a unit it omits is handed to
+   * `settlePartial` as a `HeldUnit` with its own observation turn.
+   */
+  settleFor(plan: JointPlan): PartialSettlement {
+    if (this.released) throw new Error('substrate: settle after release()');
+    // RULE 5's SECOND HALF: a settlement is a function of the PLAN, and of
+    // nothing a VIEW does.
+    //
+    // `settleFor` derives its held set from the plan's complement and reads
+    // nothing else that a modelled sibling overrides — `units`, `records`,
+    // `narrowings`, `marshalled` and the held/claim caches all live on the
+    // family and a sibling only re-points `modeledIds`, `claimsOf`, `modeled`
+    // and `release`. So the same plan under two hold configurations is the
+    // same settlement, and the bank prices exactly that: it resolves a plan at
+    // B0 and again under each enemy it enumerates, and the resolution memo
+    // namespaces its entries PER VIEW, so it cannot see the repeat. Measured
+    // on `mixed 20 1 --nodes`: 73 649 settlements, of which 27 707 (37.6%)
+    // repeat a plan the family had already settled.
+    //
+    // The cache is on the family (siblings share it through the prototype),
+    // keyed by the same path-sensitive `planKey` every memo above uses, and
+    // bounded and evicted oldest-first exactly like the resolution memo — a
+    // settlement is not small and a decision prices tens of thousands of
+    // plans. It is per DECISION, dropped by `release()`, never module scope.
+    return this.entryFor(plan).settlement;
+  }
+
+  /** The cache slot for one plan: its settlement, and the folds off it. */
+  private entryFor(plan: JointPlan): SettleEntry {
+    // The refusal lives HERE and not only on `settleFor`, because every door
+    // that settles — `settleFor`, `resolveBoundedFor`, `withResolution` —
+    // comes through this one, and a released substrate must refuse at all of
+    // them (soak: "release drops the decision caches and closes the door").
+    if (this.released) throw new Error('substrate: settle after release()');
+    const key = planKey(plan);
+    const cached = this.settleCache.get(key);
+    // A hit is proof the plan named only known units: the key names every
+    // unit id in the plan, so an unknown one could never have filled an entry.
+    if (cached !== undefined) return cached;
+    const roster = this.units;
+    const records = this.records;
+    // TWO POOLED ARRAYS, for the same reason `settleScratch` is one: neither
+    // outlives the call. `settlePartial` copies the roster it is handed
+    // (`input.units.filter`, `new Map(input.units.map(...))`) and reads the
+    // held ids only while it runs, and `heldUnitsFor`/`claimsFor` key on the
+    // string and store their own arrays — so nothing downstream keeps either.
+    // Per family, dropped by `release()`.
+    const held = this.heldScratch;
+    held.length = 0;
+    let named = 0;
+    const units = this.unitScratch;
+    units.length = roster.length;
+    for (let i = 0; i < roster.length; i++) {
+      const unitId = (roster[i] as SubstrateUnit).unitId;
+      const record = records.get(unitId) as ResolveUnit;
+      const candidate = plan.get(unitId);
+      if (candidate === undefined) {
+        held.push(unitId);
+        units[i] = record;
+        continue;
+      }
+      named++;
+      units[i] = this.stagedRecordFor(unitId, record, candidate.to);
+    }
+    // The unknown-unit refusal, unchanged in effect: every unit the plan names
+    // is on the roster exactly when the plan named as many units as the walk
+    // above matched. Only the losing case pays for the search.
+    if (named !== plan.size) {
+      for (const unitId of plan.keys()) {
+        if (!this.byUnitId.has(unitId)) throw new UnknownUnitError(unitId);
+      }
+    }
+    // One held-set key, not two: `heldUnitsFor` and `claimsFor` are both keyed
+    // on it and both used to compute it themselves.
+    const heldKey = keyOf(held);
+    this.counters.settle++;
+    // The claims come FIRST: `claimsFor` builds its own settlement input, and
+    // the scratch below may not be live while it does.
+    const claims = this.claimsFor(held, heldKey);
+    const settled = settlePartial(
+      this.settleScratchFor(units, this.heldUnitsFor(held, heldKey)),
+      NO_SPAWN,
+      claims
+    );
+    const entry: SettleEntry = { settlement: settled, bounded: null };
+    this.settleCache.set(key, entry);
+    while (this.settleCache.size > SETTLE_CACHE_CAPACITY) {
+      const oldest = this.settleCache.keys().next();
+      if (oldest.done) break;
+      this.settleCache.delete(oldest.value);
+    }
+    return entry;
+  }
+
+  /**
+   * The same settlement, with the material fold the contract carries: the
+   * per-team intervals and the subject-frame bounds. One settlement, one fold
+   * — recomputing either above this file would be a second scoring pipeline.
+   */
+  resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolve {
+    const entry = this.entryFor(plan);
+    const settlement = entry.settlement;
+    // THE FOLD, ONCE PER (settlement, frame, peril).
+    //
+    // `materialOf` reads the settlement, the frame, the family's roster — and
+    // `perilOf()`, which is the ONE thing a modelled sibling can answer
+    // differently from its parent. `ledgerOf` reads the settlement and the
+    // family's wire-id index. So the whole bounded resolve is determined by
+    // those three, and the peril SET's own identity is the exact witness for
+    // the third: `perilOf` memoises, so two views that agree return the same
+    // object and two that might not return different ones — a conservative
+    // miss, never a wrong reuse. Keyed off the settlement, which is per
+    // family, so no two decisions can meet in here.
+    const peril = this.perilOf();
+    let byTeam = entry.bounded;
+    if (byTeam === null) {
+      byTeam = new Map();
+      entry.bounded = byTeam;
+    }
+    const hit = byTeam.get(asTeam);
+    if (hit !== undefined && hit.peril === peril) return hit.value;
+    const { perTeam, bounds } = materialOf(this, settlement, asTeam);
+    const value: BoundedResolve = {
+      resolution: settlement,
+      perTeam,
+      bounds,
+      ledger: ledgerOf(this, settlement),
+    };
+    byTeam.set(asTeam, { peril, value });
+    return value;
+  }
+
+  /** Scoped settlement: resolve, hand it to `fn`, return what `fn` returns. */
+  withResolution<T>(plan: JointPlan, asTeam: number, fn: (r: BoundedResolve) => T): T {
+    return fn(this.resolveBoundedFor(plan, asTeam));
+  }
+
+  /**
+   * A ONE-MOVER settlement: this unit walks `path` and every other unit on the
+   * board is held. The `pathrisk` fold reads it, and it is the only place a
+   * caller may hand settlement a path rather than a staged cell — the path is
+   * the ray being assessed, prefix by prefix, and asking for its staged cell
+   * back would round it to a legal destination.
+   */
+  settleMover(unitId: UnitId, path: ReadonlyArray<CellIndex>): PartialSettlement {
+    if (this.released) throw new Error('substrate: settle after release()');
+    if (!this.byUnitId.has(unitId)) throw new UnknownUnitError(unitId);
+    const held: UnitId[] = [];
+    const units = this.units.map((unit) => {
+      const record = this.records.get(unit.unitId) as ResolveUnit;
+      if (unit.unitId === unitId) return { ...record, path: [...path] };
+      held.push(unit.unitId);
+      return record;
+    });
+    this.counters.assess++;
+    return settlePartial(
+      this.settleInputFor(units, this.heldUnitsFor(held)),
+      NO_SPAWN,
+      this.claimsFor(held)
+    );
+  }
+
+  /** What one staged ray costs and risks — the `pathrisk` fold. */
+  assess(unitId: UnitId, path: ReadonlyArray<CellIndex>): TraversalVerdict {
+    const unit = this.byUnitId.get(unitId);
+    if (unit === undefined) throw new UnknownUnitError(unitId);
+    return assessPath(this, unit, path);
   }
 
   /**
@@ -801,20 +1079,14 @@ export class EngineSubstrate implements Substrate {
    *
    * The pickup is inverted and it has TWO halves: the collector takes a level
    * off and every one of its LIVING allies takes one on, both lapsing one
-   * window later. A reading that models only the first half prices a pickup as
-   * pure loss; a reading that hardcodes either polarity is a second encoding of
-   * a rule that has already moved once. So the question goes to `settleTurn`,
-   * which is where both halves are written, and what comes back is the tier
-   * vector the turn AFTER the pickup opens at — expiry included, so a window
-   * that lapses on the same turn is netted off for free.
+   * window later. So the question goes to `settleTurn`, which is where both
+   * halves are written, and what comes back is the tier vector the turn AFTER
+   * the pickup opens at — expiry included.
    *
    * THE PROBE IS A HELD BOARD. Every unit stands where it stands with an empty
-   * path and a health no turn can spend, and the one potion offered is the
+   * path and an energy no turn can spend, and the one potion offered is the
    * collector's own head cell. Nothing moves, so nothing contests, so nothing
-   * dies and no death can drop a unit out of the answer; the only phase with
-   * anything to do is the one being asked about. Memoised per unit: a decision
-   * asks this once per unit of ours that can reach a potion, and never at all
-   * on the potion-free boards that are most of them.
+   * dies. Memoised per unit.
    */
   tiersAfterPickupBy(unitId: UnitId): ReadonlyMap<UnitId, number> {
     const hit = this.pickupTiers.get(unitId);
@@ -823,18 +1095,21 @@ export class EngineSubstrate implements Substrate {
     if (collector === undefined) throw new UnknownUnitError(unitId);
 
     const m = this.marshalled;
-    const settled = settleTurn({
-      ...m.config,
-      units: m.units.map((u) => ({ ...u, path: [], health: Number.MAX_SAFE_INTEGER })),
-      turn: m.arrivalTurn,
-      teamOf: Object.fromEntries(m.teamOf),
-      effects: m.effects,
-      potions: [collector.cells[0] as number],
-      potionsEnabled: m.potionsEnabled,
-      potionWindowTurns: m.potionWindowTurns,
-      pawnPromotionWeight: m.pawnPromotionWeight,
-      maxTurns: m.maxTurns,
-    }, NO_SPAWN);
+    const settled = settleTurn(
+      {
+        ...m.config,
+        units: m.units.map((u) => ({ ...u, path: [], energy: Number.MAX_SAFE_INTEGER })),
+        turn: m.arrivalTurn,
+        teamOf: Object.fromEntries(m.teamOf),
+        effects: m.effects,
+        potions: [collector.cells[0] as number],
+        potionsEnabled: m.potionsEnabled,
+        potionWindowTurns: m.potionWindowTurns,
+        pawnPromotionWeight: m.pawnPromotionWeight,
+        maxTurns: m.maxTurns,
+      },
+      NO_SPAWN
+    );
 
     const out = new Map<UnitId, number>();
     for (const [wireId, tier] of Object.entries(settled.tiers)) {
@@ -845,226 +1120,47 @@ export class EngineSubstrate implements Substrate {
     return out;
   }
 
-  /** Every distinct action this unit could take, from the engine's enumerator. */
-  enumerate(unitId: UnitId): GrammarCandidate[] {
-    const unit = this.byUnitId.get(unitId);
-    if (unit === undefined) throw new UnknownUnitError(unitId);
-    return enumerateActions(
-      this.terrain,
-      unit.kind,
-      unit.cells[0] as number,
-      unit.orientation,
-      this.targetsBoard()
-    );
-  }
-
-  /** The contract face of `enumerate`: the same options as `Candidate`s. */
-  actionsOf(unitId: UnitId): ReadonlyArray<Candidate> {
-    const unit = this.byUnitId.get(unitId);
-    if (unit === undefined) throw new UnknownUnitError(unitId);
-    const from = unit.cells[0] as CellIndex;
-    return this.enumerate(unitId).map((a) => ({
-      unitId,
-      from,
-      to: a.dest,
-      path: a.action.kind === 'move' ? [...a.action.path] : [],
-    }));
-  }
-
-  /** Live units on `asTeam` this decision is entitled to move. */
-  commandable(asTeam: number): ReadonlyArray<UnitId> {
-    return this.units.filter((u) => u.team === asTeam).map((u) => u.unitId);
-  }
-
-  /** The contract name for `pathFor`. */
-  pathOf(unitId: UnitId, to: CellIndex): ReadonlyArray<CellIndex> | null {
-    return this.pathFor(unitId, to);
-  }
-
-  /** The cells a staged destination actually enters, or null when illegal. */
-  pathFor(unitId: UnitId, dest: CellIndex): ReadonlyArray<CellIndex> | null {
-    const unit = this.byUnitId.get(unitId);
-    if (unit === undefined) throw new UnknownUnitError(unitId);
-    const action = planAction(
-      this.terrain,
-      unit.kind,
-      unit.cells[0] as number,
-      dest,
-      unit.orientation,
-      this.targetsBoard()
-    );
-    if (action === null) return null;
-    return action.kind === 'move' ? action.path : [];
-  }
-
-  // --- claims ---------------------------------------------------------------
-
-  /**
-   * The claim field for the MODELLED set: every unmodelled unit held at its own
-   * observation turn, advanced to the turn a resolution adjudicates against.
-   * `entangled` and the tier-2 footprint questions read this.
-   */
-  claimField(): CloudField {
-    return this.claims().field;
-  }
-
-  /** The engine's risk layer over the claim field. */
-  assessor(): RiskAssessor {
-    return this.claims().assessor;
-  }
-
-  /**
-   * A risk layer over the SAME claim field with an empty overlay.
-   *
-   * `assessPath` accretes maybe-durable material into the assessor it runs
-   * through — by design, so that within ONE joint assignment a possible kill at
-   * sub-step j is material for another mover crossing at j' > j. Running two
-   * ALTERNATIVE candidates of the same unit through one assessor is a different
-   * thing entirely: the first candidate's possible kill would be cited against
-   * the second, which is sound but loose and makes the answer depend on
-   * enumeration order. Independent candidates each get their own.
-   */
-  freshAssessor(): RiskAssessor {
-    const view = this.claims();
-    return new RiskAssessor({
-      field: view.field,
-      startField: view.startField,
-      terrain: this.terrain,
-      hazardDamage: this.engine.config.hazardDamage,
-      maxHealth: this.engine.config.maxHealth,
-      food: view.food,
-    });
-  }
-
-  private claims(): {
-    startField: CloudField;
-    field: CloudField;
-    assessor: RiskAssessor;
-    food: Board;
-  } {
-    if (this.claimView !== null) return this.claimView;
-    const startField = this.fieldHolding(this.heldIdsOutside(this.modeledIds));
-    const field = startField.isEmpty ? startField : startField.advanceTo(this.turn + 1);
-    const food = newBoard(this.grid);
-    this.engine.foodBoard(this.state, food);
-    const assessor = new RiskAssessor({
-      field,
-      startField,
-      terrain: this.terrain,
-      hazardDamage: this.engine.config.hazardDamage,
-      maxHealth: this.engine.config.maxHealth,
-      food,
-    });
-    this.claimView = { startField, field, assessor, food };
-    return this.claimView;
-  }
-
-  // --- Substrate ------------------------------------------------------------
-
-  /**
-   * Resolve one turn with `plan` modelled and everything else held, in
-   * `asTeam`'s frame.
-   *
-   * THE RETURNED RESOLUTION OWNS A SLAB. Hand it to `releaseResolution`, or
-   * use `withResolution`, which cannot forget. `release()` reclaims anything
-   * still outstanding, so a forgotten release costs arena pressure inside one
-   * decision rather than a leak across turns — but the assertion a test should
-   * make is `outstanding() === 1` (the base state) between decisions.
-   */
-  resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolve {
-    return this.resolveBoundedFull(plan, asTeam);
-  }
-
-  /**
-   * The same resolution, with the two things `resolveBoundedFor`'s return type
-   * cannot carry: the per-team intervals and the subject-frame material bounds.
-   * The engine computes all three in one pass; recomputing the fold above this
-   * file would be a second scoring pipeline, which is the thing the single-
-   * pipeline rule exists to forbid.
-   */
-  resolveBoundedFull(plan: JointPlan, asTeam: number): BoundedResolve {
-    if (this.released) throw new Error('substrate: resolve after release()');
-    const assignment = new Map<number, number>();
-    for (const [unitId, candidate] of plan) {
-      if (!this.byUnitId.has(unitId)) throw new UnknownUnitError(unitId);
-      assignment.set(unitId, candidate.to);
-    }
-
-    const held = this.heldIdsOutside(new Set(assignment.keys()));
-    // Order matters: the hold set is built off the IMMUTABLE base state before
-    // the working fork is taken. `makeHoldSet` forks internally, and calling it
-    // with our own fork outstanding lets the two allocations interact — the
-    // symptom is "hold set names unit N, absent from this state" on the next
-    // call with a different held set.
-    const holds = held.length === 0 ? null : this.holdSetFor(held);
-
-    let working = this.engine.fork(this.state);
-    this.borrowed.add(working.slab);
-    if (holds !== null) working = this.engine.applyHoldSet(working, holds);
-
-    this.resolveCount++;
-    const out = resolveBounded(this.engine, working, assignment, asTeam);
-    this.borrowed.add(out.resolution.state.slab);
-    // `resolveBounded` forks again internally, so the working handle is spent
-    // the moment it returns.
-    this.releaseHandle(working);
-    return out;
-  }
-
-  /** Scoped resolution: the leak-proof door. */
-  withResolution<T>(plan: JointPlan, asTeam: number, fn: (r: BoundedResolve) => T): T {
-    const out = this.resolveBoundedFull(plan, asTeam);
-    try {
-      return fn(out);
-    } finally {
-      this.releaseResolution(out.resolution);
-    }
-  }
-
-  /** Return a resolution's slab. Idempotent. */
-  releaseResolution(resolution: Resolution): void {
-    this.releaseHandle(resolution.state);
-  }
-
-  private releaseHandle(handle: StateHandle): void {
-    if (handle.slab === this.state.slab) return;
-    if (!this.borrowed.delete(handle.slab)) return;
-    this.engine.release(handle);
-  }
-
   /**
    * Which held units' claims touch these cells in sub-step time.
    *
    * Each probe carries the occupancy WINDOW `[fromSubStep, toSubStep]`: a cell
    * merely passed through has both ends at its own path index, and a cell come
    * to rest on takes `toSubStep: Number.MAX_SAFE_INTEGER`, because a rested
-   * unit stands there for the rest of the turn and meets everything. The gate
-   * below reads `toSubStep` — the conservative end for a head arrival —
-   * and `fromSubStep` is carried for the tightening a later version may take
-   * (a claim that can only arrive after the window closes cannot contest it).
+   * unit stands there for the rest of the turn and meets everything. Body
+   * material is not gated in time — it is already standing there when the turn
+   * opens; a head arrival is, through the claim's own `earliestSubStep`.
    *
    * Everything ABSENT from the answer is proved irrelevant to those cells, so
-   * its bound is tight rather than merely sound. That is what makes the worst
-   * case affordable enough to be the default.
+   * its bound is tight rather than merely sound.
+   *
+   * THE `NEVER` SENTINEL IS NOT A SUB-STEP. `Claim.earliestSubStep` is a DENSE
+   * `Int32Array` over every cell of the board, and a cell no world's head ever
+   * reaches carries `NEVER = 0x7fffffff` rather than being absent. The
+   * arithmetic test alone therefore admits it: `NEVER <= Number.MAX_SAFE_INTEGER`
+   * is true, so a rest cell — every plan has one per unit — matched EVERY claim
+   * on the board and the gate degenerated to "every uncontrolled unit". Measured
+   * on `snakes`: 99.6% of admissions were the sentinel and nothing else, the gate
+   * equalled the held set on 100% of prices, and B3 then swept a 4^4 product on
+   * every plan the search touched. Excluding the sentinel removes only units the
+   * claim itself proves cannot reach the cell in ANY world, so the answer stays a
+   * superset of the truth.
    */
   entangled(
     cells: ReadonlyArray<{ cell: CellIndex; fromSubStep: SubStep; toSubStep: SubStep }>
   ): ReadonlyArray<UnitId> {
     const out = new Set<UnitId>();
-    for (const slot of this.claimField().slots) {
-      const lb = headSubStepLBOf(slot.cloud, this.grid);
+    for (const claim of this.claimsOf()) {
+      const unit = this.byWireId.get(claim.id);
+      if (unit === undefined) continue;
+      const bodies = claim.bodyPossible[claim.bodyPossible.length - 1] ?? [];
       for (const probe of cells) {
-        const inBody = bbTest(slot.cloud.bodyPossible, probe.cell);
-        if (inBody) {
-          out.add(slot.record.unitId);
+        if (bodies.includes(probe.cell)) {
+          out.add(unit.unitId);
           break;
         }
-        if (!bbTest(slot.cloud.headPossible, probe.cell)) continue;
-        // A head arrival is gated in time: a unit that cannot get there before
-        // the window closes cannot contest it. Body material is not — it is
-        // already standing there when the turn opens.
-        if (Math.max(0, (lb[probe.cell] as number) - 1) <= probe.toSubStep) {
-          out.add(slot.record.unitId);
+        const earliest = claim.earliestSubStep[probe.cell];
+        if (earliest !== undefined && earliest < NEVER && earliest <= probe.toSubStep) {
+          out.add(unit.unitId);
           break;
         }
       }
@@ -1073,183 +1169,109 @@ export class EngineSubstrate implements Substrate {
   }
 
   /**
-   * A modelled sibling — the contract's `withModelled`, under the PLAN-DOMAIN
-   * RULE this substrate already lives by: naming a unit in a plan makes it
-   * live, so a sibling needs no new engine state for RESOLUTION, only
-   * independent release semantics. The proxy shares every slab and cache with
-   * its parent and its `release()` is a no-op, so releasing a sibling can
-   * never disturb the parent (nor return a slab the parent still owns).
+   * A sibling substrate over the SAME position in which every unit in
+   * `modelled` is expected LIVE.
    *
-   * THE LIMITATION, STATED. A sibling shares the parent's CLAIM VIEW, which is
-   * built from the PARENT's modelled set. Resolution is unaffected — a
-   * resolve derives its held set from the plan it is given, not from this
-   * field — but a CLAIM question (`claimField`, `entangled`, `influenceOf`,
-   * `modeled`) asked of a sibling is answered about the parent. For a sibling
-   * whose modelled set is a SUPERSET of the parent's that is a sound
-   * over-approximation: more units carry claims than the sibling says are
-   * held, and an over-reported claim only loosens a bound. For a NARROWER
-   * sibling it is the unsound direction — units the sibling expects to be
-   * claims are answered as modelled, so entanglement is UNDER-reported and a
-   * floor built on it would be too high.
-   *
-   * So a narrower sibling refuses claim questions outright. Resolution,
-   * enumeration and the plan-domain machinery all work exactly as before; only
-   * the questions whose answer would be wrong throw. Fail loud, never wrong.
-   * (The bank's views are narrower than the parent — they name the references
-   * plus one enemy, not our own units — and they ask no claim questions, which
-   * is why this is a guard rather than a rewrite. A consumer that needs real
-   * per-sibling claims, such as the deferred tier-2 footprint transfer, needs
-   * a sibling with its own claim field and its own slab lifecycle: that is the
-   * fix, and this is the tripwire that will demand it.)
+   * It is a plain object sharing this one's caches. It needs no guard: claims
+   * are derived per call from the plan's complement (and, for the claim view,
+   * from the sibling's OWN modelled set), so a narrower sibling is simply
+   * correct rather than answering its parent's question. The `SharedClaimView`
+   * refusal the arena version carried existed because the claim field was
+   * cached on the parent from the parent's modelled set; there is no such
+   * field any more.
    */
   withModelled(modelled: ReadonlyArray<UnitId>): Substrate {
     const parent = this;
-    const requested = new Set(modelled);
-    const narrower = [...parent.modeledIds].some((id) => !requested.has(id));
-    return new Proxy(parent, {
-      get(target, prop, receiver): unknown {
-        if (prop === 'release') return () => undefined;
-        if (prop === 'withModelled') {
-          return (m: ReadonlyArray<UnitId>) =>
-            parent.withModelled([...requested, ...m]);
-        }
-        if (narrower && typeof prop === 'string' && CLAIM_QUESTIONS.has(prop)) {
-          return () => {
-            throw new SharedClaimViewError(prop, [...requested], [...parent.modeledIds]);
-          };
-        }
-        const value = Reflect.get(target, prop, receiver);
-        return typeof value === 'function'
-          ? (value as (...a: never[]) => unknown).bind(target)
-          : value;
-      },
-    }) as unknown as Substrate;
+    const requested = new Set<UnitId>(modelled);
+    const sibling: EngineSubstrate = Object.create(parent) as EngineSubstrate;
+    // Writable and configurable, every one of them: a sibling may be wrapped
+    // again — the bank's resolution memo is a Proxy — and a proxy over an
+    // object with a non-configurable own property may not report anything but
+    // that property's own value.
+    const own = (value: unknown): PropertyDescriptor => ({
+      value,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperties(sibling, {
+      modeledIds: own(requested),
+      // PERIL IS THE ONE READING A SIBLING ANSWERS DIFFERENTLY, so it gets its
+      // OWN memo slot. Without this line the sibling reads the parent's
+      // `perilCache` through the prototype: when the parent has already
+      // memoised (which the decision path always does — B0 resolves before the
+      // bank models anything), the sibling silently returns the PARENT's peril
+      // over the parent's wider held set, and `resolveBoundedFor` then reuses
+      // the parent's material fold too, because the peril SET's identity is
+      // its witness. That is unsound in the fatal direction: a held unit the
+      // sibling has proved safe is priced as possibly-gone, so an enemy's
+      // certainly-kept material is understated and our FLOOR comes out too
+      // high. It also made the answer depend on call order — the same sibling
+      // asked before its parent computed the right set.
+      perilCache: own(null),
+      // Releasing a sibling must never disturb the parent.
+      release: own(() => undefined),
+      modeled: own(() => requested),
+      withModelled: own((m: ReadonlyArray<UnitId>) => parent.withModelled([...requested, ...m])),
+      claimsOf: own(() => parent.claimsFor(parent.heldOutside(requested))),
+    });
+    return sibling as unknown as Substrate;
   }
 
-  /**
-   * INTERACTION FOOTPRINT — the cells this unit's options can influence this
-   * turn: its own occupancy (vacated or dragged) plus every cell any legal
-   * action of its own grammar enters.
-   *
-   * OVER-APPROXIMATION, AND ITS DIRECTION. This is the UNION over the unit's
-   * whole option set, not the footprint of one chosen move, and it is one
-   * turn's grammar reach rather than a transitive closure. So it is a SUPERSET
-   * of the influence of any single move, and that is the safe direction for
-   * both consumers: a footprint that is too big makes a tier-2 cache transfer
-   * fail to apply (work repeated, never a wrong answer), and makes a dirty-set
-   * re-search too eager (time spent, never a stale bound kept). A footprint too
-   * SMALL would silently keep an invalidated evaluation, which is why the
-   * transitive tightening is deliberately not attempted in v1.
-   */
-  influenceOf(unitId: UnitId): ReadonlySet<CellIndex> {
-    const cached = this.influenceCache.get(unitId);
-    if (cached !== undefined) return cached;
-    const unit = this.byUnitId.get(unitId);
-    if (unit === undefined) throw new UnknownUnitError(unitId);
-    const cells = new Set<CellIndex>(unit.cells);
-    for (const candidate of this.enumerate(unitId)) {
-      if (candidate.action.kind !== 'move') continue;
-      for (const c of candidate.action.path) cells.add(c);
-    }
-    const frozen: ReadonlySet<CellIndex> = cells;
-    this.influenceCache.set(unitId, frozen);
-    return frozen;
-  }
-
-  /** Return every slab. After this the substrate refuses further work. */
+  /** Drop this substrate's per-decision caches. The geometry outlives it. */
   release(): void {
     if (this.released) return;
     this.released = true;
-    for (const slab of [...this.borrowed]) {
-      if (slab === this.state.slab) continue;
-      this.borrowed.delete(slab);
-      this.engine.release({ ...this.state, slab });
-    }
-    this.borrowed.delete(this.state.slab);
-    this.engine.release(this.state);
-    this.holdCache.clear();
-    this.claimView = null;
+    this.settleCache.clear();
+    this.claimCache.clear();
+    this.heldCache.clear();
+    this.stagedRecords.clear();
+    this.settleScratch = null;
+    this.unitScratch.length = 0;
+    this.heldScratch.length = 0;
+    this.perilCache = null;
     this.influenceCache.clear();
-    // The engine outlives this substrate by design (that is the cache), but
-    // only while something is still using it.
-    releaseGeometry(this.geometry);
-  }
-
-  // --- holds ----------------------------------------------------------------
-
-  private heldIdsOutside(modeled: ReadonlySet<UnitId>): UnitId[] {
-    const out: UnitId[] = [];
-    for (const unit of this.units) if (!modeled.has(unit.unitId)) out.push(unit.unitId);
-    return out;
-  }
-
-  /**
-   * The interned hold configuration for a held set.
-   *
-   * `makeHoldSet` owns the slot lifecycle and the premise key (which is
-   * private to the engine and must match, or `applyHoldSet` refuses). Its
-   * FIELD is replaced, because `holdMany` stamps one `heldAtTurn` for the whole
-   * call and this roster is observed at different turns — and a unit last seen
-   * three turns ago, stamped "held now", would claim a one-turn cloud for a
-   * four-turn-old observation. That is an under-approximation, which is the one
-   * direction this design may never err in.
-   */
-  private holdSetFor(held: ReadonlyArray<UnitId>): HoldSet {
-    if (held.length > MAX_FROZEN) throw new TooManyHeldError(held.length);
-    const key = [...held].sort((a, b) => a - b).join(',');
-    const hit = this.holdCache.get(key);
-    if (hit !== undefined) return hit;
-
-    const slots: number[] = [];
-    for (const unitId of held) {
-      const slot = this.engine.slotOfUnit(this.state, unitId);
-      if (slot >= 0) slots.push(slot);
-    }
-    const made = this.engine.makeHoldSet(this.state, slots);
-    const holds: HoldSet = { ...made, field: this.fieldHolding(held) };
-    this.holdCache.set(key, holds);
-    return holds;
-  }
-
-  /** A cloud field over `held`, one record per unit at ITS observation turn. */
-  private fieldHolding(held: ReadonlyArray<UnitId>): CloudField {
-    if (held.length === 0) return emptyField(this.grid, this.turn);
-    if (held.length > MAX_FROZEN) throw new TooManyHeldError(held.length);
-    const records: FrozenRecord[] = [];
-    for (const unitId of held) {
-      const unit = this.byUnitId.get(unitId);
-      if (unit === undefined) continue;
-      records.push({
-        unitId,
-        kind: unit.kind,
-        team: unit.team,
-        occupancy: unit.cells,
-        // RULE 4, and the whole of it: the record is stamped with the turn the
-        // unit was OBSERVED. The post-advance field the resolver reads supplies
-        // this turn's unmade choice by itself; adding one here doubles it.
-        heldAtTurn: this.turn - unit.staleness,
-        health: unit.health,
-        tier: unit.tier,
-        tierExpiresAtTurn: unit.tierExpiresAtTurn,
-        weight: unit.weight,
-        orientation: unit.orientation,
-        narrowedTo: this.narrowings.get(unitId) ?? null,
-      });
-    }
-    return emptyField(this.grid, this.turn).withHeldMany(
-      this.engine.sourceOf(this.state),
-      records,
-      this.turn
-    );
+    this.targetCache.clear();
+    this.pickupTiers.clear();
   }
 }
+
+/**
+ * The settlement cache's ceiling — the resolution memo's own capacity, and
+ * for the same reason: a settlement is not small and a decision at 26 units
+ * prices tens of thousands of plans.
+ */
+const SETTLE_CACHE_CAPACITY = 4096;
+
+/**
+ * ONE CACHE SLOT PER PLAN: the settlement, and the material folds taken off it
+ * per frame. Both live on the family's `settleCache`, so a resolve is one
+ * string key and one `Map` probe rather than a probe per layer.
+ */
+interface SettleEntry {
+  readonly settlement: PartialSettlement;
+  bounded: Map<number, { peril: ReadonlySet<string>; value: BoundedResolve }> | null;
+}
+
+/**
+ * A held set's identity: sorted ids, which is what every cache here keys on.
+ *
+ * The copy and the sort are skipped when the ids ALREADY ascend, which is the
+ * only case `entryFor` produces — it walks the roster in order and the roster
+ * is built in ascending unit id — so the common path is a `join` over the
+ * array it was handed. The general path is unchanged for any other caller, and
+ * the STRING is identical either way.
+ */
+const keyOf = (ids: ReadonlyArray<UnitId>): string => {
+  if (ids.length === 0) return '';
+  for (let i = 1; i < ids.length; i++) {
+    if ((ids[i] as number) < (ids[i - 1] as number)) {
+      return [...ids].sort((a, b) => a - b).join(',');
+    }
+  }
+  return ids.join(',');
+};
 
 /** The one construction door. */
 export function makeSubstrate(options: SubstrateOptions): EngineSubstrate {
   return new EngineSubstrate(options);
-}
-
-/** A claim slot by unit id, for consumers reading a held unit's interval. */
-export function claimSlotOf(sub: EngineSubstrate, unitId: UnitId): FieldSlot | undefined {
-  return sub.claimField().slotOf(unitId);
 }
