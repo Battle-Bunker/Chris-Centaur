@@ -82,6 +82,27 @@ export const LENS_ROW_CAP = 24;
  */
 export const LENS_INSPECTION_MS = 20;
 
+/**
+ * THE RANKING'S OWN CEILING — what a conditional ranking may spend BEYOND the
+ * conform its own question needs, and the floor the ranking is guaranteed.
+ *
+ * MEASURED (07 §5). The first `conform` under a pin in a decision prices the
+ * repair — 20 evaluator calls on `mixed`, which is `LENS_INSPECTION_MS`
+ * exactly — and every conform after it is served by the bank's memo for
+ * 0.02 work units and ZERO evaluations. So a reserve sized at one `price()`
+ * is spent by the operator's question before the ranking of the rest of the
+ * cluster has begun, and a ranking bounded by what the reserve has LEFT is a
+ * ranking that never runs: the panel's list of one (10 §4 O1).
+ *
+ * One millisecond cannot buy a `price()` on any board this bot plays — 03
+ * §3.1 measures one at ~18 ms at 26 units — so this floor cannot fund a
+ * search; it funds the memo hits that turn one answer into a ranked table.
+ * The inspection therefore spends at most `LENS_INSPECTION_MS + LENS_RANK_MS`,
+ * declared before the turn starts exactly as the reserve is, and the search
+ * deadline is not moved by a microsecond to pay for it.
+ */
+export const LENS_RANK_MS = 1;
+
 /** `PlyStep`s retained per moveset — four alternations (06 §3.1). */
 export const LENS_LINE_PLIES = 8;
 
@@ -340,6 +361,16 @@ export interface Moveset {
   /** `planTieKey` — an indifferent order, reproducibly. */
   readonly tie: number;
   readonly staged: boolean;
+  /**
+   * TRUE where the row is an ASSIGNMENT WITH NO PRICE. `conform` returns a
+   * plan, not a bound, so a conditional ranking's rows carry the moves a lock
+   * would stage and no number at all — and a panel that drew `0.0` for them
+   * would be printing a number nobody computed, which is the exact failure
+   * this surface exists to prevent (Law A). The numeric columns draw `—`
+   * instead, the reading F7 reserved for a number that is genuinely not
+   * there. Absent ⇒ the row carries the reading its fields say it does.
+   */
+  readonly unpriced?: true;
 
   /** Null until the barrier. */
   readonly dominance: DominanceCondition | null;
@@ -408,6 +439,24 @@ export interface Lock {
 export type ConditionalSource = 'retained-filter' | 'speculative-context' | 'empty';
 
 /**
+ * THE ROWS THE RANKING DID NOT REACH, named on the same channel the rows
+ * arrive on. A table that stops short and says nothing is indistinguishable
+ * from a cluster with nothing else in it, and only one of those is true — the
+ * same reason a refused inspection is a typed refusal rather than an empty
+ * list (04 §4.5).
+ */
+export interface RankTruncation {
+  /** `reserve-spent` — the reserve ran out mid-ranking, the typed refusal a
+   *  request past it would have got. `row-cap` — the list is as long as a
+   *  list is allowed to be (`LENS_TOPK`), which is a different sentence and
+   *  not a refusal at all. */
+  readonly why: 'reserve-spent' | 'row-cap';
+  /** Assignments of the rest of the cluster left unranked. */
+  readonly notRanked: number;
+  readonly detail: string;
+}
+
+/**
  * Law B: this IS the speculative pin context for the lock, not a second
  * computation that agrees with it. Its head is `conform(ctx ⊕ pin, wirePlan)`
  * — what would actually be staged — never `improve`'s best-so-far.
@@ -428,6 +477,8 @@ export interface ConditionalRanking {
   readonly contextKey: string;
   /** Live is open at the head; replay is closed (01 §7.1). */
   readonly final: boolean;
+  /** Null ⇒ the rest of the cluster was ranked to the end. */
+  readonly truncated: RankTruncation | null;
 }
 
 /** Refused on the same channel, never with silence (04 §4.5). */
@@ -754,6 +805,9 @@ export interface ConditionalPayload {
   readonly source: ConditionalSource;
   readonly cursor: number;
   readonly final: boolean;
+  /** The rows the reserve did not reach, carried so a REPLAYED table says the
+   *  same thing about its own shortness as the live one did. */
+  readonly truncated: RankTruncation | null;
 }
 
 /**
@@ -971,6 +1025,14 @@ export interface LensFrame {
   readonly candidates: Readonly<Record<UnitKey, ReadonlyArray<CandidateRow>>>;
   /** Keyed `${clusterId}|${unitKey}|${to}` — one list per conditional. */
   readonly movesets: Readonly<Record<string, ReadonlyArray<Moveset>>>;
+  /**
+   * WHERE A CONDITIONAL LIST STOPPED SHORT, under the same key its rows are
+   * under. A ranking the reserve cut off and a cluster with nothing else in it
+   * are the same table unless the frame carries the difference — the same
+   * distinction a typed refusal draws for a request nobody could serve
+   * (04 §4.5, 10 §4 O1). Absent ⇒ nothing was cut off.
+   */
+  readonly movesetTruncation?: Readonly<Record<string, RankTruncation>>;
   readonly breakdown: Readonly<Record<MovesetKey, MovesetBreakdown>>;
   /**
    * `Q` and `P` as the bank measured them on each cluster's leader, keyed by

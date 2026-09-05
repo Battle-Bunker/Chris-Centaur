@@ -77,6 +77,7 @@ import type {
   UnitOutcomeRow,
   UnitRow,
   WaypointView,
+  RankTruncation,
 } from '../types';
 
 // ===========================================================================
@@ -280,6 +281,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
 
   let partition: ReadonlyArray<ClusterView> = [];
   const movesets: Record<string, ReadonlyArray<Moveset>> = {};
+  const truncation: Record<string, RankTruncation> = {};
   // THE DRILLED ROWS, by moveset key. A breakdown is a recorded answer to a
   // question the operator asked, so it folds like every other event and the
   // panel draws the same rows live and in replay.
@@ -325,6 +327,13 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
         const p = payloadOf<ConditionalPayload>(event);
         for (const lock of p.locks) {
           movesets[conditionalKey(p.cluster, lock.unit, lock.to)] = p.rows;
+          // THE SHORTNESS TRAVELS WITH THE LIST. A conditional table that
+          // stopped at the reserve reads exactly like a cluster with nothing
+          // else in it unless the fold carries WHY, and a replayed table has
+          // no other way to know (10 §4 O1).
+          if (p.truncated !== null) {
+            truncation[conditionalKey(p.cluster, lock.unit, lock.to)] = p.truncated;
+          }
         }
         quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
         noteCandidates(priced, p.rows, true);
@@ -437,6 +446,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     partition,
     candidates: candidatesOf(priced),
     movesets,
+    movesetTruncation: truncation,
     breakdown,
     loud,
     staged,
@@ -728,6 +738,7 @@ export function ingestLensEvents(
           source: r.source,
           cursor: r.cursor,
           final: r.final,
+          truncated: r.truncated,
         };
         payload = p;
         break;

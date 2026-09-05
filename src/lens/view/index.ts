@@ -501,12 +501,21 @@ function movesetOps(
       // "there is nowhere for `]` to go" is a readable fact rather than a
       // suspicion (10 §4 O1).
       list.source,
-      list.retained
+      list.retained,
+      // WHERE THE RANKING STOPPED. A conditional list that the reserve cut
+      // short and a cluster with nothing else in it are the same table on
+      // screen unless the head says which one this is — the same distinction
+      // a typed refusal draws for a request nobody could serve (10 §4 O1).
+      list.truncated
     ),
   ];
 
   for (const row of rows) {
     const cell = depthCell(row, row.key === leader?.key ? loud : null);
+    // A ROW WITH NO PRICE DRAWS NO NUMBER. `conform` returns a plan; `0.0`
+    // beside it would be a reading nobody took, and `—` is what F7 reserved
+    // for a number that is genuinely not there.
+    const priced = row.unpriced !== true;
     // The rank trail — `#3 ▲was #1` — and the displaced badge on the row a
     // re-resolution had to fall to. Both decay after two emissions: a trail
     // that outlives the change it describes is furniture.
@@ -526,10 +535,12 @@ function movesetOps(
         // channels on one row with nothing saying which was which — and `est`
         // is the channel that never adjudicates. It keeps its own voice in the
         // `unless` cell, where `advisory-only` prices it and names it.
-        row.lo,
-        bracketWidth(row),
+        priced ? row.lo : null,
+        priced ? bracketWidth(row) : null,
         cell,
-        leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
+        leader === null || !priced || leader.unpriced === true
+          ? null
+          : Number((row.lo - leader.lo).toFixed(2)),
         // THE `unless` CELL. Drawn on every row, leader included, and never
         // omitted: a row with no clause and a row that leads on the proved
         // floor are two different states and only "always draw it" tells them
@@ -572,7 +583,13 @@ function movesetOps(
         : call(
             'panel.foil',
             foil.rank,
-            Number((selected.lo - foil.lo).toFixed(2)),
+            // A MARGIN BETWEEN TWO UNPRICED ROWS IS NOT A NUMBER. The
+            // conditional ranking's rows are assignments, so the line names
+            // the runner-up and why it lost and draws `—` where a margin
+            // would be, rather than a difference of two zeros.
+            selected.unpriced === true || foil.unpriced === true
+              ? null
+              : Number((selected.lo - foil.lo).toFixed(2)),
             whyItLost(selected, foil),
             depthCell(foil).label
           )
@@ -590,7 +607,12 @@ function movesetOps(
  */
 function noFoilReason(list: MovesetList): string {
   if (list.source === 'conditional') {
-    return 'no runner-up — the conditional list has one row';
+    // The conditional list's own shortness has a cause and the head already
+    // knows it; the foil line is where it matters, because the foil is the
+    // thing the operator lost by it.
+    return list.truncated === null
+      ? 'no runner-up — the conditional list has one row'
+      : `no runner-up — ${list.truncated.detail}`;
   }
   return list.retained <= 1
     ? 'no runner-up — the reservoir retained one row for this cluster'

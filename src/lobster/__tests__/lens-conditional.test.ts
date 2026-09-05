@@ -28,7 +28,12 @@ import {
   type BoardSpec,
 } from '../bounds/testkit';
 import { planPartsOf, promotedContextKey, rankConditional } from '../../lens/kernel';
-import { LENS_INSPECTION_MS, type MovesetMove, type UnitKey } from '../../lens/types';
+import {
+  LENS_INSPECTION_MS,
+  LENS_TOPK,
+  type MovesetMove,
+  type UnitKey,
+} from '../../lens/types';
 
 const OURS = 0;
 const THEIRS = 1;
@@ -135,6 +140,177 @@ describe('the head is conform, never improve (Law B, 04 §3 O4)', () => {
           }
         }
       }
+    } finally {
+      base.close();
+    }
+  });
+
+  /**
+   * THE RANKING, ROW BY ROW — O1's other half.
+   *
+   * The head has always been `conform(ctx ⊕ lock)`. What the function never
+   * did was RANK THE REST: it computed one row and padded the table with
+   * whatever the reservoir had already retained that happened to play the
+   * lock, which is usually the head itself — so the panel drew a list of one
+   * and `[` / `]` had nowhere to go (10 §4 O1).
+   *
+   * Every row is now another conform, so the claim this file exists to prove
+   * extends to all of them: a row IS what a lock on that assignment would
+   * stage. The check locks the row's own moves — which is exactly the gesture
+   * §1.4's `[Space]` makes on a selected row — and asserts the search stages
+   * that row back, unchanged.
+   */
+  it('ranks the rest of the cluster, and EVERY row is what a lock on it would stage', () => {
+    const base = harness();
+    const search = makeSearchCore();
+    let ranked = 0;
+    try {
+      for (const unitId of base.sub.commandable(OURS)) {
+        for (const candidate of candidatesOf(base, unitId)) {
+          const answer = rankConditional({
+            ctx: base.ctx,
+            search,
+            cluster: unitId,
+            generation: 0,
+            locks: [{ unit: wireIdOf(unitId) as UnitKey, to: candidate.to }],
+            reserveMs: LENS_INSPECTION_MS,
+          });
+          expect(answer.ok).toBe(true);
+          if (!answer.ok) return;
+          expect(answer.rows.length).toBeLessThanOrEqual(LENS_TOPK);
+          for (const row of answer.rows) {
+            // A LOCK ON THIS ROW. The pins are the row's own moves, which is
+            // the determination `[Space]` issues over a selected row, and the
+            // staged plan must be the row back again.
+            const pins: PinSet = canonicalPins(
+              row.moves.map((m) => ({
+                unitId: base.ctx.sub.unitIdOf(m.unit) as UnitId,
+                to: m.to,
+                tentative: false,
+              }))
+            );
+            const staged = search.conform({ ...base.ctx, pins }, base.wirePlan);
+            const inCluster = new Set(row.moves.map((m) => m.unit));
+            expect(movesOf(staged).filter((m) => inCluster.has(m.unit))).toEqual(row.moves);
+            // And every row plays the lock the operator is asking about.
+            const locked = row.moves.find((m) => m.unit === (wireIdOf(unitId) as UnitKey));
+            expect(locked?.to).toBe(candidate.to);
+          }
+          // Ranks are 1..n, in order, with no gaps and no two rows for one
+          // assignment.
+          expect(answer.rows.map((r) => r.rank)).toEqual(answer.rows.map((_, i) => i + 1));
+          expect(new Set(answer.rows.map((r) => r.key)).size).toBe(answer.rows.length);
+          if (answer.rows.length > 1) ranked++;
+        }
+      }
+      // The falsifier: a fixture where the ranking is vacuous proves nothing.
+      // This is the list of one, as a failing case.
+      expect(ranked).toBeGreaterThan(0);
+    } finally {
+      base.close();
+    }
+  });
+
+  it('leaves the pinned units out of the ranking — the rest of the cluster only', () => {
+    const base = harnessFor(PAIR);
+    const search = makeSearchCore();
+    try {
+      const [first, second] = base.sub.commandable(OURS) as [UnitId, UnitId];
+      const to = candidatesOf(base, first)[0]?.to as number;
+      const answer = rankConditional({
+        ctx: base.ctx,
+        search,
+        cluster: first,
+        generation: 0,
+        locks: [{ unit: wireIdOf(first) as UnitKey, to }],
+        reserveMs: LENS_INSPECTION_MS,
+      });
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      // The locked unit is a CONSTANT of the cluster after the lock, so it is
+      // what varies across NO row; the free member is what the ranking is a
+      // ranking of.
+      const locked = wireIdOf(first) as UnitKey;
+      const free = wireIdOf(second) as UnitKey;
+      for (const row of answer.rows) {
+        expect(row.moves.find((m) => m.unit === locked)?.to).toBe(to);
+      }
+      const destinations = new Set(
+        answer.rows.map((r) => r.moves.find((m) => m.unit === free)?.to)
+      );
+      expect(destinations.size).toBe(answer.rows.length);
+    } finally {
+      base.close();
+    }
+  });
+
+  it('stops at the row cap and says so — a full list is not a refusal', () => {
+    const base = harness();
+    const search = makeSearchCore();
+    try {
+      const [first] = base.sub.commandable(OURS) as [UnitId];
+      const answer = rankConditional({
+        ctx: base.ctx,
+        search,
+        cluster: first,
+        generation: 0,
+        locks: [{ unit: wireIdOf(first) as UnitKey, to: candidatesOf(base, first)[0]?.to as number }],
+        reserveMs: LENS_INSPECTION_MS,
+      });
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      expect(answer.rows).toHaveLength(LENS_TOPK);
+      expect(answer.truncated?.why).toBe('row-cap');
+      expect(answer.truncated?.notRanked).toBeGreaterThan(0);
+      // A cap is not a refusal and must not be reported as one: the reserve
+      // still had room and nothing was taken from the operator.
+      expect(answer.truncated?.detail).toContain('a list holds');
+    } finally {
+      base.close();
+    }
+  });
+
+  /**
+   * THE RESERVE IS THE LIMIT, AND THE ROWS IT DID NOT REACH ARE NAMED.
+   *
+   * The clock here jumps a whole reserve on its first reading, which is the
+   * shape of the real case: on `mixed` the head's own conform prices the
+   * repair — 20 evaluator calls, `LENS_INSPECTION_MS` exactly — so the
+   * ranking begins with the reserve already spent. What it must NOT do is
+   * fall silently back to a list of one: the rows it never reached are a
+   * typed refusal the panel names, on the same channel the rows arrive on.
+   */
+  it('stops at the reserve and names the rows it never reached', () => {
+    const base = harness();
+    const search = makeSearchCore();
+    try {
+      const [first] = base.sub.commandable(OURS) as [UnitId];
+      const lock = { unit: wireIdOf(first) as UnitKey, to: candidatesOf(base, first)[0]?.to as number };
+      let reading = 0;
+      const answer = rankConditional({
+        ctx: base.ctx,
+        search,
+        cluster: first,
+        generation: 0,
+        locks: [lock],
+        reserveMs: LENS_INSPECTION_MS,
+        // Spent before the first row of the ranking is even considered.
+        now: () => (reading += 1_000),
+      });
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      expect(answer.truncated?.why).toBe('reserve-spent');
+      expect(answer.truncated?.notRanked).toBeGreaterThan(0);
+      expect(answer.truncated?.detail).toContain('reserve is spent');
+      // The HEAD is still answered: an inspection that cannot rank the rest
+      // still answers the question it was asked.
+      const staged = movesOf(
+        search.conform(
+          { ...base.ctx, pins: canonicalPins([{ unitId: first, to: lock.to, tentative: false }]) },
+          base.wirePlan
+        )
+      );
+      expect(answer.rows[0]?.moves).toEqual(staged);
     } finally {
       base.close();
     }

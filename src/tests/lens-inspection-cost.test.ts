@@ -393,6 +393,47 @@ describe('G-L2 — inspection cost is bounded with the server side attached', ()
     expect(served.length + refused.length).toBe(watched.replies.length);
   });
 
+  /**
+   * 10 §4 O1, AT THE WIRE. The conditional list was a LIST OF ONE: the kernel
+   * computed the head and padded the table from the reservoir's retained rows
+   * restricted to the ones that already play the lock, which is usually the
+   * head itself. The falsifier is here rather than only at the kernel because
+   * a ranking that does not survive `JSON.stringify` is a ranking no operator
+   * ever sees.
+   */
+  it('serves a RANKED list — more than one row, every row playing the lock', () => {
+    const served = watched.replies.filter((r) => r.ok === true) as unknown as ReadonlyArray<{
+      rows: ReadonlyArray<{ moves: ReadonlyArray<{ unit: string; to: number }> }>;
+      locks: ReadonlyArray<{ unit: string; to: number }>;
+    }>;
+    expect(served.length).toBeGreaterThan(0);
+    let ranked = 0;
+    for (const answer of served) {
+      const lock = answer.locks[0];
+      expect(lock).toBeDefined();
+      for (const row of answer.rows) {
+        const played = row.moves.find((m) => m.unit === lock?.unit);
+        // A row that did not play the lock would be an answer to a question
+        // nobody asked.
+        if (played !== undefined) expect(played.to).toBe(lock?.to);
+      }
+      if (answer.rows.length > 1) ranked++;
+    }
+    expect(ranked).toBeGreaterThan(0);
+  });
+
+  it('names the rows the ranking never reached, or nothing at all', () => {
+    const served = watched.replies.filter((r) => r.ok === true) as unknown as ReadonlyArray<{
+      truncated: { why: string; notRanked: number; detail: string } | null;
+    }>;
+    for (const answer of served) {
+      if (answer.truncated === null) continue;
+      expect(['reserve-spent', 'row-cap']).toContain(answer.truncated.why);
+      expect(answer.truncated.notRanked).toBeGreaterThan(0);
+      expect(answer.truncated.detail.length).toBeGreaterThan(0);
+    }
+  });
+
   it('returns every over-reserve request as a TYPED refusal envelope', () => {
     const refused = watched.replies.filter((r) => r.ok === false);
     for (const reply of refused) {

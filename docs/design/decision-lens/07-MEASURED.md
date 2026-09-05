@@ -168,3 +168,57 @@ document.
    write rather than truncating the axis that replays. The column is
    `double precision`; `at_wall`, which is a wall-clock reading and genuinely a
    whole millisecond, is rounded at the sink instead.
+
+---
+
+## 5. What one inspection costs, and what the ranking on top of it costs
+
+Added on `lens-4`, with the fix for 10 §4 O1. §1's table is a BOT-ONLY run —
+`conditional frames: 0`, and nothing here changes that — so the cost of an
+inspection was never in it. It is here now, because O1's cause turned out to be
+a cost question and the answer decides what the panel can draw.
+
+**How to reproduce it.** `mixed`, seed 1, turn 1, 550 nodes, under the node
+clock (`nodes × 1 + reads × 0.01`), with an operator that asks for a
+conditional on the cluster at every emission — which is what
+`src/tests/lens-walkthrough-server.ts` scripts and what
+`src/lobster/__tests__/lens-reserve.test.ts` and
+`src/tests/lens-inspection-cost.test.ts` gate.
+
+| | `mixed` (cluster of 3) | `snakes` (singleton cluster) |
+|---|---|---|
+| the reserve, `LENS_INSPECTION_MS` | 20 | 20 |
+| **the head** — `conform(ctx ⊕ lock, wirePlan)` | **20.59** work units · **20 evaluator calls** | 1.02 · 1 evaluator call |
+| **the ranking** — every other row, `conform(ctx ⊕ lock ⊕ v↦c)` | **0.09** work units · **0 evaluator calls** (4 rows) | 0.01 · 0 calls (0 rows) |
+| the served answer | 20.69 of a 20 reserve · **5 rows** | 1.05 · 1 row |
+| asks after it | refused `reserve-spent` (2 of 3 emissions) | served — the reserve still has room |
+
+Three readings, and each one settles something:
+
+**THE FIRST CONFORM UNDER A PIN PRICES THE REPAIR; EVERY ONE AFTER IT IS
+MEMO-SERVED.** 20 evaluator calls, then zero: the bank's memo holds the
+resolutions the first one established, so a second conform under a different
+pin costs two clock reads. That is why (a) filtering the retained rows was
+never the cheap option it looked like and (b) ranking the rest of the cluster
+is nearly free once the operator's own question has been answered.
+
+**THE RESERVE IS SIZED AT ONE CONFORM, AND ON `mixed` IT IS SPENT BY ONE.**
+20.59 against 20 — 03 §3.1 sized `LENS_INSPECTION_MS` at *"one `price()` — ~18
+ms at 26 units — plus slack"*, and that is exactly what it buys. A ranking
+bounded by what the reserve has LEFT is therefore a ranking that never runs,
+which is O1's cause: the panel drew the head and nothing else. `LENS_RANK_MS`
+is the declared floor the ranking gets on top of it — 1 work unit, 5% of the
+reserve, and by the row above it cannot buy a `price()` on any board this bot
+plays. The whole cost of the table an operator reads is `20.69`, and the
+SEARCH DEADLINE IS NOT MOVED: the carve is `LENS_INSPECTION_MS` and nothing
+else, which is gate 7(i) and still passes unchanged.
+
+**A LIST OF ONE IS STILL REACHABLE, AND ON `snakes` IT IS THE TRUTH.** A
+singleton cluster with its one unit locked has nothing left to vary, so the
+ranking has no rows to add and says nothing — no truncation, no refusal, one
+row. That is the honest list of one, and it is now distinguishable from the
+one O1 was about.
+
+**§3.3 #6 is still open and this does not close it.** These are a scripted
+operator's asks, not a human's; `promote` hits still need the first recorded
+session with real pins in it.

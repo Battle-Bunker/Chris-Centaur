@@ -192,6 +192,7 @@ describe('an ask with no running kernel is a typed refusal, never silence', () =
         degraded: false,
         contextKey: 'spec:[A-A@20]',
         final: false,
+        truncated: null,
       }),
       explainMoveset: async () => ({ ok: false, refusal: 'reserve-spent', detail: 'spent' }),
       reserve: { budgetMs: 20, spentMs: 0, queued: 0 },

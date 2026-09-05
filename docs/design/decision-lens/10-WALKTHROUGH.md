@@ -7,8 +7,10 @@ the shipped kernel, delivered over the shipped socket, rendered by the shipped
 `02-INSPECTION-UI.md` §1.3 names. Every screenshot under `walkthrough/` is a
 frame of that session; every verdict below is about what is in the picture.
 
-Written on `lens-walk`, from `a417e05`. The design is `02-INSPECTION-UI.md`,
-the numbers are `07-MEASURED.md`, the two audits are `09-AUDIT.md`.
+Written on `lens-walk`, from `a417e05`; §4's items were closed on `lens-3` and
+`lens-4`, and every picture and quotation below is from the `lens-4` re-run.
+The design is `02-INSPECTION-UI.md`, the numbers are `07-MEASURED.md` (§5 is
+what one inspection costs), the two audits are `09-AUDIT.md`.
 
 ---
 
@@ -40,15 +42,17 @@ property the walk must see rather than one it may paper over. `/api/logs` is
 encoded with `lensStringify`, as `turn_events.payload` is.
 
 A **synthetic operator** is scripted on emission count, not on the clock: it
-opens a conditional list on the cluster at every emission, drills the leader
-once (so the turn's log holds a breakdown), pins its first unit onto whatever
-the bot has just staged for it at emission 2, and releases that pin at emission
-4 — which is the owner's headline reactive case, arriving while a browser is
-looking at it.
+opens a conditional list on the cluster at every emission — the reserve answers
+the first and refuses the rest, which is the shape of the real thing (07 §5) —
+drills the leader once (so the turn's log holds a breakdown), pins its first
+unit onto whatever the bot has just staged for it at emission 2, and releases
+that pin at emission 4 — which is the owner's headline reactive case, arriving
+while a browser is looking at it.
 
 **`scripts/lens-walkthrough.js`** — the Chromium driver. It enters as an
 operator through the real login gate, plays turns with `POST /dev/step`, walks
-the states, and writes `walkthrough/report.json` beside the PNGs: console
+the states — including T3's click on the one candidate the reserve answered a
+conditional for, which is the only candidate that HAS a ranked list (§1.3b) — and writes `walkthrough/report.json` beside the PNGs: console
 errors, failed requests, page exceptions, horizontal overflow, and the rail's
 own text at every stop, because a screenshot cannot show a console and a
 verdict needs the words as well as the pixels.
@@ -118,11 +122,52 @@ is never empty for a focused unit. §3.3 chips, tethers, wash. §3.4's draw
 order. §3.7's `scored as best-of-α` and never a bare number.
 
 **Verdict.** Correct on every clause. The grades are drawn, the header says
-what the list is (09 §B7), and only disagreement draws.
+what the list is (09 §B7), and only disagreement draws. The list itself is the
+A2 fallback here — the incumbent is not the candidate the reserve answered a
+conditional for, and the head says so — which is §1.3b's subject.
+
+### 1.3b `CANDIDATE` → the conditional ranking — T3 · `03d-conditional.png`
+
+**See.** A click on the candidate cell `108`. The cursor moves to it, and the
+MOVESETS panel becomes the thing the whole lens is for:
+
+```
+MOVESETS · cluster 0 · 2 of 2 free · seq 29
+conditional list — the rows a lock here would stage · 5 retained for the
+cluster · 2 more assignments of the rest of the cluster are not drawn: a list
+holds 5
+▸1  —  h1 · Q=0/33  —  leads on the proved floor            red-A→108 · red-C→118  staged
+ 2  —  h1 ·         —  unsealed — the barrier has not run   red-A→108 · red-C→122
+ 3  —  h1 ·         —  unsealed — the barrier has not run   red-A→108 · red-C→133
+ 4  —  h1 ·         —  unsealed — the barrier has not run   red-A→108 · red-C→144
+ 5  —  h1 ·         —  unsealed — the barrier has not run   red-A→108 · red-C→108
+foil #2 · #2 unsealed — the barrier has not run · at h1
+```
+
+**Design.** T3 — *"click a candidate cell"* — as a cursor source; 03 §3's
+*"the cluster's best movesets conditional on that move … the same ranking that
+would immediately select the actual next staged moveset if that candidate were
+locked"*; Law A on every column of it.
+
+**Verdict.** Correct, and this is §4 O1's cause arriving on screen. Every row
+is a `conform` under the lock plus one member's candidate, so every row IS what
+a lock on that assignment would stage — rank 1 under the lock alone, ranks 2–5
+over the rest of the cluster with `red-A` held at `108` in all of them. The
+numeric columns read `—` rather than `0.0` because `conform` returns a plan and
+not a price, and the foil line names the runner-up without a margin for the
+same reason: a margin between two unpriced rows is a difference of two numbers
+that do not exist.
+
+**Why the walk has to click.** The reserve answers ONE conditional per decision
+(07 §5), so exactly one of a focused unit's candidates has a ranked list behind
+it and the rest say, in the head, that nobody asked. A walk that only ever
+lands on the incumbent photographs the fallback every time; this clicks the
+candidate the log says was answered, which is also the first PNG the click path
+has ever had (§4, O5 closed it with a test).
 
 ### 1.4 Hover a moveset row · `04-hover-moveset.png`
 
-**See.** Byte-identical to `03b-rail.png` (`md5` equal).
+**See.** Byte-identical to `03d-conditional.png` (`md5` equal).
 
 **Design.** T6's hover is not in the transition table at all; T4's rule
 generalises — hover never commits the cursor.
@@ -133,32 +178,32 @@ look until something is pressed. What they lacked when this walk first ran was
 a way to say WHICH row was pressed, so a click did nothing either, against T3
 and T6 both listing "click a candidate cell" / "click a row" as sources. The
 markup now names the target (`data-lens-candidate`, `data-lens-moveset`) and
-`#lensRail` binds it; the walk still drives the cursor from the keyboard, so
-the evidence is the markup and its gate rather than a shot. Closed (§4, O5).
+`#lensRail` binds it; when this was written the walk still drove the cursor
+from the keyboard, so the evidence was the markup and its gate rather than a
+shot. Closed (§4, O5), and §1.3b is now the shot: the walk clicks a candidate
+cell, and the conditional ranking is what it clicks for.
 
 ### 1.5 Walking the list — `]` · `05-moveset-next.png`, `05b-board.png`
 
-**See.** Byte-identical to `03b-rail.png` again.
+**See.** The cursor on rank 2 — `▸2 · red-A→108 · red-C→122` — and the board
+redrawn: the locked unit's arrow is where it was and `red-C`'s is not.
 
 **Design.** T6 — the cursor moves to the next moveset, the board lights up the
 members that would move differently.
 
-**Verdict.** **Not a defect, and the most important finding of the walk.** The
-conditional list has exactly **one row** — `▸4 -51.6 ⌈93.0⌉` — so `]` has
-nowhere to go. This is `rowsFor`'s A2 fallback doing what it was written to do:
-`07-MEASURED.md` §1 records **0 conditional frames in 180 bot-only decisions**,
-so the list is the cluster's retained reservoir rows restricted to those that
-assign this candidate to this unit, and on this build that is usually one row.
-The MOVESETS panel is therefore a *list of one* in every live state this walk
-reached. Nothing is wrong with the code; the operator's experience of "the
-panel that is the whole point of the lens" is one row and two inert keys, and
-that is a fact about the reservoir, not about the UI.
+**Verdict.** Correct, and this is the sentence that changed most since this
+walk was first written. **`]` used to have nowhere to go.** The conditional
+list had exactly one row — the head — and the panel that is the whole point of
+the lens was a *list of one* with two inert keys in every live state the walk
+reached. That was recorded here as *"not a defect"*, on the reading that it was
+a fact about the reservoir; it was a defect, and it was in
+`kernel.ts::rankConditional`, which computed the head and then padded the table
+from the reservoir's retained rows restricted to the ones that already play the
+lock — usually the head itself. It never ranked the rest of the cluster at all
+(§4, O1).
 
-What WAS wrong with the UI is that it said none of this. The head now names
-which of the two lists it is drawing and how many rows the reservoir retained
-before the restriction, so the shortness is a fact the operator can check
-rather than a table that looks broken (§4, O1). The reservoir itself is
-unchanged and the cause is still upstream, in the kernel.
+The list is a ranking now, `[` and `]` walk it, and `05b-board.png` differs
+from `03c-board.png` for the first time: a second row means a second picture.
 
 ### 1.6 The breakdown drill — `B` · `06-breakdown.png`, `06b-breakdown-panel.png`, `16b-widen-accepted.png`
 
@@ -186,42 +231,54 @@ running decision the port answers a typed refusal.
 
 ### 1.7 The `unless` cell and the depth ink · `07-movesets-panel.png`
 
-**See.** A head that says which list this is —
-`MOVESETS · cluster 0 · 2 of 2 free · seq 30`, then *"no conditional was
-answered — 1 of 5 retained rows play this candidate, so `[` and `]` have
-nowhere to go"* — the legend `⌈w⌉ bracket width · h<n> horizon proved at ·
-Q loud replies · unless what this row is betting on`, one row
-`▸4 · -51.6 ⌈93.0⌉ · h1 · Q=0/33 · — · the evaluator residue, blue-A resolve
-against us · 82.9 at stake · red-A→94 · red-C→118`, and under it the foil line
-*"no runner-up — only 1 of 5 retained rows plays this candidate"*.
+**See.** A head that says which list this is and where it stopped —
+`MOVESETS · cluster 0 · 2 of 2 free · seq 29`, then *"conditional list — the
+rows a lock here would stage · 5 retained for the cluster · 2 more assignments
+of the rest of the cluster are not drawn: a list holds 5"* — the legend
+`⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this
+row is betting on`, five rows, and under them the foil line.
 
 **Design.** §3.4/§2 of `08-DEPTH-VERDICT`: the absence of depth is drawn, never
 omitted, and drawn *with its reason* (09 §C1's `Q`); the threat/opportunity map
-is one clause per row (09 §B3).
+is one clause per row (09 §B3). Law A on every number.
 
-**Verdict.** Correct. `h1` is honest on a build where no row deepens, `Q=0/33`
-is the loud reading on the leader's own plan, and the `unless` clause names the
-units the row is betting on and prices the bet. The assignment cell used to
-break inside a unit id at 380 px — `red-` / `A→94` — and no longer does (§3,
-F6). The head and the foil line were both added after this walk first ran, when
-a table of one row under a head that said only `MOVESETS` turned out to be the
-panel's worst reading: §4, O1 and O3.
+**Verdict.** Correct, on a table whose columns now say what they know and no
+more. `h1` is honest on a build where no row deepens and `Q=0/33` is the loud
+reading on the leader's own plan. The aggregate, the bracket and the Δ read
+`—` on every row, because a conditional row is an ASSIGNMENT: `conform` returns
+a plan, not a price, and `0.0 ⌈0.0⌉` beside it — which is what the head used to
+draw — is a reading nobody took. The `unless` cell distinguishes the two kinds
+of row it now has: `leads on the proved floor` on the one a lock would stage,
+`unsealed — the barrier has not run` on the four that were conformed and never
+put through `better()`. Where the ranking stops, the head says which stop it
+was: a full list is not a refusal, and the reserve running out is drawn as one
+(§4, O1).
+
+The assignment cell used to break inside a unit id at 380 px — `red-` / `A→94`
+— and no longer does (§3, F6); at five rows it still wraps between entries and
+never inside one.
 
 ### 1.8 The contrastive foil — `F` · `08-foil.png`, `08b-foil-board.png`
 
-**See.** Byte-identical to `03b-rail.png`. No teal arrow, and where a
-`foil #n · margin …` line would go, its absence with the reason for it:
-*"no runner-up — only 1 of 5 retained rows plays this candidate"*.
+**See.** `foil #2 · #2 unsealed — the barrier has not run · at h1`, and the
+board with the foil drawn on it — `08b-foil-board.png` is no longer the same
+picture as `03c-board.png`.
 
 **Design.** §3.5 — *"Panel side: **always visible** as one line under the
 moveset table."*
 
-**Verdict.** Correct now; it was not when this walk first ran. The line was
-drawn only where a rank 2 existed, and §1.5's list of one has no rank 2 — so
-the *"highest-value cheap signal on the surface"* was absent in the ordinary
-case and its absence was silent, which reads as "there is nothing to compare"
-rather than "the list came up short". The absence is now drawn with its cause,
-the same move the depth cell makes with `Q=0/33`. Closed (§4, O3).
+**Verdict.** Correct, and there is finally something to compare. When this walk
+first ran the line was drawn only where a rank 2 existed and §1.5's list of one
+had none, so the *"highest-value cheap signal on the surface"* was absent in
+the ordinary case and its absence was silent; O3 made the absence say why. O1
+then removed the absence: the list has a rank 2, so the line names it and the
+board draws it.
+
+**No margin, and that is the point.** Both rows are assignments with no price,
+so the line carries the runner-up's rank and why it lost and draws NO number.
+`margin 0.0` — the difference of two zeros neither of which is a reading —
+would be the exact lie §3.5 exists to prevent, and it is what the line printed
+on the first run of this list.
 
 ### 1.9 The timeline lane · `09-lane.png`, `10-lane-expanded.png`
 
@@ -263,38 +320,60 @@ the kernel rather than through `setIntent`; that is the harness, not the page.
 
 **See.** `Home` puts the playhead on the anchor: badge `⏸ SCRUBBED · seq 0 ·
 read-only`, rail `nothing staged yet — no kernel emission yet at seq 0`, board
-ink desaturated. `Shift+.` twice lands on `seq 8`: `CANDIDATES · 1` and
-`nothing retained for red-A at this candidate — 2 emissions by seq 8 and no
-priced restriction plays it`.
+ink desaturated. `Shift+.` twice lands on `seq 10`: `CANDIDATES · 1`, the one
+candidate this frame priced, and the conditional list under it — the answer was
+recorded at `seq 4`, so it is in the fold at every `seq` after it and a scrub
+does not lose it.
 
 **Design.** §2.2's third mode, loud; 09 §A3's four distinguishable
 emptinesses.
 
-**Verdict.** Correct, and the empty states are telling three of the four causes
-apart in one session (no emission yet; nothing retained; a unit that is a
-constant, §1.11). Determinations re-label to `[N] return to now and lock`.
+**Verdict.** Correct. The anchor's emptiness is still drawn with its cause, and
+the second stop is no longer one: it used to read *"nothing retained for red-A
+at this candidate"* because the cursor was on the head's incumbent, which this
+early frame had not priced, and the conditional was for a candidate nobody had
+clicked. Since §1.3b the cursor is on the answered candidate and the rows
+travel with the scrub. Determinations re-label to `[N] return to now and lock`.
 
 ### 1.11 `pinned` — Rule E, drawn · `13-pinned.png`, `13b-pinned-board.png`
 
-**See.** Scrubbed to the partition frame the pin produced:
+**See.** Scrubbed to the operator tick — `seq 10`, one step after the pin was
+written and three before the partition that acts on it:
 
 ```
-A snake · hp 98 · wt 3                       cluster 1(1)
-pinned · a constant of cluster 1 — not a member
-CANDIDATES · 3 · priced here · scored as best-of-cluster
-red-A is pinned — it is a constant of cluster 1, not a variable the bot is solving
+A snake · hp 98 · wt 3                       cluster 0(2)
+pinned · 2 of 2 free
+CANDIDATES · 1 · priced here · scored as best-of-cluster
+▸ 108  -41.6~  incumbent
+MOVESETS · cluster 0 · 2 of 2 free · seq 10
+conditional list — the rows a lock here would stage · 1 retained for the cluster
+▸1 … red-A→108 · red-C→118  staged      2 … red-C→122      3 … red-C→133   …
+locked by an operator at +149.28ms → [jump]
 ```
 
-On the board the pinned unit's chip has gone **grey**; the remaining members
-keep their violet cluster chips, and no tether reaches the pinned unit.
+On the board the pinned unit keeps the operator's colour and the remaining
+member keeps its violet cluster chip.
 
 **Design.** Rule E — *"if the panel shows a unit as a member, the bot is still
 choosing its move, full stop"*; §1.3's UNIT-terminal state showing the fixity
 reason instead of a moveset list; 09 §B6.
 
-**Verdict.** Correct after one fix: the sub-line read `free · pin · a constant,
-not a member` — a unit simultaneously a free variable and a constant — and the
-empty state read `red-A is pin`. Both fixed (§3, F9).
+**Verdict.** Correct, and the two halves of Rule E are on two different frames
+because the kernel puts them there. At `seq 10` the pin is a RECORDED FACT and
+the partition has not recomputed yet, so the panel says `pinned` on the focus
+line and still draws the cluster the kernel last stated — which is F9's rule
+(*"the partition wins, because it is the statement the kernel actually made"*)
+running in the direction that keeps a list on screen. Rule E's own drawing —
+`a constant of cluster 1, not a variable the bot is solving`, with the grey
+chip and no tether — is at `16-widen-banner.png`, on a frame whose partition
+HAS caught up.
+
+What is new here is the table: the conditional the operator asked for at
+`seq 4` is in the fold at `seq 10`, so the pinned frame carries the ranking a
+lock on this candidate would stage rather than the empty state it used to draw
+(§4, O1). The sub-line read `free · pin · a constant, not a member` — a unit
+simultaneously a free variable and a constant — and the empty state read
+`red-A is pin`; both fixed earlier (§3, F9).
 
 ### 1.12 The widen — a peer releases a pin · `14-released-widen.png`, `16-widen-banner.png`, `16b-widen-accepted.png`
 
@@ -361,9 +440,9 @@ Fixed (§3, F3).
 **See.** `/game/lens-walk-replay` loads the same recorded log through
 `/api/logs/games` → `/api/games/:id/turns` → `/api/logs`. Badge: `REPLAY ·
 seq 40 · read-only · observed · walkthrough/mixed`. Focusing a unit gives
-`A snake · hp 100 · wt 4`, the same candidates, the same single moveset row
-with the same aggregate, bracket, depth cell and `unless` clause, and the same
-breakdown including `joint -61.85…∞`. The turn slider scrubs back a turn and
+`A snake · hp 100 · wt 4`, the same candidates, the same five-row conditional
+ranking with the same depth cells, `unless` clauses and assignments in the same
+order, and the same breakdown including `joint -61.85…∞`. The turn slider scrubs back a turn and
 the rail re-renders from that turn's rows.
 
 **Design.** §2.4 — two sources, one reducer; Law C; 09 §A1.
@@ -402,26 +481,33 @@ socket at the live head, once from `/api/logs` through the replay fold — and
 diffs the two rails pixel for pixel in the browser that drew them.
 
 ```
-turn 4 · live seq 140 · replay seq 40
-346 × 539 px · 1,842 pixels differ · 0.988 % · all within rows 180–332
+turn 4 · live seq 120 · replay seq 40
+346 × 735 px · 1,834 pixels differ · 0.721 % · all within rows 180–528
 ```
 
-Everything the operator reads as a number is **identical**: the focus line, all
-three candidate rows with their grades, the aggregate, the bracket `⌈0.0⌉`, the
-depth cell `h1 · Q=0/33`, the Δ, the `unless` clause, the assignment, the list's
-own description of itself (*"conditional list — the rows a lock here would
-stage · 5 retained for the cluster"*), the foil line, all three breakdown
+Everything the operator reads is **identical**: the focus line, all three
+candidate rows with their grades, **all five rows of the conditional ranking**
+— rank, depth cell, `unless` clause and assignment, in the same order — the
+list's own description of itself (*"conditional list — the rows a lock here
+would stage · 5 retained for the cluster"*), the foil line, all three breakdown
 marginals with their reference actions and features, the joint residual
 `-61.85…∞`, and the provenance line `lobster-local · walkthrough/mixed ·
 eval:7f5b86c4 · e28 · 2q`.
 
-The 0.988 % is two lines, and both are content the operator is entitled to:
+That the ranking survives this is the part worth naming: the rows are computed
+inside a decision that is long over by the time the replay draws them, so what
+is being compared is a live `conform` against a recorded one — the same rows,
+off the log, with no kernel running. The rail is also 735 px rather than 539
+now, because four of those rows did not exist when this section was first
+written.
+
+The 0.721 % is two lines, and both are content the operator is entitled to:
 
 | | live | replay |
 |---|---|---|
-| MOVESETS head | `… · seq 140` | `… · seq 40` |
+| MOVESETS head | `… · seq 120` | `… · seq 40` |
 | affordance | `[Space] lock — pins 1 of 3` | `locked by Ada at +149.56ms → [jump]` |
-| badge | `LIVE · seq 140 · observed` | `REPLAY · seq 40 · read-only · observed` |
+| badge | `LIVE · seq 120 · observed` | `REPLAY · seq 40 · read-only · observed` |
 
 The `seq` difference is the harness, not the product: the replay page caches a
 finished turn's events on first fetch (correct — a settled turn's log is
@@ -464,38 +550,92 @@ change is a refusal predicate and a boolean that was asserted instead of asked.
 
 ## 4. Closed here, and what is left
 
-Eight items were open when this walk was first written. Seven are closed; one
-is closed on the surface with its cause still upstream, and says so. Every
-claim below cites the run that is in `walkthrough/` now, re-shot against
-`src/tests/lens-walkthrough-server.ts` after the last of these commits.
+Eight items were open when this walk was first written. Seven closed on the
+run before this one; the eighth — O1, the only one whose cause was ever in the
+kernel — closes here, at its cause. Every claim below cites the run that is in
+`walkthrough/` now, re-shot against `src/tests/lens-walkthrough-server.ts`
+after the last of these commits.
 
-**The lens still moves no decision.** Twenty-seven of the thirty-two PNGs
-changed and every one of them changed in the rail. The other five did not
-change at all: the four board-only shots — `03c-board.png`, `05b-board.png`,
-`08b-foil-board.png`, `19c-replay-board.png` — plus `06b-breakdown-panel.png`,
-are BYTE-IDENTICAL to the run that opened these items. That is the cheapest
-available statement that eight items' worth of work moved nothing but what an
-operator reads. No feature flags: there is one code path and the walk is on it.
+**The lens still moves no decision.** `local-game-determinism.test.ts` and the
+sink-attached play comparison in `lens-inspection-cost.test.ts` are the claim's
+real evidence and both are green; the pictures agree with them.
+`03c-board.png` — the board at the CANDIDATE state, on the same turn, at the
+same `seq` — is BYTE-IDENTICAL to the run before this one, as are
+`16-widen-banner.png`, `18-replay.png` and `19c-replay-board.png`. The board
+shots that DID change are the ones the cursor moves: `05b-board.png` and
+`08b-foil-board.png` are drawn for a row and a foil that did not exist before,
+and `13b-pinned-board.png` for a cursor that is on a different candidate. What
+the kernel decided is untouched: the ranking is `conform` under a hypothetical
+pin, computed off the search's own path and charged to the reserve.
 
-**O1 — the moveset list is a list of one. CLOSED on the surface; the CAUSE is
-upstream.** `view/cursor.ts::movesetListFor` now answers with the rows *and*
-their provenance — which of the two lists this is, and how many rows the
-reservoir retained for the cluster before the restriction — and
-`view/index.ts::movesetOps` puts it on the head. `07-movesets-panel.png` reads
-*"no conditional was answered — 1 of 5 retained rows play this candidate, so
-`[` and `]` have nowhere to go"*, so the shortness is a fact the operator can
-check rather than a table that looks broken — and where a conditional list WAS
-answered the same head says so instead (`21a`/`21b`: *"conditional list — the
-rows a lock here would stage · 5 retained for the cluster"*), which is the
-distinction the panel could not previously draw at all.
+**O1 — the moveset list is a list of one. CLOSED, at the cause.** The surface
+half closed on the previous run: the head names which of the two lists it is
+drawing. The cause was in the kernel, and it was not the reservoir.
 
-WHAT REMAINS is the reason the restricted list is what an operator actually
-gets, and it is not on this surface. This harness asks for a conditional from
-inside the decision, so the walk sees one; a BROWSER cannot, because off a
-running decision the port answers `off-head` and by the time a browser looks
-the decision is over. 07 §1's **0 conditional frames in 180 bot-only
-decisions** is unchanged and this walk did not try to change it.
-**Kernel-side:** `src/lobster/kernel.ts::rankConditional` and the reserve.
+**What it was.** `src/lens/kernel/conditional.ts::rankConditional` computed
+exactly ONE row — the head, `conform(ctx ⊕ lock, wirePlan)`, which is what a
+lock would stage — and then filled the rest of the table from the reservoir's
+retained rows RESTRICTED to the ones that already play the lock. That set is
+usually the head itself, so the table was `[head]` and `[` / `]` had nowhere to
+go. It never ranked the rest of the cluster at all: the function the design
+calls *"the cluster's best movesets conditional on that move"* was answering
+only the first word of it.
+
+**Instrumented, on the harness game** (`mixed`, seed 1, 550 nodes, an operator
+asking at every emission — 07 §5 has the table):
+
+```
+e1  retained=1  spent=20.69 of a 20 reserve  nodes=20  ok  rows=1
+e2  retained=3  spent=0                      nodes=0   refused: reserve-spent
+e3  retained=5  spent=0                      nodes=0   refused: reserve-spent
+```
+
+so BOTH candidate causes were live at once and they compound: the head is the
+only row anything computes, and the reserve is spent by the earliest and
+poorest ask, which refuses every later one when the reservoir has finally
+retained something. The first `conform` under a pin costs 20 evaluator calls —
+`LENS_INSPECTION_MS` exactly, which is what 03 §3.1 sized the reserve at — and
+every conform after it is served by the bank's memo for 0.02 work units and NO
+evaluator call.
+
+**The fix.** The ranking is real and it is incremental. For each free member of
+the cluster AFTER the lock — the locked unit and every committed pin have
+already left `members` for the `boundedBy` strip, which is the owner's *"for
+the rest of the cluster, with pinned units excluded"* — and each of its
+candidates in the generator's best-first order, another
+`conform(ctx ⊕ lock ⊕ v↦c, wirePlan)`, deduped by row key and capped at
+`LENS_TOPK`. Every row is therefore what a lock on THAT assignment would stage,
+not an approximation ranked beside one, and
+`src/lobster/__tests__/lens-conditional.test.ts` proves it row by row: it locks
+each row's own moves — the determination `[Space]` issues — and asserts the
+search stages the row back.
+
+The reserve stays the limit and the search deadline does not move: the ranking
+is bounded by what the reserve has left, with `LENS_RANK_MS` as the floor it is
+guaranteed on top of a reserve the operator's own question has already spent
+(1 work unit, which cannot buy a `price()` on any board this bot plays). Where
+it stops, it says which stop it was — `row-cap` is a full list and is not drawn
+as a refusal; `reserve-spent` is the typed refusal a request past the reserve
+would have got, carried on the frame under the list's own key so a REPLAYED
+table says the same thing about its own shortness.
+
+**The evidence.** `03d-conditional.png` (§1.3b) is a five-row ranked table with
+`red-A` held at `108` in every row; `05-moveset-next.png` is `]` arriving on
+rank 2, on a key that used to do nothing; `08-foil.png` has a runner-up to
+name; `13-pinned.png` and `12-scrub-emission.png` carry the same rows through a
+scrub; and `21a`/`21b` draw all five rows identically off the socket and off
+the log. The numbers on those rows are `—`, on purpose: `conform` returns a
+plan and not a price, and `0.0 ⌈0.0⌉` — what the head used to draw — is a
+reading nobody took.
+
+**WHAT REMAINS is not a defect and is worth keeping in view.** The reserve
+answers ONE conditional per decision, so one candidate of one unit has a ranked
+list and the rest say, in the head, that nobody asked; and this harness asks
+from inside the decision, which a BROWSER cannot — off a running decision the
+port answers `off-head`, and by the time a browser looks the decision is over.
+07 §1's **0 conditional frames in 180 bot-only decisions** is unchanged and
+this walk did not try to change it. What closed is the shape of the answer when
+there IS one.
 
 **O2 — `evalVersion` is never populated. CLOSED.** The field 02 §2.3 calls
 mandatory is on every shipped frame. The version is a property of the
@@ -537,9 +677,10 @@ target and the page binds it: `panel.movesets.row` carries the row's own key,
 `[data-lens-moveset]` to `lensSelectMoveset`, which is what T3 and T6 always
 said the rail did. Hover stays inert, per T4. Gated by
 `src/tests/lens-panel.test.ts` *"the rail names its click targets for T3 and
-T6"*, which also asserts the markup carries no `onmouse` / `onclick` / `:hover`
-— the walk itself still drives the cursor from the keyboard, so the click path's
-evidence is that test and the markup rather than a PNG.
+T6"*, which also asserts the markup carries no `onmouse` / `onclick` / `:hover`.
+The click path has a PNG now as well: `03d-conditional.png` is T3 pressed on a
+candidate cell, and it is there because O1's ranked table is only reachable
+that way (§1.3b).
 
 **O6 — no `pin` / `unpin` turn event exists anywhere. CLOSED.** The manager now
 implements `LensDecisionPort.command`: it resolves the unit, attributes the row
@@ -616,8 +757,11 @@ Across the whole session, on both pages:
   between entries after F6.
 * **Unreadable:** the lane's names before F5; the assignment column before F6;
   `—` where `∞` was meant before F7. All fixed. Still cramped rather than
-  unreadable: the MOVESETS table carries six columns in 380 px, and the
-  `unless` clause — a sentence — takes three or four lines of the row.
+  unreadable, and more so now that the conditional table is five rows deep: it
+  carries six columns in 380 px and the `unless` clause — a sentence — takes
+  three or four lines of every row, so the rail is 735 px tall where it was
+  539. It scrolls in one region and nothing overflows sideways, but a table
+  this shape is the next thing 02 §3.7 will have to answer for.
 
 ---
 
@@ -638,8 +782,17 @@ were invisible to a test suite that folds arrays and compares transcripts,
 because both live in the half-inch between the fold and the browser — one
 boolean on a socket envelope, and one function the rail does not call. That is
 the argument for keeping `src/tests/lens-walkthrough-server.ts` and running
-this walk again after anything in `src/lens/**`, `src/web/**` or
-`websocket-server.ts` moves.
+this walk again after anything in `src/lens/**`, `src/web/**`,
+`websocket-server.ts` or the kernel's lens sites moves.
+
+And the panel that is the whole point of the lens was a LIST OF ONE until
+`lens-4`, because `rankConditional` computed the head and ranked nothing after
+it, and the reserve — sized at exactly one `conform` — refused every ask after
+the first. Neither half was visible to a suite that folds arrays and compares
+transcripts: the first needed a cluster of more than one on a real board, the
+second needed the clock, and both needed somebody looking at the panel asking
+why `]` did nothing. §1.5 recorded that as *"not a defect"* on the first
+reading of it. It was the defect.
 
 Re-running it to close §4 made the same argument a second time. Two of the
 eight items were reported closed by a green suite and were not closed on

@@ -37,8 +37,10 @@ import type {
   MovesetMove,
   Posture,
   RankConditionalResult,
+  RankTruncation,
   UnitKey,
 } from '../types';
+import { LENS_RANK_MS, LENS_TOPK } from '../types';
 import { partitionOf, type FixedUnit } from './partition';
 import { unitKeyOf } from './keys';
 
@@ -63,6 +65,11 @@ export interface RankConditionalInput {
   /** Slices this context has spent. The answer's identity: two calls at the
    *  same cursor return byte-identical rows. */
   readonly cursor?: number;
+  /** The KERNEL'S OWN CLOCK, so the ranking below is bounded by what it
+   *  actually spends rather than by an assumption about what a row costs.
+   *  Absent ⇒ the ranking is bounded by the row cap alone, which is what a
+   *  pure test wants and what a caller with no clock can honestly offer. */
+  readonly now?: () => number;
 }
 
 /**
@@ -275,30 +282,155 @@ export function rankConditional(req: RankConditionalInput): RankConditionalResul
       degraded: false,
       contextKey,
       final: false,
+      truncated: null,
     };
   }
 
   // PHASE 2 — the head, exactly as a lock would stage it.
   const pinned: SearchContext = { ...ctx, pins: pinsFor(ctx, locks) };
+  const openedAt = req.now?.() ?? 0;
   const wirePlan = req.wirePlan ?? search.conform(ctx, new Map());
   const staged = search.conform(pinned, wirePlan);
-  const head: Moveset = {
+  const head = rowOf(staged, ctx, memberIds, view, clusterAfter, basis, assumptions, 1, true);
+
+  // PHASE 3 — THE REST OF THE CLUSTER, RANKED. The head answers "what would
+  // this lock stage"; without this loop that was the ONLY row the function
+  // ever computed, and the table under it was whatever the reservoir happened
+  // to have retained that already played the lock — usually the head itself,
+  // so the panel drew a list of one and `[` and `]` had nowhere to go
+  // (10 §4 O1).
+  //
+  // Every row here is ANOTHER CONFORM: `conform(ctx ⊕ lock ⊕ v↦c, wirePlan)`,
+  // so a row is literally what a lock on that pair would stage rather than an
+  // approximation ranked beside one. The sweep is over the cluster AFTER the
+  // lock — the locked unit and every committed pin have already left
+  // `members` for the `boundedBy` strip — which is the owner's *"for the rest
+  // of the cluster, with pinned units excluded"*, and the candidate order is
+  // the generator's own best-first order, so the ranking is reproducible from
+  // `(substrate, basis, locks, cursor)` exactly as §3.3 requires.
+  //
+  // WHAT IT COSTS, measured (07 §5): the head's conform prices the repair and
+  // every conform after it is memo-served — 0.02 work units and no evaluator
+  // call at all. So the budget below is `LENS_RANK_MS`, the declared floor the
+  // ranking is guaranteed on top of a reserve its own question has already
+  // spent; the loop checks it BEFORE each row, and the rows it never reached
+  // are named rather than left to look like a cluster with nothing else in it.
+  const startedAt = req.now?.() ?? 0;
+  const rankBudget = Math.max(req.reserveMs - (startedAt - openedAt), LENS_RANK_MS);
+  const seen = new Set<string>([head.key]);
+  const ranked: Moveset[] = [];
+  // The priced rows first: a row the SEARCH retained carries a real bracket,
+  // and a bracket beats an assignment with no number on it. They keep the
+  // reservoir's own order.
+  for (const row of filtered) {
+    if (seen.has(row.key)) continue;
+    seen.add(row.key);
+    ranked.push(row);
+  }
+  let notRanked = 0;
+  let stoppedBy: RankTruncation['why'] | null = null;
+  for (const member of clusterAfter.members) {
+    const memberId = ctx.sub.unitIdOf(member);
+    if (memberId === undefined) continue;
+    const held = staged.get(memberId)?.to;
+    for (const option of ctx.gen.candidatesFor(ctx.sub, memberId).candidates) {
+      // The head already plays this one; a second row for it would be two
+      // answers to one question.
+      if (option.to === held) continue;
+      if (stoppedBy !== null) {
+        notRanked++;
+        continue;
+      }
+      // THE ROW CAP IS NOT A REFUSAL. A list as long as a list is allowed to
+      // be has not been cut short by anything the operator can act on, and
+      // saying "the reserve is spent" there would be a false reading of a
+      // full table.
+      if (ranked.length + 1 >= LENS_TOPK) {
+        stoppedBy = 'row-cap';
+        notRanked++;
+        continue;
+      }
+      if (req.now !== undefined && req.now() - startedAt >= rankBudget) {
+        stoppedBy = 'reserve-spent';
+        notRanked++;
+        continue;
+      }
+      const also: Lock = { unit: member, to: option.to };
+      const plan = search.conform({ ...ctx, pins: pinsFor(ctx, [...locks, also]) }, wirePlan);
+      const row = rowOf(plan, ctx, memberIds, view, clusterAfter, basis, assumptions, 0, false);
+      if (seen.has(row.key)) continue;
+      seen.add(row.key);
+      ranked.push(row);
+    }
+  }
+  const rows: Moveset[] = [head, ...ranked.map((row, i) => ({ ...row, rank: i + 2 }))];
+  const truncated: RankTruncation | null =
+    stoppedBy === null || notRanked === 0
+      ? null
+      : {
+          why: stoppedBy,
+          notRanked,
+          detail:
+            stoppedBy === 'row-cap'
+              ? `${notRanked} more assignment${notRanked === 1 ? '' : 's'} of the rest of the ` +
+                `cluster are not drawn: a list holds ${LENS_TOPK}`
+              : `${notRanked} more assignment${notRanked === 1 ? '' : 's'} of the rest of the ` +
+                `cluster went unranked: the inspection reserve is spent`,
+        };
+  return {
+    ok: true,
+    cluster: view.id,
+    locks,
+    clusterAfter,
+    rows,
+    source: 'speculative-context',
+    cursor,
+    provisional: false,
+    degraded: false,
+    contextKey,
+    final: false,
+    truncated,
+  };
+}
+
+/**
+ * ONE CONFORM, AS A ROW.
+ *
+ * THE ROW SHOWS THE WHOLE CLUSTER, the locked member included: the move under
+ * the operator's finger is the one they are asking about, and a row that hid
+ * it would answer a question they did not ask.
+ *
+ * `dominance` is `null` on every row but the head — `unsealed — the barrier
+ * has not run` on the panel — because these rows were never put through
+ * `better()`. Claiming a dominance condition for a comparison nobody made is
+ * the one thing this surface exists to prevent.
+ */
+function rowOf(
+  plan: JointPlan,
+  ctx: SearchContext,
+  memberIds: ReadonlySet<UnitId>,
+  view: ClusterView,
+  clusterAfter: ClusterView,
+  basis: string,
+  assumptions: ReadonlyArray<Assumption>,
+  rank: number,
+  head: boolean
+): Moveset {
+  const moves = movesOf(plan, ctx, memberIds);
+  return {
     cluster: view.id,
     clusterKey: clusterAfter.key,
     generation: view.generation,
-    key: movesOf(staged, ctx, memberIds)
+    key: moves
       .map((m) => `${ctx.sub.unitIdOf(m.unit) ?? -1}>${m.to}:${m.path.join('.')}`)
       .sort()
       .join('|'),
-    rank: 1,
-    // THE ROW SHOWS THE WHOLE CLUSTER, the locked member included: the move
-    // under the operator's finger is the one they are asking about, and a row
-    // that hid it would answer a question they did not ask.
-    moves: movesOf(staged, ctx, memberIds),
+    rank,
+    moves,
     basis,
-    complementKey: planPartsOf([...staged.entries()].filter(([unitId]) => !memberIds.has(unitId))),
+    complementKey: planPartsOf([...plan.entries()].filter(([unitId]) => !memberIds.has(unitId))),
     complement: 'live',
-    witness: planPartsOf(staged.entries()),
+    witness: planPartsOf(plan.entries()),
     lo: 0,
     est: 0,
     hi: 0,
@@ -312,25 +444,13 @@ export function rankConditional(req: RankConditionalInput): RankConditionalResul
     rung: 'conform',
     at: 0,
     tie: 0,
-    staged: true,
-    dominance: { kind: 'leader' },
+    staged: head,
+    // `conform` returns a plan, not a price. The row's content is its
+    // ASSIGNMENT, and inventing a number for it would be the one thing this
+    // whole surface exists to prevent.
+    unpriced: true,
+    dominance: head ? { kind: 'leader' } : null,
     depth: HORIZON_1,
-  };
-  // The retained rows follow the head, minus the one that IS the head: two
-  // rows for one assignment is two answers to one question.
-  const rest = filtered.filter((row) => row.key !== head.key).map((row, i) => ({ ...row, rank: i + 2 }));
-  return {
-    ok: true,
-    cluster: view.id,
-    locks,
-    clusterAfter,
-    rows: [head, ...rest],
-    source: 'speculative-context',
-    cursor,
-    provisional: false,
-    degraded: false,
-    contextKey,
-    final: false,
   };
 }
 

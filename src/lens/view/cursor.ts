@@ -43,6 +43,7 @@ import type {
   MovesetMove,
   NarrowNote,
   OperatorId,
+  RankTruncation,
   RowTrail,
   UnitKey,
   WidenNotice,
@@ -163,9 +164,12 @@ export interface MovesetList {
   readonly source: 'conditional' | 'restricted' | 'none';
   /** Rows the reservoir retained for the whole cluster, restricted or not. */
   readonly retained: number;
+  /** Where the conditional ranking stopped, and why — null when nothing was
+   *  cut off, and always null for a `restricted` list, which ranks nothing. */
+  readonly truncated: RankTruncation | null;
 }
 
-const EMPTY_LIST: MovesetList = { rows: [], source: 'none', retained: 0 };
+const EMPTY_LIST: MovesetList = { rows: [], source: 'none', retained: 0, truncated: null };
 
 /**
  * The rows behind one `(unit, candidate)`, in the order the reservoir ranked
@@ -193,12 +197,18 @@ export function movesetListFor(
   const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
   const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
   if (conditional !== undefined) {
-    return { rows: conditional, source: 'conditional', retained: retained.length };
+    return {
+      rows: conditional,
+      source: 'conditional',
+      retained: retained.length,
+      truncated: frame.movesetTruncation?.[movesetListKey(cluster.id, unit, to)] ?? null,
+    };
   }
   return {
     rows: retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to)),
     source: 'restricted',
     retained: retained.length,
+    truncated: null,
   };
 }
 

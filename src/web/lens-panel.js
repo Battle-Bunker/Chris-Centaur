@@ -176,11 +176,20 @@ const LensPanel = (() => {
    * the operator always reads. The count says how much was narrowed away, and
    * a list of one says why the walk keys do nothing.
    */
-  function sourceLine(source, retained, shown) {
+  function sourceLine(source, retained, shown, truncated) {
     if (source === 'conditional') {
+      // WHERE THE RANKING STOPPED, in the head, because a table that stops
+      // short reads exactly like a cluster with nothing else in it. The
+      // reserve's stop is a REFUSAL and is drawn as one; the row cap's is not
+      // — a full list has not been cut short by anything (10 §4 O1).
+      const short = !truncated
+        ? ''
+        : truncated.why === 'reserve-spent'
+          ? ` · <span class="lens-refused">${escapeHTML(truncated.detail)}</span>`
+          : ` · ${escapeHTML(truncated.detail)}`;
       return `conditional list — the rows a lock here would stage${
         retained ? ` · ${escapeHTML(retained)} retained for the cluster` : ''
-      }`;
+      }${short}`;
     }
     if (source !== 'restricted') return '';
     const of = `${escapeHTML(shown)} of ${escapeHTML(retained)} retained rows play this candidate`;
@@ -194,7 +203,7 @@ const LensPanel = (() => {
     if (empty) return `<div class="lens-empty">${escapeHTML(ARGS(empty)[0])}</div>`;
     const head = firstOf(transcript, 'panel.movesets');
     if (!head) return '';
-    const [clusterId, members, bounded, seq, stale, source, retained] = ARGS(head);
+    const [clusterId, members, bounded, seq, stale, source, retained, truncated] = ARGS(head);
 
     const rowCalls = allOf(transcript, 'panel.movesets.row');
     const rowCount = rowCalls.length;
@@ -230,7 +239,12 @@ const LensPanel = (() => {
         return (
           `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}">` +
           `<td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
-          `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
+          // A ROW WITH NO PRICE DRAWS NO BRACKET EITHER: `⌈—⌉` is a width of
+          // nothing. The assignment is the row's content and the numbers say
+          // they are absent (Law A, F7).
+          `<td>${num(aggregate, 1)}${
+            width == null ? '' : ` <span class="lens-width">⌈${num(width, 1)}⌉</span>`
+          }</td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
           // THE `unless` CELL — what this moveset is betting on, per row. It is
@@ -261,7 +275,9 @@ const LensPanel = (() => {
       ? ''
       : foilArgs[0] == null
         ? `<div class="lens-foil lens-foil-absent">${escapeHTML(foilArgs[2])}</div>`
-        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])} · margin ${num(foilArgs[1], 1)} · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
+        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])}${
+            foilArgs[1] == null ? '' : ` · margin ${num(foilArgs[1], 1)}`
+          } · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
     const lock = firstOf(transcript, 'affordance.lock');
     return (
@@ -273,7 +289,7 @@ const LensPanel = (() => {
       // the cluster's retained rows to the ones that play this candidate, and
       // saying so — with the retained count beside it — turns the shortness
       // into a fact the operator can check (10 §4 O1).
-      `<div class="lens-list-source">${sourceLine(source, retained, rowCount)}</div>` +
+      `<div class="lens-list-source">${sourceLine(source, retained, rowCount, truncated)}</div>` +
       // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
       // three of them mean something else elsewhere in the codebase. A reader
       // who has to be told what a column means is reading a number they
