@@ -157,6 +157,36 @@ probe board. Our own A is priced there as a held unit too. The assertion, when
 Direction is as the finding says — both endpoints widen — so the pins do not
 move and this stays a finding.
 
+**BANK-F23 verdict: FIXED, and MEASURED AT A PRICE — the merge is the
+orchestrator's call.** The fix is in the peril probe rather than in `viewFor`:
+`substrate.ts::probeModelled()` takes the FAMILY's modelled set — the team this
+decision commands — off the board alongside the view's own, so a B1/B3 view
+reads peril on a board we are not on and the parent's answer is unchanged
+(the two sets are the same object there). Pinned in
+`src/lobster/__tests__/substrate.test.ts` on review-2's own board, with a
+second board pinning that an enemy pair which takes each other STAYS in the
+view's peril. `viewFor` is deliberately untouched: modelling our commandable
+units there would also move the claim view and the candidate layer's
+`modeled()` readings, which is a wider change than the finding.
+
+The assertion above is the one thing not taken as written: `['B']` is the
+PARENT's peril, i.e. peril read as a family constant, which contradicts the
+merged fix #1 (a sibling answers its OWN peril) and its regression test. The
+view's own board here holds `C` alone, and `C` is not in peril without us, so
+the pinned value is `[]` — `B` is modelled on that view and its reply is fixed
+per branch, so its own peril is not a question the view is asked. For
+`material.ts` the two readings are the same: peril is only ever queried at a
+claim in the settlement, and `B` is a mover there.
+
+The price, per board class and never pooled
+(`docs/design/ab/2026-09-05-bank-f23-vs-0be83a4.md`): `snakes` and `sparse`
+byte-identical, `potions` deaths `−0.022`/100 over eight seeds, and `mixed`
+deaths `+0.248`/100 over six seeds (all of it `deaths.contest`) against meals
+`+1.575`/100. That is the finding's own prediction arriving — the capture gets
+its edge back — but the old direction was SAFE, so this is a tightening and not
+a soundness repair, and §7.1's bar (neutral or better on every class) is not
+cleared on `mixed`.
+
 ### F3 — the entanglement gate reads the plan, not the plan plus references
 
 `src/lobster/bounds/bank.ts:561` (`price` calls `this.gate(plan, …)`, not
@@ -196,6 +226,16 @@ geometric arm is the one that is wrong; the ledger arm happened to cover it
 each time. So this is a latent gap in coverage, not an observed one — which is
 consistent with the finding's own reading that missing a unit only loosens a
 floor.
+
+**BANK-F23 verdict: FIXED, and FREE.** `price` gates on `base`. Pinned in
+`src/lobster/bounds/bank.test.ts` on review-2's board, through a forwarding
+Proxy that watches the footprint the gate is actually handed — the geometric
+arm, which is the arm that was wrong; the members assertion beside it reads the
+same before and after, which is the masking recorded above. Built alone on top
+of `0be83a4` it is byte-identical on `mixed` at seeds 1–3: every reference
+action the runner declares is `NO_ORDER_MOVE`, whose candidate carries an empty
+path and so adds nothing to the footprint. The coverage it restores is the
+multi-seat one, which no local scenario runs.
 
 ### F4 — `continuationDirection` dereferences an absent orientation
 
