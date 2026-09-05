@@ -306,12 +306,60 @@ The rule is stated in `contest.ts` and is deliberately NOT shared with it here:
 change to a closed member for a reason that is not about its behaviour. The
 copy in `food.ts` names its twin.
 
-## What this document commits to
+**Measured: `food.hi` 63 → 0 — and REVERTED. The bracket is `contest.lo`'s
+mechanism pointed at the wrong kind of term.** Bounds: the class CLOSED,
+`totalLo` 0, `totalHi` 9, no other class moved, `food.lo` still absent;
+`bounds/soundness.test.ts`, `bounds/exact-reply.test.ts` and all of
+`lobster/__tests__` green with `lens-cost.test.ts`'s recording unmoved. Then
+the play, 60 turns, `--nodes`, `ab-compare` per board class, never pooled,
+against the `room.lo` head:
 
-Three repairs (§1, §3, §4) and two refusals (§2). Each repair is one commit,
-each lowers exactly one pin, and each is gated by
+| board | deaths | deaths/100 | meals/100 | note |
+|---|---:|---:|---:|---|
+| `snakes` 1–5 | 14 → 14 | 0.910 → 0.910 | 16.895 → 16.895 | byte-identical |
+| `sparse` 1–5 | 0 → 0 | 0 → 0 | 7.667 → 7.667 | byte-identical |
+| `sparse-lean` 1–5 | 2 → 2 | 0.206 → 0.206 | 6.880 → 6.880 | byte-identical |
+| `mixed` 1–5 | **12 → 16** | 0.608 → 0.818 (**+0.211**) | 18.549 → 17.891 (**−0.66**) | `contest` 9 → 15 |
+| `potions` 1–8 | **21 → 23** | 0.692 → 0.765 (**+0.073**) | 19.517 → 19.293 | `self` 1 → 3, `edge` 0 → 1 |
+
+**Deaths up on the two classes that have any and down on none, and meals down
+on both** — the same verdict as §1 and for a legible reason. §7.1 records that
+`contest.lo`'s bracket works out as *a standing tax on ADVANCING*, because the
+commonest contingent world is the one where the move does not happen. That is a
+GAIN when the term being taxed is a DANGER: paying the worst cell makes the bot
+decline squares it would have lost on, and D1's deaths went down. `food` is a
+BENEFIT, and the same tax on the same worlds removes the pull that takes a
+slider past a claim toward a meal — so the bot eats less AND, on `mixed`, dies
+more in contests, because the gradient that used to separate the food-side
+options is flattened while `contest`'s cliff is not. **The mechanism does not
+generalise from a fear to a reward**, and that is the finding this attempt
+adds. `food.hi` stays open and stays pinned at 63.
+
+## What this document commits to, and what it delivered
+
+It planned three repairs (§1, §3, §4) and two refusals (§2), each repair one
+commit lowering exactly one pin, each gated by
 `docs/design/decision-lens/08-DEPTH-VERDICT.md` §7.1's two requirements — a
 lower number here AND an A/B that is neutral or better per board class, never
 pooled. A repair that fails the second is reverted and recorded with its
 numbers, exactly as `docs/design/ab/2026-09-04-b1-sound-vs-57fd2da.md` records
 the last four.
+
+**All three were written, all three were sound, all three lowered their number,
+and ONE shipped.**
+
+| class | at its cause | pin | play | verdict |
+|---|---|---|---|---|
+| `command.hi` §1 | the wide board is the UNION of the two readings' domains | 600 → 65 | `mixed` deaths 12 → 14 (new `edge`, `wall`), `potions` 21 → 22, meals −0.66 | **reverted**, pin stays 600 |
+| `room.lo` §3 | a barrier is the thing being FEARED: `worstAlive \|\| bestAlive` | 73 → **0** | one seed of `mixed` moves, meals +0.771; deaths flat on 5 of 5 classes | **kept**, class CLOSED |
+| `food.hi` §4 | `pullOf` brackets over `settlesOn` | 63 → **0** | `mixed` deaths 12 → 16, `potions` 21 → 23, meals down on both | **reverted**, pin stays 63 |
+| `reach.hi` / `reach.lo` §2 | no bound that is not a blanket widening | — | not attempted | refused at classification |
+
+Two things the ledger now says that it did not before. **A repair whose A/B is
+FLAT is the one that ships** — `room.lo` moved one seed of one board and closed
+its class, and it is the only one of the three that cost nothing; the two that
+moved the play moved it the wrong way, on the same two board classes, in the
+same direction, for the second and third time (`b1-sound` was the first).
+**And the `contest.lo` mechanism does not transfer from a fear to a reward**
+(§4): the same honest bracket over the same contingent settle cell buys deaths
+when it prices a danger and costs both deaths and meals when it prices a meal.
