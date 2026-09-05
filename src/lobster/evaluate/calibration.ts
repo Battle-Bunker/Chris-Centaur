@@ -360,6 +360,21 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false }
  * own body deaths stay flat, because the cardinality is intersected with nothing
  * and so knows nothing about what is standing on the cells it counts. See D2's
  * STATUS section for the dose table; do not re-derive it from the prediction.
+ *
+ * THE MASKED INDICATOR FORM WAS THEN BUILT AND REFUSED TOO — BEHAVIOUR-AUDIT-2
+ * P1. `m_u ∈ {0, 1}`, read from `queries.legalActions` so it is masked by the
+ * perimeter, by occupancy and by the pawn-target set, at `mobility = 1`. It
+ * answers D2's mechanism completely — `mixed` piece `bodyBlock`+`self` deaths
+ * FELL 1 -> 0 and `potions` 2 -> 1, `snakes`/`sparse`/`sparse-lean` were
+ * byte-identical, the law sweep's `command.hi` class fell 600 -> 558, and the
+ * parking it was built for collapsed (`potions` longestPark 44 -> 7,
+ * `immobileUnitTurns` 197 -> 83) — and it is refused for a DIFFERENT reason:
+ * every death it adds is a `contest`. An unparked pawn spends its turns in the
+ * open, `contest` prices an enemy ARRIVAL and not the standing exposure of a
+ * piece that now crosses the board instead of hugging a wall, and `mixed`
+ * deaths went 6 -> 7 on seeds 1-3 and 8 -> 9 on seeds 4-6, all of them
+ * `contest`. P1's own counter predicted exactly that and said to refuse it.
+ * See BEHAVIOUR-AUDIT-2.md P1's STATUS for the table.
  */
 
 /**

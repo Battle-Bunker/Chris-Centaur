@@ -169,6 +169,114 @@ the unit with zero legal `move` actions next turn — and `deathsWhileImmobile`.
   `leavesTrail` kinds at `features.ts:1021`, so a board with no piece never
   reaches the addend.
 
+### STATUS: INSTRUMENTED, BUILT EXACTLY AS WRITTEN, NOT TAKEN — it unparks the pawn and the pawn is then killed in the open
+
+The two counters are IN (`local-game.ts`, `immobileAt` — `legalActions` asked of
+the board each turn left, so the reading is the grammar's own and cannot reach
+the decision it counts). They fire on both reproductions: `potions` seed 8
+reads `immobileUnitTurns` 50 on 352 unit-turns with blue-C's 44-turn park inside
+it, and all three of our parked pawn deaths in the material-only arms are
+`deathsWhileImmobile`.
+
+THE RULE WAS THEN BUILT EXACTLY AS STATED — `CommandKnobs.mobility = 1`, the
+addend `m_u · knobs.mobility` inside the same clamp, `m_u` read from
+`queries.legalActions` on the board the settlement produced (`Standing` gains
+the facing the resolution leaves the unit with, the same two readings
+`buildShells` takes) — and measured against the instrument state on this
+audit's own corpus, per class, never pooled. **It is not in the fold.**
+
+| class | pawn parked | pawn longestPark | pawn deaths | deaths | deaths/100 | piece `bodyBlock`+`self` | meals/100 | `immobileUnitTurns` | `deathsWhileImmobile` |
+|---|---|---|---|---|---|---|---|---|---|
+| `mixed` 1–3 | 35.1% → **31.5%** | 6 → **8** | 4 → 4 | 6 → **7** | 0.492 → **0.564** | 1 → **0** | 17.90 → 18.67 (+4.3%) | 31 → 32 | 1 → 1 |
+| `mixed` 4–6 | 51.2% → **32.4%** | 29 → **4** | 5 → **6** | 8 → **9** | 0.688 → **0.799** | 0 → 0 | 18.42 → 18.75 (+1.8%) | 56 → **24** | 2 → 3 |
+| `potions` 1–8 | 45.9% → **33.8%** | 44 → **7** | 11 → **10** | 21 → **17** | 0.692 → **0.553** | 2 → **1** | 19.52 → 19.06 (−2.3%) | 197 → **83** | 4 → **2** |
+| `mixed` vs material-only | 59.4% → 61.6% | 16 → 14 | 6 → **5** | 12 → **11** | 1.093 → **0.985** | 0 → 0 | 16.29 → 15.73 (**−3.4%**) | 46 → 55 | 3 → **2** |
+| `snakes`, `sparse`, `sparse-lean`, `snakes` vs material-only | — | — | — | — | — | — | — | 0 → 0 | 0 → 0 |
+
+`snakes`, `sparse`, `sparse-lean` and both `snakes` material-only arms are
+**byte-identical on every deterministic counter and every trace line**, exactly
+as predicted — `commandSum` skips `leavesTrail` kinds, so a board with no piece
+never reaches the addend, and a trail unit is never immobile (its one
+orthogonal step is legal wherever it stands). `mixed` 4–6 is not in the audit's
+corpus and is carried here for the reason D2 carried it: a death signal read
+off three `mixed` seeds is read off three deaths.
+
+Sound at every arm. Nineteen inversion arms clean (`CENTAUR_DEBUG_INVERSION=1`,
+five scenarios × seeds 1–3 at 30 turns plus `potions` 4, 5, 6, 8 at 60): no
+`INVERSION` line. The law sweep's `command.hi` class FALLS, 600 → 558, with
+every other class and both totals unmoved — the addend makes the ceiling
+tighter, not looser. `npx tsc`, `eslint` and the whole of `src/tests` (73
+suites, 1 261 tests) clean, the determinism fixture unmoved.
+
+**WHAT IT DOES, AND IT IS WHAT IT SAID.** The parking half of P1 is delivered
+at the line. Reproduction A is gone: at turn 17 blue-C takes the rotation to
+face INTO the board instead of the one facing west, and walks off the top edge
+instead of holding (0,10) for 44 turns. `potions` `longestPark` 44 → 7,
+`mixed` 4–6 29 → 4, `immobileUnitTurns` 197 → 83 and 56 → 24, `stationary`
+10.86% → 7.69% on `potions`. `potions` deaths fall 21 → 17 and `deathsPer100`
+0.692 → 0.553 with it.
+
+**AND IT IS NOT D2'S FAILURE.** That is the finding worth keeping. D2's
+`|F_u|` killed pieces on BODIES, 0 → 3 on `mixed`, because the cardinality was
+intersected with nothing. Under the indicator that class moves the other way:
+`mixed` piece `bodyBlock`+`self` 1 → **0**, `potions` 2 → **1**, `mixed`
+vs material-only 0 → 0, and the snakes' own body deaths are flat to falling.
+The occupancy mask and the saturation both hold, and D2's knight regression
+does not repeat. **The mechanism D2 was refused for is answered.**
+
+**WHY IT IS REFUSED ANYWAY, AND IT IS A DIFFERENT MECHANISM.** Every death it
+ADDS is a `contest`. `mixed` 6 → 7 on seeds 1–3 and 8 → 9 on seeds 4–6, and the
+one `mixed` seed that gained a death (seed 2, red-B at (7,10), turn 21) gained
+it to blue-C entering the pawn's square in the open, twenty turns after the
+first divergence — not to anything the pawn stood on. A parked pawn against the
+wall is unreachable from three sides; an unparked one crosses the board, and
+`contest` prices an enemy ARRIVAL at the cell a plan settles on, not the
+standing exposure of a piece that now spends its game in the open. P1's own
+**Counter** section named this in advance — "a term that always pays for facing
+inward will walk pawns off safe corners into a queen's fan, which is a
+`contest` death traded for a park. If pawn deaths do not fall on both classes,
+this is D2's tempo defect again and it should be refused as D2 was" — and pawn
+deaths did not fall on both classes (`mixed` 4 → 4 and 5 → 6, `potions`
+11 → 10). It is refused on its own written terms.
+
+**THE PREDICTION AGAINST THE MEASUREMENT.** One of six.
+
+| prediction | measured | |
+|---|---|---|
+| `mixed`/`potions` pawn parked → <15% | 31.5% / 33.8% | no |
+| `longestPark` → ≤6 on both | `mixed` 6 → **8**, `potions` 44 → 7 | no |
+| pawn deaths → ≤2 / ≤6 | 4 / 10 | no |
+| total deaths up on neither class | **up on `mixed`**, 6 → 7 and 8 → 9 | no |
+| meals/100 down ≤3% | +4.3% / −2.3%, but **−3.4%** vs material-only | no |
+| our three parked pawn deaths → ≤1 | 3 → 3 | no |
+| `snakes`, `sparse`, `sparse-lean` byte-identical | byte-identical | **yes** |
+
+**WHY THE PARKED SHARE STOPS AT A THIRD.** The indicator is FLAT wherever a
+pawn is not against a wall or fully blocked — which is the property that keeps
+it from repeating D2, and it is also its ceiling. Only the perimeter share of
+the parking can move, and it does: that share IS `immobileUnitTurns`, and it
+falls 58% on `potions`. The rest of `mixed`'s pawn parking is the interior tie
+D2 also found (`mixed` seed 2 turns 50–55 at (5,9), a 0.01 spread), which no
+indicator on legality can see, because at (5,9) every option is legal.
+
+**WHAT A REPAIR WOULD HAVE TO BE.** Not this term at a smaller number: it is
+already the smallest number that can break an exact tie — one cell of `open`,
+`1/121` of `c` — and halving it would leave the ties unbroken rather than leave
+the pawn safer. The dose axis is exhausted. What the measurement leaves
+standing is that the term is priced with no reference to what the cell it
+unparks the pawn TOWARD costs: the two candidates are (a) gate `m_u` on the
+safety of the step it restores, so a pawn is paid for facing into the board
+only where that step is not inside a live enemy fan — which means `commandSum`
+must read `contest`'s field, which it does not — and (b) leave the pawn's
+orientation alone and price its `contest` exposure directly, which is a
+different member and not this one. Both are guesses. The table is not.
+
+The rule is reverted; the two counters stay in, and D2's boundary test stays
+pinned as the DEFECT it still is (`evaluate.test.ts`, "D2 — a pawn at the wall,
+where a rotation and a hold tie"). What any next repair has to break is that
+tie; what it now also has to beat is this table, and this table's `contest`
+column is the half D2's dose table never measured.
+
 ---
 
 ## P2 — the collector's exposure is a SHARE of its ground, so a wide collector dilutes its own risk

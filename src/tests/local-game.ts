@@ -21,7 +21,7 @@ import { marshalBoard, claimsAfter } from '../logic/turn-oracle';
 import { settleTurn, DEFAULT_POTION_WINDOW_TURNS } from '../engine-vendor/engine/settleTurn';
 import { ORTHOGONALS, leavesTrail } from '../engine-vendor/engine/moveGrammar';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
-import { legalTargets } from '../engine-vendor/engine/queries';
+import { legalActions, legalTargets } from '../engine-vendor/engine/queries';
 import type { BoardShape } from '../engine-vendor/engine/queries';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
 import { winsContest } from '../lobster/evaluate/contest';
@@ -1225,6 +1225,53 @@ export function entrappedAt(board: Board, turn: number): EntrapmentReading[] {
 }
 
 // ---------------------------------------------------------------------------
+// THE IMMOBILITY INSTRUMENT — docs/design/BEHAVIOUR-AUDIT-2.md P1
+// ---------------------------------------------------------------------------
+
+/**
+ * EVERY LIVING UNIT ON THIS BOARD WITH NO LEGAL `move` — the wire ids of the
+ * units whose entire option set leaves them standing on the cell they are on.
+ *
+ * P1's counter, and it goes in before the rule it judges. `moveGrammar` gives
+ * a pawn on the perimeter facing outward three legal actions — the two side
+ * squares, which are `rotate`, and its own square, which is `stay` — and the
+ * forward step it does not have, because a perimeter cell is not interior. All
+ * three leave the pawn where it is, so the pawn cannot get off a contested
+ * cell however it is scored, and no counter in this file said so.
+ *
+ * ASKED OF THE GRAMMAR, not reconstructed from geometry: `legalActions` is the
+ * same call `queries.ts` answers every other reach question with, so it is
+ * masked by the perimeter, by the board's occupancy and by the pawn-target set
+ * exactly as the engine masks them, and a grammar change moves the instrument
+ * with the thing it measures. Read on the board a turn LEFT, after settlement,
+ * so it makes no evaluator call and cannot reach the decision it counts.
+ *
+ * A trail unit is never in this set: its one orthogonal step is legal wherever
+ * it stands, walls included (staging the perimeter is a legal move and a fatal
+ * one), which is why `snakes`, `sparse` and `sparse-lean` read zero.
+ */
+export function immobileAt(board: Board, turn: number): Set<string> {
+  const m = marshalBoard(board, turn);
+  const shape: BoardShape = {
+    boardWidth: m.config.boardWidth,
+    boardHeight: m.config.boardHeight,
+    walls: m.config.walls,
+    hazards: m.config.hazards,
+    occupancy: m.units.map((u) => ({ id: u.id, cells: u.occupancy })),
+    food: m.config.food,
+  };
+  const out = new Set<string>();
+  for (const u of m.units) {
+    const moves = legalActions(
+      { type: u.type, occupancy: u.occupancy, orientation: u.orientation },
+      shape
+    ).some((entry) => entry.action.kind === 'move');
+    if (!moves) out.add(u.id);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // THE ENEMY-OCCUPIED ENTRY INSTRUMENT — docs/design/BEHAVIOUR-AUDIT.md D1
 // ---------------------------------------------------------------------------
 
@@ -1411,6 +1458,29 @@ export interface GameMetrics {
    *  number that decides whether any member can act on the horizon at all. */
   entrapmentLeadSum: number;
   // --- end entrapment instrument -----------------------------------------
+  // --- THE IMMOBILITY INSTRUMENT (docs/design/BEHAVIOUR-AUDIT-2.md P1) -----
+  // Two counters, computed post hoc on the concrete board each turn left, by
+  // asking the grammar the same question the fold's `mobility` addend asks.
+  // They read the rules; they never touch the decision.
+  /**
+   * UNIT-TURNS WHOSE CHOSEN ACTION LEFT THE UNIT WITH NOWHERE TO GO — every
+   * living unit on the board a turn produced whose whole legal option set is
+   * `stay` and `rotate`, summed over turns.
+   *
+   * P1: a pawn on the perimeter facing outward has exactly three legal
+   * actions and all three leave it on the same cell, so it is boxed by its own
+   * orientation and nothing in the fold could see it. Zero on a board with no
+   * piece: a trail unit's one orthogonal step is always legal somewhere,
+   * walls included.
+   */
+  immobileUnitTurns: number;
+  /**
+   * Deaths of a unit that entered the turn it died on with no legal `move` —
+   * P1's mortality half, and reproduction B exactly (`red-B` parked at (0,8)
+   * and taken there by a contest it could not step off).
+   */
+  deathsWhileImmobile: number;
+  // --- end immobility instrument -------------------------------------------
   /** Health of every living unit at the end. */
   endHealth: number[];
   /** Wall time of the slowest single team decision, ms. NOT reproducible. */
@@ -1543,6 +1613,10 @@ export async function runGame(
     escapedEntrapments: 0,
     entrapmentLeadSum: 0,
     // --- end entrapment instrument -----------------------------------------
+    // --- immobility instrument (BEHAVIOUR-AUDIT-2.md P1) --------------------
+    immobileUnitTurns: 0,
+    deathsWhileImmobile: 0,
+    // --- end immobility instrument -----------------------------------------
     endHealth: [],
     worstDecisionMs: 0,
     nodes: 0,
@@ -1580,6 +1654,11 @@ export async function runGame(
   // --- entrapment instrument: one open episode per unit, keyed by wireId ----
   const entrapmentOpen = new Map<string, number>();
   // --- end entrapment instrument -------------------------------------------
+  // --- immobility instrument (P1): the wire ids the PREVIOUS turn left with
+  // no legal `move`, which is exactly the set that enters this turn unable to
+  // step off whatever it is standing on.
+  let immobile = new Set<string>();
+  // --- end immobility instrument -------------------------------------------
   const key = (c: Coord): string => `${c.x},${c.y}`;
   // TEAM 0, per the scenario's OWN roster (`spec.teams[0]`) — a fact about the
   // board, fixed for the whole game, and independent of the alphabetical
@@ -1750,6 +1829,9 @@ export async function runGame(
       else metrics.otherDeaths++;
       if (d.tier < 0) metrics.deathsWhileDebuffed++;
       if (d.tier > 0) metrics.deathsWhileBuffed++;
+      // P1: read against the immobility the PREVIOUS turn left, because that
+      // is the state this unit took its last decision in.
+      if (immobile.has(d.id)) metrics.deathsWhileImmobile++;
     }
     board = outcome.board;
     metrics.turns = turn;
@@ -1781,6 +1863,15 @@ export async function runGame(
           (readings.length === 0 ? '' : `  [${readings.join('; ')}]`)
       );
     }
+
+    // --- THE IMMOBILITY INSTRUMENT (BEHAVIOUR-AUDIT-2.md P1) ---------------
+    // The board this turn LEFT, so the reading is about what the chosen
+    // actions bought: a unit in this set has no move next turn whatever it is
+    // offered. Counted per turn, so the total is unit-turns and divides by
+    // `unitTurns` the way every other share here does.
+    immobile = immobileAt(board, turn);
+    metrics.immobileUnitTurns += immobile.size;
+    // --- end immobility instrument -----------------------------------------
 
     // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ---------
     //
@@ -2072,6 +2163,10 @@ export interface RunSummary {
     readonly escapedEntrapments: number;
     readonly entrapmentLeadSum: number;
     // --- end entrapment instrument -----------------------------------------
+    // --- immobility instrument (BEHAVIOUR-AUDIT-2.md P1) --------------------
+    readonly immobileUnitTurns: number;
+    readonly deathsWhileImmobile: number;
+    // --- end immobility instrument -----------------------------------------
     readonly survivors: number;
     readonly healthTotal: number;
   };
@@ -2166,6 +2261,10 @@ export function summaryOf(
       escapedEntrapments: metrics.escapedEntrapments,
       entrapmentLeadSum: metrics.entrapmentLeadSum,
       // --- end entrapment instrument -----------------------------------------
+      // --- immobility instrument (BEHAVIOUR-AUDIT-2.md P1) --------------------
+      immobileUnitTurns: metrics.immobileUnitTurns,
+      deathsWhileImmobile: metrics.deathsWhileImmobile,
+      // --- end immobility instrument -----------------------------------------
       survivors: metrics.endHealth.length,
       healthTotal: metrics.endHealth.reduce((a, b) => a + b, 0),
     },
@@ -2189,7 +2288,9 @@ export function summaryOf(
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurnsPer100: per(metrics.entrappedUnitTurns),
       entrapmentEpisodesPer100: per(metrics.entrapmentEpisodes),
-      // --- end entrapment instrument -----------------------------------------
+      // --- immobility instrument (BEHAVIOUR-AUDIT-2.md P1) --------------------
+      immobileUnitTurnsPer100: per(metrics.immobileUnitTurns),
+      // --- end immobility instrument -----------------------------------------
     },
     deathsByCause: Object.fromEntries(
       Object.entries(metrics.deathsByCause).sort(([a], [b]) => (a < b ? -1 : 1))
@@ -2253,6 +2354,10 @@ async function summarise(
     escapedEntrapments: 0,
     entrapmentLeadSum: 0,
     // --- end entrapment instrument -----------------------------------------
+    // --- immobility instrument (BEHAVIOUR-AUDIT-2.md P1) ---------------------
+    immobileUnitTurns: 0,
+    deathsWhileImmobile: 0,
+    // --- end immobility instrument -------------------------------------------
   };
   const causes: Record<string, number> = {};
   const loud = emptyLoudHistogram();
@@ -2345,6 +2450,13 @@ async function summarise(
       `episodes/100=${per(totals.entrapmentEpisodes as number)}`
   );
   // --- end entrapment instrument -------------------------------------------
+  // --- THE IMMOBILITY INSTRUMENT, on its own line (BEHAVIOUR-AUDIT-2.md P1).
+  out.say(
+    `${scenario} P1: immobileUnitTurns=${totals.immobileUnitTurns} ` +
+      `immobile/100=${per(totals.immobileUnitTurns as number)} ` +
+      `deathsWhileImmobile=${totals.deathsWhileImmobile}`
+  );
+  // --- end immobility instrument -------------------------------------------
   // THE LOUD PRODUCT, on its own line and only where there was one to measure.
   // `open` is the subset that matters: B3 declined there, so the bracket is
   // open and a ceiling ply would have something to remove.
@@ -2591,6 +2703,11 @@ async function main(): Promise<void> {
   say(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
   say(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
   say(`longest park:  ${result.metrics.longestPark} turns`);
+  say(
+    `immobile:      ${pct(result.metrics.immobileUnitTurns, result.metrics.unitTurns)}% ` +
+      `(${result.metrics.immobileUnitTurns} unit-turns, ` +
+      `${result.metrics.deathsWhileImmobile} died there)`
+  );
   say(
     `enemy-cell entries: ${result.metrics.enemyOccupiedEntries} ` +
       `(lost ${result.metrics.enemyOccupiedEntriesLost})`
