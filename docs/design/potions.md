@@ -555,3 +555,193 @@ repair.
 3. **A floor term on `beaten_1 > 0` is still untried,** and it is the one shape
    that is not a scaling of the existing share — so it is the one shape finding 1
    does not already refute. It is a cliff and wants the bounds bank's opinion.
+
+---
+
+# P3: the ground read from the PLAN's own cell — the one repair §P2 left, and the constant it does not remove
+
+`docs/design/BEHAVIOUR-AUDIT-2.md` §P2's closing prescription, and §1 item 3 of
+the second attempt above: *read the collector's ground from the cell the plan
+leaves it on, at a claim pass per candidate destination, because that is the
+only change that gives the term a gradient over the collector's own options.*
+This section is that change, measured, and reverted.
+
+## The instrument, taken BEFORE the rule — and it answers the hypothesis
+
+Three attempts have now sized a rule against a margin without first measuring
+whether the signal the rule needs is on the board. So the counter came first.
+`readPickup` (`src/tests/local-game.ts`) already answered "can a beating enemy
+share the collector's GROUND on the window's first turn" — that is `exposed`,
+which `recklessPickups` counts. Two counters join it, in the same frame and with
+the same conservatism:
+
+* `arrivalBeaten` — can a beating enemy hold the ONE CELL the plan left the
+  collector on;
+* `ground1` — the horizon-1 beaten share, summed over the corpus.
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, on the baseline arm, which the
+instrument leaves identical on every existing counter (35 pickups, 15
+profitable, 7 profitable-and-safe, 25 reckless, 0 `deathsWhileDebuffed`, 21
+deaths, 3124 unit-turns — the P2 baseline to the digit):
+
+| pickups | reckless | **arrivalBeaten** | arrivalBeaten ∧ reckless | mean horizon-1 share |
+|---|---|---|---|---|
+| 35 | 25 (71.4%) | **5 (14.3%)** | 5 | 71/316 = **0.225** |
+
+**The hypothesis is 5/35 before it is written.** Every arrival-beaten pickup is
+also reckless, so the per-plan reading is a strict subset of what the counter
+counts — and the other twenty reckless pickups are reckless because of their
+GROUND, not their arrival cell. And at the very reproduction §P2 names, the
+trace prints
+
+    T 36 red-C knight hp98 (2,6)->(0,7)  top3: (4,5)=-342.30 (0,7)=-342.34 (1,4)=-342.99
+    POTION x1  [red-C hp97 enemyTier+0 caught@1 EXPOSED arrival=safe ground1=1/5]
+
+— `arrival=safe`. The boundary case the rule was commissioned to fix is not a
+case the rule can see. That was known before a line of the member changed, which
+is the whole point of instrumenting first.
+
+## The rule that was built
+
+One knob, `PLAN_PERIL_SHARE = α` (`window.ts`), replacing a single point: `α = 0`
+is the turn-start ground the term always read — verified, `potions` seed 4 at 60
+turns comes back transcript-identical — and `α = 1` reads the collector's ground
+entirely from the plan. One parameterisation, no board special case:
+
+    ground_k(plan) = where the collector can be k − 1 turns after its arrival
+
+so `k = 1` is that rule at zero further turns, which is the one cell the plan
+chose, and `k ≥ 2` is the engine's own `claimsAfter` asked of a board whose only
+change is the collector's settled occupancy. Nothing between the horizons is
+reweighted (D4) and nothing about the share is reshaped (P2). Memoised per
+(collector, occupancy) on the marshalled board — a collector's arrival cell is
+always a potion cell, so the key set is our roster times the potions standing,
+not one key per node: `W − 1` claim passes per key, and the corpus costs 3m20
+against the baseline's 3m15.
+
+## What was measured
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, paired by seed
+(`scripts/ab-compare.js`, per board class, never pooled). Two arms, the second
+because the first's failure is a LEVEL failure — `PERIL_WEIGHT = 3` is the
+largest the calibration inequality tolerates, exactly as D4 ran it:
+
+| arm | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths | unit-turns |
+|---|---|---|---|---|---|---|---|
+| BEFORE (`α = 0`) | 35 | 15 | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 | 3124 |
+| `α = 1`, PERIL_WEIGHT 2 | 49 | 17 | 34 (**69.4%**) | 7 (**14.3%**) | 0 | **25** | 3134 |
+| `α = 1`, PERIL_WEIGHT 3 | 25 | 7 | 20 (**80.0%**) | 3 (**12.0%**) | 0 | **25** | 3145 |
+
+Per seed, pickups 5/7/4/8/1/3/2/5 → 7/8/8/7/1/7/5/6: up on 7 of the 7 seeds that
+move, sign test **p = 0.016**, the one statistically clean result in the arm and
+it is the wrong direction. The pre-registered gate was reckless share **down
+from 71.4%**, profitable-and-safe **up from 20.0%**, pickups **≥ 20**,
+`deathsWhileDebuffed` **0**, deaths **not above 21**, potion-free classes
+**byte-identical**. Scored honestly:
+
+* **reckless share down — NO**, not usefully: 71.4% → 69.4%, and 80.0% in the
+  second arm.
+* **profitable-and-safe up — NO**: 20.0% → 14.3% → 12.0%. Seven events became
+  seven out of a bigger denominator, then three.
+* **pickups ≥ 20 — yes**, 49 and 25. Too many, then too few.
+* **`deathsWhileDebuffed` 0 — yes**, in both arms.
+* **deaths not above 21 — NO**, 25 in both, and the first arm brings back two
+  `edge` deaths, the class D1's floor repair had cleared across the corpus.
+* **potion-free classes byte-identical — YES.** `mixed`, `snakes`, `sparse`,
+  seeds 1–3 at 30 turns, identical run summaries; `collectorsOf` gates the whole
+  member.
+* **Bound soundness — CLEAN.** Sixteen arms under `CENTAUR_DEBUG_INVERSION=1`
+  (`mixed`/`snakes`/`sparse`/`potions` seeds 1–3 at 30 turns, plus `potions`
+  seeds 4, 5, 6, 8 at 60) print no INVERSION line at all, and the six-suite gate
+  passes 120 tests with no ratchet moved and no determinism fixture re-pinned.
+  The rule is sound; it is simply not the repair.
+
+**Reverted.** `window.ts` is a zero diff against the instrument state, and all
+eight `potions` summaries come back byte-identical to the baseline.
+
+## Why it fails, which is the part worth keeping
+
+**The plan-conditioned ground collapses horizon 1 to a BOOLEAN and leaves the
+saturated tail exactly where it was.** That is the finding, and it is the fourth
+face of the same fact. The fixture is `potions` seed 4 turn 36
+(`src/lobster/__tests__/tier-window.test.ts`), and note first what nobody had
+said out loud about that board: **`(0,7)` and `(4,5)` are BOTH potion cells**, so
+the top two candidates are two collecting plans that leave the collector in
+different places — precisely the pair a per-plan reading exists to order. red-C
+is a knight of weight 5 and settlement leaves it at tier −1:
+
+    turn-start ground   3/9   34/34   73/73   →  peril = 0.667
+    from (0,7)  played  0/1    5/5    21/21   →  peril = 0.500
+    from (4,5)  other   0/1    9/9    41/41   →  peril = 0.500
+    from (1,4)  clean   0/1    7/7    29/29   →  peril = 0.500
+
+Three different grounds, of three different sizes, and **one number**. The two
+saturated horizons D4 measured are still saturated from every arrival cell — by
+the second turn every unit on an 11×11 board can meet every other — so they
+contribute `(2 + 1)/6 = 0.5` whatever cell the plan picks. And horizon 1, which
+was a share over nine cells and did discriminate, is now a boolean over one, and
+the instrument says that boolean is false on 30 of 35 pickups. So the per-plan
+peril takes exactly two values, 0.5 and 1.0, and on six pickups in seven it is
+the constant 0.5.
+
+Three consequences, and they are the whole A/B:
+
+1. **It cannot order two collecting plans**, which was the entire hypothesis. On
+   the reproduction it prices `(0,7)` and `(4,5)` identically, and it prices the
+   NON-collecting `(1,4)` identically too. §P2 said the charge cancels because it
+   is read from the turn-start cell; it turns out it also cancels when read from
+   the plan, for a different reason — the discriminating horizon has one cell in
+   it and the rest is saturated.
+2. **It is a price CUT**, 0.667 → 0.500 at the reproduction and 0.225 → 0.143 in
+   corpus mean horizon-1 terms. Cheaper potions mean more potions: 35 → 49, up on
+   7 of 7 moving seeds. And the pickups a price cut admits are the marginal ones,
+   which on this board are the reckless ones — 25 reckless became 34.
+3. **Correcting the level does not recover the composition.** `PERIL_WEIGHT = 3`
+   takes 49 back down to 25 and the reckless share goes UP to 80.0% while
+   profitable-and-safe falls to 12.0%. Exactly as D4 and P2 found: the pickups a
+   level change moves are the marginal ones by TOTAL score, and total score is
+   not sorted by recklessness.
+
+**The standing bound, now stated in its general form.** `peril` is
+`Σ_k w_k · beaten_k / |ground_k|` over a window whose horizons 2..W are
+saturated at 1 for every collector on every plan. Three attempts have now moved
+each free part of that expression in turn — D4 the weights `w_k`, P2 the shape of
+the share, P3 the set `ground_k` — and all three moved the level and left the
+composition flat, because **the saturated tail is not a parameter of any of
+them**. Half the reading is `1` by geometry, not by calibration, and no
+reparameterisation of a term that averages over a saturated tail can widen what
+it can say.
+
+## What the next attempt should do differently, and what it must not repeat
+
+1. **Do not re-parameterise `perilOf` again.** The weights, the share's shape and
+   the ground are all measured now, over eight seeds and 24–63 pickups, and every
+   one of them moved the level. A fourth reparameterisation is the same
+   experiment.
+2. **The tail has to go, or the term has to stop being a mean.** The one shape
+   nobody has built is the floor `potions.md` D4 §2 and §P2 name: a term that
+   fires on `beaten_1 > 0` at all rather than averaging it against horizons that
+   are 1 by construction. On this corpus that is a boolean that is true on 25 of
+   35 pickups from the turn-start ground and 5 of 35 from the plan's — those are
+   two different rules and the instrument now measures both. It is a cliff and it
+   wants the bounds bank's opinion before it is built.
+3. **`reckless` and `peril` still disagree about what danger is,** and P3 makes
+   the gap concrete rather than rhetorical: `reckless` is the collector's GROUND
+   at horizon 1 (25 of 35), `arrivalBeaten` is its CELL (5 of 35). Whichever the
+   term prices, the counter should price the same one, or the A/B is scoring a
+   rule against a question it was not asked.
+4. **Instrument the hypothesis before building the rule.** It cost one baseline
+   run here and it said 5/35 — the answer this section then spent two arms
+   confirming. It is the cheapest step in the whole procedure and it is the one
+   the first three attempts skipped.
+
+### What is kept
+
+`arrivalBeaten`, `recklessArrivalBeaten` and the horizon-1 share sums stay in the
+runner, for the reason `profitablePickups` stayed: they measure real properties
+of the game, they cost nothing on a potion-free board, and they are the numbers
+the next attempt has to move. The seed 4 turn 36 fixture stays too, and it is
+written against the engine's own claims rather than against the member, so it
+holds whatever the fold ships — including the fact that the top two candidates on
+that board are both collecting plans, which is what makes it the right boundary
+to measure a per-plan rule against.

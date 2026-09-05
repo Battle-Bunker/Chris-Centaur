@@ -348,7 +348,7 @@ refuse exactly what the counter counts.
 from 21. `mixed`, `snakes`, `sparse`, `sparse-lean`: **byte-identical** —
 `collectorsOf` gates the whole member and no potion exists on those boards.
 
-### Status: BUILT, SWEPT AT BOTH γ, REFUTED, REVERTED
+### Status: BUILT, SWEPT AT BOTH γ, REFUTED, REVERTED — and the per-plan repair it prescribed is REFUTED AND REVERTED TOO (see the follow-up at the end of this section)
 
 `docs/design/potions.md` "P2" carries the arms and the fixture. `potions`, 60
 turns, seeds 1–8, `--nodes`, paired per class:
@@ -391,6 +391,58 @@ repair that is left is the one `potions.md` §1 item 3 already names as
 unmeasured — read the ground from the PLAN's destination, at a claim pass per
 candidate — because that is the only change that gives the term a gradient over
 the collector's own options. Every scaling of the current share cannot.
+
+### Follow-up: THAT repair was built, measured and REVERTED too — `potions.md` "P3"
+
+The prescription immediately above was implemented as one knob
+(`PLAN_PERIL_SHARE = α`; `α = 0` recovers this term exactly, `α = 1` reads the
+collector's ground from the cell the plan leaves it on and from the ground
+reachable from there, `k = 1` being that rule at zero further turns). It was
+instrumented first, and **the instrument refuted the hypothesis before the rule
+shipped**: on this same corpus a beating enemy can hold the collector's own
+arrival cell on **5 of the 35 pickups**, all five already counted reckless,
+while the other twenty reckless pickups are reckless through their GROUND. At
+the reproduction above the trace reads `arrival=safe`.
+
+| arm | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths |
+|---|---|---|---|---|---|---|
+| BEFORE (`α = 0`) | 35 | 15 | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 |
+| `α = 1`, PERIL_WEIGHT 2 | 49 | 17 | 34 (**69.4%**) | 7 (**14.3%**) | 0 | **25** |
+| `α = 1`, PERIL_WEIGHT 3 | 25 | 7 | 20 (**80.0%**) | 3 (**12.0%**) | 0 | **25** |
+
+Reckless share does not fall usefully, profitable-and-safe falls at both levels,
+deaths rise to 25 in both arms and the first brings back two `edge` deaths.
+Potion-free classes byte-identical, sixteen-arm inversion gate silent, six-suite
+gate 120 passing with no ratchet moved. **Reverted.**
+
+**And the reason corrects this section's own diagnosis of the margin.** `(0,7)`
+and `(4,5)` — the top two candidates at seed 4 turn 36 — are BOTH potion cells,
+so they are two collecting plans that leave the collector in different places,
+which is exactly the pair a per-plan reading exists to order. It does not order
+them. red-C, knight, weight 5, at the debuffed tier:
+
+    turn-start ground   3/9   34/34   73/73   →  peril = 0.667
+    from (0,7)          0/1    5/5    21/21   →  peril = 0.500
+    from (4,5)          0/1    9/9    41/41   →  peril = 0.500
+    from (1,4)          0/1    7/7    29/29   →  peril = 0.500
+
+Three grounds of three sizes, one number — pinned as a fixture in
+`src/lobster/__tests__/tier-window.test.ts`, written against the engine's claims
+rather than against the member so it survives the revert. Conditioning the
+ground on the plan collapses the one discriminating horizon to a BOOLEAN on a
+single cell (false on 30 of 35 pickups) and leaves horizons 2 and 3 saturated at
+1 from every arrival cell, so the per-plan peril takes two values, 0.5 and 1.0,
+and is the constant 0.5 six times in seven. It is also 0.167 CHEAPER than the
+reading it replaces, so it admits pickups rather than refusing them: 35 → 49, up
+on 7 of 7 moving seeds, p = 0.016.
+
+**The standing bound, general form.** `peril` is `Σ_k w_k · beaten_k / |ground_k|`
+over a window whose horizons 2..W are saturated at 1 for every collector on every
+plan. D4 moved `w_k`, P2 moved the share's shape, P3 moved `ground_k` — every
+free part of the expression, each moving the level and none the composition,
+because the saturated tail is not a parameter of any of them. The next attempt
+must remove the tail or stop averaging over it (the untried `beaten_1 > 0`
+floor), not reparameterise the mean a fourth time.
 
 ---
 
