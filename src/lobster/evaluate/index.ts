@@ -79,7 +79,7 @@ export { partitionOf, tierAtTurn, workspaceFor } from './territory';
 export { CONTEST_LOSS, contestFeature, contestField, winsContest } from './contest';
 export type { ContestField } from './contest';
 export { energyCostOf, energyFeature, tripOf } from './energy';
-export { HUNGER_FLOOR, foodDistance, foodFeature } from './food';
+export { HUNGER_FLOOR, foodDistance, foodFeature, freeFoodDistance } from './food';
 export { IDLE_COST, REVERSAL_COST, momentumFeature } from './momentum';
 export { PERIL_WEIGHT, potionFeature, tierFeature, tierIsLive } from './window';
 export type { Admission, Partition, TrailRoom } from './territory';

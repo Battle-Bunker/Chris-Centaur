@@ -67,6 +67,8 @@
 import { bbTest } from '../bits';
 import type { EngineSubstrate } from '../substrate';
 import { type Feature, envelope, point } from './bound';
+import { CONTESTED_MEAL_DISCOUNT } from './calibration';
+import { beatenAt, contestField, frozenTier } from './contest';
 import type { EvalContext, Standing } from './features';
 import { perBoard } from './memo';
 
@@ -108,13 +110,18 @@ export function foodDistance(sub: EngineSubstrate): Int32Array {
 }
 
 function computeFoodDistance(sub: EngineSubstrate): Int32Array {
+  return floodFrom(sub, sub.marshalled.config.food);
+}
+
+/** One multi-source flood over open terrain from the given seed cells. */
+function floodFrom(sub: EngineSubstrate, sources: Iterable<number>): Int32Array {
   const grid = sub.grid;
   const width = grid.width;
   const dist = new Int32Array(grid.cells).fill(UNREACHABLE);
   const queue = new Int32Array(grid.cells);
   let head = 0;
   let tail = 0;
-  for (const cell of sub.marshalled.config.food) {
+  for (const cell of sources) {
     if (cell < 0 || cell >= grid.cells) continue;
     if (dist[cell] !== UNREACHABLE) continue;
     dist[cell] = 0;
@@ -142,6 +149,65 @@ function computeFoodDistance(sub: EngineSubstrate): Int32Array {
 }
 
 /**
+ * THE CONTESTED-MEAL DISCOUNT — the same flood, seeded from the meals this
+ * unit could actually KEEP.
+ *
+ * `contest` (3) under `food` (4) decides the LAST STEP onto a meal: a hungry
+ * unit takes a contested one, a healthy one declines it. It says nothing about
+ * the walk that put the unit beside it, because the flood above seeds every
+ * meal on the board at distance 0 whatever is standing next to it — so a unit
+ * at full health is pulled, one cell of gradient per step, toward a square a
+ * heavier enemy will take, and arrives inside that enemy's fan a ply before it
+ * closes. `docs/design/GLUTTON-CLASS.md` §1 is the reading of 28 of our own
+ * deaths that says that walk, and not the last step, is where they are decided.
+ *
+ * So: a SECOND flood, seeded only from the meals whose arrival this unit wins.
+ * The test is `contest.ts`'s own — `beatenAt` against the same one-ply
+ * `contestField` the `contest` member folds, at this unit's frozen
+ * `(tier, weight)` — so a meal a LIGHTER enemy stands beside is still seeded at
+ * full strength, and the discount never refuses a capture (BEHAVIOUR-AUDIT D1:
+ * taking a square off a lighter enemy is a capture, not a blunder).
+ *
+ * BOARD-ONLY. Nothing here reads who the opponent is or what it values; it
+ * reads the enemy roster's own legal action sets, exactly as `contestField`
+ * does, so the discount is a fact about the position and would fire the same
+ * way against a mirror.
+ *
+ * Cached per MARSHALLED BOARD per (team, tier, weight) — the marshalled board
+ * for the reason `contestField` uses it (a modelled sibling is a `Proxy` and
+ * would otherwise rebuild the field), and the `(tier, weight)` in the key
+ * because the seed set is what THIS unit can keep. One team holds a handful of
+ * distinct pairs, so this is a handful of 169-cell floods per decision on top
+ * of the one the board already pays for.
+ */
+const FREE_DISTANCE = new WeakMap<object, Map<string, Int32Array>>();
+
+export function freeFoodDistance(
+  sub: EngineSubstrate,
+  asTeam: number,
+  tier: number,
+  weight: number
+): Int32Array {
+  const key = `${asTeam}:${tier}:${weight}`;
+  const perKey = perBoard(
+    FREE_DISTANCE,
+    sub.marshalled as unknown as object,
+    () => new Map<string, Int32Array>()
+  );
+  const hit = perKey.get(key);
+  if (hit !== undefined) return hit;
+  const field = contestField(sub, asTeam);
+  const seeds: number[] = [];
+  for (const cell of sub.marshalled.config.food) {
+    if (beatenAt(field, tier, weight, cell)) continue;
+    seeds.push(cell);
+  }
+  const made = floodFrom(sub, seeds);
+  perKey.set(key, made);
+  return made;
+}
+
+/**
  * One unit's appetite for where it is standing.
  *
  * The hunger scale reads the unit's energy at the START of the turn, not the
@@ -155,11 +221,31 @@ function computeFoodDistance(sub: EngineSubstrate): Int32Array {
 function pullOf(ctx: EvalContext, s: Standing, dist: Int32Array): number {
   const d = dist[s.cell];
   if (d === undefined || d === UNREACHABLE) return 0;
+  const unit = ctx.sub.unitOf(s.unitId);
   const cap = Math.max(1, ctx.sub.maxEnergyOf(s.kind));
-  const energy = ctx.sub.unitOf(s.unitId)?.energy ?? s.energy;
+  const energy = unit?.energy ?? s.energy;
   const hunger = Math.min(1, Math.max(0, 1 - energy / cap));
   const diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
-  const near = Math.max(0, 1 - d / diameter);
+  const nearAll = Math.max(0, 1 - d / diameter);
+  // THE CONTESTED-MEAL DISCOUNT. `discount` is 0 for a starving unit at every
+  // knob setting, and 0 for every unit at knob 0 — so the recorded relation
+  // `contest < food` is untouched where it is about, and the knob's zero is
+  // this function as it stood. `nearFree <= nearAll` because the free flood's
+  // seed set is a subset of the full one, so `near` stays inside [0, 1] and the
+  // feature's declared range does not move.
+  const discount = CONTESTED_MEAL_DISCOUNT * (1 - hunger);
+  let near = nearAll;
+  if (discount > 0 && unit !== undefined) {
+    const free = freeFoodDistance(
+      ctx.sub,
+      ctx.asTeam,
+      frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn),
+      unit.weight
+    );
+    const df = free[s.cell];
+    const nearFree = df === undefined || df === UNREACHABLE ? 0 : Math.max(0, 1 - df / diameter);
+    near = nearFree + (1 - discount) * (nearAll - nearFree);
+  }
   return near * (HUNGER_FLOOR + (1 - HUNGER_FLOOR) * hunger);
 }
 
