@@ -399,3 +399,32 @@ refusing a boolean by re-weighting the shares, at any λ.
 3. **Do not re-derive the horizon weights alone.** They are measured now, at
    `λ ∈ {1/4}` against `3, 2, 1`, on eight seeds and 39 → 63 pickups. Another λ
    moves the level in the same direction as this one did.
+
+---
+
+# P2: the peril reads a SHARE of the collector's ground, so a wide collector dilutes itself
+
+`docs/design/BEHAVIOUR-AUDIT-2.md` §P2. `perilOf` divides beaten cells by the
+collector's OWN ground at each horizon, so three beaten cells read 0.375 against
+a knight's eight-cell ground and 0.12 against a queen's twenty-five — the wider
+the collector, the cheaper identical danger looks, yet it will stand on exactly
+one cell and which one is not its choice alone.
+
+## The baseline this section is measured against
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, reproduced on this branch at
+`33c2b23` before the change — identical on every counter to the audit's own
+reading:
+
+| pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths | unit-turns | meals/100 |
+|---|---|---|---|---|---|---|---|
+| 35 | 15 (42.9%) | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 | 3124 | 19.43 |
+
+The reproduction the audit names is on this arm to the digit: `potions` seed 4,
+turn 36, red-C plays the potion cell `(0,7)` at `-342.34` over `(4,5)` at
+`-342.30` — a margin of **0.04** — and the trace prints
+`[red-C hp97 enemyTier+0 caught@1 EXPOSED]`.
+
+`mixed`, `snakes` and `sparse`, seeds 1–3 at 30 turns, are the potion-free
+control: `collectorsOf` gates the whole member, so every arm below must leave
+them byte-identical.
