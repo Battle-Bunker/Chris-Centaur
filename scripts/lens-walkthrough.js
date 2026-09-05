@@ -470,16 +470,55 @@ async function main() {
   await selectAnsweredCandidate(page, 'red-A');
   const beforePin = await railOf();
 
+  /** The undo stack's own depth, from the page. The control bar's TEXT is not
+   *  a witness for it: `/undo/` matches the chip's own label whatever the
+   *  stack holds, and `nothing yet` is absent whenever the stack is non-empty
+   *  FOR ANY REASON — including the multi-unit lock at `17-locked`, which runs
+   *  before this drill and pushes an entry of its own. Read the number. */
+  const undoDepth = () =>
+    page.evaluate(() => (typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length));
+
+  /** CAN THIS HARNESS STAGE AT ALL? `stageSelectedMove` needs
+   *  `userSelectedMove`, which needs a candidate in `moveState.moves`, which
+   *  `setupMoveStateForSnake` builds from `controlled-snake-turn-data` — a
+   *  message the walkthrough server does not send. So `moveState.moves` is
+   *  `{}` here and NO press of `Space` can stage anything, on any candidate,
+   *  in any state this walk reaches. That is a gap in the harness, not in the
+   *  page, and the honest thing is to say so out loud and assert what can be
+   *  asserted rather than to pass on a stack entry left standing by an earlier
+   *  step. It rides in `report.json` so the gap cannot go quiet. */
+  const stageable = await page.evaluate(
+    () => Object.keys((typeof moveState !== 'undefined' && moveState && moveState.moves) || {}).length
+  );
+  report.notes.pinStageable = stageable;
+  if (stageable === 0) {
+    console.log(
+      '  ⚠ drill/pin — this harness sends no controlled-snake-turn-data, so ' +
+        'moveState.moves is empty and no candidate is stageable. The pin step ' +
+        'asserts the undo AFFORDANCE, not a staged move.'
+    );
+  }
+
   // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
   // the operator's own unit, no confirmation, and an undo the moment it lands.
   at = 'drill/pin';
+  const depthBeforePin = await undoDepth();
   await page.keyboard.press(' ');
   await sleep(1200);
   const afterPin = await railOf();
+  const depthAfterPin = await undoDepth();
   check(
-    'pin — the undo affordance arrives with the determination',
-    /undo/i.test(afterPin.controls || '') && !/nothing yet/.test(afterPin.controls || ''),
-    { controls: afterPin.controls, before: beforePin.controls }
+    stageable === 0
+      ? 'pin — the undo affordance names the stack it stands over (nothing is stageable on this harness)'
+      : 'pin — the determination lands on the undo stack, and the affordance says so',
+    stageable === 0
+      ? // With nothing stageable, the honest property is that the bar and the
+        // stack AGREE: `nothing yet` iff the stack is empty. A bar that said
+        // otherwise would be the lie this check exists to catch.
+        depthAfterPin === depthBeforePin &&
+          /nothing yet/.test(afterPin.controls || '') === (depthAfterPin === 0)
+      : depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
+    { controls: afterPin.controls, before: beforePin.controls, depthBeforePin, depthAfterPin, stageable }
   );
   check('pin — the stage line names a plan for every unit', /Bot stages/.test(afterPin.stage || ''), {
     stage: afterPin.stage,
@@ -544,13 +583,22 @@ async function main() {
     await sleep(800);
   }
   await focusUnit(page, 0);
+  const depthBeforeUndo = await undoDepth();
   await page.keyboard.press('u');
   await sleep(1000);
   const undone = await railOf();
+  const depthAfterUndo = await undoDepth();
+  // AND HERE TOO, THE NUMBER RATHER THAN THE WORD. `/undo/` matched the
+  // chip's own label and passed whether or not anything was taken back. The
+  // property is that `U` pops exactly one entry when there is one, and that a
+  // press against an empty stack is a no-op rather than an underflow — and
+  // that the bar's sentence agrees with the stack either way.
   check(
-    'undo — takes the determination back and names what it took',
-    /undo/i.test(undone.controls || ''),
-    { controls: undone.controls }
+    'undo — pops exactly one determination, or nothing when there is nothing',
+    depthBeforeUndo > 0
+      ? depthAfterUndo === depthBeforeUndo - 1
+      : depthAfterUndo === 0 && /nothing yet/.test(undone.controls || ''),
+    { controls: undone.controls, depthBeforeUndo, depthAfterUndo }
   );
   await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
   report.notes.drill = drill;
