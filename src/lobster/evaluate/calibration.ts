@@ -183,6 +183,51 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
 export const CLIFF_MATERIAL_WEIGHT = 10;
 
 /**
+ * SURVIVAL DEGREE κ — the ONE knob of `docs/design/DEEP-DEATHS.md` §6.
+ *
+ * `ADMISSION.lo` (`evaluate/features.ts`) admits one of our units to the floor
+ * with a BOOLEAN, and `DEEP-DEATHS` §5.3 measured what that costs: two plans
+ * that put a unit on two different cells of the same contested fan give the
+ * same `worstAlive`, so `material.lo` — the one term carrying the death cliff —
+ * is the SAME NUMBER for both (identical on 24 of the 29 decisions that killed
+ * at 4×), `better()` falls through it, and a margin of food decides which of
+ * the two dies.
+ *
+ * κ grades that admission in the `lo` reading only. An admitted unit of ours
+ * enters the material floor at survival weight
+ *
+ *     w = 1 − κ · c / R      c ≤ R,  w ∈ [1 − κ, 1]
+ *
+ * where R is the enemy replies the resolver enumerated on this board and `c`
+ * how many of them beat that unit where the plan stages it, so `material`
+ * charges `(1 − w)` of its weight against the plan that walks into the fan.
+ *
+ * ZERO IS THE SHIPPED VALUE and zero is byte-identical to the boolean: `w = 1`
+ * for every admitted unit, and the grading code is not reached at all. The
+ * knob is read off the profile (and so folds into `evaluationIdentity`,
+ * which is what keeps two doses out of each other's evaluation memo);
+ * `CENTAUR_SURVIVAL_DEGREE` seeds it once at module load so a sweep arm is a
+ * run of the same build rather than a rebuild.
+ *
+ * See §10 of `docs/design/DEEP-DEATHS.md` for the per-κ measurement and for
+ * which dose, if any, this constant is allowed to carry.
+ */
+export const SURVIVAL_DEGREE: number = readSurvivalDegree();
+
+function readSurvivalDegree(): number {
+  const raw = process.env.CENTAUR_SURVIVAL_DEGREE;
+  if (raw === undefined || raw === '') return 0;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0 || v > 1) {
+    throw new Error(
+      `CENTAUR_SURVIVAL_DEGREE=${raw} is not a survival degree — κ is a fraction ` +
+        'of one unit of material and must sit in [0, 1]'
+    );
+  }
+  return v;
+}
+
+/**
  * How many turns ahead the reach flood runs. Shells are keyed by ABSOLUTE
  * turn, so a unit held since turn 7 and read at turn 10 gets its three turns of
  * head start as a SEED rather than as an inexpressible negative delay. That
@@ -262,6 +307,12 @@ export interface CriterionProfile {
    * keeps the linear reading for every kind — today's behaviour.
    */
   readonly energyReserveRatio?: number;
+  /**
+   * `survivalDegree` κ ∈ [0, 1] — see `SURVIVAL_DEGREE` above. `undefined` is
+   * κ = 0, the boolean admission that shipped, and a profile that never heard
+   * of the knob therefore reads exactly as it did.
+   */
+  readonly survivalDegree?: number;
 }
 
 /** What a piece's next-turn command set is counted for, and for whom. */
@@ -417,6 +468,8 @@ export const TERRITORY_PROFILE: CriterionProfile = {
   // on it is unaffected by either.
   command: COMMAND_KNOBS,
   energyReserveRatio: HEALTH_RESERVE_RATIO,
+  // THE GRADED ADMISSION, at its shipped dose. See `SURVIVAL_DEGREE`.
+  survivalDegree: SURVIVAL_DEGREE,
 };
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;

@@ -280,6 +280,7 @@ export function checkWeights(
   features: ReadonlyArray<Feature<EvalContext>>
 ): void {
   checkCommandKnobs(profile);
+  checkSurvivalDegree(profile);
   const folded = new Set(features.map((f) => f.key));
   const named = new Set(Object.keys(profile.weights));
   const missing: string[] = [];
@@ -298,6 +299,32 @@ export function checkWeights(
     parts.push(`names ${unknown.sort().join(', ')}, which this fold has no feature for`);
   }
   throw new Error(`criterion profile "${profile.name}" ${parts.join('; and it ')}`);
+}
+
+/**
+ * κ IS CHECKED BY THE SAME DOOR AND FOR THE SAME REASON.
+ *
+ * `survivalDegree` reaches the fold through `EvalContext.survivalDegree` and
+ * multiplies one of our units' material inside the FLOOR, so a profile
+ * assembled from a stored binding — a plain object TypeScript never saw — can
+ * put anything there. `undefined` is the shipped κ = 0 and is fine; a
+ * non-number is a `NaN` floor that compares false against everything; a
+ * NEGATIVE κ makes `w > 1` and RAISES the floor above the boolean admission,
+ * which is a floor asserting a unit is worth more than its own weight in the
+ * worst world — the one direction the rule may never take (see
+ * `survivalWeightOf` in `features.ts`); and κ > 1 makes `w` negative, which
+ * charges a live unit as if it were worse than dead.
+ */
+function checkSurvivalDegree(profile: CriterionProfile): void {
+  const k = profile.survivalDegree as unknown;
+  if (k === undefined) return;
+  if (typeof k === 'number' && Number.isFinite(k) && k >= 0 && k <= 1) return;
+  throw new Error(
+    `criterion profile "${profile.name}" has survivalDegree=${String(k)} — κ weights ` +
+      'an admitted unit inside the material floor and must be a finite fraction in ' +
+      '[0, 1]: below 0 it raises the floor above the boolean admission, above 1 it ' +
+      'prices a live unit as worse than a dead one'
+  );
 }
 
 /** The numeric knobs of `CommandKnobs`, named once so adding one cannot forget

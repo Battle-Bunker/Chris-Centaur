@@ -66,10 +66,10 @@ import { REACH_HORIZON_TURNS } from './calibration';
 import type { CommandKnobs, CriterionProfile } from './calibration';
 import { ShellTable, buildShells } from './shells';
 import type { UnitShells } from './shells';
-import { perBoard } from './memo';
+import { perBoard, perBoardPerTeam } from './memo';
 import { partitionOf, workspaceFor } from './territory';
 import type { Admission, Partition } from './territory';
-import { contestFeature } from './contest';
+import { contestFeature, frozenTier, winsContest } from './contest';
 import { energyFeature } from './energy';
 import { foodFeature } from './food';
 import { momentumFeature } from './momentum';
@@ -180,6 +180,11 @@ export interface EvalContext {
   readonly command: CommandKnobs | null;
   /** The energy-budget reserve fraction, or null for the linear reading. */
   readonly energyReserveRatio: number | null;
+  /**
+   * `survivalDegree` κ — the graded admission of `calibration.ts`. 0 is the
+   * boolean that shipped, and at 0 nothing below it is reached.
+   */
+  readonly survivalDegree: number;
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
   food(): Bitboard;
@@ -349,7 +354,10 @@ export function makeContext(
    * `CriterionProfile` field that I1 itself added. Both defaults are preserved
    * exactly; see the context construction below.
    */
-  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
+  profile?: Pick<
+    CriterionProfile,
+    'command' | 'energyReserveRatio' | 'royalReachers' | 'survivalDegree'
+  >
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const ws = workspaceFor(sub);
@@ -387,6 +395,9 @@ export function makeContext(
     pieceScale,
     command: profile?.command ?? null,
     energyReserveRatio: profile?.energyReserveRatio ?? null,
+    // ABSENT IS ZERO, and zero is the boolean admission that shipped — a
+    // caller that never heard of the knob gets the reading it always had.
+    survivalDegree: profile?.survivalDegree ?? 0,
     shells() {
       if (shellsCache === null) {
         shellsCache = buildShells(sub, resolution, horizonTurns, ws.table, ws.shellsOut);
@@ -575,6 +586,110 @@ export const ADMISSION: Readonly<Record<'lo' | 'hi', Admission<Standing>>> = {
 };
 
 /**
+ * THE GRADED ADMISSION — `survivalDegree` κ, `docs/design/DEEP-DEATHS.md` §6.
+ *
+ * `ADMISSION.lo` is a BOOLEAN, and §5.3 of that document measured the price:
+ * two plans that stage a unit on two different cells of the SAME contested fan
+ * leave `worstAlive` alone, so `material.lo` — the only term carrying the death
+ * cliff — is the same number for both, `better()` falls through the floor, and
+ * a food increment of 0.006 picks which of the two units dies. κ replaces the
+ * `1` an admitted unit is worth in the FLOOR with
+ *
+ *     w = 1 − κ · c / R                                          ∈ [1 − κ, 1]
+ *
+ * where R is the enemy replies the resolver enumerated on this board — one per
+ * live enemy, its whole action set at once, exactly the enumeration
+ * `contest.ts`'s `contestField` folds — and `c` is how many of those replies
+ * BEAT this unit where the plan stages it, by the resolver's own
+ * `winsContest`. `material` then charges `(1 − w)` of the unit's weight, so on
+ * a lightest unit at R = 4 one contested cell moves `material.lo` by
+ * `10 · κ / 4` in the fold.
+ *
+ * ── WHY IT IS STILL A FLOOR ────────────────────────────────────────────────
+ *
+ * `w ≤ 1` and a unit's own material contribution is non-negative, so the
+ * weighted sum is `≤` the boolean one, TERM BY TERM AND ALWAYS: whatever world
+ * the old `lo` was a lower bound over, the new one is a lower bound over the
+ * same worlds. Nothing is claimed about a world; a floor is lowered. That is
+ * also why the weight may not be spent anywhere else in the fold — on a FEAR
+ * (`room`, `contest`, `momentum`, every `ourUnitTerm` member whose value is
+ * negative) a factor below 1 would SHRINK a charge and RAISE the floor, which
+ * is the inversion `ourUnitTerm` exists to forbid (a death raising our floor).
+ * The grading is therefore `material`'s alone, and `material.hi` never sees it:
+ * the `hi` reading is a ceiling and lowering it is not sound.
+ *
+ * ── AND WHY IT STOPS AT A DETERMINATE WORLD ────────────────────────────────
+ *
+ * κ applies only while something is HELD. With every reply named the
+ * settlement has already said who dies, `c` counts replies that are no longer
+ * open, and a discount there would put `lo` under `hi` on a world that IS its
+ * own answer — breaking the discharge property `material` declares
+ * (`dischargeable: true`), the point-ness the exact-reply oracle needs to
+ * compare a floor against a world at all (`bounds/exact-reply.ts`,
+ * `world-not-a-point`), and the law sweep's own worlds. So the narrowing lives
+ * exactly where the reply space is open, which is where the floor is a bound
+ * rather than a value — and where every one of §3's fatal decisions sits.
+ */
+function survivalWeightOf(ctx: EvalContext, s: Standing): number {
+  // ADMISSION.lo drops a HELD unit of ours outright; the grading is about the
+  // ones it admits, and re-weighting a dropped unit would be a second rule.
+  if (s.held) return 1;
+  const unit = ctx.sub.unitOf(s.unitId);
+  if (unit === undefined) return 1;
+  const replies = enemyReplies(ctx.sub, ctx.asTeam);
+  if (replies.length === 0) return 1;
+  // FROZEN, both sides, for the same reason `contest` freezes: the rules
+  // adjudicate this turn's collisions on the tier and weight held at the START
+  // of the turn.
+  const ourTier = frozenTier(unit.tier, unit.tierExpiresAtTurn, ctx.sub.turn);
+  let beaten = 0;
+  for (const reply of replies) {
+    if (!reply.cells.has(s.cell)) continue;
+    if (!winsContest(ourTier, unit.weight, reply.tier, reply.weight)) beaten++;
+  }
+  if (beaten === 0) return 1;
+  return 1 - (ctx.survivalDegree * beaten) / replies.length;
+}
+
+/** One enemy's whole action set, with what it brings to every cell of it. */
+interface EnemyReply {
+  readonly cells: ReadonlySet<number>;
+  readonly tier: number;
+  readonly weight: number;
+}
+
+/**
+ * THE R OF `c / R` — one reply per live enemy, cached per board per subject
+ * team.
+ *
+ * Keyed on the MARSHALLED BOARD and not on the substrate, for the reason
+ * `contestField` is: a modelled sibling is a `Proxy` over its parent and the
+ * marshalled board is the one object it hands straight through, so parent and
+ * siblings share the one table. That sharing is correct here for the same
+ * reason it is correct there — the table reads the roster and the grammar and
+ * never the modelled set — and it is what keeps the enumeration off the hot
+ * path: once per board per team, against tens of thousands of evaluations.
+ */
+const ENEMY_REPLIES = new WeakMap<object, Map<number, ReadonlyArray<EnemyReply>>>();
+
+function enemyReplies(sub: EngineSubstrate, asTeam: number): ReadonlyArray<EnemyReply> {
+  return perBoardPerTeam(ENEMY_REPLIES, sub.marshalled, asTeam, () => {
+    const out: EnemyReply[] = [];
+    for (const unit of sub.roster()) {
+      if (unit.team === asTeam) continue;
+      const cells = new Set<number>();
+      for (const action of sub.actionsOf(unit.unitId)) cells.add(action.to);
+      out.push({
+        cells,
+        tier: frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn),
+        weight: unit.weight,
+      });
+    }
+    return out;
+  });
+}
+
+/**
  * Whether the two readings admit exactly the same subjects — the predicates
  * above, evaluated side by side rather than restated. A subject on which they
  * disagree is one the settlement left contingent (or a held stand-in), and one
@@ -632,13 +747,23 @@ export const materialFeature: Feature<EvalContext> = {
  * become a divergence.
  */
 export function materialBounds(ctx: EvalContext): { worst: number; best: number } {
+  // κ, and the one condition it is spent under: a world with nothing held is
+  // its own answer and takes no discount (`survivalWeightOf`). The `κ > 0` test
+  // comes first so the shipped profile never walks `standing` for the second
+  // time.
+  const graded = ctx.survivalDegree > 0 && ctx.standing.some((s) => s.held);
   let worst = 0;
   let best = 0;
   for (const s of ctx.standing) {
     const mine = s.team === ctx.asTeam;
     const low = Math.max(0, s.weightMin - s.partialLossMax);
     if (mine) {
-      if (s.worstAlive) worst += low;
+      // THE GRADED ADMISSION, and it is a floor being LOWERED — see
+      // `survivalWeightOf`. `graded` is false at the shipped κ = 0 and on any
+      // determinate world, and the short-circuit is deliberate: at κ = 0 not
+      // one enemy action set is enumerated and the reading is the boolean one,
+      // instruction for instruction.
+      if (s.worstAlive) worst += graded ? survivalWeightOf(ctx, s) * low : low;
       if (s.bestAlive) best += s.weightMax;
     } else {
       // The subject's worst world is the one where the enemy thrives.
