@@ -745,3 +745,167 @@ written against the engine's own claims rather than against the member, so it
 holds whatever the fold ships — including the fact that the top two candidates on
 that board are both collecting plans, which is what makes it the right boundary
 to measure a per-plan rule against.
+
+---
+
+# The fifth attempt: the gate and the escape floor — measured first, and still a price cut
+
+`docs/design/potion-shape.md`. The fourth attempt's own closing instruction was
+*do not re-parameterise `perilOf` a fifth time*, and this is not that: the study
+measured all 35 pickups BEFORE naming a shape, found that the separating
+quantity (`peril`, AUC 0.924) has all of its content at horizon 1, and proposed
+the one shape that is not a scaling of the existing share — the saturated tail
+DROPPED rather than reweighted, the discriminating horizon spent as a GATE, and
+the gradient taken from a per-plan COUNT.
+
+It is the first of the five arms whose rule demonstrably **reached the
+decision**. It is also the worst of the five by every counter. Both facts are
+the finding.
+
+## The rule that was built
+
+One knob `D`, `D = 0` the shipped term to the bit — verified: `potions` seeds
+1–8 at 60 turns came back with every JSON field identical and seed 4's and seed
+6's transcripts identical modulo the wall-clock `worstDecisionMs`.
+
+    b1     = beaten_1 / |ground_1|        horizon 1 ONLY, turn-start ground
+    gate   = min(1, b1 / 0.20)            0.20 is the measurement's own threshold
+    escape = cells of the collector's one-turn claim FROM its arrival cell that
+             the arrival turn's enemy field does not beat at the debuffed tier
+    peril  = min(1, 5.08 · gate / (1 + escape))
+
+`K = 5.08` is `median(peril_today) / median(gate/(1+escape))` over those 35
+pickups — D4's "hold the mean cost of the corpus fixed" done literally.
+`arrivalExits` is P3's construction at one horizon (`claimsAfter` of a board
+whose only change is the collector's settled occupancy), memoised per
+(collector, occupancy): one claim pass per key, half what P3 paid.
+
+## What was measured
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, paired by seed
+(`scripts/ab-compare.js`, per board class, never pooled), `D = 1`:
+
+| arm | pickups | profitable | reckless | profitable AND safe | arrivalBeaten | ground1 share | deathsWhileDebuffed | deaths | unit-turns |
+|---|---|---|---|---|---|---|---|---|---|
+| BEFORE (`D = 0`) | 35 | 15 | 25 (**71.4%**) | 7 (**20.0%**) | 5 | 71/316 = 0.225 | 0 | 21 | 3124 |
+| `D = 1` | **67** | 18 | 51 (**76.1%**) | 9 (**13.4%**) | 12 | 184/905 = 0.203 | **1** | **23** | 3083 |
+
+Per seed the pickups go 5/7/4/8/1/3/2/5 → 5/15/5/8/7/8/7/12: up on 7 of the 8
+seeds, flat on one, sign test **p = 0.070** — the identical signature D4 and P3
+produced, and again the only clean result in the arm. The pre-registration was
+profitable-and-safe **≥ 25%**, reckless **not above 71.4%**, pickups **28–42**,
+`deathsWhileDebuffed` **0**, deaths **not above 21**, the potion-free classes
+byte-identical, and the two board-level re-sorts. Scored honestly:
+
+* **profitable-and-safe ≥ 25% — NO**, 20.0% → 13.4%. Nine events out of 67.
+* **reckless not above 71.4% — NO**, 71.4% → 76.1%.
+* **pickups 28–42 — NO**, 67. This was named "the sharpest test": the
+  median-preserving calibration existed precisely to keep the count still while
+  the composition moved, and the count nearly doubled. **The calibration is
+  refuted directly.**
+* **`deathsWhileDebuffed` 0 — NO**, one (seed 4), with one `deathsWhileBuffed`
+  beside it.
+* **deaths not above 21 — NO**, 23. No `edge` deaths: the causes are
+  `contest` 18 → 20, `bodyBlock` 2 → 2, `self` 1 → 1.
+* **potion-free classes byte-identical — YES.** `mixed`, `snakes`, `sparse` and
+  `sparse-lean`, 60 turns seeds 1–3, are identical JSON on every field but
+  `label`; `collectorsOf` gates the whole member.
+* **Bound soundness — CLEAN.** Sixteen arms under `CENTAUR_DEBUG_INVERSION=1`
+  print no INVERSION line, and the six-suite gate passes 121 tests with no
+  ratchet moved and the determinism fixture not re-pinned.
+* **The board-level predictions — HELD ON THE BOARDS, AND UNREACHABLE IN THE
+  RUN.** See below; this is the part worth keeping.
+
+**Reverted.** `window.ts` and `tier-window.test.ts` are a zero diff against the
+working head, and all eight `potions` summaries come back byte-identical to the
+baseline.
+
+## Why it fails, which is the part worth keeping
+
+### 1. The two board-level predictions both hold, and it changes nothing
+
+Pinned as boundary tests on the runner's own boards and measured through the
+member's own peril half, the shape does exactly what §3 of the study says:
+
+    seed 6 t39   charge(5,8) − charge(2,5)  >  0.03, the fold's own margin
+                 charge(5,8)                >  0.34, the gap to (1,6)
+    seed 4 t36   charge(0,7) − charge(4,5)  >  0.04
+
+All three pass. This is the first arm of the five to order two collecting plans
+at all — P2 measured the charge identical on both, P3 measured it identical
+again for a different reason, and this one separates them by more than the
+margin, on both of the boards three previous attempts were sized against.
+
+And in the live A/B **neither board occurs**. Both games diverge at **turn 2**,
+long before turn 36 or turn 39, and by turn 36 red-C is at (5,6) on seed 4 and
+by turn 39 red-A is dead on seed 6. The first differing line on both seeds is
+the same one:
+
+    before  T 2 blue-B queen (7,8)->(7,7)  top3: (7,7)=-30.95 (5,8)=-41.04 ...
+    after   T 2 blue-B queen (7,8)->(7,7)  top3: (7,7)=-30.95 (5,8)=-40.76 ...
+
+— a collecting candidate 0.28 fold units CHEAPER. **Reaching the decision was
+never the binding constraint.** Three attempts diagnosed "the charge cancels, so
+it cannot re-sort"; this one removed the cancellation, re-sorted both named
+boards, and made every counter worse. The prescription those attempts closed on
+is now measured and it is not the repair either.
+
+### 2. Deleting the saturated tail is the biggest price cut yet, and the gate aims it at the wrong population
+
+The shipped term's floor is the tail: with `beaten_2 = beaten_3 = 1` every
+pickup costs at least `(2 + 1)/6 = 0.5`, i.e. `4 × 0.5 / |ours|` fold units,
+whatever its horizon 1 says. The gated shape charges **zero** whenever
+`b1 = 0` — and `b1 = 0` on 12 of the baseline's 35 pickups. So the one thing
+restraining every clean-horizon-1 pickup was removed outright. Three arms have
+now moved the tail and the size of the pickup rise tracks how much of it they
+removed:
+
+| arm | what it did to the tail | pickups |
+|---|---|---|
+| D4 `λ = 1/4` | reweighted it from 0.5 to 0.238 | 39 → 63 |
+| P3 `α = 1` | replaced the ground; tail still 0.5, horizon 1 collapsed to a boolean | 35 → 49 |
+| **this** | **deleted it** | **35 → 67** |
+
+`K` was supposed to prevent exactly this, and it is worth being precise about
+why it did not. `K` holds the median charge fixed **over the pickups the
+baseline took**. The fold does not choose among pickups; it chooses among
+PLANS, and the plans it declined are not in that sample. Holding the median of
+the accepted set fixed while sending a third of it to zero necessarily raises
+the acceptance rate — the distribution `K` was calibrated on is the output of
+the very decision the knob changes.
+
+### 3. A quantity that separates the pickups a bot TOOK does not separate the pickups it was OFFERED
+
+This is the new finding, and it is the general form of §2. The study's AUC of
+0.924 is measured on 35 accepted pickups, labelled good or bad after the fact.
+It is a statement about a *selected* sample. The rule is applied to every
+candidate plan on every node, and the counters say what that reweighting did to
+the population: the corpus mean horizon-1 beaten share moves 0.225 → **0.203**,
+about a tenth, while the count moves 35 → **67**, about a double. The
+composition is flat and the level moved — the same sentence D4, P2 and P3 all
+end on, now reached by a rule that provably re-sorts individual boards.
+
+`arrivalBeaten` went 5 → 12 and `recklessArrivalBeaten` 5 → 12, so every one of
+the extra arrival-beaten pickups is reckless too: the pickups the price cut
+admitted are the exposed ones, for the fourth time in four arms.
+
+## What the next attempt should do differently
+
+**Nothing. Leave the member alone until the game changes.** Five shapes have now
+been measured on this corpus — the level (`PERIL_WEIGHT`), the horizon weights
+(D4), the share's shape (P2), the ground (P3), and now a rule that is not a
+reparameterisation at all — and all five moved the count and left the
+composition flat. The member is sound, it is free on the three potion-free board
+classes, it costs no lives at `D = 0` (`deathsWhileDebuffed` 0 across 480 turns
+and 35 pickups), and the study's own §2 proves the target was never reachable:
+six of the seventeen bad pickups stand 9.8 to 88.8 fold units clear of any
+non-collecting candidate and cannot be refused by a member whose whole range is
+1.33 fold units, and refusing every refusable bad pickup still leaves reckless
+at 44.4% against the 40% two arms were scored on.
+
+The cheapest next step is not a member and not a knob. It is **more board**:
+twenty seeds, or a scenario with more potions and more units, so that a shift of
+four or five events is resolvable at all. That is the third item of the second
+attempt's own "what the next attempt should look at", it is still untried after
+five arms, and it is the only change that would make any of these numbers
+decidable. Until then, a sixth arm is a sixth measurement of the same 35 events.
