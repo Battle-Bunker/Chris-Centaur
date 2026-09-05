@@ -11,6 +11,7 @@
  * from screen to screen and consistent with the live view:
  *
  *   Ctrl+/ (or ?)   the key sheet — the same chord play-game.html uses
+ *   Ctrl+,          the preferences panel (`prefs.js` owns it, everywhere)
  *   p h c a d       go to play / history / config / activity / debug
  *   /               focus the page's filter, where it has one
  *   ↑ ↓ Enter       move and open the selected row      (list pages)
@@ -132,6 +133,45 @@
 
   /* ── The header ────────────────────────────────────────────────────────── */
 
+  /* ── The two preferences this file has (docs/design/ux/12-PREFERENCES.md) ──
+   * `chrome.landing` says where the brand mark goes, for the operator who
+   * lives in /history and is tired of being sent to /play; and the settings
+   * chip below is the visible way into the panel `prefs.js` owns, because a
+   * chord nobody can find is folklore. The live view has no chrome, which is
+   * why the panel and the `Ctrl+,` handler live in `prefs.js` and not here.
+   */
+  function prefs() {
+    return global.Prefs && typeof global.Prefs.get === 'function' ? global.Prefs : null;
+  }
+  function landingHref() {
+    var P = prefs();
+    var key = P ? P.get('chrome.landing') : 'play';
+    for (var i = 0; i < PAGES.length; i++) if (PAGES[i].key === key) return PAGES[i].href;
+    return '/play';
+  }
+
+  /** The chip is a button, not a reading, so it carries no tone of its own —
+   *  it sits at the end of the chip row where the eye already passes. */
+  function settingsChip() {
+    if (!statusEl || chips.prefs) return;
+    var el = document.createElement('span');
+    el.className = 'chip chip-unknown';
+    el.innerHTML = '<span class="glyph">\u2699</span><span class="word">Settings</span>';
+    el.title = 'Preferences (Ctrl+,)';
+    el.style.cursor = 'pointer';
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    var open = function () {
+      if (global.Prefs && global.Prefs.panel) global.Prefs.panel.toggle();
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+    statusEl.appendChild(el);
+    chips.prefs = el;
+  }
+
   function buildHeader() {
     var header = document.querySelector('.header');
     if (!header) {
@@ -151,7 +191,7 @@
       (document.querySelector('.header h1') || {}).textContent || '';
 
     header.innerHTML =
-      '<a class="brand" href="/play">' +
+      '<a class="brand" href="' + esc(landingHref()) + '">' +
         '<span class="brand-mark">Centaur</span>' +
         '<span class="brand-page">' + esc(title) + '</span>' +
       '</a>' +
@@ -173,6 +213,7 @@
     var pending = chipState;
     chipState = {};
     Object.keys(pending).forEach(function (k) { chip.apply(null, pending[k]); });
+    settingsChip();
   }
 
   /* ── The key sheet ─────────────────────────────────────────────────────── */
@@ -201,7 +242,7 @@
   }
 
   function baseKeyRows() {
-    var rows = [['Ctrl + /', 'this list']];
+    var rows = [['Ctrl + /', 'this list'], ['Ctrl + ,', 'preferences']];
     PAGES.forEach(function (p) { rows.push([p.accel, 'go to ' + p.label]); });
     if (listState) {
       rows.push(['/', 'filter the list']);
@@ -364,6 +405,14 @@
     buildHeader();
     rebuildSheet();
     document.addEventListener('keydown', onKey);
+    var P = prefs();
+    if (P && typeof P.subscribe === 'function') {
+      P.subscribe(function (ids) {
+        if (ids.indexOf('chrome.landing') < 0) return;
+        var brand = document.querySelector('.header .brand');
+        if (brand) brand.setAttribute('href', landingHref());
+      });
+    }
     // The Firebase chip picks up whatever the banner already knows or learns.
     if (global.FirebaseStatusBanner && global.FirebaseStatusBanner.subscribe) {
       global.FirebaseStatusBanner.subscribe(setFirebase);

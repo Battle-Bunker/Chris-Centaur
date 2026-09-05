@@ -35,8 +35,9 @@
  * on `?` then `T` (a two-key chord, so neither key is taken from the page —
  * `?` alone does nothing here and `T` alone stays the left-hand scheme's
  * drill); and on the `? tour` link this module puts in its own mount. It
- * remembers completion in `localStorage` under `lensTourDone`, so it opens
- * itself once and never again unless it is asked for.
+ * remembers completion in the preference store under `tour.doneVersion`
+ * (docs/design/ux/12-PREFERENCES.md), so it opens itself once and never again
+ * unless it is asked for.
  *
  * `prefers-reduced-motion` turns off every transition it has; the spotlight
  * then jumps rather than slides, which is the same information without the
@@ -45,7 +46,7 @@
 (function (global) {
   'use strict';
 
-  const DONE_KEY = 'lensTourDone';
+  const DONE_KEY = 'tour.doneVersion';
   /** Bumped only when the STEPS below change enough that an operator who has
    *  seen the old tour has not seen this one. */
   const VERSION = '1';
@@ -230,19 +231,23 @@
     return state.mount;
   }
 
+  /** THE COMPLETION IS A PREFERENCE (docs/design/ux/12-PREFERENCES.md §4): it
+   *  is persisted, it is per operator, and it is about you rather than about
+   *  a game. It lives in the store under `tour.doneVersion` — which is why
+   *  these two functions no longer know what `localStorage` is, and why the
+   *  settings panel can offer "show the tour again" without this file gaining
+   *  an affordance for it. A page with no store keeps the tour working and
+   *  loses only the memory of having seen it. */
+  function prefs() {
+    return global.Prefs && typeof global.Prefs.get === 'function' ? global.Prefs : null;
+  }
   function stored(key) {
-    try {
-      return global.localStorage.getItem(key);
-    } catch (e) {
-      return null;
-    }
+    const P = prefs();
+    return P ? P.get(key) : null;
   }
   function store(key, value) {
-    try {
-      global.localStorage.setItem(key, value);
-    } catch (e) {
-      /* a private window, or storage off — the tour is not worth an exception */
-    }
+    const P = prefs();
+    if (P) P.set(key, value);
   }
 
   /** The operator's OWN key for an action, so the tour teaches the scheme they
@@ -414,11 +419,8 @@
   }
 
   function reset() {
-    try {
-      global.localStorage.removeItem(DONE_KEY);
-    } catch (e) {
-      /* nothing to forget */
-    }
+    const P = prefs();
+    if (P) P.reset(DONE_KEY);
   }
 
   /**

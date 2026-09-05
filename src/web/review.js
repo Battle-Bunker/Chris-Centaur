@@ -12,7 +12,7 @@
  * `turn_events` through `/api/logs` — folded, ranked and formatted. No re-run,
  * no re-price, no second `explainPlan`; a row the game did not price draws `—`
  * and says so. Nothing here writes anything anywhere except one bounded
- * `localStorage` key for the reviewer's own bookmarks.
+ * preference (`review.marks`) for the reviewer's own bookmarks.
  *
  * TWO PASSES, because a whole game's `movesets` frames are tens of megabytes
  * (07-MEASURED §1: 33–88 KB per emission, seven to ten an emission a turn):
@@ -29,7 +29,7 @@
 (function (global) {
   'use strict';
 
-  var MARKS_KEY = 'centaur.reviewMarks';   // { [gameId]: [{turn, focus, at}] }
+  var MARKS_KEY = 'review.marks';          // { [gameId]: [{turn, focus, at}] }, in `prefs.js`
   var MARKS_CAP = 200;
   var DEEP_BUDGET = 40;                    // turns read deeply in the background
   var LOG_LIMIT = 5000;                    // per index fetch — these are small kinds
@@ -425,14 +425,25 @@
 
   // ── Bookmarks ───────────────────────────────────────────────────────────
 
+  /** THE BOOKMARKS ARE A PREFERENCE (docs/design/ux/12-PREFERENCES.md §4):
+   *  deliberately set, per operator, about no single session. They live in
+   *  the store under `review.marks`, whose `opaque` type checks that what
+   *  comes back is JSON and leaves the shape to this file — which is the one
+   *  thing the old reader never did. A page with no store keeps the panel
+   *  working for the session. */
+  function prefs() {
+    return global.Prefs && typeof global.Prefs.get === 'function' ? global.Prefs : null;
+  }
+
   function readMarks() {
-    try { return JSON.parse(global.localStorage.getItem(MARKS_KEY) || '{}') || {}; }
-    catch (e) { return {}; }
+    var P = prefs();
+    var all = P ? P.get(MARKS_KEY) : null;
+    return all && typeof all === 'object' ? all : {};
   }
 
   function writeMarks(all) {
-    try { global.localStorage.setItem(MARKS_KEY, JSON.stringify(all)); }
-    catch (e) { /* private mode / quota — a bookmark is a convenience */ }
+    var P = prefs();
+    if (P) P.set(MARKS_KEY, all);   // private mode / quota — a bookmark is a convenience
   }
 
   function marksFor(gameId) {

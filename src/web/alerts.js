@@ -86,7 +86,6 @@
   // heard.
   const ESCALATE_TURNS = 3;
 
-  const STORE_KEY = 'centaurAlerts';
   const LOG_MAX = 200;
 
   /**
@@ -167,6 +166,18 @@
   // system's; every alarm guideline in §2 of the doc wants a per-event
   // opt-out, because the one thing that reliably kills an alert channel is a
   // channel the operator cannot narrow and therefore mutes whole.
+  //
+  // THE VALUES LIVE IN `prefs.js` (docs/design/ux/12-PREFERENCES.md §2.3).
+  // This module says which four preferences it reads and how they map onto
+  // the shape the rest of the file already uses; the store owns the defaults,
+  // the validation, the migration from the old `centaurAlerts` key and the
+  // change events — including the one from another tab, which this channel
+  // never had. The popover on the alert button and the settings panel are two
+  // affordances onto ONE value, which is a UI decision (the mute must be one
+  // click from the alert that is annoying you); two stores would be the
+  // duplication `12` is about.
+  const PREF_IDS = ['alerts.muted', 'alerts.volume', 'alerts.notify', 'alerts.events'];
+
   function defaults() {
     const events = {};
     for (const id of EVENT_IDS) events[id] = true;
@@ -175,33 +186,39 @@
 
   let prefs = defaults();
 
+  /** A page with no store — a fixture, a unit test — keeps the defaults and
+   *  loses only the persistence. */
+  function prefStore() {
+    return global.Prefs && typeof global.Prefs.get === 'function' ? global.Prefs : null;
+  }
+
   function loadPrefs() {
-    prefs = defaults();
-    let raw = null;
-    try {
-      raw = global.localStorage ? global.localStorage.getItem(STORE_KEY) : null;
-    } catch (e) { raw = null; }        // a locked-down profile is not an error
-    if (!raw) return prefs;
-    let saved = null;
-    try { saved = JSON.parse(raw); } catch (e) { saved = null; }
-    if (!saved || typeof saved !== 'object') return prefs;
-    if (typeof saved.muted === 'boolean') prefs.muted = saved.muted;
-    if (typeof saved.notify === 'boolean') prefs.notify = saved.notify;
-    if (typeof saved.volume === 'number' && saved.volume >= 0 && saved.volume <= 1) {
-      prefs.volume = saved.volume;
+    const P = prefStore();
+    if (!P) { prefs = defaults(); return prefs; }
+    const events = P.get('alerts.events') || {};
+    const out = defaults();
+    out.muted = P.get('alerts.muted');
+    out.notify = P.get('alerts.notify');
+    out.volume = P.get('alerts.volume');
+    // THE CATALOGUE IS THIS FILE'S. The store carries a flag per event id and
+    // an id it does not know takes its default here rather than there, so a
+    // new row in `EVENTS` needs no migration.
+    for (const id of EVENT_IDS) {
+      if (typeof events[id] === 'boolean') out.events[id] = events[id];
     }
-    if (saved.events && typeof saved.events === 'object') {
-      for (const id of EVENT_IDS) {
-        if (typeof saved.events[id] === 'boolean') prefs.events[id] = saved.events[id];
-      }
-    }
+    prefs = out;
     return prefs;
   }
 
   function savePrefs() {
-    try {
-      if (global.localStorage) global.localStorage.setItem(STORE_KEY, JSON.stringify(prefs));
-    } catch (e) { /* private mode; the preference still holds for this page */ }
+    const P = prefStore();
+    if (!P) return;   // private mode; the preference still holds for this page
+    P.setMany({
+      'alerts.muted': prefs.muted,
+      'alerts.volume': prefs.volume,
+      'alerts.notify': prefs.notify,
+      'alerts.events': prefs.events,
+    });
   }
 
   // ── State ───────────────────────────────────────────────────────────────
@@ -1013,6 +1030,18 @@
 
   function install() {
     loadPrefs();
+    // A change made anywhere else — the settings panel, another tab — is this
+    // channel's business: the mute is the one preference an operator changes
+    // from whichever surface is closest.
+    const P = prefStore();
+    if (P && typeof P.subscribe === 'function') {
+      P.subscribe((ids) => {
+        if (!ids.some((id) => PREF_IDS.indexOf(id) >= 0)) return;
+        loadPrefs();
+        renderPop();
+        if (btn) btn.setAttribute('data-muted', prefs.muted ? '1' : '0');
+      });
+    }
     if (!global.document) return false;
     ensureMount();
     if (global.WSClient && typeof global.WSClient.observe === 'function') {

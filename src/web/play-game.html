@@ -1191,6 +1191,10 @@
   </div>
 
   <script src="/dom-utils.js"></script>
+  <!-- THE PREFERENCE STORE, before everything that reads one
+       (docs/design/ux/12-PREFERENCES.md): one schema, one versioned key, the
+       migration off the six modules' own keys, and the `Ctrl+,` panel. -->
+  <script src="/prefs.js"></script>
   <script src="/board-renderer.js"></script>
   <!-- The lens's view-model, bundled from src/lens/view (npm run build:lens):
        the one fold and the one cursor machine, shared with replay and with the
@@ -1730,18 +1734,13 @@
     // A preference, not a flag: it changes which key carries an action and how
     // big the rail's type is, and nothing about what the product does. Three
     // schemes over one action set (`lens-panel.js`), and one density scale.
-    const LENS_SCHEME_KEY = 'lensKeyScheme';
-    const LENS_DENSITY_KEY = 'lensDensity';
-    let lensDensityPref = 'default';
+    // Both are rows in `prefs.js` (docs/design/ux/12-PREFERENCES.md §2.3), so
+    // the enum, the default, the validation and the migration from the old
+    // `lensKeyScheme` / `lensDensity` keys are all stated once, there.
+    let lensDensityPref = Prefs.get('lens.density');
     function loadLensPrefs() {
-      try {
-        const scheme = localStorage.getItem(LENS_SCHEME_KEY);
-        if (scheme) LensPanel.setScheme(scheme);
-        const density = localStorage.getItem(LENS_DENSITY_KEY);
-        if (density === 'compact' || density === 'roomy' || density === 'default') {
-          lensDensityPref = density;
-        }
-      } catch (_e) { /* storage unavailable → session defaults */ }
+      LensPanel.setScheme(Prefs.get('lens.scheme'));
+      lensDensityPref = Prefs.get('lens.density');
       applyLensPrefs();
     }
     function applyLensPrefs() {
@@ -1756,12 +1755,12 @@
     }
     function setLensScheme(name) {
       LensPanel.setScheme(name);
-      try { localStorage.setItem(LENS_SCHEME_KEY, LensPanel.activeScheme()); } catch (_e) { /* ignore */ }
+      Prefs.set('lens.scheme', LensPanel.activeScheme());
       applyLensPrefs();
     }
     function setLensDensity(name) {
       lensDensityPref = name;
-      try { localStorage.setItem(LENS_DENSITY_KEY, name); } catch (_e) { /* ignore */ }
+      Prefs.set('lens.density', name);
       applyLensPrefs();
     }
 
@@ -2748,23 +2747,12 @@
     // and hovering a tag that is up makes it step aside. Cycled by a bare Alt
     // TAP (keydown+keyup with no intervening key/mouse — Alt+click cell
     // inspection is untouched) and persisted per-browser.
-    const TAG_DISPLAY_PREF_KEY = 'unitTagDisplayMode';
-    let tagDisplayMode = BoardRenderer.TAG_MODE.always;
-    try {
-      const stored = localStorage.getItem(TAG_DISPLAY_PREF_KEY);
-      if (stored) {
-        tagDisplayMode = BoardRenderer.normalizeTagMode(stored);
-      } else {
-        // Migrate from the two-state preferences this cycle replaces: a
-        // hidden (or, before that, translucent) default is the nearest
-        // ancestor of "no tags by default".
-        const legacy = localStorage.getItem('unitTagsHiddenByDefault')
-          ?? localStorage.getItem('unitTagsTranslucentDefault');
-        tagDisplayMode = legacy === '1'
-          ? BoardRenderer.TAG_MODE.never
-          : BoardRenderer.TAG_MODE.always;
-      }
-    } catch (_e) { /* storage unavailable → session-only default */ }
+    // `board.tagMode` in `prefs.js`, which also carries the migration from the
+    // two-state preferences this cycle replaced (`unitTagsHiddenByDefault`,
+    // and before that `unitTagsTranslucentDefault`): a hand-written migration
+    // in an inline script is exactly the special case 12 §3 folds into a
+    // table.
+    let tagDisplayMode = BoardRenderer.normalizeTagMode(Prefs.get('board.tagMode'));
     let stagedMoves = {};
 
     let waypoints = {};      // { [snakeId]: {type:'green'|'blue', x, y} } — user-directed target per snake
@@ -6782,10 +6770,10 @@
     // A bare Alt TAP (keydown then keyup with no other key or mouse press in
     // between) steps the display mode through the cycle — all tags → our
     // team's only → none (hover a unit to see its tag in any of them); the
-    // preference persists in localStorage. Any intervening key or pointer
-    // press cancels the pending tap, so Alt+click cell inspection (and every
-    // other Alt chord) never cycles. Auto-repeat keydowns of Alt itself do NOT
-    // cancel — a slow press-and-release still counts as a tap.
+    // preference persists in the store (`board.tagMode`). Any intervening key
+    // or pointer press cancels the pending tap, so Alt+click cell inspection
+    // (and every other Alt chord) never cycles. Auto-repeat keydowns of Alt
+    // itself do NOT cancel — a slow press-and-release still counts as a tap.
     let altTapPending = false;
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Alt') {
@@ -6803,9 +6791,7 @@
       altTapPending = false;
       e.preventDefault(); // keep the browser from focusing its menu bar
       tagDisplayMode = BoardRenderer.nextTagMode(tagDisplayMode);
-      try {
-        localStorage.setItem(TAG_DISPLAY_PREF_KEY, tagDisplayMode);
-      } catch (_e) { /* storage unavailable → session-only cycle */ }
+      Prefs.set('board.tagMode', tagDisplayMode);
       updateTagModeReadout();
       showBannerNotice('Unit tags: ' + BoardRenderer.TAG_MODE_LABEL[tagDisplayMode]);
       // Cycling while the cursor sits on the board changes which tags are on
@@ -6920,18 +6906,17 @@
     // square, the renderer already letterboxes a non-square board inside
     // whatever box it is given, and one scalar makes the grip's drag, the
     // clamp and the stored value all the same quantity.
-    const BOARD_SIZE_PREF_KEY = 'boardSizePx';
     const BOARD_SIZE_MIN = 300;
     const BOARD_SIZE_MAX = 1400;
     const BOARD_SIZE_DEFAULT = 550;
     // What the user ASKED for, which outlives a window too narrow to honour it:
     // the layout clamp is applied on the way to the element, never to the
     // preference, so widening the window restores the size the user chose.
-    let boardSizePref = BOARD_SIZE_DEFAULT;
-    try {
-      const stored = parseInt(localStorage.getItem(BOARD_SIZE_PREF_KEY), 10);
-      if (Number.isFinite(stored)) boardSizePref = stored;
-    } catch (_e) { /* storage unavailable → session-only default */ }
+    // `board.sizePx` in `prefs.js`: the range 300–1400 is stated with the
+    // preference, so a stored size the product could never show — the old
+    // reader validated `Number.isFinite` and not the range — cannot come back
+    // out of storage any more.
+    let boardSizePref = Prefs.get('board.sizePx');
 
     // The widest board this layout can show right now. The wrapper is the
     // board's own column and cannot be pushed wider by the canvas inside it
@@ -6986,9 +6971,7 @@
         Math.max(BOARD_SIZE_MIN, Math.min(BOARD_SIZE_MAX, size)));
       applyBoardSize();
       if (!persist) return;
-      try {
-        localStorage.setItem(BOARD_SIZE_PREF_KEY, String(boardSizePref));
-      } catch (_e) { /* storage unavailable → session-only size */ }
+      Prefs.set('board.sizePx', boardSizePref);
     }
 
     // Drag the grip to resize. The pointer is captured so the drag survives
@@ -7075,6 +7058,27 @@
     // before anything is drawn, so the first frame is already in the layout
     // they chose rather than in the default one for a beat.
     loadLensPrefs();
+    // AND WHEN ONE OF THE FOUR CHANGES SOMEWHERE ELSE — the settings panel on
+    // `Ctrl+,`, or the same profile in another tab (12 §5.1). Each branch
+    // re-runs the apply path the page's own affordance uses, so there is one
+    // way for a preference to reach the screen and not two.
+    Prefs.subscribe((ids) => {
+      if (ids.includes('lens.scheme') || ids.includes('lens.density')) {
+        LensPanel.setScheme(Prefs.get('lens.scheme'));
+        lensDensityPref = Prefs.get('lens.density');
+        applyLensPrefs();
+      }
+      if (ids.includes('board.tagMode')) {
+        tagDisplayMode = BoardRenderer.normalizeTagMode(Prefs.get('board.tagMode'));
+        updateTagModeReadout();
+        syncHover(lastCanvasMousePos);
+        repaintForTagChange();
+      }
+      if (ids.includes('board.sizePx')) {
+        boardSizePref = Prefs.get('board.sizePx');
+        applyBoardSize();
+      }
+    });
     renderStageLine();
 
     // ── Page entry ───────────────────────────────────────────────────────────
