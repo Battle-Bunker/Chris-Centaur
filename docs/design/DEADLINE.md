@@ -22,7 +22,7 @@ in what it does. One arm — giving rung 0 a floor so its self-harm repair runs
 when the deadline has gone — was built, measured and **refused**: §3.
 
 Instruments: `--deadline-ms`, `--deadline-late`, `--deadline-jitter`,
-`--host-slow`, `--score-traces` and `--rung0-floor` on the runner, and the
+`--host-slow` and `--score-traces` on the runner, and the
 `anytime` block of `RunSummary`. Gate: `sum all 60 5 --nodes` byte-identical on
 all 25 (scenario, seed) rows against the head this branch left.
 
@@ -246,13 +246,14 @@ from `run.searchDeadline`. With the deadline already gone, `shouldStop()` is
 true immediately, **the repair does nothing, and the kernel stages a cell it
 has just proved fatal.**
 
-So the obvious fix: give rung 0, and rung 0 only, a floor —
-`max(searchDeadline, now + rungZeroFloorMs)` — so the repair has a window even
-when the search does not. Twelve work units, which is the ~3 ms a repair costs
-read through `BUDGET.md` §5's exchange rate.
+So the obvious fix: give rung 0, and rung 0 only, a floor — run its `conform`
+against `max(searchDeadline, now + floor)` rather than against `searchDeadline`
+— so the repair has a window even when the search does not. Twelve work units,
+which is the ~3 ms a repair costs read through `BUDGET.md` §5's exchange rate.
 
-**It does not work.** `--nodes=0 --rung0-floor={0,12}`, `mixed` and `potions`,
-seeds 1–3, sixty turns:
+**It does not work.** Built as a `KernelOptions.rungZeroFloorMs` with a
+`--rung0-floor=N` arm on the runner, and run at `--nodes=0` with the floor at 0
+and at 12, on `mixed` and `potions`, seeds 1–3, sixty turns:
 
 | class | floor | deaths | meals | surv | priced decs | fatal | avoidable | avoidable % | nodes/dec |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -274,10 +275,14 @@ same inversion §1.3 found between the expired arm and the first-slice arm,
 reproduced deliberately: **a little budget spent on safety buys a worse answer
 than none, and time you do not have cannot be spent on safety.**
 
-`KernelOptions.rungZeroFloorMs` therefore ships at **0**, and `--rung0-floor=N`
-on the runner is the arm that recorded this. At 0 the floor expression is not
-evaluated at all — `run.now()` charges a read on the node clock and a read is
-work — so the shipped kernel is bit-for-bit the kernel that existed before it.
+**Neither the option nor the arm is merged.** A knob shipping at its refused
+value is a dormant feature flag, and this repository's standing rule is that a
+measurement that does not earn a change earns a paragraph instead — so this is
+the paragraph, `kernel.ts` keeps the one-line `conformNow(run, EMPTY_PLAN)` it
+always had, and rung 0 is left with a comment saying why. Anyone reaching for
+the floor again needs `conformNow`'s third argument and a runner flag to set
+it, which is about twenty lines, and the numbers above say what they will
+find.
 
 The real conclusion is a policy one and it is §4: the fix for a deadline too
 small to be safe in is **not letting the deadline get that small**.
@@ -358,9 +363,9 @@ can grep for it.
    `endTime` plus a 2× slow host takes that to ~0.3×, which §1 prices at
    +4 deaths and −60 meals per three seeds; all three adversities together take
    it to ~0.1×, which is rung 0 and costs 3× the deaths.
-5. **Do not spend a starved decision's last milliseconds on safety.** §3. If a
-   future worker reaches for the same repair, the arm is `--rung0-floor=N` and
-   the answer is already recorded.
+5. **Do not spend a starved decision's last milliseconds on safety.** §3 is
+   the arm, run and recorded; the code it needed is not in the tree, because a
+   refused arm is a paragraph and not a flag.
 
 ### 5.1 What the operator's notch should assume
 
@@ -413,12 +418,13 @@ has to be:
   afford twice it, expired deadlines included.
 - Giving rung 0's self-harm repair a floor was built, measured and refused: the
   repair's own bank is starved, so it optimises against a bound it cannot
-  compute and makes the answer worse. `rungZeroFloorMs` ships at 0.
+  compute and makes the answer worse. The code came back out with it.
 - `MIN_COMPUTE_MS = 200` is the mechanism that keeps production out of the
   region where any of this matters.
 
-Recordings under `<scratchpad>/dl/{pre,lad,ab,wall}` (this container).
-Reproduce with
+Recordings under `<scratchpad>/dl/{pre,lad,ab,wall}` (this container). The `ab`
+set is §3's refused arm and is the one reading here that a checkout of this
+tree cannot reproduce without re-adding the floor. Reproduce the rest with
 `node dist/tests/local-game.js sum <class> 60 3 --nodes=<N> --score-traces --json=F`
 and
 `node dist/tests/local-game.js sum <class> 60 3 --deadline-ms=150 [--deadline-late=0.4] [--deadline-jitter=0.3] [--host-slow=2] --json=F`.

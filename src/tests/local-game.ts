@@ -371,25 +371,6 @@ export const DEFAULT_NODE_BUDGET = 550;
 const DETERMINISTIC_SLICE_FRACTION = 1 / 6;
 
 /**
- * `--rung0-floor=<n>`: THE ANYTIME FLOOR, as an arm.
- *
- * `KernelOptions.rungZeroFloorMs` is the window rung 0 keeps when the deadline
- * has already gone, so that its self-harm repair runs at all. It SHIPS AT
- * ZERO — see the option's own docstring and `DEADLINE.md` §3, where twelve
- * work units (the ~3 ms a repair costs, through `BUDGET.md` §5's exchange
- * rate) is measured and refused — and this runner therefore sets it only when
- * the flag asks, so that an unflagged run is the shipped kernel and nothing
- * else. Module-level rather than threaded through `decideTeam` because it is a
- * property of the RUN, like the budget mode itself, and every decision of a
- * run must share it.
- */
-let rungZeroFloorOverride: number | null = null;
-
-export function setRungZeroFloor(units: number | null): void {
-  rungZeroFloorOverride = units;
-}
-
-/**
  * THE BUDGET KNOB — `--budget-scale=<x>`.
  *
  * The deterministic mode already takes a budget by number (`--nodes=N`), and
@@ -793,7 +774,6 @@ export async function decideTeam(
             sliceMs: 25,
             pinCacheCapacity: 32,
             minWriteIntervalMs: 0,
-            ...(rungZeroFloorOverride === null ? {} : { rungZeroFloorMs: rungZeroFloorOverride }),
           }
         : {
             ...DEFAULT_KERNEL_OPTIONS,
@@ -803,7 +783,6 @@ export async function decideTeam(
             pinCacheCapacity: 32,
             minWriteIntervalMs: 0,
             yieldIntervalMs: 0,
-            ...(rungZeroFloorOverride === null ? {} : { rungZeroFloorMs: rungZeroFloorOverride }),
           }
     );
     const kin: KernelInput = {
@@ -3125,12 +3104,6 @@ Flags
   --host-slow=X  The host does 1/X as much work per millisecond, so the same
                  window buys 1/X of the work units (BUDGET.md §5's exchange
                  rate, read backwards). Deterministic.
-  --rung0-floor=N  KernelOptions.rungZeroFloorMs, in this mode's clock units
-                 (ms under --deadline-ms, work units under --nodes). It is the
-                 one window a shrinking deadline may not take: rung 0 runs
-                 against max(searchDeadline, now + N) so its self-harm repair
-                 still runs when the deadline is already gone. 0 is the
-                 pre-floor kernel and is how the arm is turned off.
   --score-traces  Price every option in the multi-seed 'sum' mode too, so the
                  anytime oracle (the "A:" line and the JSON 'anytime' block)
                  has floors to read. Slow: a bound bank per unit per decision.
@@ -3210,9 +3183,6 @@ interface Flags {
   /** `--score-traces`: price every option in the multi-seed `sum` mode too, so
    *  the anytime oracle (`RunSummary.anytime`) has something to read. Slow. */
   readonly scoreTraces: boolean;
-  /** `--rung0-floor=<n>`: KernelOptions.rungZeroFloorMs, in this mode's clock
-   *  units. Null leaves the mode's own default. 0 is the pre-floor kernel. */
-  readonly rungZeroFloor: number | null;
   readonly positional: string[];
 }
 
@@ -3231,7 +3201,6 @@ function parseFlags(argv: readonly string[]): Flags {
   let jitter = 0;
   let slow = 1;
   let scoreTraces = false;
-  let rungZeroFloor: number | null = null;
   const fraction = (value: string | null, flag: string): number => {
     const n = value === null ? Number.NaN : Number(value);
     if (!Number.isFinite(n) || n < 0 || n >= 1) {
@@ -3317,14 +3286,6 @@ function parseFlags(argv: readonly string[]): Flags {
       case 'score-traces':
         scoreTraces = true;
         break;
-      case 'rung0-floor': {
-        const n = value === null ? Number.NaN : Number(value);
-        if (!Number.isFinite(n) || n < 0) {
-          throw new Error('--rung0-floor requires a non-negative number, e.g. --rung0-floor=0');
-        }
-        rungZeroFloor = n;
-        break;
-      }
       case 'help':
         console.log(HELP);
         process.exit(0);
@@ -3345,7 +3306,6 @@ function parseFlags(argv: readonly string[]): Flags {
     deadlineMs,
     adversity: { late, jitter, slow },
     scoreTraces,
-    rungZeroFloor,
     positional,
   };
 }
@@ -3394,7 +3354,6 @@ function budgetFrom(
 
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
-  setRungZeroFloor(flags.rungZeroFloor);
   const argv = flags.positional;
   const lines: string[] = [];
   const jsonToFile = typeof flags.json === 'string';

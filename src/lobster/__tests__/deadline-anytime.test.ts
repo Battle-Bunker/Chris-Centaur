@@ -15,8 +15,6 @@
  *               to hide the whole of a decision's lateness.
  *   AFFORDABLE  the operator's inspection reserve is never carved out of a
  *               window that cannot pay for it.
- *   INERT       the rung-0 floor ships at zero and does not read the clock
- *               there, so no deterministic counter moves for it.
  *
  * The last two blocks drive the REAL search core on a real board, because the
  * property under test is a property of `conform`'s seed and a stub can only
@@ -179,7 +177,7 @@ interface RealAnswer {
  * budget. `budgetNodes` of 0 is the expired deadline (`deadlineMs === t0`) and
  * a negative value is a deadline already behind the decision's own start.
  */
-async function decideReal(budgetNodes: number, floor = 0): Promise<RealAnswer> {
+async function decideReal(budgetNodes: number): Promise<RealAnswer> {
   const board = buildBoard({ ...MIXED_SCENARIO, seed: 1 });
   const teamId = (MIXED_SCENARIO.teams[0] as { id: string }).id;
   const ourIds = (board.snakes ?? [])
@@ -203,7 +201,6 @@ async function decideReal(budgetNodes: number, floor = 0): Promise<RealAnswer> {
       sliceMs: 550 / 6,
       minWriteIntervalMs: 0,
       yieldIntervalMs: 0,
-      rungZeroFloorMs: floor,
     });
     const staged = new Map<string, number>();
     let emitted = 0;
@@ -259,15 +256,19 @@ describe('the real core answers at every cutoff', () => {
     }
   });
 
-  it('reads the same answer with the rung-0 floor off as the shipped kernel does', async () => {
-    // `rungZeroFloorMs: 0` is the shipped value and is the pre-floor kernel
-    // exactly: the floor expression is not evaluated there, so it charges no
-    // clock read, and a read is work under this clock. Any drift here would
-    // show up as a moved counter in the whole deterministic corpus.
-    const off = await decideReal(275, 0);
-    const shipped = await decideReal(275);
-    expect([...off.staged.entries()].sort()).toEqual([...shipped.staged.entries()].sort());
-    expect(off.emitted).toBe(shipped.emitted);
-    expect(off.slices).toBe(shipped.slices);
+  it('runs no refinement slice it was not given the budget for', async () => {
+    // The loop's condition is `now() < searchDeadline`, so the budget is the
+    // slice count's only gate. An expired window buys NONE — the loop is never
+    // entered and the answer is rung 0's seed — and the count is non-decreasing
+    // in the budget above it. (This rig sets a production-shaped `sliceMs` of
+    // 550/6 rather than a sixth of each arm's own budget, so the counts here
+    // are small: what is asserted is the ordering, not a magnitude.)
+    const expired = (await decideReal(0)).slices;
+    const short = (await decideReal(16)).slices;
+    const half = (await decideReal(275)).slices;
+    expect(expired).toBe(0);
+    expect(short).toBeGreaterThanOrEqual(expired);
+    expect(half).toBeGreaterThan(expired);
+    expect(half).toBeGreaterThanOrEqual(short);
   });
 });

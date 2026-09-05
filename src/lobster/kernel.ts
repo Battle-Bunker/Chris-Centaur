@@ -569,44 +569,6 @@ export interface KernelOptions {
   /** Stability floor for the horizon ration. */
   readonly epsilon: number
   readonly depthMax: number
-  /**
-   * THE ANYTIME FLOOR — the one window a shrinking deadline may not take.
-   *
-   * Rung 0 is the whole of the anytime guarantee: `conform(ctx, ∅)` is a
-   * complete legal plan by construction, so a decision entered with no time at
-   * all still puts a legal set on the wire. But rung 0 also pays for ONE
-   * `price()` and then READS it — the self-harm repair re-picks any of our own
-   * units the resolution names as a casualty of our own plan — and that repair
-   * is a budget-watching loop like every other. With `searchDeadline` already
-   * behind `t0`, `budget.shouldStop()` is true on its first test, the repair
-   * does nothing, and the kernel stages a cell it has ALREADY PROVED fatal
-   * while a non-fatal option sits on the same unit's candidate list.
-   *
-   * Measured (`docs/design/DEADLINE.md` §1): 13 of 414 priced decisions on
-   * `mixed` and 15 of 539 on `potions`, at three seeds and sixty turns, with
-   * the deadline expired on entry.
-   *
-   * The floor is that window: rung 0 — and rung 0 only — runs against
-   * `max(searchDeadline, now + rungZeroFloorMs)`, in the injected clock's own
-   * units (milliseconds in production, work units under the node clock, like
-   * `sliceMs` and `reserveMs` beside it).
-   *
-   * **IT IS ZERO, AND THAT IS A MEASUREMENT RATHER THAN AN OMISSION.**
-   * `DEADLINE.md` §3 is the arm: at twelve work units — the production default
-   * of ~3 ms read through `BUDGET.md` §5's exchange rate — the repair runs,
-   * costs four times the work an expired decision otherwise spends, and makes
-   * the answer WORSE by the deep bank's own reckoning (avoidably-fatal answers
-   * 3.1% -> 4.6% on `mixed`, 2.8% -> 4.7% on `potions`; deaths 30 -> 29 over
-   * twelve games, a wash). The reason is that the repair's bank is starved
-   * too: `climb` accepts on `better()` over a floor that a stopped budget
-   * priced shallowly, so it optimises against a bound it could not afford to
-   * compute. Time you do not have cannot be spent on safety.
-   *
-   * So the option exists as the arm that recorded that — `--rung0-floor=N` on
-   * the runner — and ships at 0, where the expression is read but the clock is
-   * not (see `drive`), so a decision is bit-for-bit what it was.
-   */
-  readonly rungZeroFloorMs: number
 }
 
 export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
@@ -629,7 +591,6 @@ export const DEFAULT_KERNEL_OPTIONS: KernelOptions = {
   deadBelow: DEFAULT_DEAD_BELOW,
   epsilon: 1.5,
   depthMax: 2,
-  rungZeroFloorMs: 0,
 }
 
 // -------------------------------------------------------------------- report
@@ -1301,14 +1262,15 @@ export class LobsterKernel implements Kernel {
     // order is never in a state where a moveset names a cluster that does not
     // exist yet — and so rung 0's own trials have clusters to be cut into.
     this.repartition(run, "decision-start")
-    // THE ANYTIME FLOOR (`rungZeroFloorMs`). `searchDeadline` may already be
-    // behind us — a turn that spent its window in flight, a widened reserve, a
-    // host slower than the budget assumed — and rung 0 is the ONE stretch that
-    // must run anyway: it is the fallback answer, and its self-harm repair is
-    // what keeps that answer off a cell the bank has already priced DEAD. The
-    // max is `searchDeadline` whenever there is any budget at all, so a normal
-    // decision is unchanged.
-    const seed = this.conformNow(run, EMPTY_PLAN, this.rungZeroDeadline(run))
+    // RUNG 0 RUNS AGAINST `searchDeadline` LIKE EVERYTHING ELSE, and when that
+    // is already behind `t0` its self-harm repair does nothing: `climb` breaks
+    // on the budget's first test and the seed stands. Giving rung 0 a floor of
+    // its own so the repair runs anyway was built and REFUSED — the repair's
+    // own bank is starved too, so it optimises against a bound it could not
+    // afford to compute and the answer gets worse (`docs/design/DEADLINE.md`
+    // §3). The fix for a deadline too small to be safe in is the wire's
+    // `MIN_COMPUTE_MS`, not a window the kernel invents for itself.
+    const seed = this.conformNow(run, EMPTY_PLAN)
     run.stager.adopt(seed.key)
     const first = this.buildRecord(run, seed)
     yield* this.commit(run, first)
@@ -1925,22 +1887,8 @@ export class LobsterKernel implements Kernel {
     return run.input.evaluate.scorePlan(run.input.sub, plan, run.input.asTeam)
   }
 
-  /**
-   * Rung 0's stop, which is `searchDeadline` unless a floor is configured.
-   *
-   * THE CLOCK IS NOT READ AT ZERO. `run.now()` charges a read on the node
-   * clock, and a read is work: an unconditional `Math.max(searchDeadline,
-   * now() + 0)` would move every deterministic counter in the corpus for a
-   * term that is provably inert. So the shipped path is the bare
-   * `searchDeadline` and the floor is an arm.
-   */
-  private rungZeroDeadline(run: Run): number {
-    const floor = this.opts.rungZeroFloorMs
-    return floor > 0 ? Math.max(run.searchDeadline, run.now() + floor) : run.searchDeadline
-  }
-
-  private conformNow(run: Run, from: JointPlan, until = run.searchDeadline): PlanCandidate {
-    const budget = new SliceBudget(run.now, run.t0, until)
+  private conformNow(run: Run, from: JointPlan): PlanCandidate {
+    const budget = new SliceBudget(run.now, run.t0, run.searchDeadline)
     const ctx = this.searchContext(run, run.active, budget)
     run.conformCalls++
     const plan = run.input.search.conform(ctx, from)
