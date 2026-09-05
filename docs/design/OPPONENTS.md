@@ -90,6 +90,17 @@ placed symmetrically; and the turn loop decides teams in ALPHABETICAL order, so
 blue moves before green moves before red at every turn. Seat 0 is byte-identical
 to every run taken before the swap existed.
 
+**And that last sentence is checked, not asserted.** `sum all 60 3 --nodes` — the
+five scenarios, seeds 1–3, no `--opponent` and no `--decider` — run on this build
+and on `a4583a4` (the commit before the bench existed) and compared with
+`scripts/ab-compare.js` is ALL-ZERO on every metric and every board, with the
+cross-board count reading `up on 0/5, down on 0, flat on 5`. Field for field, the
+two builds' JSON summaries differ in exactly fourteen keys, and all fourteen are
+the side split this branch ADDED (`oursMeals`, `theirsDeaths`, `oursWeight`, …).
+Every field both builds carry is identical. The bench, the policy switch and the
+colour swap are reachable only through `--opponent` and `--decider`, and a run
+that passes neither takes the path it always took.
+
 **The outcome column is WEIGHT AT THE CAP.** `git fetch origin` finds no
 win/draw/loss counter on any branch — the endgame worker's outcome counter has
 not landed — and every game here runs to the turn cap and stops, so there is no
