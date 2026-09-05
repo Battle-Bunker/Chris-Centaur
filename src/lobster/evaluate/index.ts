@@ -302,7 +302,7 @@ export function checkWeights(
 
 /** The numeric knobs of `CommandKnobs`, named once so adding one cannot forget
  *  to check it. `royal` is a flag and carries no arithmetic. */
-const COMMAND_KNOB_KEYS = ['ground', 'food', 'mobility'] as const;
+const COMMAND_KNOB_KEYS = ['ground', 'food'] as const;
 
 function checkCommandKnobs(profile: CriterionProfile): void {
   const knobs = profile.command;

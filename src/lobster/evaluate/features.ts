@@ -46,12 +46,9 @@
  */
 
 import { isPieceType, leavesTrail } from '../../engine-vendor/engine/moveGrammar';
-import type { Orientation } from '../../engine-vendor/engine/moveGrammar';
-import { legalActions } from '../../engine-vendor/engine/queries';
-import type { BoardShape, GrammarUnit } from '../../engine-vendor/engine/queries';
 import type { UnitType } from '../../engine-vendor/shared/types/Game';
 import type { PartialSettlement } from '../../engine-vendor/engine/settlePartial';
-import { bbForEach, boardOf, popcount32 } from '../bits';
+import { boardOf, popcount32 } from '../bits';
 import type { Bitboard } from '../bits';
 import type { MaterialBounds } from '../bounds/material';
 import {
@@ -87,18 +84,6 @@ export interface Standing {
   readonly team: number;
   /** The rules' own kind. Read for CLASS properties through the grammar. */
   readonly kind: UnitType;
-  /**
-   * THE FACING THIS RESOLUTION LEAVES THE UNIT WITH — the settlement's own
-   * `orientation` for a mover, the observed record's for a held unit, exactly
-   * as `buildShells` reads it.
-   *
-   * It is a piece of the unit's POSITION and not a decoration: for a pawn the
-   * grammar's whole forward half is stated in it (`moveGrammar.planUnitAction`),
-   * so a standing without it cannot be asked what the unit may do next, which
-   * is what `commandSum`'s mobility indicator asks. Every other kind's grammar
-   * ignores it.
-   */
-  readonly orientation: Orientation;
   readonly isKing: boolean;
   /** True for a unit carried as a CLAIM rather than as a mover. */
   readonly held: boolean;
@@ -244,10 +229,6 @@ export function standingOf(
         unitId: unit.unitId,
         team: unit.team,
         kind: claim.kinds[0] ?? unit.type,
-        // A held unit has no settled turn to have turned on, so its facing is
-        // the one it was OBSERVED with — the same reading `buildShells` seeds
-        // its dilation from.
-        orientation: unit.orientation,
         isKing: unit.isKing,
         held: true,
         weightMin: claim.weightMin,
@@ -299,10 +280,6 @@ export function standingOf(
       unitId: unit.unitId,
       team: unit.team,
       kind: settlement.unitTypes[unit.wireId] ?? unit.type,
-      // THE FACING THE PLAN PRODUCES. A pawn's rotation changes nothing but
-      // this, which is the whole of P1: three actions, one cell, three
-      // orientations, and only the settlement's own field says which.
-      orientation: settlement.orientation[unit.wireId] ?? unit.orientation,
       isKing: unit.isKing,
       held: false,
       weightMin: weight,
@@ -978,106 +955,14 @@ export const commandFeature: Feature<EvalContext> = {
   evaluate(ctx) {
     const knobs = ctx.command;
     if (knobs === null) return point(0);
-    if (ctx.horizonTurns <= 0) return point(0);
-    // ONE READING, SHARED BY BOTH ENDPOINTS. `m_u` is a question about the
-    // grammar, not about a world: it is decided by the perimeter, by what is
-    // standing on the board and by the pawn-target set, none of which the two
-    // readings disagree about. So it is computed once and both endpoints are
-    // handed the same answer, which is also what keeps it from tilting the
-    // bracket in either direction.
-    const mobility = mobilityOf(ctx, knobs);
-    return perReading(ctx, (c, reading) => commandSum(c, reading, knobs, mobility));
+    return perReading(ctx, (c, reading) => commandSum(c, reading, knobs));
   },
 };
-
-/**
- * THE BOARD THE PLAN LEAVES, in the shape the grammar's own queries take.
- *
- * `sub.shape()` is the board the turn OPENED on — the right board for asking
- * what a unit may stage this turn and the wrong one for asking what it may do
- * next, which is the only question `mobilityOf` asks. So the terrain rides
- * through unchanged (a wall does not move) and the two things a resolution
- * does move are replaced: every standing unit's settled occupancy, and the
- * food board the settlement closed with.
- *
- * Both of those reach the grammar through one door — `pawnTargetsOf`, the set
- * a pawn's diagonal step is legal into — so this is not decoration: it is the
- * occupancy mask D2's refutation said the raw front never had.
- */
-function nextTurnShape(ctx: EvalContext): BoardShape {
-  const shape = ctx.sub.shape();
-  const occupancy: { id: string; cells: ReadonlyArray<number> }[] = [];
-  for (const s of ctx.standing) {
-    if (s.occupancy.length === 0) continue;
-    occupancy.push({ id: String(s.unitId), cells: s.occupancy });
-  }
-  const food: number[] = [];
-  bbForEach(ctx.food(), ctx.sub.grid.words, (cell) => food.push(cell));
-  return { ...shape, occupancy, food };
-}
-
-/**
- * `m_u` — CAN THIS UNIT STILL GO ANYWHERE? One bit per piece, and the whole of
- * BEHAVIOUR-AUDIT-2 P1.
- *
- * A unit standing where this candidate leaves it, facing the orientation this
- * candidate leaves it with, either has at least one legal action of kind
- * `move` next turn or it has none. The question is put to `legalActions`
- * (`queries.ts`) rather than reconstructed, so it is masked by the perimeter,
- * by the board's occupancy and by the pawn-target set exactly as the engine
- * masks them, and a grammar change moves this with it.
- *
- * IT IS AN INDICATOR, AND THAT IS THE DIFFERENCE FROM THE REFUTED D2. D2 paid
- * `|F_u|`, the raw cardinality of the dilation front, and `Shells.extendTo`
- * applies no barrier and no occupancy mask at all — so the term paid a piece
- * to sit where the widest RAW fan was, which near a crowd is where the bodies
- * are, and `mixed` piece body-deaths went 0 → 3 at every dose. Both halves of
- * this reading answer that: the quantity is the grammar's own legality, so a
- * cell is not counted for being reachable-on-paper, and it SATURATES at 1, so
- * it cannot be maximised by moving toward anything. It is also why D2's knight
- * regression cannot repeat — `|F_u|` is a centrality bonus for a knight, and
- * an indicator that reads 1 at every interior candidate cancels.
- *
- * The set is the same set `commandSum` pays: trail units are skipped (a board
- * with no piece never reaches the addend, which is what keeps `snakes`,
- * `sparse` and `sparse-lean` byte-identical), and a royal unit is skipped
- * unless `knobs.royal` says otherwise.
- */
-function mobilityOf(ctx: EvalContext, knobs: CommandKnobs): ReadonlyMap<UnitId, number> {
-  const out = new Map<UnitId, number>();
-  let any = false;
-  for (const s of ctx.standing) {
-    if (leavesTrail(s.kind)) continue;
-    if (s.isKing && !knobs.royal) continue;
-    if (s.occupancy.length === 0) continue;
-    any = true;
-    break;
-  }
-  // A BOARD WITH NO PIECE ON IT BUILDS NOTHING. `commandSum`'s own loop skips
-  // every trail kind, so an all-snake board would pay for a shape and a food
-  // scan it never reads.
-  if (!any) return out;
-  const shape = nextTurnShape(ctx);
-  for (const s of ctx.standing) {
-    if (leavesTrail(s.kind)) continue;
-    if (s.isKing && !knobs.royal) continue;
-    if (s.occupancy.length === 0) continue;
-    const unit: GrammarUnit = {
-      type: s.kind,
-      occupancy: s.occupancy,
-      orientation: s.orientation,
-    };
-    const mobile = legalActions(unit, shape).some((entry) => entry.action.kind === 'move');
-    out.set(s.unitId, mobile ? 1 : 0);
-  }
-  return out;
-}
 
 function commandSum(
   ctx: EvalContext,
   reading: 'lo' | 'hi',
-  knobs: CommandKnobs,
-  mobility: ReadonlyMap<UnitId, number>
+  knobs: CommandKnobs
 ): number {
   const partition = ctx.partition(reading);
   const open = partition.open;
@@ -1152,17 +1037,7 @@ function commandSum(
       ground += popcount32((f & (domain[i] as number)) >>> 0);
       meals += popcount32((f & (food[i] as number)) >>> 0);
     }
-    // THE THIRD ADDEND, INSIDE THE SAME CLAMP (BEHAVIOUR-AUDIT-2 P1). `m_u` is
-    // 0 or 1, so `c` still lies in [0, 1] and the range, the cliff inequality
-    // and R2/R3 stand exactly as they did. Its whole job is to be the one term
-    // that differs between a pawn's three same-cell options: a rotation that
-    // leaves a legal step under the pawn beats one that leaves it facing the
-    // wall, by `knobs.mobility / open` and nothing else.
-    const m = mobility.get(s.unitId) ?? 0;
-    const c = Math.min(
-      1,
-      (ground * knobs.ground + meals * knobs.food + m * knobs.mobility) / open
-    );
+    const c = Math.min(1, (ground * knobs.ground + meals * knobs.food) / open);
     total += mine ? c : -c;
   }
   return total / ctx.pieceScale;

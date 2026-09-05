@@ -271,32 +271,6 @@ export interface CommandKnobs {
   /** Multiplier on food cells inside the command set. */
   readonly food: number;
   /**
-   * MULTIPLIER ON THE LEGAL-MOBILITY INDICATOR `m_u` — one cell's worth of
-   * command for a piece that can still go somewhere next turn, nothing for one
-   * that cannot. BEHAVIOUR-AUDIT-2 P1.
-   *
-   * The thing it prices is a pawn's ORIENTATION, which no other member can
-   * see. A pawn on the perimeter facing outward has exactly three legal
-   * actions — two rotations and a hold — and all three leave it on the same
-   * cell, so `momentum` charges them the same (`momentum.ts:114`) and every
-   * territory member reads the same `Standing.cell`. The decision then falls
-   * to the salted tie key, and half the rotations point back into the wall:
-   * `potions` seed 8's blue-C held (0,10) for the last 44 turns of the game on
-   * exactly that draw.
-   *
-   * ONE, which is `ground`'s own multiplier and an order of magnitude under
-   * `food`'s 20 — the smallest dose that can break an exact tie, and it can
-   * only ever move `c` by `1 / open`. It has to be small: the term must not
-   * outrank a real cell of contested ground, only the nothing that a tie is.
-   *
-   * READ FROM THE GRAMMAR (`queries.legalActions`), so it is masked by the
-   * perimeter, by occupancy and by the pawn-target set; and it is an INDICATOR,
-   * so it saturates at 1 and cannot be maximised by moving toward a crowd. See
-   * `features.ts::mobilityOf` for why both halves are load-bearing, and the
-   * note below for what they are answering.
-   */
-  readonly mobility: number;
-  /**
    * Whether a ROYAL unit earns command. Off — and the honest account of why is
    * that the ARGUMENT survived and the MEASUREMENT did not settle it.
    *
@@ -373,35 +347,34 @@ export interface CommandKnobs {
  * before either knob existed — asserted, not asserted-by-comment, in
  * `src/tests/territory-slider.test.ts`.
  */
-export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, mobility: 1, royal: false };
+export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
 
 /**
- * WHAT `mobility` IS NOT, AND IT IS A MEASUREMENT — BEHAVIOUR-AUDIT D2.
+ * THERE IS NO `mobility` KNOB, AND THE ABSENCE IS A MEASUREMENT — BEHAVIOUR-AUDIT
+ * D2. A third addend paying the command set's own cardinality `|F_u|` was built
+ * exactly as D2's rule states it, swept at 0.25, 0.5 and 1 over `mixed` seeds 1-6
+ * and `potions` seeds 1-3, and taken at no dose. It does what it was built to do —
+ * the parked share falls at every dose and `longestPark` roughly halves — and it
+ * pays for it in the one currency the owner's rule will not spend: `mixed`
+ * bodyBlock deaths of PIECES go 0 -> 1 -> 3 -> 3 with the dose while the snakes'
+ * own body deaths stay flat, because the cardinality is intersected with nothing
+ * and so knows nothing about what is standing on the cells it counts. See D2's
+ * STATUS section for the dose table; do not re-derive it from the prediction.
  *
- * The knob above is the SECOND thing to occupy this line. The first was D2's:
- * an addend paying the command set's own raw cardinality `|F_u|`, swept at
- * 0.25, 0.5 and 1 over `mixed` seeds 1-6 and `potions` seeds 1-3, and taken at
- * no dose. It did what it was built to do — the parked share fell at every
- * dose and `longestPark` roughly halved — and it paid for it in the one
- * currency the owner's rule will not spend: `mixed` bodyBlock deaths of PIECES
- * went 0 -> 1 -> 3 -> 3 with the dose while the snakes' own body deaths stayed
- * flat, because `Shells.extendTo` applies no barrier and no occupancy mask, so
- * the cardinality knows nothing about what is standing on the cells it counts
- * and the term paid a piece to sit where the raw fan was widest — near a crowd,
- * where the bodies are. See D2's STATUS section for the dose table; do not
- * re-derive it from a prediction.
- *
- * `mobility` is not that term at a smaller number, and the dose table is why
- * it could not be: 0.5 was WORSE on pieces than 1 was, so shrinking the signal
- * shrank the harm no faster. It is the two repairs that measurement left
- * standing, both taken: the quantity is the grammar's own legality
- * (`queries.legalActions`, masked by perimeter, occupancy and pawn targets),
- * and it is an INDICATOR in {0, 1}, so a piece with anywhere at all to go is
- * paid the same as a piece with everywhere to go and no candidate can be
- * improved by walking toward a crowd. The knight regression that came with
- * `|F_u|` (`mixed` knight parked share 4.56% -> 8.64%, a centrality bonus by
- * another name) cancels for the same reason: an indicator reads 1 at every
- * interior candidate a knight has.
+ * THE MASKED INDICATOR FORM WAS THEN BUILT AND REFUSED TOO — BEHAVIOUR-AUDIT-2
+ * P1. `m_u ∈ {0, 1}`, read from `queries.legalActions` so it is masked by the
+ * perimeter, by occupancy and by the pawn-target set, at `mobility = 1`. It
+ * answers D2's mechanism completely — `mixed` piece `bodyBlock`+`self` deaths
+ * FELL 1 -> 0 and `potions` 2 -> 1, `snakes`/`sparse`/`sparse-lean` were
+ * byte-identical, the law sweep's `command.hi` class fell 600 -> 558, and the
+ * parking it was built for collapsed (`potions` longestPark 44 -> 7,
+ * `immobileUnitTurns` 197 -> 83) — and it is refused for a DIFFERENT reason:
+ * every death it adds is a `contest`. An unparked pawn spends its turns in the
+ * open, `contest` prices an enemy ARRIVAL and not the standing exposure of a
+ * piece that now crosses the board instead of hugging a wall, and `mixed`
+ * deaths went 6 -> 7 on seeds 1-3 and 8 -> 9 on seeds 4-6, all of them
+ * `contest`. P1's own counter predicted exactly that and said to refuse it.
+ * See BEHAVIOUR-AUDIT-2.md P1's STATUS for the table.
  */
 
 /**
