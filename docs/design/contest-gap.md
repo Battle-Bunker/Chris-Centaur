@@ -1,7 +1,12 @@
 # The contest gap — why moving pieces die in contests `contest` did not price
 
-A diagnosis, not a repair. Nothing here is shipped; `contest.ts` and every
-other source file on this branch are byte-identical to `a707e3b`.
+A diagnosis, not a repair — and now also the measurement that refused the
+repair it proposed. §3's rule was built exactly as stated, swept at two doses,
+and is NOT in the tree; see the STATUS section at the end of §3 for the
+per-class table, the keep-criterion line by line, and the mechanism. What the
+attempt left behind is an instrument, one unused field builder
+(`contest.ts`'s `standingField`) and a test that pins §2.2's flatness on three
+units. The fold itself is byte-identical to `a707e3b`.
 
 ## Method
 
@@ -228,6 +233,142 @@ leads INTO cheaper to leave, and that is the whole of its claim.
 * meals within 3 % on every class; `enemyOccupiedEntriesLost` down, not up.
 * `law-sweep`: `contest.lo` class stays ABSENT, `totalLo` 0,
   `bounds/exact-reply` exact on all four seed-1 arms.
+
+### STATUS — σ WAS BUILT AND MEASURED; IT IS NOT IN THE TREE
+
+**The state shrank exactly as predicted and the deaths went the other way.**
+That is the rule's own registered refutation condition, in its own words:
+"if the state shrinks and the deaths do not follow, the rule is refuted and the
+next attempt must look one turn further back, at the entry."
+
+#### What was built
+
+`CONTEST_STANDING`, one knob, exactly as §3 states it: a second addend inside
+`contest`, folded as a POINT, `−σ · Σ_u standing_u / |ours|` over `field⁺`.
+The one piece of machinery §3 does not mention is the one it needs:
+`d_u` cannot be read off the SETTLEMENT, because the cell a mover settles on is
+contingent and reading one of those as a point is exactly the defect
+`law-sweep`'s `contest.lo` class was opened by and then closed at. So the
+staged cell came down from the PLAN — a new `EvalContext.staged`, the end of
+each candidate's own ray (`queries.ts`'s `pathOf` returns `[]` for a rotate, a
+hold and the `NO_ORDER_MOVE` sentinel alike, so those read the origin), passed
+in by `evaluate/index.ts::evaluatePlan`. That is what makes the addend a
+function of the plan and the turn-start board and therefore world-invariant.
+
+**Every bound claim §3 made held.** `σ = 0` is transcript-identical to the head
+— every move, every score, every counter on `mixed` seed 1, 60 turns,
+`--nodes`. At σ = 0.125: `law-sweep` `contest.lo` ABSENT, no `contest.hi` class
+either, `totalLo` 0, `totalHi` 9, `bounds/exact-reply` exact on all four seed-1
+arms, and the sixteen-arm inversion gate prints no `INVERSION` line
+(`CENTAUR_DEBUG_INVERSION=1`, seeds 1–3 at 30 turns on all five scenarios plus
+`potions` 60 turns on seeds 4, 5, 6, 8). The bound was never what refused it.
+
+#### The instrument, and one correction to §2.3
+
+`CENTAUR_CONTEST_DIAG=1` (`src/tests/local-game.ts`) counts §2.3's four buckets
+over decider unit-turns, the contest deaths in each, and §1's classes read at
+the entry turn. It costs one evaluation per option per unit on the UNMETERED
+evaluator after the plan is fixed, so every game counter is byte-identical with
+it on and off — checked.
+
+**§2.3's flat bucket is read over every LEGAL action, not over the offered
+set.** On the head this branch measures, `mixed` 1–6 is 2 463 decider
+unit-turns — §2.3's own figure to the digit — and the origin-beaten population
+is 495, which is §2.3's `140 + 355` to the digit as well. Only the flat/graded
+SPLIT differs: 140/355 over all legal actions, 227/268 over the offered set.
+The instrument reports both (`flatAll` and `FLAT`); everything below is the
+`flatAll` reading, so it is comparable with §3's prediction.
+
+#### The measurement, per class, never pooled
+
+60 turns, `--nodes`, `mixed` seeds 1–6, `potions` seeds 1–8,
+`snakes`/`sparse`/`sparse-lean` seeds 1–3.
+
+| | `mixed` head | σ = 0.125 | σ = 0.5 | `potions` head | σ = 0.125 |
+|---|---|---|---|---|---|
+| flat bucket (`flatAll`) | 140 | **77** | **77** | 139 | **87** |
+| flat bucket (offered) | 227 | 136 | 139 | 211 | 140 |
+| deaths, total | 14 | **21** | **21** | 21 | **23** |
+| — `contest` | 11 | 14 | 14 | 18 | 18 |
+| — `bodyBlock` | 2 | **7** | **7** | 2 | 3 |
+| — `self` / `edge` | 1 / 0 | 0 / 0 | 0 / 0 | 1 / 0 | 1 / 1 |
+| contest deaths in the flat bucket | 9 | **11** | — | 11 | **13** |
+| class A deaths (entry, field silent) | 9 | 11 | — | 9 | 10 |
+| class B deaths | 0 | 0 | — | 2 | 2 |
+| meals | 446 | 429 | 425 | 607 | 646 |
+| meals/100, paired | 18.162 | 17.742 (−2.3%) | — | 19.517 | 20.783 (+6.5%) |
+| `enemyOccupiedEntriesLost` | 6 | 7 | 6 | 4 | **7** |
+
+`snakes`, `sparse` and `sparse-lean` are BYTE-IDENTICAL on every game counter
+at every dose — the same deaths, the same meals, the same node counts — which
+is the one prediction §3 registered that came in exactly.
+
+#### Against the keep-criterion, line by line
+
+* flat bucket `mixed` 140 → **< 100**: **MET** (77).
+* class B deaths fall: **MISSED** — 0 → 0 on `mixed`, 2 → 2 on `potions`. §3
+  already knew why and said so: in class B every offered option's staged cell
+  is beaten, `field⁺` only ever WIDENS the arrival field, so the addend is flat
+  on exactly the class it is named for.
+* class A deaths 20 ± 2: **MISSED**, and in the wrong direction — 18 → 21 over
+  the two boards.
+* total deaths not up on any class: **MISSED on both boards that have any** —
+  `mixed` 14 → 21, `potions` 21 → 23.
+* meals within 3%: `mixed` −2.3% paired (inside), `potions` +6.5%. **MET.**
+* `enemyOccupiedEntriesLost` down, not up: **MISSED** — 6 → 7 and 4 → 7.
+* `snakes`/`sparse`/`sparse-lean` not worse: **MET** (identical).
+
+#### The mechanism, which is the part worth keeping
+
+**The dose does not matter, and that is the finding.** σ = 0.5 and σ = 0.125
+give the SAME play on `mixed`: 21 deaths, 14 `contest` and 7 `bodyBlock`, the
+same 77-unit-turn flat bucket. The addend is a boolean scaled by σ, so within
+the class it decides — the bank's floor ties, which §3 measured at 19% of
+flat-bucket decisions — every positive dose decides them the same way. There is
+no window between the doses to search, which is the conclusion D1's two `ε`
+arms reached by a different road.
+
+**It broke the flatness and bought nothing with it.** The flat bucket halved,
+and the contest deaths INSIDE it went 9 → 11 and 11 → 13. §3 predicted the
+first and warned about the second: "among the ELEVEN head deaths inside that
+bucket it varies on only one; in 9 of the 11 every offered option's staged cell
+is already beaten and the unit is genuinely cornered." Giving a cornered unit a
+gradient over four equally beaten cells is not information. What the gradient
+did reach was the 95-of-205 unit-turns where the addend varies and NOTHING WAS
+GOING TO DIE — and there it is a standing tax on advancing, paid across the
+whole board.
+
+**`bodyBlock` 2 → 7 on `mixed` is where the tax landed.** This is D2's
+refutation in another coat and it is the same sentence: the charge is
+intersected with nothing, so a unit refused the cell an enemy beats takes the
+cell a body is on instead. `enemyOccupiedEntriesLost` rising on both boards is
+§3's own first counter firing — the `field⁺` origin clause makes a plan that
+TAKES a piece pay σ for the capture, and the counter said to refuse the rule if
+that showed, which it did.
+
+#### What is in the tree, and what a fourth attempt inherits
+
+The knob is DELETED — `contest.ts`, `features.ts`, `calibration.ts` and
+`evaluate/index.ts` are byte-identical to the head this branch started from.
+Two things stay, both cheap and both general:
+
+* **the instrument** (`CENTAUR_CONTEST_DIAG=1`), which is how any future
+  attempt states its claim about the state rather than about a death count;
+* **`contest.ts`'s `standingField`** — `field⁺` — which nothing in the fold
+  reads, and `src/lobster/__tests__/contest-standing.test.ts`, three units on
+  one board where every option is `contingent`, the origin is beaten, the
+  arrival charge is EXACTLY equal on all five, and `field⁺` still tells one of
+  them apart. §2.2 as an assertion rather than as a paragraph.
+
+**The theorem of §4 is unchanged and is now joined by a second one.** No
+refinement inside `costOf` can restore a gradient for a unit standing in a fan.
+And: a POINT addend read at the STAGED cell can restore one, soundly, at no
+cost to the floor — and the gradient it restores is not worth having, because
+the cell a plan stages onto is not where the unit dies. The deaths are one to
+seven turns after the entry turn (§1, median 1) and the field is silent at the
+entry (§2.1). Both attempts so far have priced the turn the unit is ALREADY
+lost on. The next one has to price the turn before it, which is what §3's own
+closing sentence said and what this measurement now costs.
 
 ### A rule that was tried on paper and refuted by measurement
 

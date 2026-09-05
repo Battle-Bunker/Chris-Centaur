@@ -24,7 +24,13 @@ import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import { legalActions, legalTargets } from '../engine-vendor/engine/queries';
 import type { BoardShape } from '../engine-vendor/engine/queries';
 import type { UnitType } from '../engine-vendor/shared/types/Game';
-import { winsContest } from '../lobster/evaluate/contest';
+import {
+  beatenAt,
+  contestField,
+  frozenTier,
+  standingField,
+  winsContest,
+} from '../lobster/evaluate/contest';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import type { ResolveUnit } from '../engine-vendor/engine/resolveTurn';
 import { aggregateExpiryTurn } from '../firebase/translate';
@@ -485,10 +491,157 @@ export interface UnitTrace {
   readonly reversed: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// THE CONTEST-STANDING INSTRUMENT (docs/design/contest-gap.md §2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE UNIT-TURN, READ THE WAY THE DIAGNOSIS READ IT.
+ *
+ * `contest-gap.md` §2.3 buckets every decider unit-turn by two facts — whether
+ * the unit's own cell is beaten in `contestField`, and whether `contest` varies
+ * across the unit's OFFERED options — and finds 67–73 % of all contest deaths
+ * in the one bucket where both are true and the member therefore expresses no
+ * preference at all. That bucket is what a repair has to shrink, so it has to
+ * be counted rather than argued, and this is the counter.
+ *
+ * IT IS NOT FREE, and that is why it is gated on `CENTAUR_CONTEST_DIAG=1`.
+ * Unlike `enemyOccupiedEntriesAt` it cannot be answered off the board: whether
+ * `contest` is flat is a fact about the FOLD, so it takes one evaluation per
+ * offered option per unit. Every one of those calls is made with the UNMETERED
+ * evaluator, after `kernel.decide` has returned and the plan is fixed — the
+ * same seam `traceFor`'s pricing already uses — so it cannot move a node
+ * counter or change a decision. With the flag absent nothing here runs and the
+ * runner is byte-identical to what it was.
+ *
+ * Only OFFERED options count, exactly as the diagnosis counts them: a staged
+ * square the generator never offered is not a choice the member could have
+ * made.
+ */
+export interface ContestStandingRead {
+  readonly wireId: string;
+  /** The unit's own turn-start head cell is beaten in `contestField`. */
+  readonly originBeaten: boolean;
+  /** How many options the generator offered. One is the diagnosis's class C. */
+  readonly options: number;
+  /** `contest` is EXACTLY constant across every offered option. */
+  readonly flat: boolean;
+  /**
+   * The same over every LEGAL action the enumerator admits, offered or pruned.
+   * Kept because `contest-gap.md` §2.3's own figure (`mixed` 1-6, 140 flat
+   * unit-turns) reconciles against this reading and not against the offered
+   * one, and a bucket measured two different ways is two different buckets.
+   */
+  readonly flatAll: boolean;
+  /** No offered option's staged cell is in any enemy's one-step arrival set. */
+  readonly fieldSilent: boolean;
+  /** Every offered option's staged cell is beaten. */
+  readonly allBeaten: boolean;
+  /** The fold's `lo` AND `est` are equal on every offered option. */
+  readonly tied: boolean;
+  /** Some offered option is beaten and some is not — the arrival charge itself
+   *  discriminates, whatever the bracket then does with it. */
+  readonly arrivalVaries: boolean;
+  /**
+   * The STANDING charge varies across the offered options: `beatenAt(field⁺)`
+   * at the staged cell is not the same on all of them. This is the σ addend's
+   * own discrimination, measured on the head before σ exists — §3's "95 of 205".
+   */
+  readonly standingVaries: boolean;
+}
+
+/** The cell this plan's staged action leaves the unit standing on. A rotate has
+ *  an empty path and a `to` that only encodes the turn (`contracts.ts`), so the
+ *  cell held is the origin; everything else ends at the end of its own ray. */
+function stagedCellOf(option: Candidate, origin: number): number {
+  const path = option.path;
+  return path.length === 0 ? origin : (path[path.length - 1] as number);
+}
+
+function contestStandingRead(
+  sub: EngineSubstrate,
+  evaluate: Evaluator,
+  plan: JointPlan,
+  asTeam: number,
+  unitId: UnitId,
+  offer: ReadonlyArray<Candidate>
+): ContestStandingRead | null {
+  const unit = sub.unitOf(unitId);
+  if (unit === undefined || offer.length === 0) return null;
+  const offered = new Set(offer.map((c) => c.to));
+  const origin = unit.cells[0] as number;
+  const arrivals = contestField(sub, asTeam);
+  const standings = standingField(sub, asTeam);
+  const tier = frozenTier(unit.tier, unit.tierExpiresAtTurn, sub.turn);
+  let reached = false;
+  let beatenAll = true;
+  let beatenAny = false;
+  let standingFirst: boolean | null = null;
+  let standingVaries = false;
+  let contestFirst: string | null = null;
+  let contestFirstAll: string | null = null;
+  let flat = true;
+  let flatAll = true;
+  let tieFirst: string | null = null;
+  let tied = true;
+  // The same cap `traceFor` prices under, so the two readings of one unit-turn
+  // never disagree about which options they saw.
+  for (const option of sub.actionsOf(unitId).slice(0, 24)) {
+    const mine = offered.has(option.to);
+    const cell = stagedCellOf(option, origin);
+    const standing = beatenAt(standings, tier, unit.weight, cell);
+    const beaten = beatenAt(arrivals, tier, unit.weight, cell);
+    if (mine) {
+      if (arrivals.reached[cell] === 1) reached = true;
+      if (beaten) beatenAny = true;
+      else beatenAll = false;
+      if (standingFirst === null) standingFirst = standing;
+      else if (standing !== standingFirst) standingVaries = true;
+    }
+    const trial = new Map(plan);
+    trial.set(unitId, option);
+    let value;
+    try {
+      value = evaluate.evaluatePlan(sub, trial, asTeam);
+    } catch {
+      continue;
+    }
+    const contest = value.parts['contest'];
+    const key =
+      contest === undefined ? 'none' : `${contest.lo}|${contest.est}|${contest.hi}`;
+    if (contestFirstAll === null) contestFirstAll = key;
+    else if (key !== contestFirstAll) flatAll = false;
+    if (!mine) continue;
+    if (contestFirst === null) contestFirst = key;
+    else if (key !== contestFirst) flat = false;
+    const tieKey = `${value.bound.lo}|${value.bound.est}`;
+    if (tieFirst === null) tieFirst = tieKey;
+    else if (tieKey !== tieFirst) tied = false;
+  }
+  return {
+    wireId: unit.wireId,
+    originBeaten: beatenAt(arrivals, tier, unit.weight, origin),
+    options: offer.length,
+    flat,
+    flatAll,
+    fieldSilent: !reached,
+    allBeaten: beatenAll,
+    tied,
+    arrivalVaries: beatenAny && !beatenAll,
+    standingVaries,
+  };
+}
+
+/** `CENTAUR_CONTEST_DIAG=1` turns the read above on. Read once: an env lookup
+ *  per unit per turn is a syscall-shaped thing in the middle of a runner. */
+const CONTEST_DIAG = process.env['CENTAUR_CONTEST_DIAG'] === '1';
+
 export interface TeamDecision {
   /** wireId -> the DESTINATION cell staged, exactly what the wire carries. */
   readonly staged: Map<string, number>;
   readonly traces: UnitTrace[];
+  /** One row per unit this decision staged, or empty without the diag flag. */
+  readonly standings: ContestStandingRead[];
   readonly horizon: number;
   /** Evaluator calls that reached the evaluator — the work clock's coarse unit. */
   readonly nodes: number;
@@ -532,9 +685,19 @@ export async function decideTeam(
     .map((s) => s.id);
   const staged = new Map<string, number>();
   const traces: UnitTrace[] = [];
+  const standings: ContestStandingRead[] = [];
   const clock = new DecisionClock(budget.kind === 'nodes');
   if (ourIds.length === 0) {
-    return { staged, traces, horizon: 0, nodes: 0, slices: 0, reads: 0, loud: emptyLoudHistogram() };
+    return {
+      staged,
+      traces,
+      standings,
+      horizon: 0,
+      nodes: 0,
+      slices: 0,
+      reads: 0,
+      loud: emptyLoudHistogram(),
+    };
   }
 
   const sub = makeSubstrate({ gameId: 'local', board, turn, asTeam: teamId, modeled: ourIds });
@@ -620,7 +783,7 @@ export async function decideTeam(
       reads: clock.reads,
       loud,
     });
-    if (plan === null) return { staged, traces, horizon, ...stats() };
+    if (plan === null) return { staged, traces, standings, horizon, ...stats() };
 
     const w = board.width + 2;
     const h = board.height + 2;
@@ -637,8 +800,16 @@ export async function decideTeam(
       traces.push(
         traceFor(sub, evaluate, bank, plan, asTeam, unitId, cand, w, h, offered, seed)
       );
+      // --- THE CONTEST-STANDING INSTRUMENT (contest-gap.md §2.3) -----------
+      // After the plan is fixed, on the unmetered evaluator, and only with the
+      // flag. It reads the same offered set the trace above does.
+      if (CONTEST_DIAG) {
+        const read = contestStandingRead(sub, evaluate, plan, asTeam, unitId, offer);
+        if (read !== null) standings.push(read);
+      }
+      // --- end contest-standing instrument ---------------------------------
     }
-    return { staged, traces, horizon, ...stats() };
+    return { staged, traces, standings, horizon, ...stats() };
   } finally {
     sub.release();
   }
@@ -1500,6 +1671,36 @@ export interface GameMetrics {
   /** Those of them `winsContest` says we do not survive — D1's counter. */
   enemyOccupiedEntriesLost: number;
   // --- end enemy-occupied entry instrument --------------------------------
+  // --- THE CONTEST-STANDING INSTRUMENT (docs/design/contest-gap.md §2.3) --
+  // Four mutually exclusive buckets over decider unit-turns, and the contest
+  // deaths that fell in each. Zero without `CENTAUR_CONTEST_DIAG=1`.
+  /** Origin outside every enemy fan. */
+  contestOutsideTurns: number;
+  /** Origin safe, but some offered option is beaten. */
+  contestExposedTurns: number;
+  /** ORIGIN BEATEN AND `contest` EXACTLY CONSTANT — the flat bucket. */
+  contestFlatTurns: number;
+  /** Origin beaten and `contest` still graded across the options. */
+  contestGradedTurns: number;
+  /** Flat-bucket unit-turns where the STANDING charge would discriminate. */
+  contestFlatStandingVaries: number;
+  /** The flat bucket read over every LEGAL action rather than the offered set
+   *  — `contest-gap.md` §2.3's own reading. See `ContestStandingRead.flatAll`. */
+  contestFlatAllTurns: number;
+  contestOutsideDeaths: number;
+  contestExposedDeaths: number;
+  contestFlatDeaths: number;
+  contestGradedDeaths: number;
+  /** Contest deaths classified at the ENTRY turn (contest-gap.md §1): the last
+   *  turn the unit's own cell was not beaten. */
+  contestClassA: number;
+  contestClassB: number;
+  contestClassC: number;
+  contestClassE: number;
+  contestClassOther: number;
+  /** No entry turn was ever recorded for the unit — it was already in a fan. */
+  contestClassUnknown: number;
+  // --- end contest-standing instrument -------------------------------------
   // --- THE ENTRAPMENT INSTRUMENT (docs/design/entrapment.md §7.2) ----------
   // Five counters, computed post hoc on the concrete board the turn left. They
   // read the rules; they never touch the decision, so they cannot move any
@@ -1669,6 +1870,24 @@ export async function runGame(
     deathsWhileBuffed: 0,
     enemyOccupiedEntries: 0,
     enemyOccupiedEntriesLost: 0,
+    // --- contest-standing instrument (contest-gap.md §2.3) ------------------
+    contestOutsideTurns: 0,
+    contestExposedTurns: 0,
+    contestFlatTurns: 0,
+    contestGradedTurns: 0,
+    contestFlatStandingVaries: 0,
+    contestFlatAllTurns: 0,
+    contestOutsideDeaths: 0,
+    contestExposedDeaths: 0,
+    contestFlatDeaths: 0,
+    contestGradedDeaths: 0,
+    contestClassA: 0,
+    contestClassB: 0,
+    contestClassC: 0,
+    contestClassE: 0,
+    contestClassOther: 0,
+    contestClassUnknown: 0,
+    // --- end contest-standing instrument ------------------------------------
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -1722,6 +1941,14 @@ export async function runGame(
   // step off whatever it is standing on.
   let immobile = new Set<string>();
   // --- end immobility instrument -------------------------------------------
+  // --- contest-standing instrument (contest-gap.md §1, §2.3) ---------------
+  // `lastStanding` is this turn's read, which is the state the unit took its
+  // fatal decision in; `entryStanding` is the read at the ENTRY TURN — the
+  // last turn the unit's own cell was NOT beaten — which is where the
+  // diagnosis classifies a contest death. Both are keyed by wire id.
+  const lastStanding = new Map<string, ContestStandingRead>();
+  const entryStanding = new Map<string, ContestStandingRead>();
+  // --- end contest-standing instrument --------------------------------------
   const key = (c: Coord): string => `${c.x},${c.y}`;
   // TEAM 0, per the scenario's OWN roster (`spec.teams[0]`) — a fact about the
   // board, fixed for the whole game, and independent of the alphabetical
@@ -1763,6 +1990,25 @@ export async function runGame(
         metrics.worstDecisionNodes = Math.max(metrics.worstDecisionNodes, decision.nodes);
         metrics.decisions++;
         addLoud(metrics.loud, decision.loud);
+        // --- THE CONTEST-STANDING INSTRUMENT (contest-gap.md §2.3) ---------
+        // Empty without `CENTAUR_CONTEST_DIAG=1`, so this loop does not run.
+        for (const read of decision.standings) {
+          lastStanding.set(read.wireId, read);
+          if (!read.originBeaten) {
+            entryStanding.set(read.wireId, read);
+            if (read.arrivalVaries || read.allBeaten) metrics.contestExposedTurns++;
+            else metrics.contestOutsideTurns++;
+          } else {
+            if (read.flatAll) metrics.contestFlatAllTurns++;
+            if (read.flat) {
+              metrics.contestFlatTurns++;
+              if (read.standingVaries) metrics.contestFlatStandingVaries++;
+            } else {
+              metrics.contestGradedTurns++;
+            }
+          }
+        }
+        // --- end contest-standing instrument --------------------------------
         for (const [id, to] of decision.staged) staged.set(id, to);
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
@@ -1903,6 +2149,27 @@ export async function runGame(
       // P1: read against the immobility the PREVIOUS turn left, because that
       // is the state this unit took its last decision in.
       if (immobile.has(d.id)) metrics.deathsWhileImmobile++;
+      // --- THE CONTEST-STANDING INSTRUMENT (contest-gap.md §1, §2.3) -------
+      // The bucket is read at the DEATH turn and the class at the ENTRY turn,
+      // which is exactly how the diagnosis splits the same 28 deaths.
+      if (CONTEST_DIAG && d.cause === 'contest') {
+        const here = lastStanding.get(d.id);
+        if (here !== undefined) {
+          if (!here.originBeaten) {
+            if (here.arrivalVaries || here.allBeaten) metrics.contestExposedDeaths++;
+            else metrics.contestOutsideDeaths++;
+          } else if (here.flat) metrics.contestFlatDeaths++;
+          else metrics.contestGradedDeaths++;
+        }
+        const entry = entryStanding.get(d.id);
+        if (entry === undefined) metrics.contestClassUnknown++;
+        else if (entry.options <= 1) metrics.contestClassC++;
+        else if (entry.fieldSilent) metrics.contestClassA++;
+        else if (entry.allBeaten && entry.flat) metrics.contestClassB++;
+        else if (entry.tied) metrics.contestClassE++;
+        else metrics.contestClassOther++;
+      }
+      // --- end contest-standing instrument ---------------------------------
     }
     board = outcome.board;
     metrics.turns = turn;
@@ -2231,6 +2498,23 @@ export interface RunSummary {
     // --- enemy-occupied entry instrument (BEHAVIOUR-AUDIT.md D1) -----------
     readonly enemyOccupiedEntries: number;
     readonly enemyOccupiedEntriesLost: number;
+    // --- contest-standing instrument (contest-gap.md §2.3) -------------------
+    readonly contestOutsideTurns: number;
+    readonly contestExposedTurns: number;
+    readonly contestFlatTurns: number;
+    readonly contestGradedTurns: number;
+    readonly contestFlatStandingVaries: number;
+    readonly contestFlatAllTurns: number;
+    readonly contestOutsideDeaths: number;
+    readonly contestExposedDeaths: number;
+    readonly contestFlatDeaths: number;
+    readonly contestGradedDeaths: number;
+    readonly contestClassA: number;
+    readonly contestClassB: number;
+    readonly contestClassC: number;
+    readonly contestClassE: number;
+    readonly contestClassOther: number;
+    readonly contestClassUnknown: number;
     // --- entrapment instrument (docs/design/entrapment.md §7.2) ------------
     readonly entrappedUnitTurns: number;
     readonly entrapmentEpisodes: number;
@@ -2333,6 +2617,23 @@ export function summaryOf(
       // --- enemy-occupied entry instrument -----------------------------------
       enemyOccupiedEntries: metrics.enemyOccupiedEntries,
       enemyOccupiedEntriesLost: metrics.enemyOccupiedEntriesLost,
+      // --- contest-standing instrument (contest-gap.md §2.3) ---------------
+      contestOutsideTurns: metrics.contestOutsideTurns,
+      contestExposedTurns: metrics.contestExposedTurns,
+      contestFlatTurns: metrics.contestFlatTurns,
+      contestGradedTurns: metrics.contestGradedTurns,
+      contestFlatStandingVaries: metrics.contestFlatStandingVaries,
+      contestFlatAllTurns: metrics.contestFlatAllTurns,
+      contestOutsideDeaths: metrics.contestOutsideDeaths,
+      contestExposedDeaths: metrics.contestExposedDeaths,
+      contestFlatDeaths: metrics.contestFlatDeaths,
+      contestGradedDeaths: metrics.contestGradedDeaths,
+      contestClassA: metrics.contestClassA,
+      contestClassB: metrics.contestClassB,
+      contestClassC: metrics.contestClassC,
+      contestClassE: metrics.contestClassE,
+      contestClassOther: metrics.contestClassOther,
+      contestClassUnknown: metrics.contestClassUnknown,
       // --- entrapment instrument ---------------------------------------------
       entrappedUnitTurns: metrics.entrappedUnitTurns,
       entrapmentEpisodes: metrics.entrapmentEpisodes,
@@ -2430,6 +2731,24 @@ async function summarise(
     deathsWhileBuffed: 0,
     enemyOccupiedEntries: 0,
     enemyOccupiedEntriesLost: 0,
+    // --- contest-standing instrument (contest-gap.md §2.3) ------------------
+    contestOutsideTurns: 0,
+    contestExposedTurns: 0,
+    contestFlatTurns: 0,
+    contestGradedTurns: 0,
+    contestFlatStandingVaries: 0,
+    contestFlatAllTurns: 0,
+    contestOutsideDeaths: 0,
+    contestExposedDeaths: 0,
+    contestFlatDeaths: 0,
+    contestGradedDeaths: 0,
+    contestClassA: 0,
+    contestClassB: 0,
+    contestClassC: 0,
+    contestClassE: 0,
+    contestClassOther: 0,
+    contestClassUnknown: 0,
+    // --- end contest-standing instrument ------------------------------------
     // --- entrapment instrument ---------------------------------------------
     entrappedUnitTurns: 0,
     entrapmentEpisodes: 0,
@@ -2522,6 +2841,23 @@ async function summarise(
           : ((totals.grownMeals as number) / (totals.foodEaten as number)).toFixed(2)
       }`
   );
+  // --- THE CONTEST-STANDING INSTRUMENT, on its own line (contest-gap.md
+  // §2.3). Silent without `CENTAUR_CONTEST_DIAG=1`: with the flag absent every
+  // counter on it is zero and the line would only be noise.
+  if ((totals.contestFlatTurns as number) + (totals.contestGradedTurns as number) > 0) {
+    out.say(
+      `${scenario} CG: outside=${totals.contestOutsideTurns}/${totals.contestOutsideDeaths} ` +
+        `exposed=${totals.contestExposedTurns}/${totals.contestExposedDeaths} ` +
+        `FLAT=${totals.contestFlatTurns}/${totals.contestFlatDeaths} ` +
+        `graded=${totals.contestGradedTurns}/${totals.contestGradedDeaths} ` +
+        `flatStandingVaries=${totals.contestFlatStandingVaries} ` +
+        `flatAll=${totals.contestFlatAllTurns} ` +
+        `classes A=${totals.contestClassA} B=${totals.contestClassB} ` +
+        `C=${totals.contestClassC} E=${totals.contestClassE} ` +
+        `other=${totals.contestClassOther} unknown=${totals.contestClassUnknown}`
+    );
+  }
+  // --- end contest-standing instrument ---------------------------------------
   // --- THE ENTRAPMENT INSTRUMENT, on its own line (docs/design/entrapment.md
   // §7.2). `lead` is the mean warning in turns over the fatal episodes, which
   // is the number P-1 is read off.
