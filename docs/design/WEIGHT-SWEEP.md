@@ -12,6 +12,13 @@ currency, meals and territory are what may be spent.**
 
 ## Method
 
+Everything below is reproducible from the head build: no source file on this branch
+differs from `claude/succession-doc-subagent-orchestration-n41iua` except this
+document. Each arm was built by moving ONE line of `DEFAULT_WEIGHTS`, compiling to
+its own output directory, and reverting the file — `git status` is clean at every
+checkpoint, and `calibration.ts` is byte-identical to the head at the end.
+
+
 Head build, `--nodes` (550 work units), 60 turns, deterministic clock, so every
 counter is a function of (build, scenario, seed) and nothing else. One knob moved
 from the head's table per arm; nothing else in the tree changes.
@@ -173,3 +180,204 @@ maps `[lo, hi]` to `[w·lo, w·hi]` and cannot invert an endpoint. The gate woul
 catch a weight that went NEGATIVE, and nothing else about a re-weighting. It is
 run because it is cheap and because a silent soundness break would invalidate
 every counter above; it does not license any arm.
+
+## 3. The keep rule — NOTHING IS KEPT
+
+The rule, stated before the arms were run: keep ONE arm, the best by deaths, and
+only if **deaths fall on at least two classes and rise on none** (per class, at
+full length), meals down at most 5% per class, territory may fall, inversion gate
+zero, the exact-reply suite exact, the law-sweep ratchet not up, and the
+determinism fixture re-pinned only after reading the transcript and confirming
+the new move is the more cautious one.
+
+**No arm reaches the first clause.** Deaths fall on ZERO classes for every arm.
+The best arm by deaths is `room×1.5` (51 against the baseline's 47 when the seven
+classes are counted up, and the only arm that holds `mixed` at its baseline 14),
+and even it raises `potions` 21 → 24 and our own deaths on `mixed`/mat-only 4 → 5.
+
+Two arms would have failed the meals clause as well had they got past the first
+(`reach×0.75` at −5.9% on `potions`, `contest×1.5` at −7.2% on `mixed`/mat-only),
+and `contest×1.5` was ineligible from the start.
+
+So: **nothing is kept. `calibration.ts` is unchanged on this branch** — the
+weight table this document measures is the weight table it leaves behind. The
+gate suites were run anyway, on the unmodified tree, and the determinism fixture
+was NOT touched: `npx tsc --noEmit -p .` clean, `npx eslint "src/**/*.ts"` clean,
+and `soundness` + `exact-reply` + `law-sweep` + `src/lobster/__tests__` +
+`local-game-determinism` + `basic-intelligence` + `territory-acceptance` at
+**20 suites / 341 tests, all passing**, no pin moved.
+
+## 4. The mechanism, at the best arm and at the informative one
+
+### `room×1.5` — the best arm by deaths, and it does not remove a death
+
+`room×1.5` leaves **23 of the 29 games byte-identical** to the baseline. Its
+whole effect lives in six games, and on `mixed` its death ledger reads
+
+| | contest | bodyBlock | self | total |
+|---|---|---|---|---|
+| base | 11 | 2 | 1 | **14** |
+| `room×1.5` | **9** | **4** | 1 | **14** |
+
+Two contest deaths gone, two body-block deaths arrived, one for one. That is D2's
+mobility currency-swap exactly (`calibration.ts`, "THERE IS NO `mobility` KNOB"):
+a term that pays a unit for the ground it keeps moves it off the wall, and the
+death it stops paying in `contest` it starts paying in `bodyBlock`. On `potions`
+the swap does not even break even — 21 → 24, and among the three it adds is a
+`potions` 4 T30 blue-C **`edge`** death, a cause `BEHAVIOUR-AUDIT-2.md` recorded
+as extinct ("edge deaths are gone: 3 → 0, and 0 in all 57 deaths of this corpus").
+
+**Reproduction A — `mixed` seed 4, turn 18, green-A (snake), the arm's first
+differing move in that game.**
+
+    base        top3: (5,0)=-213.84|-81.03  (3,0)=-214.01|-96.55  (4,1)!=-253.78|-116.28   -> takes (5,0)
+    room×1.5    top3: (3,0)=-213.97|-96.61  (5,0)=-214.48|-81.43  (4,1)!=-253.75|-116.33   -> takes (3,0)
+
+The floor gap at the head is **0.17** and the order flips: `(5,0)` falls 0.64 and
+`(3,0)` rises 0.04, so the two move 0.68 apart — four times the gap. Note the arm
+takes the option the CEILING rates 15 points worse; `better` reads the floor
+first, so the floor flip decides. **This is the load-bearing number in the whole
+sweep: a 0.17 floor margin is turnable by a single weight, and 0.17 is the size
+of the class-A margin.** After the flip the game is a different game, and the
+death list that follows is a different game's death list, not this one's with a
+death removed.
+
+**Reproduction B — `mixed` seed 3, turn 5, red-B (pawn), where the arm's effect is
+below the print resolution.**
+
+    base        top3: (-1,1)=-81.75|-24.76  (0,1)=-81.75|-24.76  (1,1)=-81.75|-24.76   -> holds at (0,1)
+    room×1.5    top3: (-1,1)=-81.75|-24.76  (0,1)=-81.75|-24.76  (1,1)=-81.75|-24.76   -> rotates to (-1,1)
+
+Three options priced identically to the printed hundredth at BOTH ends of the
+bracket, and the arm flips which of them is maximal in digits the trace does not
+show. The base pawn stays against the wall and dies `contest` at T22; the arm's
+pawn leaves and dies `bodyBlock` at T21 — one turn EARLIER. Nothing about that
+comparison is a repair; it is the same coin landing on its other face.
+
+### `contest×1.5` — the ineligible arm, and the one that settles the question
+
+`contest×1.5` also leaves 23 of 29 games byte-identical, and it is the arm worth
+reading, because it is the direct test of "if the deaths are contest deaths, buy
+more contest".
+
+**It removes no class-A death and it causes one.**
+
+**Reproduction C — `mixed` seed 2, turn 42, red-A (snake). The baseline plays this
+game to 60 turns with ZERO deaths.**
+
+    base         top3: (1,6)=-483.12|-166.06  (2,5)!=-483.13|-161.83  (2,7)=-483.13|-166.03  -> takes (1,6), lives
+    contest×1.5  top3: (2,5)!=-483.13|-162.08 (2,7)=-483.13|-166.28   (1,6)=-483.62|-166.31  -> takes (2,7)
+                 ENEMY-CELL red-A -> blue-C's square  LOST
+                 DEATH red-A (contest)
+
+The safe option `(1,6)` carried the contest charge and the fatal option `(2,7)`
+did not, so raising the weight pushed `(1,6)` down 0.50 while the other two moved
+by less than a hundredth, inverting a 0.01 floor gap. **Up-weighting `contest`
+made the unit walk into an enemy-occupied square and die of `contest`**, and six
+turns later red-B dies `edge` in the same game. On `potions` 8 the arm does remove
+two contest deaths (3 → 1), and it adds four across seeds 2, 3 and 5, for a net
+21 → 22.
+
+## 5. What the sweep says about the territory/safety balance
+
+**The head's weights are a local minimum in deaths along every direction swept.**
+Seven single-knob moves — two doses down on `reach`, two down on `command`, one up
+on `contest`, one up on `room`, one up on `material` — and every one of them ends
+with more deaths than the table it started from, on `mixed` and on `potions`
+together in six of the seven cases. That is not proof of an optimum; it is
+evidence that the table is not sitting on an obvious slope, and that the numbers
+`calibration.ts` records reasons for are load-bearing rather than decorative.
+
+**Territory and safety are not the trade this fold makes.** The naive reading of
+`contest-classA.md` — "the fatal option wins on territory, so charge less for
+territory" — is what `reach×0.75`, `reach×0.5` and `command×0.5` test, and all
+three go the WRONG way: deaths up on `mixed` and `potions`, and meals UP too
+(`command×0.5` gains 15.7% of `mixed` meals while adding nine deaths). Cheapening
+territory does not make the bot cautious; it makes it hungry. `reach×0.5` is the
+sharpest form of that: it is the only arm in the sweep to put deaths on `sparse`
+and `sparse-lean` (0 → 2 each), boards that have not recorded a death in any
+measurement in this repo, and it buys +15% and +29% of their meals doing it. The
+term the doc names as the one that prices the fatal option is also the term that
+keeps units out of trouble on an empty board, and it cannot be sold in one
+direction only.
+
+**And the direction the owner's rule points is not purchasable here either.**
+`contest×1.5` is the conservative move, it breaks a recorded inequality to be
+made at all, and at that dose it removes no death from the dominant class and
+adds two to a clean game. There is no admissible dose of `contest` below it that
+would do more: the term is identically zero on every offered option at the
+decisions in question (next section), so its weight multiplies zero.
+
+## 6. The class-A margin — does any arm turn those decisions?
+
+The nineteen class-A entry turns of `contest-classA.md` §3, replayed on every arm.
+A row is COMPARABLE only where the unit stands on the same cell at the same turn
+— elsewhere the arm has changed the game upstream and there is no decision to
+compare. The baseline's own floor gap at each row is read from the runner's
+top-3 print and it **reproduces the doc's `bank-floor gap` column exactly**
+(0.16/0.16/0.14/0.16/0.16/0.15 on the six 0.16-class rows, 40.55, 10.00, 10.19 on
+the three capture/meal rows, and 0.00 on the four floor ties).
+
+| arm | comparable | **turned** | of which TRUE entry decisions | unit then survived entry+0…3 |
+|---|---|---|---|---|
+| `reach×0.75` | 9 | **0** | 0 | — |
+| `reach×0.5` | 7 | 2 | **1** (`potions` 3 T11 red-B, gap 0.18) | 2 of 2 |
+| `command×0.75` | 8 | 1 | **1** (`potions` 7 T8 blue-C, gap 0.11) | 1 of 1 |
+| `command×0.5` | 5 | 3 | **2** (`mixed` 6 T6 red-B, gap **0.16**; `potions` 7 T8, 0.11) | 1 of 3 |
+| `contest×1.5` | **18** | **0** | **0** | — |
+| `room×1.5` | 14 | 1 | **0** (its one is a one-cell row) | 1 of 1 |
+| `material×1.25` | 4 | 3 | **2** (`mixed` 4 T16 red-B, gap **0.16**; `potions` 1 T10, 0.00) | 3 of 3 |
+
+Three of the doc's nineteen are rows where every offered option leaves the unit on
+the same cell — the doc's own §5.4 note that they are class C in substance — and
+they are separated out above, because turning one of those is not turning an entry
+decision.
+
+**Three findings, in order of how much they change the picture.**
+
+**1. `contest×1.5` turns NOTHING, and the reason is arithmetic, not dose.** On all
+18 comparable rows the arm keeps the base's choice AND the base's margin,
+identical to the printed hundredth. If a term is 0.000 on every offered option, it
+contributes the same 0 to each, and its weight cannot appear in the difference
+between them at any dose. `contest-classA.md` §1 measured this from the option
+side (`b1` varies on 0 of 19); this is the same fact from the weight side, and it
+closes the question `contest`'s weight was ever going to answer.
+
+**2. The 0.16 margin IS reachable by a weight — and this is new.** The class-A doc
+established that no member gradient could close it: `π` at the largest admissible
+`σ` moves 2 of 19, D1's `ε` and `p_e(c)` vary on 0 of 19. A weight is not a member,
+and two arms turn a genuine 0.16-margin entry decision outright —
+`command×0.5` on `mixed` 6 T6 red-B and `material×1.25` on `mixed` 4 T16 red-B —
+while `reach×0.5` turns a 0.18 one and `room×1.5` moves two options 0.68 apart
+across a 0.17 gap (Reproduction A). The margin is not out of range of the pricing
+scale. **It is out of range of anything that only prices these decisions.**
+
+**3. Reaching it does not pay.** `command×0.5` turns `mixed` 6 T6 and the pawn
+**dies at T7 anyway**, of `contest`, one turn later — the doc's §4 reading of what
+the entry turn is ("every option inside the same fan at two plies") surviving the
+decision being turned. And every arm that reaches the margin is an arm that
+re-prices every other decision on the board with it: `command×0.5` costs +9 deaths
+on `mixed` and +3 on `potions` and takes our own `mixed`/mat-only deaths 4 → 7;
+`material×1.25` costs +5 and +5; `reach×0.5` costs +8, +9 and the two `sparse`
+boards. The three arms with the highest turn RATE are also the three with the
+fewest comparable rows (5, 4 and 7 of 19), which is the same statement twice: an
+arm strong enough to move a 0.16 margin has already moved the game out from under
+the comparison.
+
+**So the class-A verdict stands, with its reason sharpened.** `contest-classA.md`
+concluded that class A is the price of a crowded board because no member could
+close a 0.16 territory margin. The sweep shows the margin is closable at the
+weight scale and that closing it costs more lives elsewhere than the class
+contains — 19 class-A entry decisions across fourteen games, against +8 to +9
+deaths per arm on `mixed` and `potions` alone. The obstacle is not the size of the
+margin. It is that the margin is made of a quantity the evaluator needs at its
+current price everywhere else on the board, and there is no knob in
+`DEFAULT_WEIGHTS` that is local to the entry turn.
+
+**What the next attempt inherits.** A repair for class A must be CONDITIONAL —
+a term that is silent except at the entry turn, and that moves 0.16 when it
+speaks. `contest-classA.md` §5 already asks for a reading the cell does not carry;
+this document adds the dose it has to hit and the proof that a global re-weighting
+cannot hit it without paying elsewhere. And it removes one candidate for good: no
+setting of `contest` is that term, because `contest` is identically zero on every
+option of the decisions in question.
