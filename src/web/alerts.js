@@ -12,9 +12,10 @@
  * attention the operator did not offer, so it is also the only one with a
  * budget, a mute and a per-event opt-out.
  *
- * WHAT IT OWNS. `<div id="alerts-mount">` — a preferences button and its
- * popover — plus one `position: fixed` ring it draws INSIDE that mount and
- * over the board's own box. Nothing else on the page is written by this file.
+ * WHAT IT OWNS. `<div id="alerts-mount">` — a preferences button, its popover
+ * and a polite live region — plus one `position: fixed` ring appended to the
+ * body and drawn over the board's own box (see `ensureMount` for why it
+ * cannot live in the mount). Nothing else on the page is written by this file.
  * It sends nothing on the socket, it never focuses, never scrolls, never
  * opens a dialog and never changes what is staged: an alert that could change
  * a decision is a decision made by the alarm.
@@ -568,7 +569,7 @@
   // board's own styles.
 
   const CSS = `
-#alerts-mount { display: inline-flex; align-items: center; gap: 6px; }
+#alerts-mount { position: relative; display: inline-flex; align-items: center; gap: 6px; }
 
 .al-btn {
   background: #1f1f1f; color: #bbb; border: 1px solid #3a3a3a; border-radius: 4px;
@@ -578,8 +579,12 @@
 .al-btn[data-muted="1"] { color: #7a7a7a; border-color: #2c2c2c; }
 .al-btn:focus-visible { outline: 2px solid #7aa2f7; outline-offset: 2px; }
 
+/* RIGHT-ANCHORED, because the mount is at the right end of the header row and
+   a popover that opens leftwards from there runs off the page — which the
+   first photograph caught it doing. Below the page's own modals (z 2000) and
+   above everything else: a preferences panel is not an emergency. */
 .al-pop {
-  position: absolute; z-index: 60; margin-top: 6px; min-width: 268px;
+  position: absolute; top: 100%; right: 0; z-index: 1500; margin-top: 6px; min-width: 268px;
   background: #161616; border: 1px solid #3a3a3a; border-radius: 6px;
   padding: 10px 12px; color: #ddd;
   font: 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -606,7 +611,11 @@
    (P1's peripheral rule), so priority is spelled as weight and opacity and
    the hue is only ever a second reading of it. */
 .al-pulse {
-  position: fixed; pointer-events: none; z-index: 55;
+  /* ABOVE THE PAGE'S OWN MODALS (z 2000), and this is deliberate: the fatal
+     consent dialog is up at exactly the moment the fatal alert fires, and a
+     peripheral cue drawn underneath the thing it is about is not a peripheral
+     cue. Below the login gate (z 3000), which is not a game state. */
+  position: fixed; pointer-events: none; z-index: 2500;
   border-style: solid; border-width: 3px; border-radius: 4px;
   border-color: rgba(255, 214, 130, 0);
   opacity: 0; transition: opacity 140ms linear, border-color 140ms linear;
@@ -942,7 +951,6 @@
       'aria-haspopup="dialog" title="Alert channel: mute, volume, and which events may interrupt.">' +
       'ALERTS</button>' +
       '<div class="al-pop" role="dialog" aria-label="Alert preferences" hidden></div>' +
-      '<div class="al-pulse" aria-hidden="true"></div>' +
       // THE FOURTH CHANNEL, and the one that costs nothing: a polite live
       // region. An operator on a screen reader gets neither the ring nor the
       // motif, and the text every alert already carries is exactly what they
@@ -953,8 +961,24 @@
     mount = host;
     btn = host.querySelector('.al-btn');
     pop = host.querySelector('.al-pop');
-    ring = host.querySelector('.al-pulse');
     say = host.querySelector('.al-say');
+    // THE RING GOES ON THE BODY AND NOT IN THE MOUNT, and the first
+    // photograph is why. `.header` is `position: fixed; z-index: 1000`, which
+    // is a STACKING CONTEXT: a child of it can be given z-index 2500 and
+    // still be painted underneath the page's own consent dialog at 2000,
+    // because 2500 only orders it against its siblings inside the header. A
+    // peripheral cue drawn beneath the modal it is about is not a peripheral
+    // cue — and the fatal alert fires at exactly the moment that modal is up.
+    // So the ring is a root-level layer of this module's own making. It is
+    // still `pointer-events: none`, still writes nothing outside itself, and
+    // is still the only thing this file puts anywhere but its mount.
+    ring = global.document.querySelector('body > .al-pulse');
+    if (!ring) {
+      ring = global.document.createElement('div');
+      ring.className = 'al-pulse';
+      ring.setAttribute('aria-hidden', 'true');
+      global.document.body.appendChild(ring);
+    }
     renderPop();
     btn.addEventListener('click', () => {
       const open = pop.hidden;

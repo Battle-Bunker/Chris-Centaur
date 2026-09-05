@@ -1,0 +1,1059 @@
+{
+ "budgetMs": 4000,
+ "scenes": [
+  {
+   "scene": "wire",
+   "flags": "latency=880 jitter=40"
+  },
+  {
+   "scene": "operator",
+   "flags": "free wire",
+   "unit": "red-A",
+   "fatalPress": {
+    "snakeId": "red-A",
+    "move": "left",
+    "head": {
+     "x": 2,
+     "y": 2
+    },
+    "board": {
+     "W": 11,
+     "H": 11
+    }
+   }
+  },
+  {
+   "scene": "drift",
+   "flags": "free wire, prefers-reduced-motion"
+  }
+ ],
+ "checks": [
+  {
+   "scene": "wire",
+   "what": "wire-degraded fires on a wire the ladder calls DEGRADED",
+   "ok": true,
+   "evidence": {
+    "ladder": "DEGRADED",
+    "entry": {
+     "id": "wire-degraded",
+     "at": 1788625761552,
+     "turn": 2,
+     "priority": 3,
+     "escalated": false,
+     "streak": 1,
+     "key": "DEGRADED",
+     "text": "1896 ms round trip — a press needs 968 ms to land",
+     "detail": {
+      "why": "1896 ms round trip — a press needs 968 ms to land",
+      "rung": "DEGRADED",
+      "key": "DEGRADED"
+     },
+     "channels": [
+      "pulse",
+      "live-region"
+     ],
+     "suppressed": [
+      "glance"
+     ]
+    }
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "wire-degraded reaches the pulse",
+   "ok": true,
+   "evidence": [
+    "pulse",
+    "live-region"
+   ]
+  },
+  {
+   "scene": "wire",
+   "what": "the ring is drawn on the board’s own box, not the viewport",
+   "ok": true,
+   "evidence": {
+    "on": true,
+    "alert": "wire-degraded",
+    "priority": "3",
+    "width": "562px",
+    "height": "562px"
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "a standing rung is rate-limited, not repeated: ≤1 more raising in 2 s",
+   "ok": true,
+   "evidence": {
+    "before": 1,
+    "after": 1,
+    "cooldownMs": 700
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "the refusals are counted rather than dropped",
+   "ok": true,
+   "evidence": {
+    "before": 0,
+    "after": 8
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "a move is staged, so there is unfinished business to be past the notch with",
+   "ok": true,
+   "evidence": {
+    "snakeId": "red-A",
+    "move": "up"
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "press-window fires past the last-safe-press notch with unfinished business",
+   "ok": true,
+   "evidence": {
+    "entry": {
+     "id": "press-window",
+     "at": 1788625769051,
+     "turn": 3,
+     "priority": 2,
+     "escalated": false,
+     "streak": 1,
+     "key": "turn:3",
+     "text": "past the last safe press with 1 unit unfinished",
+     "detail": {
+      "unfinished": 1,
+      "remainingMs": 819,
+      "key": "turn:3"
+     },
+     "channels": [
+      "pulse",
+      "live-region",
+      "earcon"
+     ],
+     "suppressed": []
+    },
+    "ladder": "DEGRADED",
+    "wire": {
+     "remainingMs": 742,
+     "pressSlackMs": 897,
+     "rttMs": 1794
+    },
+    "staged": [
+     {
+      "unit": "red-A",
+      "committed": false
+     }
+    ]
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "it names how much is unfinished",
+   "ok": true,
+   "evidence": {
+    "unfinished": 1,
+    "remainingMs": 819,
+    "key": "turn:3"
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "it fires while the clock is still running — past the deadline the ladder is already louder",
+   "ok": true,
+   "evidence": {
+    "unfinished": 1,
+    "remainingMs": 819,
+    "key": "turn:3"
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "wire-stale fires once the deadline passes unfed",
+   "ok": true,
+   "evidence": {
+    "ladder": "DEGRADED",
+    "entry": {
+     "id": "wire-stale",
+     "at": 1788625764551,
+     "turn": 2,
+     "priority": 2,
+     "escalated": false,
+     "streak": 1,
+     "key": "STALE",
+     "text": "no decision frame for 3583 ms, past this turn's deadline",
+     "detail": {
+      "why": "no decision frame for 3583 ms, past this turn's deadline",
+      "rung": "STALE",
+      "key": "STALE"
+     },
+     "channels": [
+      "pulse",
+      "live-region",
+      "earcon"
+     ],
+     "suppressed": []
+    }
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "a STALE alert carries the ladder’s own sentence, not a second opinion",
+   "ok": true,
+   "evidence": "no decision frame for 3583 ms, past this turn's deadline"
+  },
+  {
+   "scene": "wire",
+   "what": "at least one wire alert reached the earcon",
+   "ok": true,
+   "evidence": {
+    "sounded": [
+     "wire-stale",
+     "fatal-unpinned",
+     "press-window"
+    ],
+    "earcons": 7
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "the earcon is a synthesised motif — an oscillator per note, no asset fetched",
+   "ok": true,
+   "evidence": [
+    {
+     "hz": 622.25,
+     "at": 6.424,
+     "wall": 1788625764552
+    },
+    {
+     "hz": 523.25,
+     "at": 6.579000000000001,
+     "wall": 1788625764552
+    },
+    {
+     "hz": 740,
+     "at": 9.363,
+     "wall": 1788625767491
+    },
+    {
+     "hz": 880,
+     "at": 9.493,
+     "wall": 1788625767491
+    },
+    {
+     "hz": 1046.5,
+     "at": 9.623,
+     "wall": 1788625767491
+    },
+    {
+     "hz": 622.25,
+     "at": 10.924,
+     "wall": 1788625769052
+    }
+   ]
+  },
+  {
+   "scene": "wire",
+   "what": "no two earcons closer than 700 ms",
+   "ok": true,
+   "evidence": [
+    2939,
+    1561
+   ]
+  },
+  {
+   "scene": "wire",
+   "what": "mute silences the earcon",
+   "ok": true,
+   "evidence": {
+    "before": 7,
+    "after": 7
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "mute does NOT silence the pulse",
+   "ok": true,
+   "evidence": {
+    "id": "lock-refused",
+    "at": 1788625770134,
+    "turn": 3,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:muted-probe",
+    "text": "lock refused — muted-probe",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — muted-probe",
+     "key": "lock:muted-probe"
+    },
+    "channels": [
+     "pulse",
+     "live-region"
+    ],
+    "suppressed": [
+     "muted"
+    ]
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "a muted alert says so in its own record",
+   "ok": true,
+   "evidence": {
+    "id": "lock-refused",
+    "at": 1788625770134,
+    "turn": 3,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:muted-probe",
+    "text": "lock refused — muted-probe",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — muted-probe",
+     "key": "lock:muted-probe"
+    },
+    "channels": [
+     "pulse",
+     "live-region"
+    ],
+    "suppressed": [
+     "muted"
+    ]
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "a switched-off event raises nothing at all",
+   "ok": true,
+   "evidence": {
+    "before": 6,
+    "after": 6
+   }
+  },
+  {
+   "scene": "wire",
+   "what": "the popover carries a master mute, a volume and a row per event",
+   "ok": true,
+   "evidence": {
+    "hidden": false,
+    "rows": 6,
+    "hasMute": true,
+    "hasVolume": true
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "a unit is focused through the roster",
+   "ok": true,
+   "evidence": "red-A"
+  },
+  {
+   "scene": "operator",
+   "what": "fatal-unpinned fires on the server’s own certain-death refusal",
+   "ok": true,
+   "evidence": {
+    "entry": {
+     "id": "fatal-unpinned",
+     "at": 1788625788278,
+     "turn": 2,
+     "priority": 1,
+     "escalated": false,
+     "streak": 1,
+     "key": "red-A:2",
+     "text": "red-A is one turn from a fatal cell and nothing has pinned it",
+     "detail": {
+      "unit": "red-A",
+      "move": "left",
+      "key": "red-A:2"
+     },
+     "channels": [
+      "pulse",
+      "live-region",
+      "earcon"
+     ],
+     "suppressed": []
+    },
+    "press": {
+     "snakeId": "red-A",
+     "move": "left",
+     "head": {
+      "x": 2,
+      "y": 2
+     },
+     "board": {
+      "W": 11,
+      "H": 11
+     }
+    }
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "a fatal alert is priority 1 — the loudest motif",
+   "ok": true,
+   "evidence": 1
+  },
+  {
+   "scene": "operator",
+   "what": "a fatal alert reaches the pulse and the earcon",
+   "ok": true,
+   "evidence": [
+    "pulse",
+    "live-region",
+    "earcon"
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "the priority-1 motif is three notes, rising",
+   "ok": true,
+   "evidence": [
+    {
+     "hz": 740,
+     "at": 4.711,
+     "wall": 1788625788279
+    },
+    {
+     "hz": 880,
+     "at": 4.841,
+     "wall": 1788625788279
+    },
+    {
+     "hz": 1046.5,
+     "at": 4.971,
+     "wall": 1788625788279
+    }
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "the ring names the event that raised it",
+   "ok": true,
+   "evidence": {
+    "on": true,
+    "alert": "fatal-unpinned",
+    "priority": "1",
+    "width": "562px",
+    "height": "562px"
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "a bot-staged fatal move with no determination raises the alert",
+   "ok": true,
+   "evidence": [
+    {
+     "id": "fatal-unpinned",
+     "at": 1788625788549,
+     "turn": 9001,
+     "priority": 1,
+     "escalated": false,
+     "streak": 1,
+     "key": "drill-unit:9001",
+     "text": "drill-unit is one turn from a fatal cell and nothing has pinned it",
+     "detail": {
+      "unit": "drill-unit",
+      "mode": "heuristic",
+      "key": "drill-unit:9001"
+     },
+     "channels": [
+      "live-region"
+     ],
+     "suppressed": [
+      "flash",
+      "budget"
+     ]
+    }
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "a fatal move the operator consented to raises NOTHING — the alarm does not second-guess a confirmed decision",
+   "ok": true,
+   "evidence": [
+    {
+     "id": "fatal-unpinned",
+     "at": 1788625788549,
+     "turn": 9001,
+     "priority": 1,
+     "escalated": false,
+     "streak": 1,
+     "key": "drill-unit:9001",
+     "text": "drill-unit is one turn from a fatal cell and nothing has pinned it",
+     "detail": {
+      "unit": "drill-unit",
+      "mode": "heuristic",
+      "key": "drill-unit:9001"
+     },
+     "channels": [
+      "live-region"
+     ],
+     "suppressed": [
+      "flash",
+      "budget"
+     ]
+    }
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "lock-refused fires on the server’s own refusal envelope",
+   "ok": true,
+   "evidence": {
+    "id": "lock-refused",
+    "at": 1788625788558,
+    "turn": 9001,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:not yours to determine: no-such-unit",
+    "text": "lock refused — not yours to determine: no-such-unit",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — not yours to determine: no-such-unit",
+     "key": "lock:not yours to determine: no-such-unit"
+    },
+    "channels": [
+     "live-region"
+    ],
+    "suppressed": [
+     "flash",
+     "budget"
+    ]
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "the refusal’s own words are carried, not a generic one",
+   "ok": true,
+   "evidence": "lock refused — not yours to determine: no-such-unit"
+  },
+  {
+   "scene": "operator",
+   "what": "no notification while the tab is visible",
+   "ok": true,
+   "evidence": {
+    "before": 0,
+    "after": 0
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "a notification once the tab is hidden",
+   "ok": true,
+   "evidence": [
+    {
+     "title": "Centaur — the server refused a press",
+     "body": "lock refused — hidden-probe",
+     "tag": "centaur-alert-lock-refused"
+    }
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "one notification per event id — a tag, not a stack",
+   "ok": true,
+   "evidence": [
+    {
+     "title": "Centaur — the server refused a press",
+     "body": "lock refused — hidden-probe",
+     "tag": "centaur-alert-lock-refused"
+    }
+   ]
+  },
+  {
+   "scene": "operator",
+   "what": "a flood of six raisings in one turn sounds at most 2 of them",
+   "ok": true,
+   "evidence": {
+    "raised": 6,
+    "sounded": 0,
+    "notes": 0,
+    "limit": 2
+   }
+  },
+  {
+   "scene": "operator",
+   "what": "the flood is still raised and still logged — limited, not discarded",
+   "ok": true,
+   "evidence": {
+    "raised": 6,
+    "sounded": 0,
+    "notes": 0,
+    "limit": 2
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "a waypoint the bot is honouring is silent",
+   "ok": true,
+   "evidence": 0
+  },
+  {
+   "scene": "drift",
+   "what": "stage-drift fires when the bot re-stages a unit under a standing determination",
+   "ok": true,
+   "evidence": [
+    {
+     "id": "stage-drift",
+     "at": 1788625805404,
+     "turn": 9200,
+     "priority": 3,
+     "escalated": false,
+     "streak": 1,
+     "key": "d1:9200",
+     "text": "the bot is staging d1 you had determined (goto)",
+     "detail": {
+      "unit": "d1",
+      "mode": "goto",
+      "from": "up",
+      "to": "left",
+      "key": "d1:9200"
+     },
+     "channels": [
+      "pulse",
+      "live-region",
+      "earcon"
+     ],
+     "suppressed": []
+    }
+   ]
+  },
+  {
+   "scene": "drift",
+   "what": "a change the operator pressed for is not reported back to them as drift",
+   "ok": true,
+   "evidence": []
+  },
+  {
+   "scene": "drift",
+   "what": "twelve raisings in 2886 ms produce 4 ring onsets — under WCAG 2.3.1's three a second",
+   "ok": true,
+   "evidence": {
+    "onsets": 4,
+    "elapsedMs": 2886,
+    "refused": 9,
+    "minGapMs": 700,
+    "perSecond": 1.39
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "…and the check is not vacuous: at least two of them did get through",
+   "ok": true,
+   "evidence": {
+    "onsets": 4,
+    "elapsedMs": 2886,
+    "refused": 9,
+    "minGapMs": 700,
+    "perSecond": 1.39
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "the refused flashes are counted",
+   "ok": true,
+   "evidence": 9
+  },
+  {
+   "scene": "drift",
+   "what": "the page is under prefers-reduced-motion",
+   "ok": true,
+   "evidence": {
+    "reduced": true,
+    "transition": "0s",
+    "position": "fixed",
+    "pointerEvents": "none"
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "the ring does not animate under reduced motion",
+   "ok": true,
+   "evidence": {
+    "reduced": true,
+    "transition": "0s",
+    "position": "fixed",
+    "pointerEvents": "none"
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "the ring never takes a click — the channel cannot block input",
+   "ok": true,
+   "evidence": {
+    "reduced": true,
+    "transition": "0s",
+    "position": "fixed",
+    "pointerEvents": "none"
+   }
+  },
+  {
+   "scene": "drift",
+   "what": "mute, volume and the per-event opt-out survive a reload",
+   "ok": true,
+   "evidence": {
+    "muted": true,
+    "volume": 0.25,
+    "notify": false,
+    "events": {
+     "fatal-unpinned": true,
+     "press-window": true,
+     "wire-stale": true,
+     "wire-degraded": true,
+     "lock-refused": true,
+     "stage-drift": false
+    }
+   }
+  },
+  {
+   "scene": "all",
+   "what": "at least one photograph caught the ring actually up",
+   "ok": true,
+   "evidence": [
+    {
+     "name": "01-degraded",
+     "on": true,
+     "alert": "wire-degraded"
+    },
+    {
+     "name": "02-notch",
+     "on": true,
+     "alert": "press-window"
+    },
+    {
+     "name": "03-prefs",
+     "on": true,
+     "alert": "lock-refused"
+    },
+    {
+     "name": "04-fatal",
+     "on": true,
+     "alert": "fatal-unpinned"
+    },
+    {
+     "name": "05-refused",
+     "on": true,
+     "alert": "fatal-unpinned"
+    },
+    {
+     "name": "06-reduced-motion",
+     "on": true,
+     "alert": "lock-refused"
+    }
+   ]
+  }
+ ],
+ "shots": [
+  {
+   "name": "01-degraded",
+   "note": "the ladder at DEGRADED, the ring on the board’s edge",
+   "bytes": 114285,
+   "ring": {
+    "on": true,
+    "alert": "wire-degraded",
+    "priority": "3",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "wire-degraded",
+    "priority": "3",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "1896 ms round trip — a press needs 968 ms to land",
+   "ladder": "DEGRADED",
+   "ladderAfter": "DEGRADED",
+   "last": {
+    "id": "wire-degraded",
+    "at": 1788625761552,
+    "turn": 2,
+    "priority": 3,
+    "escalated": false,
+    "streak": 1,
+    "key": "DEGRADED",
+    "text": "1896 ms round trip — a press needs 968 ms to land",
+    "detail": {
+     "why": "1896 ms round trip — a press needs 968 ms to land",
+     "rung": "DEGRADED",
+     "key": "DEGRADED"
+    },
+    "channels": [
+     "pulse",
+     "live-region"
+    ],
+    "suppressed": [
+     "glance"
+    ]
+   }
+  },
+  {
+   "name": "02-notch",
+   "note": "the last-safe-press notch on a slow wire, with the ladder degraded",
+   "bytes": 128067,
+   "ring": {
+    "on": true,
+    "alert": "press-window",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "press-window",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "past the last safe press with 1 unit unfinished",
+   "ladder": "DEGRADED",
+   "ladderAfter": "DEGRADED",
+   "last": {
+    "id": "press-window",
+    "at": 1788625769051,
+    "turn": 3,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "turn:3",
+    "text": "past the last safe press with 1 unit unfinished",
+    "detail": {
+     "unfinished": 1,
+     "remainingMs": 819,
+     "key": "turn:3"
+    },
+    "channels": [
+     "pulse",
+     "live-region",
+     "earcon"
+    ],
+    "suppressed": []
+   }
+  },
+  {
+   "name": "03-prefs",
+   "note": "the preferences popover",
+   "bytes": 140733,
+   "ring": {
+    "on": true,
+    "alert": "lock-refused",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "lock-refused",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "lock refused — muted-probe",
+   "ladder": "STALE",
+   "ladderAfter": "STALE",
+   "last": {
+    "id": "lock-refused",
+    "at": 1788625770134,
+    "turn": 3,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:muted-probe",
+    "text": "lock refused — muted-probe",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — muted-probe",
+     "key": "lock:muted-probe"
+    },
+    "channels": [
+     "pulse",
+     "live-region"
+    ],
+    "suppressed": [
+     "muted"
+    ]
+   }
+  },
+  {
+   "name": "04-fatal",
+   "note": "a unit one turn from a fatal cell, nothing pinned",
+   "bytes": 216768,
+   "ring": {
+    "on": true,
+    "alert": "fatal-unpinned",
+    "priority": "1",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "fatal-unpinned",
+    "priority": "1",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "red-A is one turn from a fatal cell and nothing has pinned it",
+   "ladder": "LIVE",
+   "ladderAfter": "LIVE",
+   "last": {
+    "id": "fatal-unpinned",
+    "at": 1788625788278,
+    "turn": 2,
+    "priority": 1,
+    "escalated": false,
+    "streak": 1,
+    "key": "red-A:2",
+    "text": "red-A is one turn from a fatal cell and nothing has pinned it",
+    "detail": {
+     "unit": "red-A",
+     "move": "left",
+     "key": "red-A:2"
+    },
+    "channels": [
+     "pulse",
+     "live-region",
+     "earcon"
+    ],
+    "suppressed": []
+   }
+  },
+  {
+   "name": "05-refused",
+   "note": "a lock the server refused",
+   "bytes": 224169,
+   "ring": {
+    "on": true,
+    "alert": "fatal-unpinned",
+    "priority": "1",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "fatal-unpinned",
+    "priority": "1",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "lock refused — not yours to determine: no-such-unit",
+   "ladder": "LIVE",
+   "ladderAfter": "LIVE",
+   "last": {
+    "id": "lock-refused",
+    "at": 1788625788558,
+    "turn": 9001,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:not yours to determine: no-such-unit",
+    "text": "lock refused — not yours to determine: no-such-unit",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — not yours to determine: no-such-unit",
+     "key": "lock:not yours to determine: no-such-unit"
+    },
+    "channels": [
+     "live-region"
+    ],
+    "suppressed": [
+     "flash",
+     "budget"
+    ]
+   }
+  },
+  {
+   "name": "06-reduced-motion",
+   "note": "the ring under prefers-reduced-motion",
+   "bytes": 110614,
+   "ring": {
+    "on": true,
+    "alert": "lock-refused",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "ringAfter": {
+    "on": true,
+    "alert": "lock-refused",
+    "priority": "2",
+    "width": "562px",
+    "height": "562px"
+   },
+   "say": "lock refused — flash-11",
+   "ladder": "STALE",
+   "ladderAfter": "STALE",
+   "last": {
+    "id": "lock-refused",
+    "at": 1788625808908,
+    "turn": 9201,
+    "priority": 2,
+    "escalated": false,
+    "streak": 1,
+    "key": "lock:flash-11",
+    "text": "lock refused — flash-11",
+    "detail": {
+     "what": "lock",
+     "why": "lock refused — flash-11",
+     "key": "lock:flash-11"
+    },
+    "channels": [
+     "live-region"
+    ],
+    "suppressed": [
+     "flash",
+     "budget"
+    ]
+   }
+  }
+ ],
+ "console": [
+  {
+   "at": "wire",
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:29:15.802Z)"
+  },
+  {
+   "at": "wire",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "wire",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "operator",
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:29:41.231Z)"
+  },
+  {
+   "at": "operator",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "drift",
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:29:59.528Z)"
+  },
+  {
+   "at": "drift",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "drift",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "drift",
+   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+   "at": "drift",
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:30:09.407Z)"
+  }
+ ],
+ "exceptions": [],
+ "failures": 0,
+ "passed": 45
+}
