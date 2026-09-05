@@ -208,6 +208,23 @@ so this is the one call that throws, and it throws inside a Firestore snapshot
 handler. Not reproduced: the wire contract says orientation is present for every
 living unit and the call site filters to `aliveOurs`. Hardening, not a bug.
 
+**REVIEW-2 verdict: NOT A DEFECT.** Traced rather than reproduced, because the
+key cannot be absent at that call. `beginTurnWatch` is handed ONE parsed turn
+(`pt`, `firebase-interface.ts:1410`), and the `aliveOurs` it is handed alongside
+was filtered on that same object (`:1375`, `ourSnakes.filter((id) =>
+pt.alive(id))`). `alive` reads `turn.alivePlayers` and `continuationDirection`
+reads `turn.orientation` — two fields of the SAME captured `TTTurn`; nothing
+between the filter and `maybeFinalize` re-reads the document, so the pair cannot
+drift. The contract those two fields share is written at
+`tactictoes-types.ts:92`: orientation carries "EVERY unit in EVERY game, per
+turn", and only "dead units drop from the map" — so `alivePlayers` is a subset
+of `orientation`'s keys by construction. `continuationDirection` has exactly one
+production caller (`:1656`) and it is this one. The unguarded dereference is
+therefore total on its actual domain, and the asymmetry with `buildSnake`'s
+spread at `:323` is a difference in what each reader NEEDS (a spread of a
+missing key is `{}`, which `buildSnake` can carry; a Direction has no such
+zero), not a missing guard. No change made.
+
 ### F5 — the lens reducer dedupes a `seq` against the events but not the anchor
 
 `src/lens/store/index.ts:106` (`applyEvent`), `:118` (`upTo`).
