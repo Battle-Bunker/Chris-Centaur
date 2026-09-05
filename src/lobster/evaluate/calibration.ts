@@ -350,6 +350,19 @@ export interface CommandKnobs {
 export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
 
 /**
+ * THERE IS NO `mobility` KNOB, AND THE ABSENCE IS A MEASUREMENT — BEHAVIOUR-AUDIT
+ * D2. A third addend paying the command set's own cardinality `|F_u|` was built
+ * exactly as D2's rule states it, swept at 0.25, 0.5 and 1 over `mixed` seeds 1-6
+ * and `potions` seeds 1-3, and taken at no dose. It does what it was built to do —
+ * the parked share falls at every dose and `longestPark` roughly halves — and it
+ * pays for it in the one currency the owner's rule will not spend: `mixed`
+ * bodyBlock deaths of PIECES go 0 -> 1 -> 3 -> 3 with the dose while the snakes'
+ * own body deaths stay flat, because the cardinality is intersected with nothing
+ * and so knows nothing about what is standing on the cells it counts. See D2's
+ * STATUS section for the dose table; do not re-derive it from the prediction.
+ */
+
+/**
  * Half a kind's maximum. A piece at or above it has a movement budget that does
  * not bind — nothing it can do this turn brings it near exhaustion — and below
  * it the term slides to zero twice as fast as the linear reading did.

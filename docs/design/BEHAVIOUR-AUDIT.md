@@ -358,6 +358,98 @@ Fix `stationary` (D6) and add `longestPark`.
 * `snakes`, `sparse`: **byte-identical** — the `commandSum` loop skips `leavesTrail` kinds,
   so a board with no piece never reaches the new addend.
 
+### STATUS: BUILT, SWEPT AT THREE DOSES, NOT TAKEN — it unparks the pawn by killing it
+
+`CommandKnobs.mobility`, the addend `|F_u| · knobs.mobility` inside the same clamp
+(`features.ts`, `commandSum`), was built exactly as the rule above states it and measured
+three times: arm-vs-arm on one build, branch-vs-branch against the working-branch head on
+the fixed D6 instrument, and finally as a DOSE SWEEP at 0.25, 0.5 and 1 — `mixed` seeds
+1–6 (six pairs, so the death-timing signal is not read off three), `potions` seeds 1–3,
+60 turns, `--nodes --json`, `scripts/ab-compare.js` per class against the same
+working-branch-head recordings. **It is not in the fold.** The evaluator at this branch's
+head reproduces the working-branch head byte for byte on all nine runs.
+
+| dose | class | parked | longestPark | meals/100 | meals | deaths | deaths/100 | mean death turn | `bodyBlock`+`self` (of which PIECES) |
+|---|---|---|---|---|---|---|---|---|---|
+| **0** | `mixed` | 8.70% | 20 | 19.14 | 462 | 21 | 0.870 | 37.8 | 4 (**0**) |
+| 0.25 | `mixed` | 6.01% | 4 | 18.93 | 416 | 22 | 1.001 | 29.0 | 5 (**1**) |
+| 0.5 | `mixed` | 7.16% | 8 | 18.29 | 429 | 20 | 0.853 | 33.3 | 7 (**3**) |
+| 1 | `mixed` | 5.52% | 6 | 20.87 | 476 | 17 | 0.745 | 24.8 | 6 (**3**) |
+| **0** | `potions` | 10.71% | 10 | 18.23 | 223 | 10 | 0.818 | 38.3 | 1 (1) |
+| 0.25 | `potions` | 7.64% | 5 | 20.96 | 236 | 9 | 0.799 | 25.1 | 0 (0) |
+| 0.5 | `potions` | 7.04% | 11 | 20.86 | 234 | 8 | 0.713 | 20.3 | 0 (0) |
+| 1 | `potions` | 7.87% | 5 | 19.85 | 232 | 9 | 0.770 | 29.9 | 1 (1) |
+
+`snakes` and `sparse` are byte-identical at every dose, as predicted: the `commandSum`
+loop skips `leavesTrail` kinds, so a board with no piece never reaches the addend. All
+sixteen inversion arms clean at every dose — the rule is SOUND, and that is not what is
+wrong with it.
+
+**THE GATE, AND WHY NO DOSE PASSES IT.** Keep the largest dose at which, on every class,
+`deathsPer100` does not rise and `bodyBlock`+`self` does not rise, while the parked share
+falls and meals do not fall.
+
+* **0.25** — `mixed` `deathsPer100` 0.870 → **1.001**, `bodyBlock`+`self` 4 → **5**,
+  meals/100 19.14 → **18.93**. Fails three ways.
+* **0.5** — `mixed` `bodyBlock`+`self` 4 → **7**, meals/100 19.14 → **18.29**.
+* **1** — everything else passes on both classes (`deathsPer100` 0.870 → 0.745 and
+  0.818 → 0.770, parked down, meals up) and `mixed` `bodyBlock`+`self` still goes 4 → **6**.
+
+The knob DOES what it was built to do at every dose — the parked share falls on both
+classes and `longestPark` falls from 20 to between 4 and 8 on `mixed` — and it is refused
+anyway, because the owner's rule is to err conservative and this trades tempo for
+self-inflicted deaths.
+
+**THE MECHANISM, and it is not a level that wants retuning.** Split `mixed`'s
+`bodyBlock`+`self` deaths by what died: a one-cell body is a PIECE, a longer one a snake.
+
+| dose | 0 | 0.25 | 0.5 | 1 |
+|---|---|---|---|---|
+| pieces dead on a body | **0** | **1** | **3** | **3** |
+| snakes dead on a body | 4 | 4 | 4 | 3 |
+
+The whole rise is pieces, and the snakes' own body deaths are flat to falling. The addend
+is the one reading in `commandSum` intersected with NOTHING — which is exactly why it
+survives the domain collapse, and exactly why it is blind. `sh.frontAt(nextTurn)` is the
+raw step-relation union: `Shells.extendTo` (`shells.ts:159-197`) applies no barrier and no
+occupancy mask at all — `entrapment.md` §3.3 says so in as many words, and the `∩ ¬barrier`
+that entrapment adds is added downstream of it, not here. So `|F_u|` counts a cell whether
+or not a body is standing on it, and the term pays a piece to sit where the raw fan is
+widest and to keep moving to keep it wide. Near a crowd of trail units the widest raw fan
+is precisely where the bodies are. `ground` and `food` at least intersect the front with
+something before it is paid for; the cardinality is paid for as counted. `contest` does not
+cover the gap — it prices enemy ARRIVALS, and a body that simply stays put is not an
+arrival.
+
+That is why the ties it breaks come out wrong. At the wall in the reproduction all three
+of blue-C's options are SAFE and the addend picks the useful one; away from the wall the
+tie is often between a safe hold and a step into a cell a body will still occupy, and the
+addend breaks that tie on activity because it has nothing else to break it on. Deaths also
+land earlier at every dose (`mixed` mean death turn 37.8 → 29.0 / 33.3 / 24.8), which is
+the same fact read on the clock.
+
+**What a repair would have to be.** Not this term at a smaller number: the defect is that
+the quantity is unmasked, so shrinking it shrinks the signal and the harm together, which
+is what the dose table shows — 0.5 is worse on pieces than 1 is. The two candidates the
+measurement leaves standing are (a) intersect the front with the board's own occupancy
+before counting it, so a piece is paid for cells it can actually stand on, and (b) gate
+the addend on kinds that HAVE an orientation, since for a knight `|F_u|` is a pure
+centrality bonus and `mixed` knight parked share ROSE 4.56% → 8.64% under it. Both are
+guesses. Neither is measured. The dose table is.
+
+**A correction to this section's own prose, which stands whatever happens to the rule.**
+D2 says blue-C escapes by "the east rotation". At (0,10) facing west the two side squares
+are (0,11) and (0,9) (`moveGrammar.planUnitAction`, the `rotate` branch: the sides are
+`±(−dy, dx)`), so east is two turns away and the rotation in question is the one ALONG the
+board. The mechanism is unchanged; the compass bearing was wrong.
+
+**The boundary test is kept**, in `evaluate.test.ts` ("D2 — a pawn at the wall, where a
+rotation and a hold tie"), rewritten to pin the DEFECT rather than the refused repair: at
+the shipped weights all three of the pawn's options at the reproduction's own cell score
+identically to twelve digits, so nothing in the fold prefers the rotation that opens the
+board. That tie is what any future repair has to break, and the dose table above is what
+it has to beat while breaking it.
+
 ---
 
 ## D3 — `room`'s fear falls as the snake grows, at equal absolute shortfall
@@ -411,6 +503,74 @@ Length-independent by construction, so it is a rule and not a case.
 * `mixed`, `potions`: within noise — the term is already saturated there by a slider's cloud
   (`entrapment.md` §4.4), which is D5.
 * `sparse`: unchanged (2–4 entrapped unit-turns per game, 0 fatal).
+
+### STATUS: BUILT, MEASURED, REVERTED — the counter it names moves the wrong way
+
+The rule was implemented exactly as written: one profile knob `roomCells`, default 6,
+replacing `need` as `fearsOf`'s denominator (`features.ts`), validated at construction
+beside the command knobs and parsed by `bot-binding.ts`. `tsc`, `eslint`, `soundness`,
+`territory-acceptance`, `entrapment` and `law-sweep` all green on it, and all sixteen
+inversion arms clean ON THE D3 ARM ITSELF (`CENTAUR_DEBUG_INVERSION=1`, four classes ×
+seeds 1–3 at 30 turns, `potions` seeds 4, 5, 6, 8 at 60) — checked so that this revert
+cannot be read as a soundness failure. The bound arithmetic is fine: `lo` still takes
+`weightMax` for `need` and a constant denominator makes larger `need` a strictly larger
+fear, which is the direction that reading wants. It is SOUND, and it is still wrong.
+
+Measured against this branch's head as it then stood, all four classes, seeds 1–3, 60
+turns, `--nodes --json`, `scripts/ab-compare.js` per class. **That head had D2's
+`mobility` addend in it, and D2 has since been refused** — which leaves the `snakes` half
+of this measurement untouched, because D2 was byte-identical on `snakes` and `sparse` (no
+piece on those boards ever reaches its addend), and it is `snakes` that D3's prediction is
+written about. The `potions` and `mixed` columns were read against a base that no longer
+ships; they are kept as recorded rather than silently restated, and `mixed` was
+behaviourally identical under D3 on either base:
+
+| board | deaths | fatalEntrapments | `self`+`bodyBlock` | escaped | episodes | meals |
+|---|---|---|---|---|---|---|
+| `snakes` before | 7 | 7 | 7 | 45 | 56 | 157 |
+| `snakes` after | **8** | **8** | 6 | 48 | 59 | 151 |
+| `potions` before | 9 | 4 | 1 | 15 | 24 | 232 |
+| `potions` after | **12** | 5 | 3 | 7 | 16 | 229 |
+| `mixed` | 10 | 3 | 6 | 0 | 9 | 233 |
+| `sparse` | 0 | 0 | 0 | 7 | 7 | 52 |
+
+**THE PREDICTION FAILS ON ITS OWN PRIMARY COUNTER.** `fatalEntrapments` on `snakes` was
+predicted **7 → ≤4** and measured **7 → 8**. `self` + `bodyBlock` was predicted 7 → ≤4 and
+reached 6 — but the two body deaths it saved came back as two `contest` deaths on the same
+seed, so total `snakes` deaths went 7 → 8. `potions` deaths went 9 → 12, all three on
+seed 1. Deaths rise on two classes; the rule is out.
+
+`mixed` and `sparse` are behaviourally IDENTICAL — every counter, every seed; `mixed` seed
+3's summaries differ in one `work.reads` and in nothing else. D3 predicted "within noise"
+there and got exact equality, which is a sharper confirmation of D5 than D5 has itself: on
+a board with a slider the term is already saturated, so changing its normaliser changes no
+decision at all.
+
+**WHY, and it is one line of arithmetic.** With `D = 6` fixed, ANY unit whose shortfall
+reaches six cells reads `fear = 1` exactly. `need = L + 2`, so every snake from length 6
+up that is more than six cells short is pinned at the maximum — and on `snakes` that is
+most of an entrapment episode. The old normaliser compressed the reading (a one-cell tomb
+reads 0.894 at length 3 and 0.968 at length 14 — eleven cells of shortfall for 0.07 of
+fear, which is the defect); the new one SATURATES it, and a saturated term orders nothing
+between a unit's options, so `material`'s cliff picks and the unit walks into the pocket
+anyway. `entrapment.md` §4.4 lists the flood's cap at `need` as one of three saturation
+guards; this rule removes the guard's effect while leaving the cap in place. The trade was
+a compressed signal for no signal, and the deaths are what it cost.
+
+**The boundary test is kept**, in `src/tests/entrapment.test.ts` ("D3 — the fear of a
+one-cell tomb barely moves with the snake's length"), because the DEFECT is real and this
+pins it off the evaluator rather than off the formula: P2's boxed unit at seven lengths,
+`kept = 1` at every one, shortfall 4 → 15 cells, fear 0.894 → 0.968. Its last case pins
+the failed repair's saturation on the same readings, so whoever comes back to this — most
+likely through D5, which is the same saturation from the other side — starts from the
+measurement and not from the prediction.
+
+**What would be worth trying next, stated so it is not re-derived.** The two candidates
+the measurement leaves standing are (a) a denominator that grows SUBLINEARLY in `L`
+(`sqrt(need)`, say) — length-sensitive without either compressing or saturating — and
+(b) raising the flood's cap above `need` so a long snake's region has somewhere to be
+ranked, which is D5's repair and would give any normaliser something to work with. Both
+are guesses. Neither is measured. `roomCells` at 6 IS measured, and it costs deaths.
 
 ---
 

@@ -262,11 +262,24 @@ export class BoundEvaluator implements Evaluator {
  * check turns a silent misconfiguration into a startup failure that names the
  * key. Every shipped profile passes; a caller assembling one for an experiment
  * finds out immediately.
+ *
+ * THE COMMAND KNOBS ARE CHECKED THE SAME WAY, AND FOR THE SAME REASON. They
+ * are the one part of a profile that is a number table and NOT the weight
+ * table, they reach the fold through `EvalContext.command`, and a profile
+ * assembled from a stored binding is a plain object that TypeScript never saw.
+ * A knob left out reads `undefined`, `undefined * anything` is `NaN`, and a
+ * `NaN` addend inside `Math.min(1, ...)` makes `c` NaN, which propagates
+ * through the fold to a bound that compares false against everything — a
+ * silent misconfiguration exactly like a forgotten weight, arriving by the
+ * same door. A negative one is the other half: `scale` already refuses a
+ * negative WEIGHT because it would flip which endpoint is the bound, and a
+ * negative knob inside the clamp does the same thing one level down.
  */
 export function checkWeights(
   profile: CriterionProfile,
   features: ReadonlyArray<Feature<EvalContext>>
 ): void {
+  checkCommandKnobs(profile);
   const folded = new Set(features.map((f) => f.key));
   const named = new Set(Object.keys(profile.weights));
   const missing: string[] = [];
@@ -285,6 +298,27 @@ export function checkWeights(
     parts.push(`names ${unknown.sort().join(', ')}, which this fold has no feature for`);
   }
   throw new Error(`criterion profile "${profile.name}" ${parts.join('; and it ')}`);
+}
+
+/** The numeric knobs of `CommandKnobs`, named once so adding one cannot forget
+ *  to check it. `royal` is a flag and carries no arithmetic. */
+const COMMAND_KNOB_KEYS = ['ground', 'food'] as const;
+
+function checkCommandKnobs(profile: CriterionProfile): void {
+  const knobs = profile.command;
+  if (knobs === undefined) return;
+  const bad: string[] = [];
+  for (const key of COMMAND_KNOB_KEYS) {
+    const v = knobs[key] as unknown;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) bad.push(`${key}=${String(v)}`);
+  }
+  if (bad.length === 0) return;
+  throw new Error(
+    `criterion profile "${profile.name}" has command knobs that are not finite and ` +
+      `non-negative: ${bad.join(', ')} — every one of them multiplies a cell count ` +
+      'inside the same clamp, so a missing or negative knob is a NaN or an inverted ' +
+      'term in every piece evaluation on the board'
+  );
 }
 
 /**

@@ -2066,3 +2066,107 @@ describe('the turn cap is seated, and it is the engine that decides it', () => {
     expect(Number.isFinite(tradedEarly.hi)).toBe(true);
   });
 });
+
+// ------------------------------------------------ D2: the pawn that parks
+
+/**
+ * A PAWN'S ORIENTATION IS INVISIBLE TO THE FOLD — BEHAVIOUR-AUDIT D2, pinned at
+ * the coordinates it was found on, as the DEFECT it still is.
+ *
+ * The reproduction is `potions` seed 5, turn 27: blue-C, a pawn on (0,10) with
+ * the wall on two sides, facing INTO one of them, printing
+ *
+ *     T 27 blue-C pawn hp90 (0,10)->(0,10)  top3: (0,11)=91.23 (0,10)=91.23 (0,9)=91.23
+ *
+ * — a three-way tie between the hold and both rotations, and nineteen
+ * consecutive turns of it. Every member reads `Standing.cell` and a rotation
+ * does not move it, so a rotation and a hold are the same position to all of
+ * them but `command`, and `command` intersects the piece's front with the
+ * contested trail domain and the food board, both of which a queen's claim
+ * cloud collapses near the perimeter (`entrapment.md` §4.4). The one cell that
+ * differs between two orientations is in neither board.
+ *
+ * The board below is that geometry rebuilt: our pawn in the corner facing the
+ * wall, our snake and an enemy snake to give plane 1 a domain, an enemy queen
+ * whose cloud is what collapses it near the pawn, and the only food on the far
+ * side of the board.
+ *
+ * THE REPAIR D2 PROPOSED IS NOT IN THE FOLD, AND THIS TEST IS WHY IT IS STILL
+ * WORTH PINNING. A third `command` addend paying the front's own cardinality
+ * was built, swept at 0.25, 0.5 and 1 over `mixed` seeds 1–6 and `potions`
+ * seeds 1–3, and taken at no dose: it unparks the pawn at every dose and buys
+ * that with `mixed` bodyBlock deaths OF PIECES, 0 → 1 → 3 → 3 with the dose,
+ * because a cardinality intersected with nothing knows nothing about what is
+ * standing on the cells it counts. The tie below is the defect; the dose table
+ * in `BEHAVIOUR-AUDIT.md` §D2 is what a repair for it has to beat.
+ */
+describe('D2 — a pawn at the wall, where a rotation and a hold tie', () => {
+  const PARKED_TURN = 27;
+  const parkedBoard: Board = {
+    width: 11,
+    height: 11,
+    food: [{ x: 5, y: 5 }],
+    hazards: [],
+    snakes: [
+      piece('bC', { x: 0, y: 10 }, 'pawn', 1, {
+        teamID: 'blue',
+        health: 90,
+        orientation: { dx: -1, dy: 0 },
+      }),
+      makeSnake('bA', [{ x: 3, y: 3 }, { x: 3, y: 2 }, { x: 3, y: 1 }], { teamID: 'blue' }),
+      piece('rQ', { x: 8, y: 4 }, 'queen', 9, { teamID: 'red', health: 90 }),
+      makeSnake('rA', [{ x: 6, y: 6 }, { x: 6, y: 7 }, { x: 6, y: 8 }], { teamID: 'red' }),
+    ],
+  } as Board;
+
+  /** Every action the pawn has, scored by the WHOLE fold at shipped weights. */
+  const scored = (): Map<number, number> => {
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const asTeam = sub.teamNumber('blue');
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    const evaluator = new BoundEvaluator(TERRITORY_PROFILE);
+    const out = new Map<number, number>();
+    for (const action of sub.actionsOf(pawn)) {
+      const plan = new Map<UnitId, Candidate>(defaultPlan(sub));
+      plan.set(pawn, action);
+      out.set(action.to, evaluator.evaluatePlan(sub, plan as JointPlan, asTeam).bound.lo);
+    }
+    return out;
+  };
+
+  const hold = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 10 });
+  const alongTheBoard = cellAt(parkedBoard, PARKED_TURN, { x: 0, y: 9 });
+
+  test('the pawn has three options and the fold cannot tell them apart', () => {
+    const arm = scored();
+    // It really does have three, as the trace printed: the hold, the rotation
+    // along the board, and the rotation further into the wall.
+    expect(arm.size).toBe(3);
+    expect(arm.has(hold)).toBe(true);
+    expect(arm.has(alongTheBoard)).toBe(true);
+    const values = [...arm.values()];
+    for (const v of values) expect(v).toBeCloseTo(values[0] as number, 12);
+  });
+
+  test('so nothing in the fold prefers the rotation that opens the board', () => {
+    const arm = scored();
+    // Not "the rotation loses" — it does not even differ. A tie-break decides,
+    // and D2's corpus says the tie-break holds: 7.2% of `mixed` unit-turns and
+    // 10.4% of `potions` are a unit standing on the cell it stood on last turn.
+    expect(arm.get(alongTheBoard) as number).toBeCloseTo(arm.get(hold) as number, 12);
+  });
+
+  test("and the reason is `command`'s two boards, not the front itself", () => {
+    // The pawn's front DOES differ between the two orientations — the geometry
+    // is not degenerate. What is degenerate is what `command` intersects it
+    // with: at this cell neither the contested trail domain nor the food board
+    // contains the cell the rotation buys, so both addends read the same.
+    // (The unintersected cardinality is what D2 proposed to add, and what the
+    // dose sweep refused; see this block's header.)
+    clearGeometryCache();
+    const sub = makeSubstrate({ board: parkedBoard, turn: PARKED_TURN, asTeam: 'blue', modeled: [] });
+    const pawn = (sub.unitOfWireId('bC') as { unitId: UnitId }).unitId;
+    expect(sub.actionsOf(pawn).length).toBe(3);
+  });
+});
