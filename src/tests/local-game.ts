@@ -36,6 +36,7 @@ import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
 import { BoundBank, basisKeyOf, withMove } from '../lobster/bounds';
 import { observeLoud, type LoudReading } from '../lobster/bounds';
 import { mulberry32 } from '../lobster/bounds/testkit';
+import { observeTrials, type TrialOccasion } from '../lobster/search';
 import { DEFAULT_PAWN_PROMOTION_WEIGHT } from '../logic/staging-legality';
 import type { LensSink } from '../lens/types';
 // THE OPPONENT PROFILE — `--opponent=<name>`. Selected and validated through
@@ -442,6 +443,31 @@ export interface ProbeRow {
   readonly changedUnits: number;
   readonly nodes: number;
   readonly slices: number;
+  /** THE CONSIDERATION ORDER of THIS arm's own search. */
+  readonly trials: number;
+  readonly leaderChanges: number;
+  /** Rank at which this arm first priced the plan it ended on. */
+  readonly winnerRank: number;
+  /** Rank at which that plan became the leader. */
+  readonly winnerLeadRank: number;
+  /** Evaluator calls spent on trials that never led, over `nodes`. */
+  readonly wastedNodes: number;
+  /**
+   * WAS THIS ARM'S ANSWER EVER REACHED BY THE REFERENCE ARM? The rank the
+   * REFERENCE arm first priced this arm's winning plan at, or `0` if it never
+   * priced it at all. This is the whole ordering question, per decision:
+   *
+   *   `0`  ⇒ the reference budget never GENERATED the better answer. Ordering
+   *          could have reached it; the budget ran out first.
+   *   `>0` ⇒ the reference budget DID reach it and `better()` refused it, or
+   *          took it and then left it. Reaching it sooner changes nothing that
+   *          the ascent's path through the space does not already decide.
+   *
+   * `1` on the reference row itself, by construction.
+   */
+  readonly refRankOfWinner: number;
+  /** Trials the reference arm made, so `refRankOfWinner` has a denominator. */
+  readonly refTrials: number;
 }
 
 /**
@@ -647,6 +673,94 @@ export interface UnitTrace {
   readonly reversed: boolean;
 }
 
+/**
+ * THE ORDER A DECISION CONSIDERED ITS MOVESETS IN, folded to five numbers.
+ *
+ * The question is whether ORDER decides the choice at a fixed budget. The
+ * search cannot answer it from the inside: `better()` keeps the incumbent and
+ * drops the loser, so the sequence is gone the instant it is walked. This is
+ * that sequence, folded here — in the runner, beside the node clock that is
+ * the only place the work a trial cost can be read without spending a clock
+ * read on the decision's own budget.
+ */
+export interface DecisionOrderStats {
+  /** `better()` comparisons this decision made — the population of ranks. */
+  readonly trials: number;
+  /** How often the DECISION'S ANSWER actually changed — an accept compared
+   *  against the leader, not against a restart's own local incumbent. Seating
+   *  the carried plan at the top of a slice is not a change. */
+  readonly leaderChanges: number;
+  /** `voc.planKey` of the plan the decision ended on. */
+  readonly winnerKey: string;
+  /** 1-based rank at which that plan was FIRST priced. The headline: a winner
+   *  at rank 3 was there for the taking; a winner at rank 240 needed the whole
+   *  budget to be reached at all. `0` ⇒ never priced (no trial at all). */
+  readonly winnerRank: number;
+  /** Evaluator calls the decision spent, on the runner's own clock. */
+  readonly nodes: number;
+  /** Of those, the ones spent on trials that did NOT advance the leader — a
+   *  refusal, or an accept inside a restart's own line that never came back.
+   *  The wasted share is this over `nodes`. */
+  readonly wastedNodes: number;
+  /** Rank at which the winning plan BECAME the leader, as against the rank it
+   *  was first priced at. They differ when a plan was priced, refused against
+   *  a leader it could not beat, and reached again later on a line that could. */
+  readonly winnerLeadRank: number;
+  /** Every plan priced, mapped to the 1-based rank it was FIRST priced at.
+   *  What a paired arm's winner is looked up in, to ask whether this arm ever
+   *  reached it at all. */
+  readonly ranks: ReadonlyMap<string, number>;
+}
+
+/**
+ * The fold itself. One occasion in, five numbers out, and the node reading is
+ * taken from the caller's clock at the instant of the comparison — so a
+ * trial's cost is the clock's own delta and nothing is charged for measuring.
+ */
+class OrderRecorder {
+  private readonly firstRank = new Map<string, number>();
+  private readonly leadRank = new Map<string, number>();
+  private trials = 0;
+  private leaderChanges = 0;
+  private leader = '';
+  private lastNodes = 0;
+  private wastedNodes = 0;
+
+  /** `nodes` is the clock reading AFTER the trial was priced, so the delta
+   *  since the previous occasion is what this trial cost. */
+  take(occasion: TrialOccasion, nodes: number): void {
+    this.trials++;
+    if (!this.firstRank.has(occasion.planKey)) this.firstRank.set(occasion.planKey, this.trials);
+    // AN ACCEPT ADVANCES THE LEADER IFF IT WAS COMPARED AGAINST THE LEADER.
+    // The first occasion of all is the decision's own seed and installs the
+    // leader rather than changing it; a later slice re-seats the same carried
+    // plan, which is an accept against itself and changes nothing.
+    const advances =
+      occasion.accepted && (this.leader === '' || occasion.incumbentKey === this.leader);
+    if (advances && occasion.planKey !== this.leader) {
+      if (this.leader !== '') this.leaderChanges++;
+      this.leader = occasion.planKey;
+      if (!this.leadRank.has(occasion.planKey)) this.leadRank.set(occasion.planKey, this.trials);
+    } else if (!advances || occasion.planKey !== this.leader) {
+      this.wastedNodes += nodes - this.lastNodes;
+    }
+    this.lastNodes = nodes;
+  }
+
+  done(nodes: number): DecisionOrderStats {
+    return {
+      trials: this.trials,
+      leaderChanges: this.leaderChanges,
+      winnerKey: this.leader,
+      winnerRank: this.firstRank.get(this.leader) ?? 0,
+      winnerLeadRank: this.leadRank.get(this.leader) ?? 0,
+      nodes,
+      wastedNodes: this.wastedNodes,
+      ranks: this.firstRank,
+    };
+  }
+}
+
 export interface TeamDecision {
   /** wireId -> the DESTINATION cell staged, exactly what the wire carries. */
   readonly staged: Map<string, number>;
@@ -661,6 +775,9 @@ export interface TeamDecision {
   /** The loud product, over this decision's own B3 preambles (08 §5 step 1).
    *  Measured, never acted on: the decision above is byte-identical with it. */
   readonly loud: LoudHistogram;
+  /** The consideration order, when the caller asked for it. Absent ⇒ the
+   *  latch was never installed and the search did not build one occasion. */
+  readonly order?: DecisionOrderStats;
 }
 
 export async function decideTeam(
@@ -687,7 +804,15 @@ export async function decideTeam(
    * arrives is already in the wire's vocabulary; `sub` rides along because the
    * caller's writer needs the same translation for `EmitRecord.plan`.
    */
-  lens?: { sink: LensSink; attach?: (sub: EngineSubstrate) => void }
+  lens?: { sink: LensSink; attach?: (sub: EngineSubstrate) => void },
+  /**
+   * THE ORDERING INSTRUMENT. Absent (the default): the latch is never
+   * installed, the search builds no occasion, and this decision is what it has
+   * always been. Present: every `better()` comparison is folded into
+   * `TeamDecision.order`, at the cost of a plan key per trial and no clock
+   * read — so an instrumented arm's `nodes` and `reads` are the plain arm's.
+   */
+  orderStats = false
 ): Promise<TeamDecision> {
   const ourIds = (board.snakes ?? [])
     .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
@@ -768,19 +893,33 @@ export async function decideTeam(
     // its preambles would put a telemetry population into a measurement of
     // what the SEARCH saw.
     const stopWatching = observeLoud((reading) => countLoud(loud, reading));
+    // AROUND THE DECISION AND NOTHING ELSE, for the same reason the loud
+    // observer is: the trace pricing below runs its own banks after the
+    // decision is over, and its comparisons are not ranks the search walked.
+    const recorder = orderStats ? new OrderRecorder() : null;
+    const stopOrdering =
+      recorder === null ? (): void => {} : observeTrials((o) => recorder.take(o, clock.nodes));
     try {
       for await (const rec of kernel.decide(kin)) {
         plan = rec.plan;
         horizon = rec.horizon;
       }
     } finally {
+      stopOrdering();
       stopWatching();
     }
-    const stats = (): { nodes: number; slices: number; reads: number; loud: LoudHistogram } => ({
+    const stats = (): {
+      nodes: number;
+      slices: number;
+      reads: number;
+      loud: LoudHistogram;
+      order?: DecisionOrderStats;
+    } => ({
       nodes: clock.nodes,
       slices: kernel.lastReport?.slices ?? 0,
       reads: clock.reads,
       loud,
+      ...(recorder === null ? {} : { order: recorder.done(clock.nodes) }),
     });
     if (plan === null) return { staged, traces, horizon, ...stats() };
 
@@ -1938,7 +2077,8 @@ export async function runGame(
           budget,
           evaluateForTeam,
           opts.scores ?? true,
-          opts.lensFor?.(turn, teamId)
+          opts.lensFor?.(turn, teamId),
+          opts.probe !== undefined
         );
         metrics.worstDecisionMs = Math.max(metrics.worstDecisionMs, monotonic() - t0);
         metrics.nodes += decision.nodes;
@@ -1951,12 +2091,16 @@ export async function runGame(
           const probe = opts.probe;
           const shape = decisionShapeOf(board, turn, teamId);
           const reference = decision.staged;
+          // The reference arm's own ordering, and the map every other scale's
+          // winner is looked up in. Absent only if the decision staged nothing.
+          const refOrder = decision.order;
           const emitProbe = (
             scale: number,
             scaled: DecisionBudget,
             alt: ReadonlyMap<string, number>,
             nodes: number,
-            slices: number
+            slices: number,
+            order: DecisionOrderStats | undefined
           ): void => {
             let changedUnits = 0;
             for (const [id, to] of reference) if (alt.get(id) !== to) changedUnits++;
@@ -1972,16 +2116,35 @@ export async function runGame(
               changedUnits,
               nodes,
               slices,
+              trials: order?.trials ?? 0,
+              leaderChanges: order?.leaderChanges ?? 0,
+              winnerRank: order?.winnerRank ?? 0,
+              winnerLeadRank: order?.winnerLeadRank ?? 0,
+              wastedNodes: order?.wastedNodes ?? 0,
+              refRankOfWinner:
+                order === undefined || refOrder === undefined
+                  ? 0
+                  : (refOrder.ranks.get(order.winnerKey) ?? 0),
+              refTrials: refOrder?.trials ?? 0,
             });
           };
           // The reference arm's own row first, so a file of probe rows carries
           // the population every other scale's row is a share OF.
-          emitProbe(1, budget, decision.staged, decision.nodes, decision.slices);
+          emitProbe(1, budget, decision.staged, decision.nodes, decision.slices, refOrder);
           for (const scale of probe.scales) {
             if (scale === 1) continue;
             const scaled = scaleBudget(budget, scale);
-            const alt = await decideTeam(board, turn, teamId, scaled, evaluateForTeam, false);
-            emitProbe(scale, scaled, alt.staged, alt.nodes, alt.slices);
+            const alt = await decideTeam(
+              board,
+              turn,
+              teamId,
+              scaled,
+              evaluateForTeam,
+              false,
+              undefined,
+              true
+            );
+            emitProbe(scale, scaled, alt.staged, alt.nodes, alt.slices, alt.order);
           }
         }
         for (const [id, to] of decision.staged) staged.set(id, to);
