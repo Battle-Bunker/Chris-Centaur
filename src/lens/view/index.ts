@@ -36,6 +36,7 @@ import {
 } from './cursor';
 import type {
   CandidateRow,
+  CellIndex,
   ClusterId,
   DominanceCondition,
   Cursor,
@@ -854,18 +855,33 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
     by: string | null;
   }> = [];
   const seen = new Set<UnitKey>();
-  const push = (unit: UnitKey, clusterId: ClusterId | null, fixity: string, by: string | null): void => {
+  const push = (
+    unit: UnitKey,
+    clusterId: ClusterId | null,
+    fixity: string,
+    by: string | null,
+    /** A CONSTANT'S OWN CELL, and the reason it is a separate argument. The
+     *  cluster's retained rows may still carry a move for a unit that has
+     *  since been pinned — they were priced before the determination, and the
+     *  reservoir is not rewritten by it. Reading the plan for a bounded unit
+     *  therefore printed `Q → 22 pinned` for a unit pinned to 30: a
+     *  contradiction in one clause, on the line the operator reads fastest and
+     *  doubts least. The bound IS the answer for a bounded unit; it is what
+     *  the whole cluster is conditioning on. */
+    boundTo: CellIndex | null = null
+  ): void => {
     if (seen.has(unit)) return;
     seen.add(unit);
     const row = frame.units.find((u) => u.unit === unit);
-    // TWO SOURCES, AND THE LINE SAYS WHICH. A staged move is a fact about the
-    // turn; where nothing is staged yet, what the bot is ABOUT to do is the
-    // rank-1 moveset's assignment for this unit — the incumbent, which is the
-    // definition the board's own violet arrow draws. What it is NOT allowed to
-    // be is "the unit's first legal candidate": that is a guess wearing a
-    // plan's clothes, and this line is read in under a second by someone who
-    // will not have time to doubt it.
-    const staged = stagedCellOf(frame, unit);
+    // TWO SOURCES, AND THE LINE SAYS WHICH. A staged move (or a determination
+    // that fixed the unit) is a fact about the turn; where nothing is staged
+    // yet, what the bot is ABOUT to do is the rank-1 moveset's assignment for
+    // this unit — the incumbent, which is the definition the board's own
+    // violet arrow draws. What it is NOT allowed to be is "the unit's first
+    // legal candidate": that is a guess wearing a plan's clothes, and this
+    // line is read in under a second by someone who will not have time to
+    // doubt it.
+    const staged = stagedCellOf(frame, unit) ?? boundTo;
     const planned =
       staged !== null || clusterId === null
         ? null
@@ -888,7 +904,8 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
         bound.unit,
         cluster.id,
         FIXITY_VERB[bound.why] ?? bound.why,
-        authorOf(frame, bound.unit, bound.by)
+        authorOf(frame, bound.unit, bound.by),
+        bound.to
       );
     }
   }

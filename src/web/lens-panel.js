@@ -753,15 +753,34 @@ const LensPanel = (() => {
     { key: ' ', shift: true, action: 'lock.moveset' },
   ];
 
+  /**
+   * A SHIFTED PUNCTUATION KEY HAS TWO NAMES AND THE BROWSER ONLY EVER SAYS
+   * THE SECOND. A scheme writes the emission jump as `<`, meaning "the comma
+   * key with Shift down", and the binding is stored under its bare name `,`
+   * with `shift: true`. But `KeyboardEvent.key` for that press is `'<'`, not
+   * `','` — so a lookup that lowercases the event key and stops there never
+   * matches, and `Shift+,` / `Shift+.` have been inert since they were bound.
+   * One table, read from both ends: `keymapFor` folds the scheme's name down
+   * to the bare key, and `keyBinding` folds the event's name down the same
+   * way, so the two halves cannot disagree about what a key is called.
+   */
+  const SHIFTED_PUNCTUATION = { '<': ',', '>': '.' };
+  const bareKey = (key) =>
+    Object.prototype.hasOwnProperty.call(SHIFTED_PUNCTUATION, key)
+      ? SHIFTED_PUNCTUATION[key]
+      : String(key).toLowerCase();
+
   /** A scheme's bindings, as the table the shortcuts pane and the cheat strip
    *  both render — there is one list, so they cannot disagree. */
   function keymapFor(name) {
     const keys = SCHEME_KEYS[name] || SCHEME_KEYS.bracket;
     const out = [];
     for (const [action, key] of Object.entries(keys)) {
-      const shift = key.length === 1 && key !== key.toLowerCase() ? true : key === '<' || key === '>';
-      const bare = key === '<' ? ',' : key === '>' ? '.' : key.toLowerCase();
-      out.push({ key: bare, shift, action, help: HELP[action], display: key });
+      const shift =
+        key.length === 1 && key !== key.toLowerCase()
+          ? true
+          : Object.prototype.hasOwnProperty.call(SHIFTED_PUNCTUATION, key);
+      out.push({ key: bareKey(key), shift, action, help: HELP[action], display: key });
     }
     for (const c of COMMON) {
       // Deduped by KEY, not by action: `Home` and `End` stay bound in every
@@ -792,7 +811,7 @@ const LensPanel = (() => {
   /** null when the press is not the lens's business, which is most presses. */
   function keyBinding(event, scheme) {
     if (!event || event.ctrlKey || event.metaKey || event.altKey) return null;
-    const key = String(event.key || '').toLowerCase();
+    const key = bareKey(event.key || '');
     const shift = !!event.shiftKey;
     const map = scheme === undefined ? keymapFor(activeSchemeName) : keymapFor(scheme);
     return map.find((b) => b.key === key && !!b.shift === shift) || null;

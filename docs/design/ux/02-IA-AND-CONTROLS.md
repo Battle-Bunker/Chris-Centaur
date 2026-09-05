@@ -407,6 +407,39 @@ src/tests/local-game-determinism.test.ts` — all green. `lens-determinism` and
 `lens-replay-parity` are the two that matter most here: **the lens still moves
 no decision**, and live and replay are still one fold.
 
+### 4.1a The IA under assertion, and the two defects that found
+
+Every claim in §2 and §3 is about a *shape* read in under a second, and a
+screenshot cannot hold one: a photograph of a stage line saying the wrong
+sentence looks exactly like one saying the right sentence. So
+`src/tests/lens-ia.test.ts` is the falsifier for each — the stage line is a
+draw call and not a thing the page computes; it is never the first legal
+candidate; a count that cannot be taken is not printed as zero; rank 1 and the
+foil are separated by glyph, word and border style before a hue is spent; the
+three schemes spell one action set with no chord in the hot path and no key the
+board owns.
+
+Writing them found two live defects, both of the kind only an assertion
+catches:
+
+* **`Shift+,` and `Shift+.` had never fired.** A scheme writes the emission
+  jump as `<`, meaning *the comma key with Shift down*, and the binding is
+  stored under its bare name `,`. The browser reports that press as `'<'`, and
+  `keyBinding` lowercased the event key and stopped — so the two keys were
+  inert from the day they were bound, on the shipped scheme, before any of this
+  work. One fold, `bareKey`, now reads both ends of the table.
+* **A pinned unit's stage line contradicted itself.** The cluster's retained
+  rows are priced *before* a determination and are not rewritten by one, so a
+  unit pinned to 30 still carried a rank-1 move to 22 — and the line read
+  `Q → 22 pinned`. The bound is the answer for a bounded unit: it is what the
+  whole cluster is conditioning on. `stageSummary` now takes it as the unit's
+  cell, and the plan is consulted only for a free one.
+
+An accessibility pass on the lobby chrome came with them: `chrome.css`'s game
+cards and nav links had a `:hover` state and no focus ring, so the lobby's
+whole navigation was invisible to a keyboard, and their 0.2 s lift is now off
+under `prefers-reduced-motion` (the colour change says the same thing).
+
 ### 4.2 The operator drill
 
 `scripts/lens-walkthrough.js` gained a scripted **pin → lock → widen → undo**,

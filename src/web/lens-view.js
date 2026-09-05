@@ -1309,11 +1309,11 @@ var LensView = (() => {
   function stageSummary(frame) {
     const out = [];
     const seen = /* @__PURE__ */ new Set();
-    const push = (unit, clusterId, fixity, by) => {
+    const push = (unit, clusterId, fixity, by, boundTo = null) => {
       if (seen.has(unit)) return;
       seen.add(unit);
       const row = frame.units.find((u) => u.unit === unit);
-      const staged = stagedCellOf(frame, unit);
+      const staged = stagedCellOf(frame, unit) ?? boundTo;
       const planned = staged !== null || clusterId === null ? null : rankOne(frame.movesets[reservoirListKey(clusterId)] ?? [])?.moves.find(
         (m) => m.unit === unit
       )?.to ?? null;
@@ -1333,7 +1333,8 @@ var LensView = (() => {
           bound.unit,
           cluster.id,
           FIXITY_VERB[bound.why] ?? bound.why,
-          authorOf(frame, bound.unit, bound.by)
+          authorOf(frame, bound.unit, bound.by),
+          bound.to
         );
       }
     }
