@@ -758,11 +758,22 @@ describe('the refiner seam has a producer (06 F-1)', () => {
 });
 
 /**
- * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED — i.e.
- * every comparison made against the reading whose horizon the test set. Once
- * the search accepts something the incumbent is a fresh one-ply reading and
- * the two horizons agree again, which is the guard working rather than the
- * guard being absent.
+ * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED AND WHOSE OWN
+ * READING IS ONE PLY — i.e. every comparison the guards under test are actually
+ * about: a shallow trial against the deep reading whose horizon the test set.
+ * Once the search accepts something the incumbent is a fresh one-ply reading and
+ * the two horizons agree again, which is the guard working rather than the guard
+ * being absent.
+ *
+ * THE TRIAL'S OWN HORIZON IS PART OF THE FILTER, and it has to be. A depth is a
+ * property of a joint ASSIGNMENT (`06 F-2`), so a trial that lands back on the
+ * seed's own assignment carries the seed's horizon — the search can and does
+ * re-price it from a restart, and its `est` may have moved because the bank's
+ * witness set grew underneath it. Comparing that trial against the incumbent is
+ * a comparison WITHIN one horizon, which is precisely what these two rungs are
+ * supposed to decide; counting it as a crossing would assert the opposite of the
+ * finding. So the filter names the crossing itself rather than approximating it
+ * by "the incumbent is the seed".
  */
 function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefined): string[] {
   const h = harness(spec);
@@ -784,7 +795,10 @@ function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefin
       ...h.ctx,
       incumbent,
       trials: (t) => {
-        if (t.because !== null && planKey(t.incumbentPlan) === seedKey) because.push(t.because);
+        if (t.because === null) return;
+        if (planKey(t.incumbentPlan) !== seedKey) return;
+        if (incumbentHorizon !== undefined && (t.horizon ?? 1) === incumbentHorizon) return;
+        because.push(t.because);
       },
     });
   } finally {
@@ -836,6 +850,56 @@ describe('the ceiling rung never crosses a horizon either (08 F-10)', () => {
     // an indifferent order rather than a preference for the looser bound.
     expect(across.length).toBeGreaterThan(0);
     expect(across).toContain('tie');
+  }, 180_000);
+
+  /**
+   * THE HOLE F-10's GUARD ACTUALLY HAD, and the reason it only ever held by
+   * luck: `horizonOfPlan` was a `WeakMap` keyed on the plan OBJECT, and the
+   * search rebuilds a plan object on every trial (`withMove`/`withMoves` return
+   * a fresh `Map`). So an ascent that wandered off the seeded assignment and
+   * came back to it arrived holding a DIFFERENT OBJECT for the SAME assignment,
+   * the probe missed, the depth read 1, and rungs 4 and 5 decided against a
+   * reading proved two plies out — at an equal floor, where nothing above them
+   * is watching. Reproduced on `seededBoard(1, 6, 2)`: trial 0 is the seed at
+   * horizon 2 and declines correctly; three trials later the ascent takes a
+   * rival; by trial 12 the incumbent is the seed's assignment again, in a new
+   * object, reading 1, and `hi` decides.
+   *
+   * A depth is a property of a proof about a particular joint ASSIGNMENT, so
+   * this asserts the assignment's identity carries it: somewhere in the `across`
+   * run the search re-prices the seed's own assignment, and that reading must
+   * still say two. Before the fix every such trial said one.
+   */
+  test('a rebuilt plan object with the seed ASSIGNMENT keeps the seed horizon', () => {
+    const seen: number[] = [];
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const h = harness(seededBoard(n, 6, 2));
+      try {
+        const settled = makeSearchCore().improve(h.ctx);
+        const seedKey = planKey(settled.plan);
+        makeSearchCore().improve({
+          ...h.ctx,
+          incumbent: {
+            plan: settled.plan,
+            bounds: settled.bounds,
+            witnesses: settled.witnesses,
+            horizon: 2,
+          },
+          trials: (t) => {
+            if (planKey(t.plan) !== seedKey) return;
+            // The seeded plan is itself a rebuild — `seedPlan` never hands back
+            // the caller's object — so every hit here is the defect's own shape.
+            expect(t.plan as object).not.toBe(settled.plan as object);
+            seen.push(t.horizon ?? 1);
+          },
+        });
+      } finally {
+        h.close();
+      }
+    }
+    // Reachable at all, and every reading of that assignment says two.
+    expect(seen.length).toBeGreaterThan(0);
+    expect([...new Set(seen)]).toEqual([2]);
   }, 180_000);
 });
 
