@@ -479,6 +479,9 @@
   --al-pop-sep:        var(--grey-2c2c2c);
   --al-pop-btn-bg:     var(--grey-262626);
   --al-pop-w:          268px;
+  /* alerts.js's own focus ring, one point of hue from --focus, in a file that
+   * could not see it. Kept apart for now; collapsing it is a design edit. */
+  --al-focus:          var(--blue-7aa2f7);
 
   /* The tour (tour.js). Its four rings were hand-typed copies of --focus. */
   --tour-link-bg:      var(--slate-23282e);
@@ -586,6 +589,10 @@
    * it derives from `--lens-size`, which is the density scale (05 §4) and
    * is declared with the rail it governs. */
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  /* The SAME intent, three families short, typed independently by alerts.js.
+   * It is kept apart rather than collapsed because on a Linux desktop the two
+   * stacks can land on different fonts, and this pass moves no pixel. */
+  --font-ui-short: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --size-10:   10px;
   --size-11:   11px;

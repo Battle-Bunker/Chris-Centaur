@@ -139,7 +139,13 @@
       header.className = 'header';
       document.body.insertBefore(header, document.body.firstChild);
       // Pages that had no fixed header did not reserve room for one.
-      if (!document.body.style.paddingTop) document.body.style.paddingTop = '60px';
+      if (!document.body.style.paddingTop) {
+        // The header's height, from the sheet that declares it, so the page
+        // and the header cannot drift apart (docs/design/ux/09-DESIGN-TOKENS).
+        var h = getComputedStyle(document.documentElement)
+          .getPropertyValue('--chrome-header-h').trim();
+        document.body.style.paddingTop = h || '60px';
+      }
     }
     var title = (current && current.title) ||
       (document.querySelector('.header h1') || {}).textContent || '';

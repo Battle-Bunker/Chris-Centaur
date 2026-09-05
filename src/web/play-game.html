@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Centaur Play - Live Game</title>
+  <!-- THE DESIGN TOKENS (docs/design/ux/09-DESIGN-TOKENS.md). A sheet of
+       custom properties and nothing else, so it paints nothing on its own and
+       can be linked by every page including this one — which is what lets the
+       rail below, the three stylesheets latency.js / alerts.js / tour.js
+       inject at runtime, and the canvas renderer that cannot cascade at all,
+       all read ONE copy of the ladder's rungs, the lens vocabulary, the focus
+       ring and the motion durations. It is linked BEFORE this <style> so the
+       block below can read it and still win. `chrome.css` is deliberately NOT
+       linked here: it styles the lobby with the same selector names. -->
+  <link rel="stylesheet" href="/tokens.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -347,15 +357,14 @@
        Two rules the CSS below enforces: nothing above L2 may MOVE (only its
        text changes), and nothing is encoded by hue alone — every colour here
        is a second reading of a glyph, a border style or a word. */
+    /* --lens-ink / -foil / -warn / -open / -fixed / -ours are declared in
+       `tokens.css` now, under the same names and the same values, beside the
+       -on-light / -on-dark pair the canvas renderer reads: the rail's violet
+       and the board's violet are one decision and were two copies of it.
+       DENSITY STAYS HERE, with the rail it governs: it is one preference and
+       one number, every size in the rail is a multiple of it, and that is why
+       "compact" is a scale rather than a second design (05-EVALUATION §4). */
     :root {
-      --lens-ink:   #B39DFF;   /* hypothetical  · glyph ▸, solid rule        */
-      --lens-foil:  #4DB6AC;   /* the runner-up · glyph ◇, dashed rule       */
-      --lens-warn:  #FF8A65;   /* refused/stale · glyph ⚠ / strike-through   */
-      --lens-open:  #FFB74D;   /* no plan       · glyph ◦                    */
-      --lens-fixed: #9A9A9A;   /* pinned/held   · glyph 🔒 / ⛨              */
-      --lens-ours:  #81c784;   /* ours          · glyph ●                    */
-      /* Density is one preference and one number: every size in the rail is a
-         multiple of it, so "compact" is a scale rather than a second design. */
       --lens-size: 12px;
       --lens-pad: 10px;
     }
