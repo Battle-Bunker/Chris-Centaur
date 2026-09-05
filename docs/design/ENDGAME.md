@@ -1,5 +1,21 @@
 # ENDGAME — outcomes, the turn cap, and what decides a level board
 
+> **STATUS — SUPERSEDED IN PART by `docs/design/TERMINAL-SOUND.md`.**
+>
+> §4.3 refuses part (A) and names the repair it waits on. That repair landed:
+> the `win`-floor-against-a-`draw`-ceiling was not a pricing question but a
+> member reporting a floor above its own CEILING, and `finish`'s
+> `Math.min`/`Math.max` was what hid it. `capVerdicts`'s two corners are derived
+> from the bound they have to be, `clampTo` takes a per-side clamp that can no
+> longer promote an interior ceiling to a floor, and **part (A) is in: the
+> runner states its cap, like production.** The sixteen-arm gate with the cap
+> stated goes 8,641 INVERSION lines to 0.
+>
+> So read §1–§3 and §5 as they stand, and §4.3's mechanism as correct but its
+> REFUSAL as answered. The A/B part (A) never had is TERMINAL-SOUND §4.1 — no
+> outcome moves on any of ten classes, five of them are byte-identical, and the
+> four deaths that appear are all `contest` on the two piece-bearing boards.
+
 The `endgame` row of the orchestrator loop. Everything below is measured on this
 branch with the outcome instrument committed in `ecf64a6` (the runner records
 `adjudicate`'s own verdict, the lead trajectory and a `--side` colour swap;
@@ -338,10 +354,25 @@ member cannot be switched on anywhere until `finish` prices a `win`-floor agains
 a `draw`-ceiling without the `min/max` swap — which is a `bound.ts` question, not
 a `terminal.ts` one, and is the next thing anyone taking this row should do.
 
+> **ANSWERED — `docs/design/TERMINAL-SOUND.md`.** The mechanism above is right
+> and the diagnosis one step short: `cap.worst === 'win'` beside `cap.best ===
+> 'draw'` is not two members that were "each individually right", it is ONE
+> member reporting a floor of +Infinity above its own finite ceiling, because
+> `best` read `us` in `possibleWinners` as a draw when that set is exactly the
+> statement that some world has us winning ALONE — worth `WIN`. Both corners are
+> derived from the bound requirement now and are ordered by construction, the
+> `min/max` is gone, and the twelve 30-turn arms print 0.
+
 Part (A) is also a one-line change with the blast radius of the whole corpus:
 every baseline in `ORCHESTRATOR-LOOP.md` was taken against a bot that could not
 see its cap, and turning it on invalidates all of them at once. It should land
 with the `finish` repair, a fresh `stable/*` cut, and both colours — not before.
+
+> **It landed with the `finish` repair and both colours** (TERMINAL-SOUND §4.1).
+> The blast radius is measured rather than feared: `snakes`, `sparse` and
+> `sparse-lean/side1` are byte-identical on this corpus, so five of the ten arms
+> are the same games and only `mixed` and `potions` move at all. The fresh
+> `stable/*` cut is still owed.
 
 ### 4.4 What was kept
 
@@ -402,6 +433,13 @@ than either special case, and it is the factoring the standing orders ask for.
 reads the cap can ship until the `min/max` swap is replaced. (ii) part (A), with
 a fresh baseline on both colours. (iii) then, and only then, a standing schedule
 has a boundary to be a function of.
+
+> **(i) and (ii) are DISCHARGED** — `docs/design/TERMINAL-SOUND.md` §2 and §4.1.
+> The boundary is live, and §3.3's board is the test these two rows still owe:
+> the fold scored walking deeper into an eight-cell pocket at 200.92 with a
+> 22-cell snake and three turns left. What the cap buys is the knowledge that
+> turn 60 is the last one; what it does not buy is the pocket, which is D5 and
+> is still open. (iii) is reachable now.
 
 ---
 
