@@ -607,6 +607,13 @@ export function buildBoard(spec: GameSpec): Board {
     hazardDamage: 100,
     pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
     maxHealthPerUnit: {},
+    // THE CAP THE HARNESS PLAYS TO IS THE CAP THE BOT IS TOLD ABOUT (ENDGAME
+    // §1, §4.1 part (A)). `runGame`'s loop stops at `spec.maxTurns ?? 100`;
+    // stating the same number here is what makes the board the bot marshals
+    // agree with the game the harness actually plays. Production states it —
+    // `translate.ts` copies `setup.maxTurns` onto the board — so a runner that
+    // stays silent measures a bot that cannot see its own boundary.
+    maxTurns: spec.maxTurns ?? 100,
     snakes,
     // ONE MEAL'S WORTH OF ENERGY, and absent unless the spec names it: a board
     // that states nothing is the input `marshalBoard` has always been handed,
