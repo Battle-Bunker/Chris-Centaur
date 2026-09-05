@@ -127,7 +127,7 @@
       "saw": {
         "want": "7",
         "turn": "turn 7 of 12 h / l",
-        "link": "http://127.0.0.1:5476/history#game=lens-walk&turn=7&focus=red-B"
+        "link": "http://127.0.0.1:5195/history#game=lens-walk&turn=7&focus=red-B"
       }
     },
     {
@@ -147,7 +147,7 @@
     {
       "name": "r1-strip",
       "note": "the moments strip and its legend — shape first, brightness for weight",
-      "bytes": 8990,
+      "bytes": 9094,
       "overflowPx": 0,
       "rail": null,
       "stage": null,
@@ -169,7 +169,7 @@
     {
       "name": "r2-index",
       "note": "the index of moments, ranked and cut",
-      "bytes": 74127,
+      "bytes": 74144,
       "overflowPx": 0,
       "rail": null,
       "stage": null,
@@ -191,7 +191,7 @@
     {
       "name": "r3-why",
       "note": "the why panel at a moment — the chosen moveset, its number, the breakdown, the runner-up, the foil and the threats",
-      "bytes": 153613,
+      "bytes": 153993,
       "overflowPx": 0,
       "rail": null,
       "stage": null,
@@ -213,7 +213,7 @@
     {
       "name": "r4-review",
       "note": "the whole review: strip, index and the turn",
-      "bytes": 255024,
+      "bytes": 255949,
       "overflowPx": 0,
       "rail": null,
       "stage": null,
@@ -235,7 +235,7 @@
     {
       "name": "r5-mark",
       "note": "the index and the bookmark it just took",
-      "bytes": 71906,
+      "bytes": 72266,
       "overflowPx": 0,
       "rail": null,
       "stage": null,
@@ -279,7 +279,7 @@
     {
       "name": "r7-share",
       "note": "the export: this turn, as a link anyone can paste",
-      "bytes": 896,
+      "bytes": 1003,
       "overflowPx": 0,
       "rail": null,
       "stage": null,

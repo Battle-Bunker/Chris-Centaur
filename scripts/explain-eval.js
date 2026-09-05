@@ -196,8 +196,11 @@ async function answeredBy(page, candidates) {
     for (const c of list) {
       const el = document.querySelector(c.sel);
       if (!el) continue;
+      // `innerText` applies `text-transform`, so a head the CSS uppercases
+      // comes back uppercase; the predicate is about the words and not about
+      // the casing a stylesheet chose.
       const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
-      if (c.re && !new RegExp(c.re).test(text)) continue;
+      if (c.re && !new RegExp(c.re, 'i').test(text)) continue;
       if (!c.re && text === '') continue;
       const box = el.getBoundingClientRect();
       return { sel: c.sel, text: text.slice(0, 400), y: Math.round(box.top), h: Math.round(box.height) };
@@ -221,7 +224,6 @@ async function main() {
     }
   });
   const page = await context.newPage();
-  const { arm, read } = makeClock(page);
 
   await enter(page, GAME, 'Explain');
   await step();
@@ -229,8 +231,98 @@ async function main() {
   await page.keyboard.press('Escape');
   await sleep(400);
 
-  // A list with a runner-up on it, or every contrastive measurement below is a
-  // measurement of an empty table.
+  /**
+   * THE FIVE QUESTIONS, over whatever list is under the cursor.
+   *
+   * They are asked TWICE, because the rail draws two different lists and only
+   * one of them has ever carried a number:
+   *
+   *  · `conditional` — the rows a lock here would stage. This is the list an
+   *    operator reads at the moment they decide whether to overrule, and every
+   *    row on it is `unpriced`: `conform` returns a plan, not a bound.
+   *  · `retained`    — the reservoir's own priced rows, restricted to the
+   *    candidate under the cursor. Bounds, dominance conditions and a loud
+   *    reading, all of them real.
+   *
+   * A reading that is only true of one of the two is not a finding about the
+   * interface, it is a finding about which list was measured.
+   */
+  const { arm, read } = makeClock(page);
+  const askFive = async (phase) => {
+    // TIME TO FIRST RELEVANT PAINT, on the one input that changes what the
+    // explanation is about: `]` walks the cursor to the next row, so every
+    // reading under the table has to be recomputed and redrawn for a different
+    // pair. The clock starts at the press and stops at the first frame after
+    // the strip carries a sentence that differs from the one it carried.
+    await arm('.lens-movesets', null);
+    const t0 = Date.now();
+    await page.keyboard.press(']');
+    const paint = await read(3000);
+    out.notes[`${phase}Walk`] = { paintMs: paint, totalMs: Date.now() - t0, keys: 1, clicks: 0 };
+    await sleep(300);
+    await page.keyboard.press('[');
+    await sleep(400);
+
+    const record = async (id, question, candidates) => {
+      const t0 = Date.now();
+      const hit = await answeredBy(page, candidates);
+      const row = {
+        phase,
+        id,
+        question,
+        answered: hit !== null,
+        by: hit ? hit.sel : null,
+        says: hit ? hit.text : null,
+        atY: hit ? hit.y : null,
+        totalMs: Date.now() - t0,
+      };
+      out.questions.push(row);
+      console.log(
+        `  ${row.answered ? '✓' : '✗'} ${phase}/${id} — ` +
+          `${row.answered ? row.by : 'NOTHING ON SCREEN ANSWERS IT'}`
+      );
+      return row;
+    };
+
+    // Q1 — the answer has to name the ONE thing that decides the order. The
+    // foil line names the runner-up and the rung it lost on; what neither it
+    // nor the assignment cell ever said is WHICH MEMBER carries the difference.
+    await record('Q1', 'why is rank 1 above rank 2?', [
+      { sel: '.lens-contrast', re: 'decid|differ|same moves' },
+      { sel: '.lens-foil', re: 'foil #' },
+      { sel: '.lens-move-diff', re: null },
+    ]);
+
+    // Q2 — the leader's own `unless` cell reads `leads on the proved floor`,
+    // which is a statement about the COMPARISON and not about the risk.
+    await record('Q2', 'what is rank 1 afraid of?', [
+      { sel: '.lens-threats', re: 'open on|cliff|carries no bounds|nothing is named' },
+      { sel: '.lens-row-lead .lens-unless', re: 'resolve against us|refuted|dominated' },
+    ]);
+
+    // Q3 — a RANKING, not a set: which of the named units holds the most.
+    await record('Q3', 'which enemy reply hurts most?', [
+      { sel: '.lens-threats-list .lens-threat', re: null },
+      { sel: '.lens-threats', re: 'at stake|held replies|carries no bounds' },
+    ]);
+
+    // Q4 — `⌈w⌉` and the band are the WIDTH; the question is whether the ORDER
+    // is proved, which is the margin read against that width.
+    await record('Q4', 'how sure is the bot?', [
+      { sel: '.lens-unsure', re: 'not proved|is proved|carries a price|cliff|open' },
+      { sel: '.lens-row-lead .lens-width', re: '⌈' },
+    ]);
+
+    // Q5 — the list-source line answers the first half (this list is the rows a
+    // lock would stage); the pin count on the chip is the second, and the two
+    // have never been in one place.
+    await record('Q5', 'what changes if I pin this unit?', [
+      { sel: '.lens-list-source', re: 'lock here would stage|no conditional was answered' },
+      { sel: '[data-lens-action="lock"]', re: 'pins' },
+    ]);
+  };
+
+  // ── PHASE 1 — the conditional list ──────────────────────────────────────
   let rows = 0;
   for (let i = 0; i < 6 && rows < 2; i++) {
     await page.keyboard.press('Escape');
@@ -241,109 +333,14 @@ async function main() {
     await step();
     await sleep(WAIT);
   }
-  out.notes.rows = rows;
-  await shot(page, `${LABEL}-rail`, 'the rail with a ranked list under the cursor', '.lens-rail');
-  await shot(page, `${LABEL}-movesets`, 'the movesets panel', '.lens-movesets');
-
-  const record = async (id, question, candidates, work) => {
-    const t0 = Date.now();
-    const cost = work ? await work() : { keys: 0, clicks: 0, paint: 0 };
-    const hit = await answeredBy(page, candidates);
-    const row = {
-      id,
-      question,
-      answered: hit !== null,
-      by: hit ? hit.sel : null,
-      says: hit ? hit.text : null,
-      atY: hit ? hit.y : null,
-      keys: cost.keys,
-      clicks: cost.clicks,
-      paintMs: cost.paint,
-      totalMs: Date.now() - t0,
-    };
-    out.questions.push(row);
-    console.log(
-      `  ${row.answered ? '✓' : '✗'} ${id} — ${row.answered ? row.by : 'NOTHING ON SCREEN ANSWERS IT'}` +
-        ` · ${row.keys}k ${row.clicks}c ${row.paintMs === null ? '—' : `${row.paintMs}ms`}`
-    );
-    return row;
-  };
-
-  // ── Q1 — why is rank 1 above rank 2? ────────────────────────────────────
-  //
-  // The answer has to name the ONE thing that decides the order. The foil line
-  // names the runner-up and the rung it lost on; what neither it nor the
-  // assignment cell has ever said is WHICH MEMBER carries the difference.
-  await record(
-    'Q1',
-    'why is rank 1 above rank 2?',
-    [
-      { sel: '.lens-contrast', re: 'decid|differ|same plan' },
-      { sel: '.lens-foil', re: 'foil #' },
-      { sel: '.lens-move-diff' },
-    ],
-    async () => ({ keys: 0, clicks: 0, paint: 0 })
-  );
-
-  // The same question with the board brought in, which is what `F` is for.
-  {
-    await arm('#gameCanvas', null);
-    const t = Date.now();
-    await page.keyboard.press('f');
-    const paint = await read(2000);
-    out.notes.foilKey = { paintMs: paint, totalMs: Date.now() - t };
-    await sleep(400);
-    await page.keyboard.press('f');
-    await sleep(300);
-  }
-
-  // ── Q2 — what is rank 1 afraid of? ──────────────────────────────────────
-  //
-  // The leader's own `unless` cell reads `leads on the proved floor`, which is
-  // a statement about the comparison and not about the risk. What the leader
-  // is BETTING ON is on the row — `citedUnits`, the vacuity cause, the loud
-  // count — and none of it has ever been drawn for the row that is going to
-  // happen.
-  await record('Q2', 'what is rank 1 afraid of?', [
-    { sel: '.lens-threats', re: 'open on|cliff|nothing' },
-    { sel: '.lens-row-lead .lens-unless', re: 'resolve against us|refuted|dominated' },
-    { sel: '.lens-unsure', re: 'open on' },
-  ]);
-
-  // ── Q3 — which enemy reply hurts most? ──────────────────────────────────
-  await record('Q3', 'which enemy reply hurts most?', [
-    { sel: '.lens-threats-list', re: '.' },
-    { sel: '.lens-threats', re: 'at stake|loud|replies' },
-  ]);
-
-  // ── Q4 — how sure is the bot? ───────────────────────────────────────────
-  //
-  // `⌈w⌉` and the band are the width; the question is whether the ORDER is
-  // proved, which is the margin read against the width. Nothing on the shipped
-  // rail puts those two numbers in one sentence.
-  await record('Q4', 'how sure is the bot?', [
-    { sel: '.lens-unsure', re: 'margin|width|proved|cliff|advisory' },
-    { sel: '.lens-row-lead .lens-width', re: '⌈' },
-  ]);
-
-  // ── Q5 — what changes if I pin this unit? ───────────────────────────────
-  //
-  // The list source line already answers the FIRST half (this list is the rows
-  // a lock here would stage). The second half — what it costs against the
-  // unconditional leader — is the pin count on the chip, and the two are never
-  // in one place.
-  {
-    const before = await page.evaluate(
-      () => document.querySelector('.lens-list-source')?.innerText || null
-    );
-    out.notes.listSource = before;
-    await record('Q5', 'what changes if I pin this unit?', [
-      { sel: '.lens-list-source', re: 'lock here would stage' },
-      { sel: '[data-lens-action="lock"]', re: 'pins' },
-    ]);
-  }
-
-  // The five explanation surfaces, photographed where they exist.
+  out.notes.conditionalRows = rows;
+  out.notes.listSource = await page.evaluate(() => {
+    const el = document.querySelector('.lens-list-source');
+    return el ? el.innerText : null;
+  });
+  await shot(page, `${LABEL}-rail`, 'the rail over the conditional list', '.lens-rail');
+  await shot(page, `${LABEL}-movesets`, 'the movesets panel over the conditional list', '.lens-movesets');
+  await askFive('conditional');
   for (const [sel, name] of [
     ['.lens-contrast', `${LABEL}-contrast`],
     ['.lens-threats', `${LABEL}-threats`],
@@ -352,6 +349,77 @@ async function main() {
   ]) {
     if (await page.$(sel)) await shot(page, name, sel, sel);
   }
+
+  // ── PHASE 2 — the reservoir's own priced rows ───────────────────────────
+  //
+  // Any roster row and any candidate whose list is the RESTRICTED one with a
+  // runner-up on it. This is the list that carries bounds, and it is where
+  // every reading this round added has something to say.
+  let priced = null;
+  for (let unit = 0; unit < 3 && priced === null; unit++) {
+    await page.keyboard.press('Escape');
+    await sleep(250);
+    await focusUnit(page, unit);
+    const cells = await page.$$('.lens-candidates tr[data-lens-candidate]');
+    for (const cell of cells) {
+      try {
+        await cell.click({ force: true, timeout: 3000 });
+      } catch (_e) {
+        continue;
+      }
+      await sleep(600);
+      const state = await page.evaluate(() => ({
+        source: document.querySelector('.lens-list-source')
+          ? document.querySelector('.lens-list-source').innerText
+          : '',
+        rows: document.querySelectorAll('.lens-movesets tr[data-lens-moveset]').length,
+        widths: document.querySelectorAll('.lens-movesets .lens-width').length,
+      }));
+      if (state.rows > 1 && state.widths > 0) {
+        priced = { unit, ...state };
+        break;
+      }
+    }
+  }
+  out.notes.priced = priced;
+  if (priced !== null) {
+    await shot(page, `${LABEL}-priced-rail`, 'the rail over the priced retained rows', '.lens-rail');
+    await shot(page, `${LABEL}-priced-movesets`, 'the priced list', '.lens-movesets');
+    await askFive('retained');
+    for (const [sel, name] of [
+      ['.lens-contrast', `${LABEL}-priced-contrast`],
+      ['.lens-threats', `${LABEL}-priced-threats`],
+      ['.lens-unsure', `${LABEL}-priced-unsure`],
+      ['.lens-line', `${LABEL}-priced-line`],
+    ]) {
+      if (await page.$(sel)) await shot(page, name, sel, sel);
+    }
+  } else {
+    console.log('  · no priced list with a runner-up was reachable this run');
+  }
+
+  // WHAT THE TWO L3 PREFERENCES BUY BACK. Every reading added this round is
+  // ink in a column that already scrolls at 1280×720 (05 H-17), so the cost is
+  // measured with them on and with them off, through `Prefs` itself rather than
+  // through a class the page would have to be told about.
+  out.notes.railWithL3 = await page.evaluate(() => {
+    const rail = document.getElementById('lensRail');
+    return rail ? rail.scrollHeight : null;
+  });
+  out.notes.railWithoutL3 = await page.evaluate(() => {
+    if (!window.Prefs) return null;
+    window.Prefs.set('explain.threats', false);
+    window.Prefs.set('explain.line', false);
+    const rail = document.getElementById('lensRail');
+    return rail ? rail.scrollHeight : null;
+  });
+  await sleep(400);
+  await page.evaluate(() => {
+    if (!window.Prefs) return;
+    window.Prefs.set('explain.threats', true);
+    window.Prefs.set('explain.line', true);
+  });
+  await sleep(400);
 
   // THE RAIL'S OWN HEIGHT, because every one of these is new ink in a column
   // that already scrolls at 1280×720 (05 H-17).

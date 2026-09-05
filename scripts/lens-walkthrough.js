@@ -743,6 +743,269 @@ async function main() {
   await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
   report.notes.drill = drill;
 
+  // ── THE EXPLANATION DRILL ───────────────────────────────────────────────
+  //
+  // Four readings were added under the moveset table this round, and every one
+  // of them is a SENTENCE about numbers the operator is about to act on. The
+  // failure they exist to prevent — an explanation that reads as more certain
+  // than the bound it explains — is invisible in a photograph: a strip naming
+  // the wrong member looks exactly like one naming the right member.
+  //
+  // So every assertion below reads the FRAME'S OWN transcript out of the page
+  // and checks the words against it: the decider against the two rows'
+  // assignments, the proved/not-proved verdict against the arithmetic it
+  // claims, the ranking against its own numbers, the bands against the priced
+  // rows. A failed assertion fails the run.
+  at = 'explain';
+  const explain = [];
+  const xcheck = (name, ok, saw) => {
+    explain.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} explain/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  /** The four readings and the row table, as the page's own transcript has
+   *  them — not as the markup renders them, because the markup is the thing
+   *  under test and a test that reads its own subject proves nothing. */
+  const explainState = () =>
+    page.evaluate(() => {
+      const t = typeof lensTranscript === 'undefined' ? [] : lensTranscript || [];
+      const one = (op) => (t.find((c) => c.op === op) || { args: [] }).args[0] || null;
+      const rows = t
+        .filter((c) => c.op === 'panel.movesets.row')
+        .map((c) => ({
+          rank: c.args[0],
+          key: c.args[1],
+          lo: c.args[2],
+          width: c.args[3],
+          unless: c.args[6],
+          moves: c.args[7],
+          selected: c.args[9],
+          isFoil: c.args[12],
+          hi: c.args[14],
+        }));
+      return {
+        rows,
+        contrast: one('panel.contrast'),
+        unsure: one('panel.unsure'),
+        threats: one('panel.threats'),
+        line: one('panel.line'),
+        dom: {
+          contrast: !!document.querySelector('.lens-contrast'),
+          unsure: !!document.querySelector('.lens-unsure'),
+          threats: !!document.querySelector('.lens-threats'),
+          line: !!document.querySelector('.lens-line'),
+          bands: document.querySelectorAll('.lens-movesets .lens-band-span').length,
+          leads: document.querySelectorAll('.lens-movesets .lens-band-lead').length,
+          cliffs: document.querySelectorAll('.lens-movesets .lens-band-cliff').length,
+          widths: document.querySelectorAll('.lens-movesets .lens-width').length,
+          contrastText: (document.querySelector('.lens-contrast') || {}).innerText || '',
+          unsureText: (document.querySelector('.lens-unsure') || {}).innerText || '',
+          threatText: (document.querySelector('.lens-threats') || {}).innerText || '',
+          threatItems: [...document.querySelectorAll('.lens-threat')].map((e) => e.innerText),
+        },
+      };
+    });
+
+  /** A list with a runner-up under the cursor, and — where the walk can reach
+   *  one — a PRICED list, which is where every reading has something to say. */
+  const explainList = async (wantPriced) => {
+    for (let unit = 0; unit < 3; unit++) {
+      await page.keyboard.press('Escape');
+      await sleep(250);
+      await focusUnit(page, unit);
+      const cells = await page.$$('.lens-candidates tr[data-lens-candidate]');
+      for (const cell of cells) {
+        try {
+          await cell.click({ force: true, timeout: 3000 });
+        } catch (_e) {
+          continue;
+        }
+        await sleep(600);
+        const s = await explainState();
+        const priced = s.dom.widths > 0;
+        if (s.rows.length > 1 && (wantPriced ? priced : true)) return s;
+      }
+    }
+    return explainState();
+  };
+
+  const conditional = await explainList(false);
+  xcheck(
+    'all four readings are on the transcript and on the rail',
+    conditional.contrast !== null &&
+      conditional.unsure !== null &&
+      conditional.threats !== null &&
+      conditional.line !== null &&
+      conditional.dom.contrast &&
+      conditional.dom.unsure &&
+      conditional.dom.threats &&
+      conditional.dom.line,
+    { transcript: Object.keys(conditional).filter((k) => conditional[k] === null), dom: conditional.dom }
+  );
+
+  // THE DECIDER IS THE MEMBER THAT REALLY DIFFERS. Recomputed here from the two
+  // rows' own assignments, which is the one comparison the strip is a claim
+  // about.
+  {
+    const selected = conditional.rows.find((r) => r.selected) || conditional.rows[0];
+    const foil = conditional.rows.find((r) => r.isFoil);
+    const cellOf = (row, unit) =>
+      ((row.moves || []).find((m) => String(m).split('→')[0] === unit) || '').split('→')[1];
+    const units = (selected.moves || []).map((m) => String(m).split('→')[0]);
+    const differ = units.filter((u) => cellOf(selected, u) !== cellOf(foil || selected, u));
+    const c = conditional.contrast;
+    xcheck(
+      'the contrast strip names the member the two rows really differ on',
+      !!c &&
+        (c.attribution === 'sole'
+          ? differ.length === 1 && differ[0] === c.decider
+          : c.attribution === 'identical'
+            ? differ.length === 0
+            : c.differing === differ.length),
+      { decider: c && c.decider, attribution: c && c.attribution, differ }
+    );
+    xcheck(
+      'the strip’s sentence is on the rail, naming that member',
+      !!c && (c.decider === null || conditional.dom.contrastText.includes(c.decider)),
+      { text: conditional.dom.contrastText.slice(0, 160) }
+    );
+    // THE RUNG IS THE LOSER'S OWN, and the `unless` cell is the same field
+    // rendered a second way. The two may not disagree.
+    const loser = foil && foil.rank > selected.rank ? foil : selected;
+    const tie = /tie-break/.test(loser.unless || '');
+    xcheck(
+      'the rung agrees with the losing row’s own `unless` clause',
+      !!c && (tie ? c.rung === 'tie' : c.rung !== 'tie'),
+      { rung: c && c.rung, unless: loser.unless }
+    );
+  }
+
+  // AN UNPRICED LIST SAYS SO. `conform` returns a plan, not a bound, so every
+  // number on a conditional row is absent — and the reading that would
+  // otherwise print a confident-looking zero has to refuse the question.
+  {
+    const unpriced = conditional.rows.every((r) => r.lo === null || r.lo === undefined);
+    const u = conditional.unsure;
+    xcheck(
+      'an unpriced list refuses “how sure” instead of answering it with zeros',
+      !unpriced || (u && u.proved === null && /carries a price/.test(u.headline)),
+      { unpriced, headline: u && u.headline }
+    );
+    xcheck(
+      'the threat map draws its own absence in every state',
+      !!conditional.threats && String(conditional.threats.absence || '').length > 0,
+      { absence: conditional.threats && conditional.threats.absence }
+    );
+    xcheck(
+      'the line strip says which of the two things it is drawing',
+      !!conditional.line &&
+        (conditional.line.premise
+          ? /no ply was taken/.test(conditional.line.note)
+          : conditional.line.plies.length > 0),
+      { premise: conditional.line && conditional.line.premise, note: conditional.line && conditional.line.note }
+    );
+  }
+  await shot(page, 'x1-explain-conditional', 'the explanation surface over the conditional list — every number absent, and said to be', '.lens-movesets');
+
+  // ── THE PRICED LIST ─────────────────────────────────────────────────────
+  const priced = await explainList(true);
+  report.notes.explainPriced = priced.dom.widths > 0;
+  if (priced.dom.widths > 0) {
+    const u = priced.unsure;
+    xcheck(
+      'the “order is proved” verdict is the arithmetic it claims to have done',
+      !!u &&
+        (u.proved === null ||
+          u.proved === (u.margin !== null && u.width !== null && u.margin > u.width)),
+      { proved: u && u.proved, margin: u && u.margin, width: u && u.width }
+    );
+    // THE MARGIN IS THE TWO ROWS' OWN FLOORS. A sentence about a gap that is
+    // not the gap between the rows above it is the pixel that lies.
+    const lead = priced.rows.find((r) => r.selected) || priced.rows[0];
+    const next = priced.rows.find((r) => r.isFoil);
+    xcheck(
+      'the gap in the sentence is the gap between the two rows above it',
+      !!u && (u.margin === null || !next || Math.abs(u.margin - (lead.lo - next.lo)) < 0.06),
+      { margin: u && u.margin, lead: lead && lead.lo, next: next && next.lo }
+    );
+    xcheck(
+      'the threat ranking is monotone in its own numbers',
+      !!priced.threats &&
+        priced.threats.items.every(
+          (item, i, all) =>
+            i === 0 || (all[i - 1].atStake === null ? item.atStake === null : true)
+        ) &&
+        priced.threats.items
+          .filter((i) => i.atStake !== null)
+          .every((item, i, all) => i === 0 || all[i - 1].atStake >= item.atStake),
+      { items: priced.threats && priced.threats.items }
+    );
+    // EVERY PRICED ROW GETS A BAND, and every band carries the leader's floor.
+    // One row with a DEAD floor used to make `bandScale` return null and every
+    // band in the table disappear.
+    xcheck(
+      'every priced row draws a band, and every band carries the leader’s floor',
+      priced.dom.bands === priced.dom.widths && priced.dom.leads === priced.dom.bands,
+      { bands: priced.dom.bands, widths: priced.dom.widths, leads: priced.dom.leads }
+    );
+    await shot(page, 'x2-explain-priced', 'the explanation surface over the priced retained rows', '.lens-movesets');
+  } else {
+    xcheck('a priced list was reachable for the explanation drill', false, priced.dom);
+  }
+
+  // ── THE TWO L3 PREFERENCES ──────────────────────────────────────────────
+  //
+  // They decide what is DRAWN and nothing else: the transcript is identical
+  // either way, which is what makes them a preference rather than a second
+  // view-model.
+  {
+    const before = await explainState();
+    await page.evaluate(() => {
+      if (window.Prefs) {
+        window.Prefs.set('explain.threats', false);
+        window.Prefs.set('explain.line', false);
+      }
+    });
+    await sleep(500);
+    const off = await explainState();
+    await page.evaluate(() => {
+      if (window.Prefs) {
+        window.Prefs.set('explain.threats', true);
+        window.Prefs.set('explain.line', true);
+      }
+    });
+    await sleep(500);
+    const back = await explainState();
+    xcheck(
+      'the L3 preferences hide the ink and leave the transcript alone',
+      !off.dom.threats &&
+        !off.dom.line &&
+        off.threats !== null &&
+        off.line !== null &&
+        back.dom.threats &&
+        back.dom.line,
+      { off: off.dom, restored: back.dom.threats && back.dom.line, hadThreats: before.dom.threats }
+    );
+    // The L2 pair has no preference at all: an operator who can turn off the
+    // reason a ranking exists is an operator who will overrule it without one.
+    // `panel.contrast` needs a runner-up to be a contrast OF, so the assertion
+    // is that the ink follows the TRANSCRIPT and not the preference.
+    xcheck(
+      'the L2 pair is not a preference — it follows the transcript with both off',
+      off.dom.unsure === (off.unsure !== null) && off.dom.contrast === (off.contrast !== null),
+      { off: off.dom, hasContrast: off.contrast !== null, hasUnsure: off.unsure !== null }
+    );
+  }
+  report.notes.explain = explain;
+  // THE DRILL LEAVES THE SEAT AS IT FOUND IT. The sections below compare this
+  // page against a replay of the same log pixel for pixel, and a cursor left
+  // on a different unit is a difference in the SEAT rather than in the frame —
+  // which would put a Law C failure on screen that Law C did not cause.
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  await focusUnit(page, 0);
+  await sleep(500);
+
   // ── REPLAY ──────────────────────────────────────────────────────────────
   // The same recorded log, read back through `/api/logs` and the replay fold.
   at = 'replay/enter';
@@ -783,6 +1046,18 @@ async function main() {
     target.evaluate(() => {
       const el = document.getElementById('selectedSnakePanel');
       if (el) el.scrollTop = 0;
+      // AND THE FIXED CHROME OFF THE RAIL'S BOX. An element screenshot
+      // captures whatever the compositor has over that rectangle, and
+      // `.firebase-status-banner` is a full-width `position: fixed` strip at
+      // `z-index: 10000` that lands on the rail's top 44 px. The harness
+      // deliberately has no Firebase, so the banner's state is a fact about
+      // how long a page has been open — which made the Law C comparison
+      // report a 45-row block of `#b71c1c` as a live-versus-replay
+      // difference, on two rails whose TEXT was identical. It is not the
+      // rail, so it is not in the picture the rail is compared on.
+      for (const b of document.querySelectorAll('.firebase-status-banner')) {
+        b.style.display = 'none';
+      }
     });
   await focusUnit(page, 0);
   await page.keyboard.press('End');
@@ -810,6 +1085,21 @@ async function main() {
   report.notes.diff = {
     liveAt,
     replayAt,
+    // THE TWO RAILS IN WORDS, beside the pixel count. A photograph of a rail
+    // saying the wrong sentence looks exactly like one saying the right
+    // sentence, and a percentage says how MUCH differs and never WHAT — so
+    // when the diff moves, the next reader has the two texts to diff instead
+    // of two PNGs to squint at. It also names the honest cause of the residue:
+    // the two pages are two operators, and the unit each has focused is a fact
+    // about the seat rather than about the frame.
+    liveRail: (await railText(page)).rail,
+    replayRail: (await railText(replay)).rail,
+    liveUnit: await page.evaluate(() =>
+      typeof selectedSnakeId === 'undefined' ? null : selectedSnakeId
+    ),
+    replayUnit: await replay.evaluate(() =>
+      typeof selectedSnakeId === 'undefined' ? null : selectedSnakeId
+    ),
     ...(await diffPngs(page, path.join(OUT, '21a-live-frame.png'), path.join(OUT, '21b-replay-frame.png'))),
   };
 
@@ -1796,7 +2086,8 @@ async function main() {
   pfCheck('Ctrl+, opens the panel on the live view, which has no chrome at all',
     panelOpen.open === true, panelOpen);
   pfCheck('it is generated from the schema — one section per group',
-    JSON.stringify(panelOpen.groups) === JSON.stringify(['lens', 'board', 'alerts', 'wire', 'tour', 'review', 'chrome']),
+    JSON.stringify(panelOpen.groups) ===
+      JSON.stringify(['lens', 'explain', 'board', 'alerts', 'wire', 'tour', 'review', 'chrome']),
     panelOpen.groups);
   await shot(page, 'p1-prefs-panel', 'the settings panel — one section per module, generated from the schema table', '.prefs-pop');
 
@@ -2057,6 +2348,7 @@ async function main() {
     ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
     ...(report.notes.motion || []).map((d) => ({ ...d, drill: 'motion' })),
     ...(report.notes.prefs || []).map((d) => ({ ...d, drill: 'prefs' })),
+    ...(report.notes.explain || []).map((d) => ({ ...d, drill: 'explain' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
     console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);

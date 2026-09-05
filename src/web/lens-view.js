@@ -1339,7 +1339,8 @@ var LensView = (() => {
     return list.retained <= 1 ? "no runner-up — the reservoir retained one row for this cluster" : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
   }
   var RESIDUE_KEY = "#-1";
-  var namedUnit = (key) => key === RESIDUE_KEY ? "the evaluator residue" : key;
+  var RESIDUE_NAME = "the evaluator residue";
+  var namedUnit = (key) => key === RESIDUE_KEY ? RESIDUE_NAME : key;
   function dominanceClause(dominance) {
     if (dominance === null) return "unsealed — the barrier has not run";
     switch (dominance.kind) {
@@ -1431,8 +1432,10 @@ var LensView = (() => {
         width: null
       };
     }
-    const width = Number.isFinite(leader.hi) && Number.isFinite(leader.lo) ? Number((leader.hi - leader.lo).toFixed(2)) : null;
-    const margin = foil === null || foil.unpriced === true ? null : Number((leader.lo - foil.lo).toFixed(2));
+    const rawWidth = Number.isFinite(leader.hi) && Number.isFinite(leader.lo) ? leader.hi - leader.lo : null;
+    const rawMargin = foil === null || foil.unpriced === true ? null : leader.lo - foil.lo;
+    const width = rawWidth === null ? null : round1(rawWidth);
+    const margin = rawMargin === null ? null : round1(rawMargin);
     points.push(
       leader.exact ? "exact — the ledger is empty and there is nothing left to learn" : `${leader.ledgerSize} ledger ${leader.ledgerSize === 1 ? "entry" : "entries"} still open`
     );
@@ -1471,8 +1474,8 @@ var LensView = (() => {
         width
       };
     }
-    const proved = width !== null && margin > width;
-    const headline = proved ? `the order is proved — the gap to #${foil?.rank ?? 2} (${margin}) is wider than this bracket (${width})` : margin === 0 ? `the order is NOT proved — this row and #${foil?.rank ?? 2} share one floor` : `the order is NOT proved — the gap to #${foil?.rank ?? 2} is ${margin} and this bracket is ${width} wide`;
+    const proved = rawWidth !== null && rawMargin !== null && rawMargin > rawWidth;
+    const headline = proved ? `the order is proved — the gap to #${foil?.rank ?? 2} (${margin}) is wider than this bracket (${width})` : rawMargin === 0 ? `the order is NOT proved — this row and #${foil?.rank ?? 2} share one floor` : `the order is NOT proved — the gap to #${foil?.rank ?? 2} is ${margin} and this bracket is ${width} wide`;
     return { headline, points, proved, margin, width };
   }
   function threatsOf(rows, leader, loud) {
@@ -1493,18 +1496,19 @@ var LensView = (() => {
     for (const row of rows) {
       if (row.dominance?.kind !== "contingent") continue;
       for (const unit of row.dominance.onUnits) {
-        bump(unit, round1(row.dominance.atStake), `would carry #${row.rank} if it resolves against us`);
+        bump(unit, round1(row.dominance.atStake), `#${row.rank} rides on it resolving our way`);
       }
     }
     for (const unit of leader?.citedUnits ?? []) {
       bump(unit, null, "the leader's floor is open on it");
     }
     const items = [...held.entries()].map(([unit, v]) => ({ unit, atStake: v.atStake, rows: v.rows, why: v.why })).sort(
-      (a, b) => (b.atStake ?? -Infinity) - (a.atStake ?? -Infinity) || b.rows - a.rows || (a.unit < b.unit ? -1 : 1)
+      (a, b) => (b.atStake ?? -Infinity) - (a.atStake ?? -Infinity) || Number(a.unit === RESIDUE_NAME) - Number(b.unit === RESIDUE_NAME) || b.rows - a.rows || (a.unit < b.unit ? -1 : 1)
     );
     const loudLine = loud === null ? null : loud.q === 0 ? `${loud.product} replies are held and NONE of them touches our staged footprint — there is nothing a ceiling ply could enumerate` : `${loud.q} of ${loud.product} held replies touch our staged footprint${loud.b3 ? " · the gate closed this bracket" : ""}${loud.covers ? "" : " · the gate did not reach every held unit"}`;
-    const absence = items.length === 0 && loudLine === null ? "nothing is named — this decision’s bounds cite no held unit at all" : "no enemy CELL is stored: every reading here is h1, so the line has no `theirs` ply and the witness map does not survive the wire";
-    return { items, loud: loudLine, absence };
+    const unpriced = leader?.unpriced === true;
+    const absence = unpriced ? "this list carries no bounds — `conform` returns plans, so there is nothing here to be open on. What the cluster’s own priced rows cite is under a different basis and is not this list’s answer" : items.length === 0 && loudLine === null ? "nothing is named — this decision’s bounds cite no held unit at all" : "no enemy CELL is stored: every reading here is h1, so the line has no `theirs` ply and the witness map does not survive the wire";
+    return { items, loud: unpriced ? null : loudLine, absence };
   }
   var BRACKET = (lo, hi) => `${Number.isFinite(lo) ? lo.toFixed(1) : "−∞"}…${Number.isFinite(hi) ? hi.toFixed(1) : "∞"}`;
   function lineOf(row, loud) {

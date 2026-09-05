@@ -36,15 +36,15 @@
     "ladder": "DEGRADED",
     "entry": {
      "id": "wire-degraded",
-     "at": 1788626849926,
+     "at": 1788646803438,
      "turn": 2,
      "priority": 3,
      "escalated": false,
      "streak": 1,
      "key": "DEGRADED",
-     "text": "1931 ms round trip — a press needs 986 ms to land",
+     "text": "2083 ms round trip — a press needs 1062 ms to land",
      "detail": {
-      "why": "1931 ms round trip — a press needs 986 ms to land",
+      "why": "2083 ms round trip — a press needs 1062 ms to land",
       "rung": "DEGRADED",
       "key": "DEGRADED"
      },
@@ -95,7 +95,7 @@
    "ok": true,
    "evidence": {
     "before": 0,
-    "after": 8
+    "after": 12
    }
   },
   {
@@ -114,17 +114,17 @@
    "evidence": {
     "entry": {
      "id": "press-window",
-     "at": 1788626857676,
-     "turn": 3,
+     "at": 1788646805417,
+     "turn": 2,
      "priority": 2,
      "escalated": false,
      "streak": 1,
-     "key": "turn:3",
+     "key": "turn:2",
      "text": "past the last safe press with 1 unit unfinished",
      "detail": {
       "unfinished": 1,
-      "remainingMs": 685,
-      "key": "turn:3"
+      "remainingMs": 946,
+      "key": "turn:2"
      },
      "channels": [
       "pulse",
@@ -133,11 +133,11 @@
      ],
      "suppressed": []
     },
-    "ladder": "DEGRADED",
+    "ladder": "STALE",
     "wire": {
-     "remainingMs": 680,
-     "pressSlackMs": 911,
-     "rttMs": 1821
+     "remainingMs": -1680,
+     "pressSlackMs": 981,
+     "rttMs": 1961
     },
     "staged": [
      {
@@ -153,8 +153,8 @@
    "ok": true,
    "evidence": {
     "unfinished": 1,
-    "remainingMs": 685,
-    "key": "turn:3"
+    "remainingMs": 946,
+    "key": "turn:2"
    }
   },
   {
@@ -163,8 +163,8 @@
    "ok": true,
    "evidence": {
     "unfinished": 1,
-    "remainingMs": 685,
-    "key": "turn:3"
+    "remainingMs": 946,
+    "key": "turn:2"
    }
   },
   {
@@ -172,18 +172,18 @@
    "what": "wire-stale fires once the deadline passes unfed",
    "ok": true,
    "evidence": {
-    "ladder": "DEGRADED",
+    "ladder": "STALE",
     "entry": {
      "id": "wire-stale",
-     "at": 1788626852926,
+     "at": 1788646806417,
      "turn": 2,
      "priority": 2,
      "escalated": false,
      "streak": 1,
      "key": "STALE",
-     "text": "no decision frame for 3506 ms, past this turn's deadline",
+     "text": "no decision frame for 3244 ms, past this turn's deadline",
      "detail": {
-      "why": "no decision frame for 3506 ms, past this turn's deadline",
+      "why": "no decision frame for 3244 ms, past this turn's deadline",
       "rung": "STALE",
       "key": "STALE"
      },
@@ -200,7 +200,7 @@
    "scene": "wire",
    "what": "a STALE alert carries the ladder’s own sentence, not a second opinion",
    "ok": true,
-   "evidence": "no decision frame for 3506 ms, past this turn's deadline"
+   "evidence": "no decision frame for 3244 ms, past this turn's deadline"
   },
   {
    "scene": "wire",
@@ -208,11 +208,10 @@
    "ok": true,
    "evidence": {
     "sounded": [
-     "wire-stale",
-     "fatal-unpinned",
-     "press-window"
+     "press-window",
+     "wire-stale"
     ],
-    "earcons": 7
+    "earcons": 4
    }
   },
   {
@@ -222,33 +221,23 @@
    "evidence": [
     {
      "hz": 622.25,
-     "at": 6.413,
-     "wall": 1788626852926
+     "at": 5.385,
+     "wall": 1788646805419
     },
     {
      "hz": 523.25,
-     "at": 6.5680000000000005,
-     "wall": 1788626852927
-    },
-    {
-     "hz": 740,
-     "at": 9.349,
-     "wall": 1788626855862
-    },
-    {
-     "hz": 880,
-     "at": 9.479000000000001,
-     "wall": 1788626855862
-    },
-    {
-     "hz": 1046.5,
-     "at": 9.609,
-     "wall": 1788626855862
+     "at": 5.54,
+     "wall": 1788646805419
     },
     {
      "hz": 622.25,
-     "at": 11.164,
-     "wall": 1788626857677
+     "at": 6.383,
+     "wall": 1788646806417
+    },
+    {
+     "hz": 523.25,
+     "at": 6.538,
+     "wall": 1788646806417
     }
    ]
   },
@@ -257,8 +246,7 @@
    "what": "no two earcons closer than 700 ms",
    "ok": true,
    "evidence": [
-    2935,
-    1815
+    998
    ]
   },
   {
@@ -266,8 +254,8 @@
    "what": "mute silences the earcon",
    "ok": true,
    "evidence": {
-    "before": 7,
-    "after": 7
+    "before": 4,
+    "after": 4
    }
   },
   {
@@ -276,7 +264,7 @@
    "ok": true,
    "evidence": {
     "id": "lock-refused",
-    "at": 1788626858695,
+    "at": 1788646809474,
     "turn": 3,
     "priority": 2,
     "escalated": false,
@@ -303,7 +291,7 @@
    "ok": true,
    "evidence": {
     "id": "lock-refused",
-    "at": 1788626858695,
+    "at": 1788646809474,
     "turn": 3,
     "priority": 2,
     "escalated": false,
@@ -329,8 +317,8 @@
    "what": "a switched-off event raises nothing at all",
    "ok": true,
    "evidence": {
-    "before": 6,
-    "after": 6
+    "before": 4,
+    "after": 4
    }
   },
   {
@@ -357,7 +345,7 @@
    "evidence": {
     "entry": {
      "id": "fatal-unpinned",
-     "at": 1788626873235,
+     "at": 1788646827588,
      "turn": 2,
      "priority": 1,
      "escalated": false,
@@ -413,18 +401,18 @@
    "evidence": [
     {
      "hz": 740,
-     "at": 4.088,
-     "wall": 1788626873236
+     "at": 4.663,
+     "wall": 1788646827589
     },
     {
      "hz": 880,
-     "at": 4.218,
-     "wall": 1788626873236
+     "at": 4.793,
+     "wall": 1788646827589
     },
     {
      "hz": 1046.5,
-     "at": 4.348,
-     "wall": 1788626873236
+     "at": 4.923,
+     "wall": 1788646827589
     }
    ]
   },
@@ -447,7 +435,7 @@
    "evidence": [
     {
      "id": "fatal-unpinned",
-     "at": 1788626873602,
+     "at": 1788646827894,
      "turn": 9001,
      "priority": 1,
      "escalated": false,
@@ -476,7 +464,7 @@
    "evidence": [
     {
      "id": "fatal-unpinned",
-     "at": 1788626873602,
+     "at": 1788646827894,
      "turn": 9001,
      "priority": 1,
      "escalated": false,
@@ -504,7 +492,7 @@
    "ok": true,
    "evidence": {
     "id": "lock-refused",
-    "at": 1788626873623,
+    "at": 1788646827908,
     "turn": 9001,
     "priority": 2,
     "escalated": false,
@@ -613,7 +601,7 @@
    "evidence": [
     {
      "id": "stage-drift",
-     "at": 1788626892181,
+     "at": 1788646848375,
      "turn": 9200,
      "priority": 3,
      "escalated": false,
@@ -644,11 +632,11 @@
   },
   {
    "scene": "drift",
-   "what": "twelve raisings in 2895 ms produce 4 ring onsets — under WCAG 2.3.1's three a second",
+   "what": "twelve raisings in 2892 ms produce 4 ring onsets — under WCAG 2.3.1's three a second",
    "ok": true,
    "evidence": {
     "onsets": 4,
-    "elapsedMs": 2895,
+    "elapsedMs": 2892,
     "refused": 8,
     "minGapMs": 700,
     "perSecond": 1.38
@@ -660,7 +648,7 @@
    "ok": true,
    "evidence": {
     "onsets": 4,
-    "elapsedMs": 2895,
+    "elapsedMs": 2892,
     "refused": 8,
     "minGapMs": 700,
     "perSecond": 1.38
@@ -678,7 +666,7 @@
    "ok": true,
    "evidence": {
     "reduced": true,
-    "transition": "0s",
+    "transition": "0s, 0s",
     "position": "fixed",
     "pointerEvents": "none"
    }
@@ -689,7 +677,7 @@
    "ok": true,
    "evidence": {
     "reduced": true,
-    "transition": "0s",
+    "transition": "0s, 0s",
     "position": "fixed",
     "pointerEvents": "none"
    }
@@ -700,7 +688,7 @@
    "ok": true,
    "evidence": {
     "reduced": true,
-    "transition": "0s",
+    "transition": "0s, 0s",
     "position": "fixed",
     "pointerEvents": "none"
    }
@@ -735,8 +723,8 @@
     },
     {
      "name": "02-notch",
-     "on": true,
-     "alert": "press-window"
+     "on": false,
+     "alert": "wire-stale"
     },
     {
      "name": "03-prefs",
@@ -765,7 +753,7 @@
   {
    "name": "01-degraded",
    "note": "the ladder at DEGRADED, the ring on the board’s edge",
-   "bytes": 114270,
+   "bytes": 121730,
    "ring": {
     "on": true,
     "alert": "wire-degraded",
@@ -780,20 +768,20 @@
     "width": "562px",
     "height": "562px"
    },
-   "say": "1931 ms round trip — a press needs 986 ms to land",
+   "say": "2083 ms round trip — a press needs 1062 ms to land",
    "ladder": "DEGRADED",
    "ladderAfter": "DEGRADED",
    "last": {
     "id": "wire-degraded",
-    "at": 1788626849926,
+    "at": 1788646803438,
     "turn": 2,
     "priority": 3,
     "escalated": false,
     "streak": 1,
     "key": "DEGRADED",
-    "text": "1931 ms round trip — a press needs 986 ms to land",
+    "text": "2083 ms round trip — a press needs 1062 ms to land",
     "detail": {
-     "why": "1931 ms round trip — a press needs 986 ms to land",
+     "why": "2083 ms round trip — a press needs 1062 ms to land",
      "rung": "DEGRADED",
      "key": "DEGRADED"
     },
@@ -809,37 +797,37 @@
   {
    "name": "02-notch",
    "note": "the last-safe-press notch on a slow wire, with the ladder degraded",
-   "bytes": 124945,
+   "bytes": 241703,
    "ring": {
-    "on": true,
-    "alert": "press-window",
+    "on": false,
+    "alert": "wire-stale",
     "priority": "2",
     "width": "562px",
     "height": "562px"
    },
    "ringAfter": {
-    "on": true,
-    "alert": "press-window",
+    "on": false,
+    "alert": "wire-stale",
     "priority": "2",
     "width": "562px",
     "height": "562px"
    },
-   "say": "past the last safe press with 1 unit unfinished",
-   "ladder": "DEGRADED",
-   "ladderAfter": "DEGRADED",
+   "say": "no decision frame for 3244 ms, past this turn's deadline",
+   "ladder": "STALE",
+   "ladderAfter": "STALE",
    "last": {
-    "id": "press-window",
-    "at": 1788626857676,
-    "turn": 3,
+    "id": "wire-stale",
+    "at": 1788646806417,
+    "turn": 2,
     "priority": 2,
     "escalated": false,
     "streak": 1,
-    "key": "turn:3",
-    "text": "past the last safe press with 1 unit unfinished",
+    "key": "STALE",
+    "text": "no decision frame for 3244 ms, past this turn's deadline",
     "detail": {
-     "unfinished": 1,
-     "remainingMs": 685,
-     "key": "turn:3"
+     "why": "no decision frame for 3244 ms, past this turn's deadline",
+     "rung": "STALE",
+     "key": "STALE"
     },
     "channels": [
      "pulse",
@@ -852,7 +840,7 @@
   {
    "name": "03-prefs",
    "note": "the preferences popover",
-   "bytes": 141079,
+   "bytes": 233501,
    "ring": {
     "on": true,
     "alert": "lock-refused",
@@ -867,36 +855,36 @@
     "width": "562px",
     "height": "562px"
    },
-   "say": "lock refused — muted-probe",
-   "ladder": "STALE",
-   "ladderAfter": "STALE",
+   "say": "red-A is one turn from a fatal cell and nothing has pinned it",
+   "ladder": "DEGRADED",
+   "ladderAfter": "DEGRADED",
    "last": {
-    "id": "lock-refused",
-    "at": 1788626858695,
+    "id": "fatal-unpinned",
+    "at": 1788646809551,
     "turn": 3,
-    "priority": 2,
+    "priority": 1,
     "escalated": false,
     "streak": 1,
-    "key": "lock:muted-probe",
-    "text": "lock refused — muted-probe",
+    "key": "red-A:3",
+    "text": "red-A is one turn from a fatal cell and nothing has pinned it",
     "detail": {
-     "what": "lock",
-     "why": "lock refused — muted-probe",
-     "key": "lock:muted-probe"
+     "unit": "red-A",
+     "move": "up",
+     "key": "red-A:3"
     },
     "channels": [
-     "pulse",
-     "live-region"
+     "live-region",
+     "earcon"
     ],
     "suppressed": [
-     "muted"
+     "flash"
     ]
    }
   },
   {
    "name": "04-fatal",
    "note": "a unit one turn from a fatal cell, nothing pinned",
-   "bytes": 217025,
+   "bytes": 214185,
    "ring": {
     "on": true,
     "alert": "fatal-unpinned",
@@ -916,7 +904,7 @@
    "ladderAfter": "LIVE",
    "last": {
     "id": "fatal-unpinned",
-    "at": 1788626873235,
+    "at": 1788646827588,
     "turn": 2,
     "priority": 1,
     "escalated": false,
@@ -939,7 +927,7 @@
   {
    "name": "05-refused",
    "note": "a lock the server refused",
-   "bytes": 225310,
+   "bytes": 234667,
    "ring": {
     "on": true,
     "alert": "fatal-unpinned",
@@ -959,7 +947,7 @@
    "ladderAfter": "LIVE",
    "last": {
     "id": "lock-refused",
-    "at": 1788626873623,
+    "at": 1788646827908,
     "turn": 9001,
     "priority": 2,
     "escalated": false,
@@ -983,7 +971,7 @@
   {
    "name": "06-reduced-motion",
    "note": "the ring under prefers-reduced-motion",
-   "bytes": 110697,
+   "bytes": 119772,
    "ring": {
     "on": true,
     "alert": "lock-refused",
@@ -1003,7 +991,7 @@
    "ladderAfter": "STALE",
    "last": {
     "id": "lock-refused",
-    "at": 1788626895690,
+    "at": 1788646851890,
     "turn": 9201,
     "priority": 2,
     "escalated": false,
@@ -1028,11 +1016,7 @@
  "console": [
   {
    "at": "wire",
-   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:47:24.182Z)"
-  },
-  {
-   "at": "wire",
-   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T22:19:57.673Z)"
   },
   {
    "at": "wire",
@@ -1040,31 +1024,15 @@
   },
   {
    "at": "operator",
-   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:47:46.871Z)"
-  },
-  {
-   "at": "operator",
-   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T22:20:20.618Z)"
   },
   {
    "at": "drift",
-   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:48:01.311Z)"
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T22:20:36.977Z)"
   },
   {
    "at": "drift",
-   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
-  },
-  {
-   "at": "drift",
-   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
-  },
-  {
-   "at": "drift",
-   "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
-  },
-  {
-   "at": "drift",
-   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T16:48:16.174Z)"
+   "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T22:20:52.555Z)"
   }
  ],
  "exceptions": [],

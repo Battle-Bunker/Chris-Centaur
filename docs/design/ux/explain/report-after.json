@@ -1,0 +1,195 @@
+{
+  "label": "after",
+  "questions": [
+    {
+      "phase": "conditional",
+      "id": "Q1",
+      "question": "why is rank 1 above rank 2?",
+      "answered": true,
+      "by": ".lens-contrast",
+      "says": "red-B decides it: 119 against 131 — the other 2 agree. decided by nothing yet — the barrier has not run vs #2 · neither row carries a price — there is no gap to measure",
+      "atY": 480,
+      "totalMs": 8
+    },
+    {
+      "phase": "conditional",
+      "id": "Q2",
+      "question": "what is rank 1 afraid of?",
+      "answered": true,
+      "by": ".lens-threats",
+      "says": "THREATS · WHAT THE BOUNDS ARE OPEN ON ranked by what a row says is at stake if it resolves against us this list carries no bounds — `conform` returns plans, so there is nothing here to be open on. What the cluster’s own priced rows cite is under a different basis and is not this list’s answer",
+      "atY": 648,
+      "totalMs": 2
+    },
+    {
+      "phase": "conditional",
+      "id": "Q3",
+      "question": "which enemy reply hurts most?",
+      "answered": true,
+      "by": ".lens-threats",
+      "says": "THREATS · WHAT THE BOUNDS ARE OPEN ON ranked by what a row says is at stake if it resolves against us this list carries no bounds — `conform` returns plans, so there is nothing here to be open on. What the cluster’s own priced rows cite is under a different basis and is not this list’s answer",
+      "atY": 648,
+      "totalMs": 2
+    },
+    {
+      "phase": "conditional",
+      "id": "Q4",
+      "question": "how sure is the bot?",
+      "answered": true,
+      "by": ".lens-unsure",
+      "says": "no row here carries a price `conform` returns a plan, not a bound — these rows are assignments, and every number on them is absent rather than zero",
+      "atY": 585,
+      "totalMs": 1
+    },
+    {
+      "phase": "conditional",
+      "id": "Q5",
+      "question": "what changes if I pin this unit?",
+      "answered": true,
+      "by": ".lens-list-source",
+      "says": "conditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5",
+      "atY": 222,
+      "totalMs": 1
+    },
+    {
+      "phase": "retained",
+      "id": "Q1",
+      "question": "why is rank 1 above rank 2?",
+      "answered": true,
+      "by": ".lens-contrast",
+      "says": "red-B decides it: 144 against 119 — the other 2 agree. decided on the proved floor vs #2 · 0.1 on the proved floor",
+      "atY": 435,
+      "totalMs": 5
+    },
+    {
+      "phase": "retained",
+      "id": "Q2",
+      "question": "what is rank 1 afraid of?",
+      "answered": true,
+      "by": ".lens-threats",
+      "says": "THREATS · WHAT THE BOUNDS ARE OPEN ON ranked by what a row says is at stake if it resolves against us blue-A 73.1 #1 rides on it resolving our way the evaluator residue 73.1 #1 rides on it resolving our way 33 replies are held and NONE of them touches our staged footprint — there is nothing a ceiling ply could enumerate no enemy CELL is stored: every reading here is h1, so the line has no `theirs`",
+      "atY": 601,
+      "totalMs": 2
+    },
+    {
+      "phase": "retained",
+      "id": "Q3",
+      "question": "which enemy reply hurts most?",
+      "answered": true,
+      "by": ".lens-threats-list .lens-threat",
+      "says": "blue-A 73.1 #1 rides on it resolving our way",
+      "atY": 624,
+      "totalMs": 2
+    },
+    {
+      "phase": "retained",
+      "id": "Q4",
+      "question": "how sure is the bot?",
+      "answered": true,
+      "by": ".lens-unsure",
+      "says": "the order is NOT proved — the gap to #2 is 0.1 and this bracket is 73 wide 2 ledger entries still open adjudicating on the proved floor",
+      "atY": 522,
+      "totalMs": 2
+    },
+    {
+      "phase": "retained",
+      "id": "Q5",
+      "question": "what changes if I pin this unit?",
+      "answered": true,
+      "by": ".lens-list-source",
+      "says": "no conditional was answered — 5 of 5 retained rows play this candidate",
+      "atY": 152,
+      "totalMs": 2
+    }
+  ],
+  "shots": [
+    {
+      "name": "after-rail",
+      "note": "the rail over the conditional list",
+      "bytes": 104732
+    },
+    {
+      "name": "after-movesets",
+      "note": "the movesets panel over the conditional list",
+      "bytes": 87753
+    },
+    {
+      "name": "after-contrast",
+      "note": ".lens-contrast",
+      "bytes": 10243
+    },
+    {
+      "name": "after-threats",
+      "note": ".lens-threats",
+      "bytes": 14096
+    },
+    {
+      "name": "after-unsure",
+      "note": ".lens-unsure",
+      "bytes": 6837
+    },
+    {
+      "name": "after-line",
+      "note": ".lens-line",
+      "bytes": 20481
+    },
+    {
+      "name": "after-priced-rail",
+      "note": "the rail over the priced retained rows",
+      "bytes": 111127
+    },
+    {
+      "name": "after-priced-movesets",
+      "note": "the priced list",
+      "bytes": 101903
+    },
+    {
+      "name": "after-priced-contrast",
+      "note": ".lens-contrast",
+      "bytes": 7843
+    },
+    {
+      "name": "after-priced-threats",
+      "note": ".lens-threats",
+      "bytes": 22987
+    },
+    {
+      "name": "after-priced-unsure",
+      "note": ".lens-unsure",
+      "bytes": 8136
+    },
+    {
+      "name": "after-priced-line",
+      "note": ".lens-line",
+      "bytes": 21251
+    }
+  ],
+  "notes": {
+    "conditionalRows": 5,
+    "listSource": "conditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5",
+    "conditionalWalk": {
+      "paintMs": 23.7,
+      "totalMs": 126,
+      "keys": 1,
+      "clicks": 0
+    },
+    "priced": {
+      "unit": 2,
+      "source": "no conditional was answered — 5 of 5 retained rows play this candidate",
+      "rows": 5,
+      "widths": 5
+    },
+    "retainedWalk": {
+      "paintMs": 9.3,
+      "totalMs": 90,
+      "keys": 1,
+      "clicks": 0
+    },
+    "railWithL3": 943,
+    "railWithoutL3": 703,
+    "railExtent": {
+      "panelH": 926,
+      "railScrollH": 943
+    }
+  }
+}
