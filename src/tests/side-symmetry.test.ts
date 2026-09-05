@@ -165,29 +165,62 @@ describe('the hand-symmetric controls are symmetric', () => {
 /**
  * WHY THIS MATTERS FOR THE OLD RECORDS. Almost every counter in
  * `WEIGHT-SWEEP.md` and both behaviour audits comes from MIRROR runs, whose
- * counters are board-wide sums over every team. If the slot could move them,
+ * board-wide counters are sums over every team. If the slot could move them,
  * those numbers would be side-0 readings and the sweep's direction would be in
- * question. It cannot: the game is identical and only `outcome` differs.
+ * question. It cannot: with no `--opponent` every team plays the same profile,
+ * so the game is identical and the slot is a readout.
+ *
+ * The one thing the slot DOES move is `docs/design/OPPONENTS.md`'s side split
+ * (`oursMeals`, `theirsDeaths`, ...), and it moves it in the only way it may —
+ * the two halves SWAP. That is not an exception to the rule above, it is the
+ * rule stated per team: "ours" means `spec.teams[side]`, so reading the same
+ * game from the other slot must exchange the halves and leave every total
+ * alone. Both halves are asserted here, because a split that failed to swap
+ * and a total that failed to hold are two different bugs.
  */
 describe('a mirror run is invariant under --side', () => {
-  it('every counter of `mirror-sparse` is identical at side 0 and side 1', async () => {
+  /** The side split's own fields — the ones that are SUPPOSED to move. */
+  const isSplit = (k: string): boolean =>
+    k.startsWith('ours') || k.startsWith('theirs') || k.startsWith('teams');
+
+  it('`mirror-sparse` holds every total and swaps the side split', async () => {
     const spec = { ...(SCENARIOS['mirror-sparse'] as GameSpec), maxTurns: 10, seed: 3 };
-    const play = async (side: number): Promise<string> => {
+    const play = async (side: number): Promise<Record<string, unknown>> => {
       const r = await runGame({ ...spec, nodeBudget: DEFAULT_NODE_BUDGET }, { scores: false, side });
-      const s = summaryOf(
+      return summaryOf(
         r.metrics,
         { label: 'x', scenario: 'mirror-sparse', seed: 3, turnsRequested: 10, side },
         { kind: 'nodes', nodes: DEFAULT_NODE_BUDGET }
-      );
-      // Everything but the readout the slot exists to pick.
-      const { outcome, side: _side, ...rest } = s;
-      void outcome;
-      void _side;
-      return JSON.stringify(rest);
+      ) as unknown as Record<string, unknown>;
     };
     const zero = await play(0);
     clearGeometryCache();
     const one = await play(1);
-    expect(one).toBe(zero);
+
+    // 1. Everything but the split, compared as a STRING so a counter added
+    //    later is covered without anybody remembering to add it here.
+    const withoutSplit = (s: Record<string, unknown>): string => {
+      const counters = Object.fromEntries(
+        Object.entries(s.counters as Record<string, number>).filter(([k]) => !isSplit(k))
+      );
+      const rest: Record<string, unknown> = { ...s, counters };
+      delete rest.outcome;
+      delete rest.side;
+      return JSON.stringify(rest);
+    };
+    expect(withoutSplit(one)).toBe(withoutSplit(zero));
+
+    // 2. The split itself, exchanged half for half.
+    const c0 = zero.counters as Record<string, number>;
+    const c1 = one.counters as Record<string, number>;
+    const ours = Object.keys(c0).filter((k) => k.startsWith('ours'));
+    expect(ours.length).toBeGreaterThan(0);
+    for (const k of ours) {
+      const theirs = `theirs${k.slice('ours'.length)}`;
+      expect(c1[k]).toBe(c0[theirs]);
+      expect(c1[theirs]).toBe(c0[k]);
+    }
+    // And the halves still add up to the total they are halves of.
+    expect((c0.oursUnitTurns as number) + (c0.theirsUnitTurns as number)).toBe(c0.unitTurns);
   });
 });

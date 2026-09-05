@@ -147,13 +147,21 @@ whole answer: **the runner and the engine are even; the boards are not.**
 
 The good news first, and it is most of the corpus.
 
-**A mirror run's counters do not depend on the slot at all.** With no
+**A mirror run's totals do not depend on the slot at all.** With no
 `--opponent` every team plays the same profile, so `--side` selects which team
-`adjudicate`'s verdict is read for and touches nothing else: the board, the
-decisions, the rng draws and every counter are identical. This is now asserted
-(`side-symmetry.test.ts`, "a mirror run is invariant under `--side`": the whole
-JSON summary minus `outcome` and `side` compared as a string). And the counters
-themselves are BOARD-WIDE sums over every team, not ours-only.
+the verdict is read for and touches nothing else: the board, the decisions, the
+rng draws and every board-wide counter are identical. And those counters are
+BOARD-WIDE sums over every team, not ours-only.
+
+The one thing the slot does move is `docs/design/OPPONENTS.md`'s side split
+(`oursMeals`, `theirsDeaths`, …), and it moves it in the only way it may — the
+two halves SWAP, and each pair still sums to the total it is a half of. That is
+not an exception to the rule, it is the rule stated per team: "ours" means
+`spec.teams[side]`. Both halves are asserted (`side-symmetry.test.ts`,
+"`mirror-sparse` holds every total and swaps the side split": everything but
+the split compared as a string, then each `ours`/`theirs` pair exchanged) —
+because a split that failed to swap and a total that failed to hold are two
+different bugs.
 
 So:
 
@@ -286,8 +294,8 @@ And two supporting pieces:
 5. **`src/tests/side-symmetry.test.ts`** — the five baseline specs pinned by
    hash (they are never repaired in place: the whole A/B corpus is bound to
    their side-0 play, and the fix for their unfairness is the controls beside
-   them); the controls' reflection symmetry and two-team rule; and the
-   slot-invariance of a mirror run.
+   them); the controls' reflection symmetry and two-team rule; and a mirror
+   run's slot-invariance, totals and side split both.
 
 ### Why the five old boards were not fixed
 

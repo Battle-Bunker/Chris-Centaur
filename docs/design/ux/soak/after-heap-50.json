@@ -1,0 +1,130 @@
+{
+  "detached": {},
+  "top": [
+    {
+      "name": "Object",
+      "count": 3812,
+      "bytes": 107624
+    },
+    {
+      "name": "Array",
+      "count": 894,
+      "bytes": 14304
+    },
+    {
+      "name": "system / Context",
+      "count": 356,
+      "bytes": 12700
+    },
+    {
+      "name": "HTMLElement",
+      "count": 213,
+      "bytes": 3432
+    },
+    {
+      "name": "HTMLDivElement",
+      "count": 178,
+      "bytes": 2872
+    },
+    {
+      "name": "Map",
+      "count": 130,
+      "bytes": 2116
+    },
+    {
+      "name": "HTMLSpanElement",
+      "count": 105,
+      "bytes": 1704
+    },
+    {
+      "name": "HTMLButtonElement",
+      "count": 68,
+      "bytes": 1112
+    },
+    {
+      "name": "Error",
+      "count": 44,
+      "bytes": 1104
+    },
+    {
+      "name": "TypedArray",
+      "count": 36,
+      "bytes": 1008
+    },
+    {
+      "name": "SVGPathElement",
+      "count": 45,
+      "bytes": 732
+    },
+    {
+      "name": "CSSParserToken",
+      "count": 42,
+      "bytes": 504
+    },
+    {
+      "name": "Set",
+      "count": 27,
+      "bytes": 468
+    },
+    {
+      "name": "HTMLHeadingElement",
+      "count": 25,
+      "bytes": 424
+    },
+    {
+      "name": "HTMLScriptElement",
+      "count": 22,
+      "bytes": 376
+    },
+    {
+      "name": "SVGSVGElement",
+      "count": 19,
+      "bytes": 316
+    },
+    {
+      "name": "HTMLTableCellElement",
+      "count": 18,
+      "bytes": 312
+    },
+    {
+      "name": "Attr",
+      "count": 17,
+      "bytes": 296
+    },
+    {
+      "name": "HTMLInputElement",
+      "count": 16,
+      "bytes": 280
+    },
+    {
+      "name": "InjectedScript",
+      "count": 2,
+      "bytes": 272
+    },
+    {
+      "name": "HTMLStyleElement",
+      "count": 14,
+      "bytes": 248
+    },
+    {
+      "name": "HTMLDListElement",
+      "count": 14,
+      "bytes": 236
+    },
+    {
+      "name": "HTMLLabelElement",
+      "count": 11,
+      "bytes": 188
+    },
+    {
+      "name": "WeakMap",
+      "count": 9,
+      "bytes": 180
+    },
+    {
+      "name": "SelectorEvaluatorImpl",
+      "count": 2,
+      "bytes": 176
+    }
+  ]
+}

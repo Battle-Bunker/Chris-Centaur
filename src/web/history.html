@@ -63,6 +63,7 @@
     }
     .into-lens a:hover, .into-lens button:hover { background: #3d3d3d; border-color: #666; }
     .into-lens .resume { border-color: #3c6e3e; }
+    .into-lens .review { border-color: #4a6a8a; color: #cfe0f8; }
     .loading { text-align: center; padding: 40px; color: #888; }
   </style>
 </head>
@@ -79,12 +80,16 @@
     <div id="gameContainer" role="list">
       <div class="loading">Loading…</div>
     </div>
+    <!-- The review mode lives here, built by review.js on first open and
+         hidden until then; the list above hides while it is up. -->
+    <section id="reviewPanel" class="rv" hidden aria-label="Post-game review"></section>
   </div>
 
   <script src="/dom-utils.js"></script>
   <script src="/page-chrome.js"></script>
   <script src="/replay-deeplink.js"></script>
   <script src="/firebase-status-banner.js"></script>
+  <script src="/review.js"></script>
   <script>
     'use strict';
 
@@ -115,6 +120,11 @@
         }
         allGames = games;
         render();
+        // A pasted `#game=<id>&turn=<n>&focus=<unit>` reopens the review where
+        // the sender left it, which is the whole point of the link being
+        // copyable (07-REVIEW §1.5).
+        const want = window.Review ? window.Review.readHash() : null;
+        if (want && want.game) openReview(want.game, want);
       } catch (err) {
         console.error('Error loading games:', err);
         status.textContent = 'Failed to load recorded games';
@@ -135,6 +145,9 @@
         ? { word: 'Won', mark: '▲', cls: 'won' }
         : { word: 'Lost to ' + winner, mark: '▼', cls: 'lost' };
     }
+    // The review's headline is this same reading — one outcome vocabulary on
+    // the page, not two (docs/design/ux/07-REVIEW.md §1.4).
+    window.HistoryOutcome = outcomeOf;
 
     function haystack(g) {
       return [
@@ -196,6 +209,8 @@
                      placeholder="0–${escapeHtml(turns)}" aria-label="Turn to open in the lens"
                      title="Empty opens at the head of the game" data-game="${escapeHtml(g.game_id)}">
               <button type="button" class="above go-turn" data-game="${escapeHtml(g.game_id)}">Go</button>
+              <button type="button" class="above review open-review" data-game="${escapeHtml(g.game_id)}"
+                      title="Where this game was decided, and why">◈ review</button>
               <span class="mono">${escapeHtml(g.game_id)}</span>
             </div>
             <div class="game-card-snakes">${snakeTags}</div>
@@ -226,6 +241,13 @@
     // A turn is the unit the operator wants; the fragment is what carries it
     // (replay-deeplink.js reads `#turn=` in the viewer).
     document.getElementById('gameContainer').addEventListener('click', (e) => {
+      const review = e.target.closest && e.target.closest('.open-review');
+      if (review) {
+        e.preventDefault();
+        e.stopPropagation();
+        openReview(review.dataset.game);
+        return;
+      }
       const btn = e.target.closest && e.target.closest('.go-turn');
       if (!btn) return;
       e.preventDefault();
@@ -234,6 +256,16 @@
       const turn = parseInt(input && input.value, 10);
       openGame(btn.dataset.game, Number.isFinite(turn) ? turn : undefined);
     });
+
+    // A game id, into the review. `want` is the fragment's own turn and focus
+    // when this is a pasted deep link and undefined when it is a click, in
+    // which case the review opens on the heaviest moment it found.
+    function openReview(gameId, want) {
+      if (!window.Review) return;
+      const group = allGames.find((g) => g.game_id === gameId);
+      if (!group) return;
+      window.Review.open(group, want || {});
+    }
     document.getElementById('gameContainer').addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const input = e.target.closest && e.target.closest('.turn-input');
@@ -250,6 +282,11 @@
       onFilter: (text) => { filterText = text; render(); },
       open: (el) => { window.location.href = el.dataset.href; },
     });
+
+    // The review's keys go in BEFORE the list's, which is what lets `j`/`k`
+    // be the moment walk while a review is open and the row selection when it
+    // is not (page-chrome.js runs page keys first).
+    if (window.Review) window.Review.bindKeys();
 
     loadGames();
   </script>

@@ -45,9 +45,9 @@
     }
     .timer-display.urgent { color: #f44336; background: rgba(244, 67, 54, 0.15); }
     .timer-display.normal { color: #4CAF50; }
-    .timer-display.idle { color: #888; }
+    .timer-display.idle { color: #a8a8a8; }
     .ping-display {
-      font-size: 11px; color: #666; text-align: right; margin-top: 2px;
+      font-size: 11px; color: #9a9a9a; text-align: right; margin-top: 2px;
       font-variant-numeric: tabular-nums;
       min-width: 70px;
     }
@@ -113,7 +113,7 @@
     .team-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .team-group-ours {
       font-weight: 600; font-size: 10px; letter-spacing: 0.04em;
-      text-transform: none; opacity: 0.75; flex-shrink: 0;
+      text-transform: none; opacity: 0.92; flex-shrink: 0;
     }
     .team-group-score {
       margin-left: auto; flex-shrink: 0;
@@ -141,7 +141,7 @@
     .unit-id-copy {
       flex-shrink: 0; align-self: flex-start;
       background: transparent; border: 1px solid #555; border-radius: 4px;
-      color: #888; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+      color: #9a9a9a; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
       padding: 2px 5px; cursor: pointer; line-height: 1.2;
       font-family: inherit; transition: color 0.15s, border-color 0.15s;
     }
@@ -201,7 +201,7 @@
       letter-spacing: 0.04em; padding: 3px 8px; border-radius: 10px;
       color: #fff; background: #777;
     }
-    .intent-mode-badge.mode-heuristic { background: #777; }
+    .intent-mode-badge.mode-heuristic { background: #6b6b6b; }
     .intent-mode-badge.mode-manual { background: #9c27b0; }
     .intent-mode-badge.mode-goto { background: #4CAF50; }
     .intent-mode-badge.mode-near { background: #1565c0; }
@@ -209,7 +209,7 @@
        to carry white lettering at 11px. */
     .intent-mode-badge.mode-hold { background: #ffca28; color: #1b1b1b; }
     .no-selection-msg {
-      text-align: center; padding: 20px; color: #666; font-size: 14px;
+      text-align: center; padding: 20px; color: #9a9a9a; font-size: 14px;
     }
     /* One line of prose under the unit header: what the unit is doing this
        turn and how to steer it. Replaces the old move-button grid, which said
@@ -238,60 +238,71 @@
       background: #2a2a2a; border-radius: 8px; padding: 10px 12px; overflow-x: auto;
     }
     .lens-panel-head {
-      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      font-size: calc(var(--lens-size) - 1px); font-weight: 700; letter-spacing: .04em;
       color: #B39DFF; margin-bottom: 6px;
     }
     /* The legend, under the head that needs one: four tokens on that table
        have no gloss anywhere else, and three of them mean something else in
        the rest of the codebase. Quiet, and always — a reader who has to be
        told what a column means is reading a number they cannot check. */
-    .lens-legend { font-size: 10px; color: #7d7d7d; margin: -2px 0 6px; }
-    .lens-list-source { font-size: 10px; color: #8FA6A2; margin: -2px 0 4px; }
-    .lens-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .lens-legend { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; margin: -2px 0 6px; }
+    .lens-list-source { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9fb8b3; margin: -2px 0 4px; }
+    .lens-table { width: 100%; border-collapse: collapse; font-size: var(--lens-size); }
     .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
     .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
     /* A stale complement is struck through and KEPT: the row was a real
        bracket of a real plan, and its question is what moved. */
-    .lens-row-stale td { text-decoration: line-through; color: #999; }
+    .lens-row-stale td { text-decoration: line-through; color: #a6a6a6; }
     /* A declared narrowing refuses the floor comparison, so the row is present
        and is not sorted against the others. */
-    .lens-row-unsorted td { color: #9A9A9A; font-style: italic; }
-    .lens-width { color: #999; }
+    .lens-row-unsorted td { color: #a6a6a6; font-style: italic; }
+    .lens-width { color: #a6a6a6; }
     /* The `unless` cell — what each moveset is betting on. Quieter than the
        numbers it qualifies and never wrapped away: it is the one column that
        says what the bot does NOT know. */
-    .lens-unless { color: #9FC6C0; font-size: 11px; }
+    .lens-unless { color: #9FC6C0; font-size: calc(var(--lens-size) - 1px); }
     /* One assignment per unit, unbreakable. The cell is a list joined by
        " · ", so it wraps BETWEEN entries; without this the 380px rail broke
        inside an identifier and the column read "red-" / "A→94 · red-" /
        "C→118", which is a unit id nobody can match to the board. */
     .lens-move { white-space: nowrap; }
-    .lens-focus-line { font-size: 13px; color: #eee; }
+    /* WHAT SEPARATES THIS ROW FROM THE ONE BEING READ. The measured case is
+       `red-A→84 · red-C→69` against `red-A→84 · red-C→67` — the whole
+       difference is one cell on one unit, and nothing said so. The mark is a
+       WEIGHT and an underline, not a hue: it has to survive a deuteranope and
+       a screenshot, and the cards already spend violet and teal on rank and
+       foil. `≡ n` counts the units this row agrees with the cursor on. */
+    .lens-move-diff {
+      font-weight: 700; color: #fff;
+      border-bottom: 1px solid currentColor; padding-bottom: 1px;
+    }
+    .lens-move-same { color: #9a9a9a; white-space: nowrap; }
+    .lens-focus-line { font-size: calc(var(--lens-size) + 1px); color: #eee; }
     .lens-cluster { float: right; color: #B39DFF; }
-    .lens-sub, .lens-provenance { font-size: 11px; color: #888; }
+    .lens-sub, .lens-provenance { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; }
     .lens-provenance { padding: 0 4px; }
-    .lens-fixed-strip { font-size: 11px; color: #9A9A9A; margin-top: 6px; }
+    .lens-fixed-strip { font-size: calc(var(--lens-size) - 1px); color: #a6a6a6; margin-top: 6px; }
     .lens-fixed { margin-right: 10px; white-space: nowrap; }
-    .lens-foil { font-size: 11px; color: #4DB6AC; margin-top: 6px; }
-    .lens-foil-absent { color: #7d9995; font-style: italic; }
+    .lens-foil { font-size: calc(var(--lens-size) - 1px); color: #4DB6AC; margin-top: 6px; }
+    .lens-foil-absent { color: #9db8b3; font-style: italic; }
     .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
-    .lens-empty { font-size: 12px; color: #888; padding: 4px 0; }
+    .lens-empty { font-size: var(--lens-size); color: #9a9a9a; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
     /* A ranking the reserve stopped is a REFUSAL and reads like one; a list
        that simply filled up is not, and stays in the head's own voice. */
     .lens-refused { color: #FF8A65; }
-    .lens-trail { color: #B39DFF; font-size: 10px; margin-left: 6px; }
-    .lens-displaced { color: #FF8A65; font-size: 10px; margin-left: 6px; }
-    .lens-staged-flag { color: #9E9E9E; font-size: 10px; margin-left: 6px; }
+    .lens-trail { color: #B39DFF; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
+    .lens-displaced { color: #FF8A65; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
+    .lens-staged-flag { color: #ababab; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
     /* While a widen is held the whole list is visibly superseded — struck, and
        still there, which is the entire point of the policy. */
-    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #999; }
+    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #a6a6a6; }
     /* A HELD WIDEN OVER AN EMPTY LIST IS STILL HELD. The strike-through only
        ever reached the table, and a cluster with no retained rows draws its
        empty state instead — so the one case where the rail says least about
        itself was also the one case where nothing said it was frozen. */
-    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #999; }
+    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #a6a6a6; }
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {
@@ -315,16 +326,16 @@
       border-bottom: 1px solid #333;
     }
     .lens-lane-name {
-      flex: 0 0 54px; font-size: 10px; color: #666; line-height: 14px;
+      flex: 0 0 54px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; line-height: 14px;
     }
     .lens-lane-track { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
     .lens-tick {
       position: absolute; top: 0; transform: translateX(-50%);
       background: none; border: none; padding: 0; cursor: pointer;
-      font-size: 11px; color: inherit;
+      font-size: calc(var(--lens-size) - 1px); color: inherit;
     }
     .lens-tick-hollow { opacity: .55; }
-    .lens-lane-foot { font-size: 11px; color: #888; margin-top: 4px; }
+    .lens-lane-foot { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; margin-top: 4px; }
 
     /* ── THE IA LAYERS (docs/design/ux/02-IA-AND-CONTROLS.md §1.4) ────────
        Five layers, placed by LATENCY BUDGET rather than by importance:
@@ -368,7 +379,24 @@
       background: linear-gradient(90deg, #5c5c5c, #d8d8d8);
       transition: width .12s linear;
     }
-    .turn-clock.urgent .turn-clock-fill { background: linear-gradient(90deg, #8a3b2a, #ff8a65); }
+    /* URGENCY IS NOT A HUE. Crossing 500 ms changed the fill's colour ramp
+       and NOTHING ELSE — same height, same border, same shape — so the one
+       state change the clock exists to announce was carried in the single
+       channel `§2.5`'s own audit forbids doing work alone, and the one the
+       periphery reads worst. The bar's LENGTH says how much time is left;
+       this says the deadline is now close enough that a press may not land,
+       and it says it in hatching and in weight, which survive a protanope,
+       a greyscale screenshot and the corner of an eye. */
+    .turn-clock.urgent { border-color: #ff8a65; height: 12px; }
+    .turn-clock.urgent .turn-clock-fill {
+      background:
+        repeating-linear-gradient(
+          135deg,
+          rgba(0, 0, 0, 0.55) 0 3px,
+          rgba(0, 0, 0, 0) 3px 7px
+        ),
+        linear-gradient(90deg, #8a3b2a, #ff8a65);
+    }
     .turn-clock.idle .turn-clock-fill { background: #3a3a3a; }
     .turn-clock-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a1a1a; display: none; }
     .turn-clock-mark.on { display: block; }
@@ -432,7 +460,7 @@
     .lens-row-foil td:first-child { border-left: 3px dashed var(--lens-foil); }
     .lens-row-foil td { color: #cfe6e3; }
     .lens-row-tag {
-      display: block; font-size: 9px; letter-spacing: .04em; text-transform: uppercase;
+      display: block; font-size: max(9px, calc(var(--lens-size) - 3px)); letter-spacing: .04em; text-transform: uppercase;
       color: var(--lens-ink); font-weight: 700;
     }
     .lens-row-foil .lens-row-tag { color: var(--lens-foil); }
@@ -465,11 +493,18 @@
     }
     .lens-aff kbd { margin-left: 1px; }
     .lens-aff-glyph { font-size: calc(var(--lens-size) + 1px); line-height: 1; }
-    .lens-aff-note { color: #8f8f8f; }
+    .lens-aff-note { color: #a2a2a2; }
     .lens-aff-primary { border-color: var(--lens-ink); color: #fff; }
     .lens-aff-undo { border-color: var(--lens-ours); color: #cfe9d1; }
     .lens-aff-armed { border-color: var(--lens-warn); color: #ffd2c2; background: rgba(255,138,101,.12); }
-    .lens-aff-off { opacity: .45; }
+    /* AN OFF CHIP IS STILL A SENTENCE. `opacity: .45` faded the ink onto the
+       ground and took every off chip to 2.0–3.5 : 1 — `⛨ hold H pieces only`
+       at 2.7, and `pins n of m`, the exact count `§1.2` calls what makes a
+       determination checkable, at 2.0. Off is carried by the BORDER and by
+       the chip's own words now, and the text stays legible: a control that
+       says why it cannot act has to be readable to say it. */
+    .lens-aff-off { color: #9a9a9a; border-color: #333; }
+    .lens-aff-off .lens-aff-note, .lens-aff-off .lens-aff-glyph { color: #9a9a9a; }
     .lens-aff[data-lens-action] { cursor: pointer; }
     .lens-aff[data-lens-action]:hover { border-color: #888; }
     /* The armed lock's own sentence, in the control bar where the key is. */
@@ -478,9 +513,9 @@
 
     /* The cheat sheet, at rest, in the rail — because Ctrl+/ is a modal and a
        modal costs the board. */
-    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: #8b8b8b; }
+    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; }
     .lens-cheat-item { display: inline-flex; align-items: center; gap: 3px; }
-    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: 10px; color: #8b8b8b; margin-top: 6px; }
+    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; margin-top: 6px; }
     .lens-scheme button {
       background: #2f2f2f; border: 1px solid #4a4a4a; color: #bbb; border-radius: 3px;
       font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: inherit;
@@ -663,7 +698,7 @@
       font-size: 13px; font-weight: 700; color: #ddd; min-width: 84px; text-align: center;
       font-variant-numeric: tabular-nums;
     }
-    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #888; min-height: 14px; }
+    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #9a9a9a; min-height: 14px; }
     @media (min-width: 768px) {
       .main-content { padding: 20px; }
       .board-container { display: flex; gap: 20px; }
@@ -710,9 +745,12 @@
     <a href="/play" class="back-btn">&larr; Games</a>
     <h1 id="pageTitle">Live Game</h1>
     <div class="header-controls">
-      <!-- The one mount the latency module owns. Nothing else on this page
-           writes into it, and nothing in it is read back here. -->
-      <div id="latency-mount"></div>
+      <!-- The latency module's mount is NOT here. `ux-ia` reserved one in this
+           header and `ux-latency` shipped its own under the board header,
+           where the deadline bar has the width the periphery needs — and
+           `getElementById` takes the FIRST, so the ladder rendered into this
+           flex box and was clipped to nothing. One mount, where the ladder
+           draws: see `#latency-mount` under the board header below. -->
       <!-- The one mount the alert channel owns: its preferences button, that
            button's popover, and the fixed ring it draws over the board's edge.
            Nothing else on this page writes into it and nothing in it is read
@@ -1015,9 +1053,17 @@
   </div>
 
 
-  <div class="confirm-dialog-overlay" id="confirmDialog">
+  <!-- THE TWO CONSENT DIALOGS `§3.4` KEEPS ON PURPOSE. They are the surface's
+       only modals and they were the only modals with no role, no `aria-modal`
+       and no focus move: opening one left `document.activeElement` on `BODY`
+       (`eval-report.json → heuristic → fatal-dialog`), so a screen reader
+       announced nothing and a keyboard operator had nothing focused inside
+       the thing now covering the board. `#shortcutsOverlay` already had the
+       pattern; these two did not. -->
+  <div class="confirm-dialog-overlay" id="confirmDialog" role="alertdialog" aria-modal="true"
+       aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogText">
     <div class="confirm-dialog">
-      <h3>Snake Owned by Another Player</h3>
+      <h3 id="confirmDialogTitle">Snake Owned by Another Player</h3>
       <p id="confirmDialogText">Another player owns this snake. Take over ownership and control?</p>
       <div class="confirm-dialog-buttons">
         <button class="confirm-btn" id="confirmTakeoverBtn">Take Over</button>
@@ -1036,9 +1082,10 @@
     </div>
   </div>
 
-  <div class="confirm-dialog-overlay" id="fatalMoveDialog">
+  <div class="confirm-dialog-overlay" id="fatalMoveDialog" role="alertdialog" aria-modal="true"
+       aria-labelledby="fatalMoveDialogTitle" aria-describedby="fatalMoveDialogText">
     <div class="confirm-dialog">
-      <h3>⚠ Certain Death</h3>
+      <h3 id="fatalMoveDialogTitle">⚠ Certain Death</h3>
       <p id="fatalMoveDialogText">This move is certain death. Confirm it anyway?</p>
       <div class="confirm-dialog-buttons">
         <button class="confirm-btn" id="confirmFatalMoveBtn">Confirm (Enter)</button>
@@ -1392,10 +1439,28 @@
       clock.className = `turn-clock${remaining < 500 ? ' urgent' : ''}`;
       fill.style.width = `${(left * 100).toFixed(1)}%`;
       // THE LAST SAFE PRESS is a fact about the network, and the network is
-      // another module's. The shape is drawn here and the number is read from
-      // the one global the latency module sets; with nobody setting it the
-      // notch is absent, because a flight time we have not measured must not
-      // be drawn as though we had.
+      // another module's. The shape is drawn here and the number comes from
+      // `ux-latency`; with nobody supplying one the notch is absent, because a
+      // flight time we have not measured must not be drawn as though we had.
+      //
+      // `02 §2.1` says the number is read from `window.__lensLastSafePressMs`
+      // — and NOTHING EVER SET IT, so the notch has never drawn in a real
+      // game. `LatencyView.read()` is the accessor that module publishes for
+      // exactly this ("every number this surface has, for the surfaces it
+      // does not own — the turn clock on the board's edge"), and
+      // `pressSlackMs` is the remaining time at which a press stops landing,
+      // measured the same way `remaining` is. The global stays the interface,
+      // so a test or a future module can still override it; this only fills
+      // it in when nobody has.
+      if (!Number.isFinite(Number(window.__lensLastSafePressMs))) {
+        try {
+          const wire = typeof LatencyView !== 'undefined' && LatencyView.read ? LatencyView.read() : null;
+          const slack = wire === null ? null : Number(wire.pressSlackMs);
+          if (Number.isFinite(slack) && slack > 0) window.__lensLastSafePressMs = slack;
+        } catch (_e) {
+          /* the latency module is optional; the notch is simply absent */
+        }
+      }
       const safe = Number(window.__lensLastSafePressMs);
       if (mark) {
         const on = Number.isFinite(safe) && safe > 0 && safe < budget;
@@ -1420,6 +1485,10 @@
     //  · genuinely irreversible actions keep their dialogs: Submit All,
     //    fatal-move consent, cross-owner takeover. Those are correct already.
     let lensUndoStack = [];
+    /** Set when a turn boundary emptied a non-empty stack, cleared by the
+     *  next determination. The difference between "nothing was ever taken
+     *  back" and "what you took is no longer yours to take back". */
+    let lensUndoCleared = false;
     let lensArmed = null;      // { everyMember, pins } while a lock is armed
     let lensArmTimer = null;
     let lensUndoNote = null;   // what U would undo, as a sentence
@@ -1443,6 +1512,7 @@
     }
 
     function pushUndo(label, undo) {
+      lensUndoCleared = false;
       lensUndoStack.push({ label, undo });
       if (lensUndoStack.length > 8) lensUndoStack.shift();
       lensUndoNote = label;
@@ -1503,7 +1573,11 @@
           key: keyOf('release') || 'U',
           tone: 'undo',
           off: lensUndoStack.length === 0,
-          note: lensUndoStack.length ? `${lensUndoStack.length}` : 'nothing yet',
+          note: lensUndoStack.length
+            ? `${lensUndoStack.length}`
+            : lensUndoCleared
+              ? 'cleared — new turn'
+              : 'nothing yet',
           action: 'undo',
         }),
         LensPanel.chipHTML({
@@ -1638,19 +1712,53 @@
       }
     }
 
+    function fireLensControl(el) {
+      switch (el.getAttribute('data-lens-action')) {
+        case 'lock': stageSelectedMove(); break;
+        case 'undo': lensUndo(); break;
+        case 'hold': if (selectedSnakeId) toggleHold([selectedSnakeId]); break;
+        case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
+      }
+    }
+
     document.addEventListener('pointerdown', (e) => {
       const scheme = e.target.closest && e.target.closest('[data-lens-scheme]');
       if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
       const density = e.target.closest && e.target.closest('[data-lens-density]');
       if (density) { setLensDensity(density.getAttribute('data-lens-density')); return; }
       const action = e.target.closest && e.target.closest('[data-lens-action]');
-      if (!action) return;
-      switch (action.getAttribute('data-lens-action')) {
-        case 'lock': stageSelectedMove(); break;
-        case 'undo': lensUndo(); break;
-        case 'hold': if (selectedSnakeId) toggleHold([selectedSnakeId]); break;
-        case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
-      }
+      if (!action || action.getAttribute('aria-disabled') === 'true') return;
+      fireLensControl(action);
+    });
+
+    // THE PICKERS ARE `<button>`S THAT THE KEYBOARD COULD NOT PRESS. They take
+    // focus and they ring, and they were bound on `pointerdown` alone — and a
+    // keyboard activation of a button dispatches `click`, never
+    // `pointerdown`. So the scheme and density pickers looked operable, rang
+    // when focused, and did nothing when pressed: measured at
+    // `eval-report.json → a11y → keyboardActivation`, `activated: false`.
+    // Both setters are idempotent, so taking `click` as well costs a mouse
+    // press one redundant no-op and gives the keyboard the control back.
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest) return;
+      const scheme = e.target.closest('[data-lens-scheme]');
+      if (scheme) { setLensScheme(scheme.getAttribute('data-lens-scheme')); return; }
+      const density = e.target.closest('[data-lens-density]');
+      if (density) { setLensDensity(density.getAttribute('data-lens-density')); }
+    });
+
+    // The control chips are `role="button"` spans, so Enter and Space are
+    // theirs while one has focus. This listens on the panel rather than the
+    // document and stops the event there, because `Space` is the lock key
+    // globally — and an operator who has tabbed onto the `undo` chip and
+    // pressed Space meant the chip, not the lock.
+    document.getElementById('selectedSnakePanel').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const el = e.target.closest && e.target.closest('[data-lens-action][role="button"]');
+      if (!el || el.getAttribute('aria-disabled') === 'true') return;
+      e.preventDefault();
+      e.stopPropagation();
+      fireLensControl(el);
     });
 
     // The honest empty state, from THE VIEW-MODEL — the one that tells the
@@ -1753,6 +1861,16 @@
         // clear a unit's commands for the turn it is playing NOW, on the
         // strength of a press an operator made against a board that is gone.
         // The armed lock goes with it, for the same reason.
+        // AND IT SAYS SO. Measured, the bar went from `↺ undo u 1 · undoes:
+        // lock — 2 pins (red-A, red-B)` to `↺ undo u nothing yet` at the turn
+        // boundary with nothing said (`scenarios → S3`,
+        // `stackBeforeWiden`/`stackAfterWiden`). The rule is right — every
+        // entry names a command for a board that has resolved — but an
+        // operator who took a determination and reaches for `U` finds an
+        // empty stack and is told only that there was never anything on it,
+        // which is a different and untrue claim. The chip carries the reason
+        // for the turn it happened on.
+        lensUndoCleared = lensUndoStack.length > 0;
         lensUndoStack = [];
         lensUndoNote = null;
         lensArm(null);
@@ -2354,8 +2472,23 @@
         // the board now select the same way and `Space` stages what the rail
         // is showing — which is the display contract, at the one keypress it
         // is actually about.
-        const key = Object.keys((moveState && moveState.moves) || {}).find(
-          (k) => String(moveState.moves[k].move) === String(to)
+        //
+        // AND IT HAS TO MATCH ON THE CELL. `to` is a full-board destination
+        // index; `moveState.moves[k].move` is the WIRE move, which for a
+        // chess piece is that same index and for a SNAKE is a Direction
+        // string. Comparing them compared `'up'` against `'112'`, so the
+        // lookup never hit for a snake, the fallback ran, and `Space` was
+        // inert on every candidate of every snake unit — the exact failure
+        // the comment above says was fixed, still shipping for the majority
+        // of units. Both spellings of "this candidate" are read now: the
+        // wire move, and the board cell the index resolves to.
+        const moves = (moveState && moveState.moves) || {};
+        const dest = BoardRenderer.moveDestinationCell(to, currentGameState && currentGameState.board);
+        const destKey = dest === null ? null : `${dest.x},${dest.y}`;
+        const key = Object.keys(moves).find(
+          (k) =>
+            String(moves[k].move) === String(to) ||
+            (destKey !== null && moves[k].positionKey === destKey)
         );
         if (key !== undefined) selectMove(key);
         else lensSelectCandidate(lensCursor.unit, to);
@@ -2879,7 +3012,7 @@
 
         case 'selection-contested':
           contestedSnakeId = msg.snakeId;
-          document.getElementById('confirmDialog').classList.add('active');
+          openModal('confirmDialog', 'confirmTakeoverBtn');
           break;
 
         case 'selection-revoked':
@@ -3589,6 +3722,25 @@
     // stays staged and commits at the deadline.
     let fatalMovePrompt = null; // { snakeId, move, turn } | null
 
+    /** Focus into a modal, and remember where it came from. A dialog that
+     *  covers the board and leaves `activeElement` on `BODY` is a dialog a
+     *  keyboard operator cannot answer and a screen reader does not announce.
+     *  Both of these keep their Enter/Escape handling in the global keydown —
+     *  this is the focus half, which was simply missing. */
+    let modalFocusReturn = null;
+    function openModal(id, focusId) {
+      modalFocusReturn = document.activeElement;
+      document.getElementById(id).classList.add('active');
+      const el = document.getElementById(focusId);
+      if (el && el.focus) el.focus();
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+      const back = modalFocusReturn;
+      modalFocusReturn = null;
+      if (back && back.focus && document.contains(back)) back.focus();
+    }
+
     function showFatalMoveDialog(snakeId, move, turn) {
       fatalMovePrompt = { snakeId, move, turn };
       const text = document.getElementById('fatalMoveDialogText');
@@ -3596,12 +3748,14 @@
         `Moving ${String(move).toUpperCase()} is certain death for this snake. ` +
         `Without confirmation, the bot's move commits instead at the deadline. ` +
         `Press Enter to confirm the fatal move, or click outside to cancel.`;
-      document.getElementById('fatalMoveDialog').classList.add('active');
+      openModal('fatalMoveDialog', 'confirmFatalMoveBtn');
     }
 
     function hideFatalMoveDialog() {
+      const wasOpen = document.getElementById('fatalMoveDialog').classList.contains('active');
       fatalMovePrompt = null;
-      document.getElementById('fatalMoveDialog').classList.remove('active');
+      if (wasOpen) closeModal('fatalMoveDialog');
+      else document.getElementById('fatalMoveDialog').classList.remove('active');
     }
 
     function confirmFatalMove() {
@@ -4178,12 +4332,12 @@
       if (contestedSnakeId && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select-snake', snakeId: contestedSnakeId, force: true }));
       }
-      document.getElementById('confirmDialog').classList.remove('active');
+      closeModal('confirmDialog');
       contestedSnakeId = null;
     });
 
     document.getElementById('cancelTakeoverBtn').addEventListener('click', () => {
-      document.getElementById('confirmDialog').classList.remove('active');
+      closeModal('confirmDialog');
       contestedSnakeId = null;
     });
 
@@ -4667,6 +4821,32 @@
       }
 
       if (e.key === 'Tab') {
+        // TAB CYCLES UNITS — the shipped binding, and `§3.1` promises every
+        // scheme leaves it exactly as it is. But it was `preventDefault`ed
+        // UNCONDITIONALLY, which meant the page had no keyboard focus order
+        // at all: a Tab walk from the top of the document found **zero** tab
+        // stops (`eval-report.json → a11y → tabOrder`). Nothing was
+        // reachable — not `Submit All`, not the scheme picker, not the lane
+        // ticks, not a dialog's own buttons — and there was no way out of the
+        // page with the keyboard either. WCAG 2.1.1 and 2.1.2, on a surface
+        // whose whole argument is that it is operable from the keys.
+        //
+        // Two ways out, and neither costs the cycle a keystroke. `Shift+Tab`
+        // is the door in: it was cycling units too (the branch never read
+        // `shiftKey`), which is a binding nobody asked for. And once focus is
+        // inside the rail or a dialog, Tab is focus movement again, because
+        // an operator who is in the focus order is navigating it.
+        // The rule: Tab cycles units while NOTHING is focused — which is the
+        // hot path the binding exists for, an operator with both hands on the
+        // board and the keyboard, and the state the page is in until someone
+        // deliberately enters the focus order. `Shift+Tab` is that door (it
+        // was cycling units too, because the branch never read `shiftKey` —
+        // a binding nobody asked for), and once focus is on anything at all,
+        // Tab is focus movement again, because an operator who is in the
+        // focus order is navigating it.
+        const ae = document.activeElement;
+        const focused = ae && ae !== document.body && ae !== document.documentElement;
+        if (e.shiftKey || focused) return;
         e.preventDefault();
         cycleOwnedSnakes();
         return;
