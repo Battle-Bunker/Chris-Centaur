@@ -84,6 +84,20 @@ describe('applyEvent never mutates its input', () => {
     expect(JSON.stringify(event)).toBe(snapshot);
   });
 
+  it('refuses the ANCHOR\'s own seq, which `upTo` folds alongside the events', () => {
+    // `upTo` folds `[anchor, ...events]`. The dedupe compared the incoming seq
+    // against `store.events` alone, so a re-delivered anchor was appended and
+    // the fold then counted it twice: `frame.events` read [0, 0].
+    const store = applyEvent(emptyStore(ANCHOR), ANCHOR);
+    expect(store.events).toHaveLength(0);
+    expect(frameAt(store, 9).events.map((e) => e.seq)).toEqual([0]);
+    // And it survives a stream around it: the anchor arriving late is refused
+    // where an event at a fresh seq is not.
+    const folded = applyEvent(fold(STREAM), ANCHOR);
+    expect(folded.events.map((e) => e.seq)).toEqual(STREAM.map((e) => e.seq));
+    expect(frameAt(folded, 6).events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
   it('appends rather than replaces: every folded event survives to the store', () => {
     const store = fold(STREAM);
     expect(store.events.map((e) => e.seq)).toEqual(STREAM.map((e) => e.seq));

@@ -237,6 +237,24 @@ the anchor with the events. Not reproduced — the `seq` writer never reuses the
 anchor's number — but the refusal is one comparison short of the property its
 docstring claims.
 
+**REVIEW-2 verdict: CONFIRMED and fixed.** Reproduced in one line —
+`applyEvent(emptyStore(a), a)` appended, and `frameAt(...).events` then read
+`[0, 0]`. The refusal now also compares against `store.anchor.seq`.
+
+Corroboration the finding did not have: BOTH production folders already
+de-duplicate the anchor OUTSIDE the reducer — `store/index.ts::storeFromRows`
+filters `e.seq !== anchor.seq` and `view/index.ts::storeOf` filters `e.seq >
+anchor.seq` — which is precisely the de-duplication the docstring promises no
+caller needs. The guard moves that comparison to where the promise is made.
+
+It cost one harness repair. `src/tests/lens-frame-fold.test.ts` folded a
+recorded stream onto a SYNTHETIC `anchorEvent()` at seq 0 while its own writer
+also started at 0, so two distinct events shared a `seq` — which the writer's
+uniqueness contract forbids and `upTo`'s sort cannot order, and which the guard
+then resolved by dropping the stream's `partition`. The harness now writes its
+anchor through the turn's own writer, as both production folders do, and the
+recorded stream starts at 1. Every pin is unmoved.
+
 ### F6 — `conditionalBest` is filled from the UNCONDITIONAL reservoir too
 
 `src/lens/store/index.ts:222` (`candidatesOf`'s contract), `:240`

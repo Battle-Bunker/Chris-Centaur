@@ -103,9 +103,18 @@ export function emptyStore(anchor: TurnEvent): FrameStore {
  * not double it). Both refusals return the store unchanged, which keeps
  * `applyEvent` idempotent per `seq` and therefore safe to drive from either
  * source with no de-duplication above it.
+ *
+ * ALREADY FOLDED INCLUDES THE ANCHOR. `upTo` folds `[anchor, ...events]`, so
+ * the anchor's own `seq` is as folded as any event's; comparing only against
+ * `events` let a re-delivered anchor through and the fold then counted it
+ * twice. The `seq` writer does not reuse the anchor's number today, so this is
+ * the property the docstring claims rather than a play that changes — but the
+ * replay source rebuilds the anchor from `turn_boards` beside the same event
+ * stream, which is exactly the shape that would deliver it.
  */
 export function applyEvent(store: FrameStore, event: TurnEvent): FrameStore {
   if (event.turn !== store.turn) return store;
+  if (event.seq === store.anchor.seq) return store;
   for (const held of store.events) {
     if (held.seq === event.seq) return store;
   }
