@@ -968,6 +968,63 @@ async function main() {
   });
   report.notes.scheme = scheme;
 
+  // ── THE LAST-SAFE-PRESS NOTCH ───────────────────────────────────────────
+  //
+  // L0's other half. `02 §2.1` says the clock draws a notch "wherever
+  // `window.__lensLastSafePressMs` puts it, and nothing when nobody has set
+  // it" — and nobody ever did, so the notch had never drawn in a real game
+  // and no gate could have noticed: an absent mark and a correctly absent
+  // mark are the same pixels. It is fed from `LatencyView.read().pressSlackMs`
+  // now, and this asserts the wiring rather than the shape.
+  //
+  // The clock has to be DRIVEN here. `/dev/step` plays turns on demand, so
+  // `turnExpiryTime` is never a future instant, `startTurnTimer` paints the
+  // idle bar for the whole walk, and L0 has been shipping unphotographed. The
+  // budget and the remaining time are handed to the page's own updater; the
+  // NUMBER under test is the one the latency module measured from the real
+  // socket this walk has been talking over.
+  at = 'clock';
+  const notch = await page.evaluate(() => {
+    const slack =
+      typeof LatencyView !== 'undefined' && LatencyView.read
+        ? Number(LatencyView.read().pressSlackMs)
+        : null;
+    delete window.__lensLastSafePressMs;
+    const budget = 1500;
+    updateTurnClock(700, budget);
+    const mark = document.getElementById('turnClockMark');
+    return {
+      rttMs:
+        typeof LatencyView !== 'undefined' && LatencyView.read ? LatencyView.read().rttMs : null,
+      pressSlackMs: Number.isFinite(slack) ? slack : null,
+      picked: Number(window.__lensLastSafePressMs),
+      on: mark ? mark.classList.contains('on') : false,
+      left: mark ? mark.style.left : null,
+      budget,
+    };
+  });
+  report.notes.clockNotch = notch;
+  scheme.push({
+    step: 'the last-safe-press notch draws once the wire has an RTT',
+    // A press slack the module has not measured is not a failure of the
+    // clock, and drawing a notch for it would be the lie the absence exists
+    // to avoid — so the assertion is the IMPLICATION, both ways.
+    ok:
+      notch.pressSlackMs === null
+        ? notch.on === false
+        : notch.on === true && Number.isFinite(notch.picked) && notch.picked === notch.pressSlackMs,
+    saw: notch,
+  });
+  console.log(
+    `  ${scheme[scheme.length - 1].ok ? '\u2713' : '\u2717'} clock/last-safe-press notch — ` +
+      `rtt ${notch.rttMs}ms, slack ${notch.pressSlackMs}ms, drawn ${notch.on} at ${notch.left}`
+  );
+  await shot(page, 'd8-clock-notch', 'the clock driven to mid-turn — the last-safe-press notch, fed from the wire', '#turnClock');
+  await page.evaluate(() => {
+    delete window.__lensLastSafePressMs;
+    updateTurnClock(null, null);
+  });
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();

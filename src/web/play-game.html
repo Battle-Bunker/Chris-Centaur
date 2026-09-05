@@ -728,9 +728,12 @@
     <a href="/play" class="back-btn">&larr; Games</a>
     <h1 id="pageTitle">Live Game</h1>
     <div class="header-controls">
-      <!-- The one mount the latency module owns. Nothing else on this page
-           writes into it, and nothing in it is read back here. -->
-      <div id="latency-mount"></div>
+      <!-- The latency module's mount is NOT here. `ux-ia` reserved one in this
+           header and `ux-latency` shipped its own under the board header,
+           where the deadline bar has the width the periphery needs — and
+           `getElementById` takes the FIRST, so the ladder rendered into this
+           flex box and was clipped to nothing. One mount, where the ladder
+           draws: see `#latency-mount` under the board header below. -->
       <div class="connected-users" id="connectedUsers"></div>
     </div>
   </div>
@@ -1409,10 +1412,28 @@
       clock.className = `turn-clock${remaining < 500 ? ' urgent' : ''}`;
       fill.style.width = `${(left * 100).toFixed(1)}%`;
       // THE LAST SAFE PRESS is a fact about the network, and the network is
-      // another module's. The shape is drawn here and the number is read from
-      // the one global the latency module sets; with nobody setting it the
-      // notch is absent, because a flight time we have not measured must not
-      // be drawn as though we had.
+      // another module's. The shape is drawn here and the number comes from
+      // `ux-latency`; with nobody supplying one the notch is absent, because a
+      // flight time we have not measured must not be drawn as though we had.
+      //
+      // `02 §2.1` says the number is read from `window.__lensLastSafePressMs`
+      // — and NOTHING EVER SET IT, so the notch has never drawn in a real
+      // game. `LatencyView.read()` is the accessor that module publishes for
+      // exactly this ("every number this surface has, for the surfaces it
+      // does not own — the turn clock on the board's edge"), and
+      // `pressSlackMs` is the remaining time at which a press stops landing,
+      // measured the same way `remaining` is. The global stays the interface,
+      // so a test or a future module can still override it; this only fills
+      // it in when nobody has.
+      if (!Number.isFinite(Number(window.__lensLastSafePressMs))) {
+        try {
+          const wire = typeof LatencyView !== 'undefined' && LatencyView.read ? LatencyView.read() : null;
+          const slack = wire === null ? null : Number(wire.pressSlackMs);
+          if (Number.isFinite(slack) && slack > 0) window.__lensLastSafePressMs = slack;
+        } catch (_e) {
+          /* the latency module is optional; the notch is simply absent */
+        }
+      }
       const safe = Number(window.__lensLastSafePressMs);
       if (mark) {
         const on = Number.isFinite(safe) && safe > 0 && safe < budget;
