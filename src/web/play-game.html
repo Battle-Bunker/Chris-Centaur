@@ -5795,5 +5795,10 @@
       connectWebSocket();
     })();
   </script>
+  <!-- `#turn=<n>` on this page's URL: the deep link /history hands out, and
+       the memory that makes `resume at turn K` possible. It reads this page's
+       playhead and calls its existing commitScrub; it adds no state of its
+       own. See docs/design/ux/04-SECONDARY-SCREENS.md §2.4. -->
+  <script src="/replay-deeplink.js"></script>
 </body>
 </html>

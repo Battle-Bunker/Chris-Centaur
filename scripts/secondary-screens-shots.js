@@ -34,13 +34,29 @@ const WAIT = parseInt(arg('wait', '1200'), 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = { base: BASE, prefix: PREFIX, shots: [], console: [], requests: [], exceptions: [] };
 
-/** Every screen the operator reaches from the header, plus the two states that
- *  only exist after an interaction. `act` runs before the shutter. */
+/**
+ * Every screen the operator reaches from the header, plus the states that only
+ * exist after an interaction.
+ *   `full`   full-page (default) or the fold only
+ *   `scroll` a selector to bring into view first
+ *   `act`    anything to do before the shutter
+ * Config is photographed twice on purpose: its two panels answer two different
+ * questions and a single full-page shot of both lands over the 300 KB budget.
+ */
 const SCREENS = [
   { name: 'play', url: '/play', note: 'Game list / entry' },
-  { name: 'history', url: '/history', note: 'Replay browsing' },
-  { name: 'config', url: '/config', note: 'Bot identity, binding and heuristics' },
+  {
+    name: 'play-keys', url: '/play', note: 'The shared key sheet (Ctrl+/)', full: false,
+    act: async (page) => { await page.keyboard.press('Control+Slash'); await sleep(300); },
+  },
+  { name: 'history', url: '/history', note: 'Replay browsing, with the path into the lens' },
+  { name: 'config', url: '/config', note: 'Bot identity, binding, readback', full: false },
+  {
+    name: 'config-heuristics', url: '/config', note: 'The dials, with the diff readback',
+    full: false, scroll: '#configGrid',
+  },
   { name: 'activity', url: '/activity', note: 'What the bot did unattended' },
+  { name: 'debug', url: '/connection-debug', note: 'Connection debugger', full: false },
 ];
 
 async function main() {
@@ -71,26 +87,37 @@ async function main() {
     at = screen.name;
     await page.goto(BASE + screen.url, { waitUntil: 'domcontentloaded' });
     await sleep(WAIT);
+    if (screen.scroll) {
+      await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (el) el.scrollIntoView({ block: 'start' });
+      }, screen.scroll);
+      await sleep(300);
+    }
     if (screen.act) await screen.act(page);
+    const fullPage = screen.full !== false;
     const file = path.join(OUT, `${PREFIX}-${screen.name}.png`);
-    await page.screenshot({ path: file, fullPage: true });
+    await page.screenshot({ path: file, fullPage });
     const size = fs.statSync(file).size;
     // Everything committed here has to stay under 300 KB; a page that draws
     // more than that gets clipped to the fold rather than silently bloating
     // the repo.
     if (size > 300 * 1024) {
-      // Ladder down until it fits: the fold instead of the full page, then a
-      // narrower viewport. A page whose flat chrome compresses well never
-      // gets here; a full-bleed gradient does.
-      await page.screenshot({ path: file, fullPage: false });
+      // Ladder down until it fits, narrowing BEFORE giving up the full page:
+      // a screenshot that lost the bottom half of the screen is worth less
+      // than one taken 200px narrower. Only if narrowing is not enough does
+      // it fall back to the fold.
       for (const width of [1200, 1024, 900]) {
+        await page.setViewportSize({ width, height: 900 });
+        await sleep(250);
+        await page.screenshot({ path: file, fullPage });
         if (fs.statSync(file).size <= 300 * 1024) break;
-        await page.setViewportSize({ width, height: 800 });
-        await sleep(200);
+      }
+      if (fs.statSync(file).size > 300 * 1024) {
         await page.screenshot({ path: file, fullPage: false });
       }
       await page.setViewportSize({ width: 1440, height: 900 });
-      await sleep(200);
+      await sleep(250);
     }
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1

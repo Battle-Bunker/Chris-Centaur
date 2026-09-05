@@ -6,58 +6,87 @@
   <title>Server Activity</title>
   <link rel="stylesheet" href="/chrome.css">
   <style>
+    /* The page answers "what did the bot do while I was away". It used to draw
+       the answer and then report "16 events"; now it states it and draws it.
+       See docs/design/ux/04-SECONDARY-SCREENS.md §1 F4. */
+
     .toolbar {
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-      background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 12px;
+      background: var(--panel); border: 1px solid var(--line-soft);
+      border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;
     }
     .toolbar button {
-      background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px;
-      padding: 6px 12px; font-size: 13px; cursor: pointer;
+      background: #333; color: var(--ink); border: 1px solid #4a4a4a;
+      border-radius: 4px; padding: 5px 11px; font: inherit; font-size: 13px; cursor: pointer;
     }
-    .toolbar button:hover { border-color: #4CAF50; }
-    .toolbar button.active { background: #4CAF50; color: #111; border-color: #4CAF50; }
+    .toolbar button:hover { border-color: #6a6a6a; background: #3d3d3d; }
+    .toolbar button.active {
+      background: #24402a; color: #d6efd7; border-color: #3c6e3e;
+      box-shadow: inset 0 -2px 0 0 var(--go);
+    }
     .toolbar .spacer { flex: 1; }
-    .status-text { font-size: 13px; color: #888; }
-    .legend {
-      display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: #aaa;
-      background: #2a2a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 12px;
+    .status-text { font-size: 13px; color: var(--ink-dim); }
+
+    /* ── The reading ────────────────────────────────────────────────────── */
+    .summary {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1px; background: var(--line-soft);
+      border: 1px solid var(--line-soft); border-radius: 8px;
+      overflow: hidden; margin-bottom: 12px;
     }
-    .legend .item { display: flex; align-items: center; gap: 6px; }
-    .swatch { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
-    .marker-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .stat { background: var(--panel); padding: 11px 14px; }
+    .stat .k {
+      font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--ink-faint); margin-bottom: 3px;
+    }
+    .stat .v {
+      font-size: 19px; font-weight: 700; color: #fff; line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat .n { font-size: 11.5px; color: var(--ink-dim); margin-top: 3px; }
+    .stat.warn .v { color: #f4e3c4; }
+    .stat.bad  .v { color: #f7d6c8; }
+    /* The share bar is the one place a proportion is worth drawing: idle is
+       the billed waste this page exists to expose. */
+    .share { height: 5px; border-radius: 3px; background: #3a3a3a; margin-top: 7px; overflow: hidden; display: flex; }
+    .share i { display: block; height: 100%; }
+
     .chart-wrap {
-      background: #222; border: 1px solid #444; border-radius: 8px;
-      position: relative; overflow: hidden;
+      background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: 8px; position: relative;
     }
-    #chart { display: block; width: 100%; height: 260px; cursor: grab; touch-action: none; }
+    #chart { display: block; width: 100%; height: 300px; cursor: grab; touch-action: none; }
     #chart.dragging { cursor: grabbing; }
+    #chart:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 8px; }
+    /* Fixed, not absolute-inside-an-overflow-hidden-box: the old tooltip was
+       clipped near the lower edge of the chart. */
     #tooltip {
-      position: absolute; pointer-events: none; display: none;
-      background: #111; border: 1px solid #555; border-radius: 6px;
-      padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 320px;
-      z-index: 10; white-space: pre-wrap; word-break: break-word;
+      position: fixed; pointer-events: none; display: none;
+      background: #111; border: 1px solid #666; border-radius: 6px;
+      padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 340px;
+      z-index: 10500; white-space: pre-wrap; word-break: break-word;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.6); color: var(--ink);
     }
-    .hint { font-size: 12px; color: #666; margin-top: 8px; }
+    .hint { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+    .hint kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #333; border: 1px solid #555; border-radius: 3px;
+      padding: 0 4px; font-size: 11px; color: #ddd;
+    }
     #detailPanel {
-      margin-top: 12px; background: #2a2a2a; border-radius: 8px; padding: 12px 15px;
+      margin-top: 12px; background: var(--panel); border: 1px solid var(--line-soft);
+      border-radius: 8px; padding: 12px 15px;
       font-size: 13px; line-height: 1.6; display: none; word-break: break-word;
     }
     #detailPanel h3 { font-size: 14px; margin-bottom: 4px; }
     #detailPanel pre {
-      background: #1a1a1a; border-radius: 4px; padding: 8px; margin-top: 6px;
+      background: #171717; border-radius: 4px; padding: 8px; margin-top: 6px;
       font-size: 12px; overflow-x: auto;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Server Activity</h1>
-    <div class="nav-links">
-      <a href="/play">Play</a>
-      <a href="/history">History</a>
-      <a href="/config">Config</a>
-    </div>
-  </div>
+  <div class="header"><h1>Activity</h1></div>
 
   <div class="main-content">
     <div class="toolbar">
@@ -67,33 +96,31 @@
       <button data-range="259200000">3d</button>
       <button data-range="604800000" class="active">7d</button>
       <button data-range="2592000000">30d</button>
-      <button id="refreshBtn" title="Reload events for the current view">Refresh</button>
+      <button id="refreshBtn" title="Reload events for the current view (r)">Refresh</button>
       <div class="spacer"></div>
       <span class="status-text" id="statusText">Loading…</span>
     </div>
 
-    <div class="legend">
-      <span class="item"><span class="swatch" style="background:#4CAF50"></span> Active (user actions / game traffic)</span>
-      <span class="item"><span class="swatch" style="background:#e2a63d"></span> Up but idle (billed waste)</span>
-      <span class="item"><span class="swatch" style="background:repeating-linear-gradient(45deg,#555 0 3px,#333 3px 6px)"></span> End bounded by last heartbeat (no shutdown event)</span>
-      <span class="item"><span class="swatch" style="background:#222;border:1px dashed #555"></span> Gap = scaled to zero (process dead)</span>
-      <span class="item"><span class="marker-dot" style="background:#7ecbff"></span> boot</span>
-      <span class="item"><span class="marker-dot" style="background:#ff8a80"></span> shutdown</span>
-      <span class="item"><span class="marker-dot" style="background:#4CAF50"></span> woke</span>
-      <span class="item"><span class="marker-dot" style="background:#e2a63d"></span> went-idle</span>
-      <span class="item"><span class="marker-dot" style="background:#c792ea"></span> suspended (process frozen, then resumed)</span>
-    </div>
+    <div class="summary" id="summary" aria-live="polite"></div>
 
     <div class="chart-wrap">
-      <canvas id="chart"></canvas>
-      <div id="tooltip"></div>
+      <canvas id="chart" tabindex="0" role="img"
+              aria-label="Server activity timeline. Use the summary above for the numbers."></canvas>
+      <div id="tooltip" role="tooltip"></div>
     </div>
-    <div class="hint">Scroll to zoom (cursor-anchored), drag to pan, click a marker for details. Data loads only when you change the view — no auto-refresh.</div>
+    <div class="hint">
+      Scroll to zoom (cursor-anchored), drag to pan, click a marker for detail.
+      From the keyboard: <kbd>←</kbd> <kbd>→</kbd> pan, <kbd>+</kbd> <kbd>−</kbd> zoom,
+      <kbd>Home</kbd> back to now, <kbd>r</kbd> reload.
+      Data loads only when you change the view — no auto-refresh.
+    </div>
     <div id="detailPanel"></div>
   </div>
 
   <script src="/dom-utils.js"></script>
+  <script src="/page-chrome.js"></script>
   <script src="/activity-periods.js"></script>
+  <script src="/firebase-status-banner.js"></script>
   <script>
     'use strict';
 
@@ -103,14 +130,33 @@
     const statusText = document.getElementById('statusText');
     const detailPanel = document.getElementById('detailPanel');
 
+    window.PageChrome.setSocketAbsent(
+      'Activity fetches events when you change the view and never on a timer — ' +
+      'a polling tab is itself the thing that keeps the instance awake.'
+    );
+
     const COLORS = {
       active: '#4CAF50',
       idle: '#e2a63d',
-      boot: '#7ecbff',
-      shutdown: '#ff8a80',
+      boot: '#56B4E9',
+      shutdown: '#D55E00',
       woke: '#4CAF50',
       'went-idle': '#e2a63d',
       suspended: '#c792ea',
+    };
+
+    // A marker is a SHAPE first. Five colours on five identical dots is a
+    // conjunction search where a pop-out was available, and it is not
+    // colour-vision-safe (01-RESEARCH #17, #10). Colour still reinforces.
+    const MARKS = {
+      boot: 'triangle-up',
+      shutdown: 'triangle-down',
+      woke: 'circle',
+      'went-idle': 'square',
+      suspended: 'diamond',
+    };
+    const MARK_GLYPH = {
+      boot: '▲', shutdown: '▼', woke: '●', 'went-idle': '■', suspended: '◆',
     };
 
     // View window (epoch ms). Start with the last 7 days.
@@ -119,7 +165,7 @@
 
     // Loaded data covering [loadedStart, loadedEnd].
     let events = [];
-    let periods = [];   // {start, end, endKnown, openEnded, segments:[{start,end,state}]}
+    let periods = [];
     let loadedStart = 0, loadedEnd = 0, serverNow = Date.now(), truncated = false;
     let markerHits = [];  // {x, y, r, event}
 
@@ -147,21 +193,18 @@
       const d = Math.floor(h / 24);
       return d + 'd ' + (h % 24) + 'h';
     }
+    const pct = (x) => Math.round(x * 100) + '%';
 
     // ---- Data loading (only on explicit user actions / view changes) ----
 
     let loadTimer = null;
     function scheduleLoadIfNeeded() {
-      // If the view has drifted outside the loaded range, re-fetch (debounced
-      // so a zoom/pan gesture triggers one request, not dozens).
       if (viewStart >= loadedStart && viewEnd <= loadedEnd && !truncated) return;
       clearTimeout(loadTimer);
       loadTimer = setTimeout(() => loadEvents(), 250);
     }
 
     async function loadEvents() {
-      // Fetch with generous margins so small pans don't refetch, and so
-      // periods spanning the view edge are closed correctly by events outside it.
       const margin = Math.max((viewEnd - viewStart) * 2, 24 * 3600 * 1000);
       const start = viewStart - margin;
       const end = viewEnd + margin;
@@ -175,7 +218,8 @@
         loadedStart = start;
         loadedEnd = end;
         buildPeriods();
-        statusText.textContent = `${events.length} events` + (truncated ? ' (truncated — zoom in for full detail)' : '');
+        statusText.textContent = `${events.length} events` +
+          (truncated ? ' · truncated, zoom in for full detail' : '');
       } catch (err) {
         console.error('Failed to load timeline events:', err);
         statusText.textContent = 'Failed to load events';
@@ -189,6 +233,46 @@
       periods = ActivityPeriods.buildPeriods(events, serverNow);
     }
 
+    // ---- The reading, stated ----
+
+    function stat(cls, k, v, n, share) {
+      return `<div class="stat ${cls}">
+        <div class="k">${escapeHtml(k)}</div>
+        <div class="v">${escapeHtml(v)}</div>
+        ${n ? `<div class="n">${escapeHtml(n)}</div>` : ''}
+        ${share || ''}
+      </div>`;
+    }
+
+    function renderSummary() {
+      const s = ActivityPeriods.summarize(periods, events, viewStart, viewEnd);
+      const el = document.getElementById('summary');
+      const bad = s.crashes + s.silentKills + s.unknownEnds;
+      const endBits = [];
+      if (s.graceful) endBits.push(s.graceful + ' clean');
+      if (s.crashes) endBits.push(s.crashes + ' crash' + (s.crashes === 1 ? '' : 'es'));
+      if (s.silentKills) endBits.push(s.silentKills + ' silent kill' + (s.silentKills === 1 ? '' : 's'));
+      if (s.unknownEnds) endBits.push(s.unknownEnds + ' unexplained');
+      if (s.openEnded) endBits.push('still up');
+
+      el.innerHTML =
+        stat('', 'window', fmtDurCoarse(s.span),
+          'ending ' + fmtAgo(s.to) + ' — ' + new Date(s.from).toLocaleDateString() +
+          ' → ' + new Date(s.to).toLocaleDateString()) +
+        stat('', 'process up', fmtDurCoarse(s.up),
+          pct(s.upShareOfWindow) + ' of the window · ' + fmtDurCoarse(s.dead) + ' scaled to zero',
+          `<div class="share" title="active vs idle, within the time the process was up">
+             <i style="width:${(s.up ? s.active / s.up : 0) * 100}%;background:${COLORS.active}"></i>
+             <i style="width:${(s.up ? s.idle / s.up : 0) * 100}%;background:${COLORS.idle}"></i>
+           </div>`) +
+        stat('', 'active', fmtDurCoarse(s.active),
+          'user actions or game traffic') +
+        stat(s.idleShareOfUp > 0.5 ? 'warn' : '', 'up but idle', fmtDurCoarse(s.idle),
+          pct(s.idleShareOfUp) + ' of uptime — billed, doing nothing') +
+        stat(bad ? 'bad' : '', 'lifetimes', String(s.boots),
+          endBits.length ? endBits.join(' · ') : 'no boot in this window');
+    }
+
     // ---- Rendering ----
 
     function resizeCanvas() {
@@ -199,13 +283,8 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function xForTs(ts, w) {
-      return ((ts - viewStart) / (viewEnd - viewStart)) * w;
-    }
-
-    function tsForX(x, w) {
-      return viewStart + (x / w) * (viewEnd - viewStart);
-    }
+    function xForTs(ts, w) { return ((ts - viewStart) / (viewEnd - viewStart)) * w; }
+    function tsForX(x, w) { return viewStart + (x / w) * (viewEnd - viewStart); }
 
     function niceTickStep(rangeMs, targetTicks) {
       const raw = rangeMs / targetTicks;
@@ -226,6 +305,75 @@
       return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
+    /** One marker, by shape. `size` is the half-extent. */
+    function drawMark(kind, x, y, size, fill) {
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      switch (kind) {
+        case 'triangle-up':
+          ctx.moveTo(x, y - size); ctx.lineTo(x + size, y + size * 0.8);
+          ctx.lineTo(x - size, y + size * 0.8); break;
+        case 'triangle-down':
+          ctx.moveTo(x, y + size); ctx.lineTo(x + size, y - size * 0.8);
+          ctx.lineTo(x - size, y - size * 0.8); break;
+        case 'square':
+          ctx.rect(x - size * 0.85, y - size * 0.85, size * 1.7, size * 1.7); break;
+        case 'diamond':
+          ctx.moveTo(x, y - size); ctx.lineTo(x + size, y);
+          ctx.lineTo(x, y + size); ctx.lineTo(x - size, y); break;
+        default:
+          ctx.arc(x, y, size * 0.85, 0, Math.PI * 2);
+      }
+      ctx.closePath();
+      ctx.fill();
+      // A thin dark rim keeps a marker legible where it overlaps a band.
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    /** The legend, on the canvas, at a size where a hatch and a dashed box
+     *  actually read — as 14x10px HTML swatches they did not (F4). */
+    function drawLegend(w, y) {
+      const items = [
+        { kind: 'band', color: COLORS.active, label: 'active' },
+        { kind: 'band', color: COLORS.idle, label: 'up but idle (billed)' },
+        { kind: 'hatch', label: 'end bounded by last heartbeat' },
+        { kind: 'dead', label: 'scaled to zero' },
+        { kind: 'mark', mark: MARKS.boot, color: COLORS.boot, label: 'boot' },
+        { kind: 'mark', mark: MARKS.shutdown, color: COLORS.shutdown, label: 'shutdown' },
+        { kind: 'mark', mark: MARKS.woke, color: COLORS.woke, label: 'woke' },
+        { kind: 'mark', mark: MARKS['went-idle'], color: COLORS['went-idle'], label: 'went idle' },
+        { kind: 'mark', mark: MARKS.suspended, color: COLORS.suspended, label: 'suspended' },
+      ];
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      let x = 2;
+      for (const it of items) {
+        if (it.kind === 'band') {
+          ctx.fillStyle = it.color;
+          ctx.fillRect(x, y - 5, 16, 10);
+        } else if (it.kind === 'hatch') {
+          ctx.fillStyle = '#555';
+          ctx.fillRect(x, y - 5, 16, 10);
+          drawHatch(x, y - 5, 16, 10);
+        } else if (it.kind === 'dead') {
+          ctx.strokeStyle = '#666';
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(x + 0.5, y - 4.5, 15, 9);
+          ctx.setLineDash([]);
+        } else {
+          drawMark(it.mark, x + 8, y, 5, it.color);
+        }
+        ctx.fillStyle = '#9a9a9a';
+        ctx.fillText(it.label, x + 21, y + 0.5);
+        x += 21 + ctx.measureText(it.label).width + 16;
+        if (x > w - 60) break;
+      }
+      ctx.textBaseline = 'alphabetic';
+    }
+
     function draw() {
       resizeCanvas();
       const rect = canvas.getBoundingClientRect();
@@ -233,8 +381,8 @@
       ctx.clearRect(0, 0, w, h);
       markerHits = [];
 
-      const bandTop = 60, bandH = 90;
-      const axisY = h - 30;
+      const bandTop = 92, bandH = 168;
+      const axisY = h - 24;
 
       // Grid / time axis
       const stepMs = niceTickStep(viewEnd - viewStart, Math.max(3, Math.floor(w / 140)));
@@ -245,8 +393,8 @@
       ctx.textAlign = 'center';
       for (let t = firstTick; t <= viewEnd; t += stepMs) {
         const x = xForTs(t, w);
-        ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, axisY); ctx.stroke();
-        ctx.fillText(tickLabel(t, stepMs), x, axisY + 16);
+        ctx.beginPath(); ctx.moveTo(x, 46); ctx.lineTo(x, axisY); ctx.stroke();
+        ctx.fillText(tickLabel(t, stepMs), x, axisY + 15);
       }
 
       // Activity bands
@@ -260,7 +408,6 @@
           ctx.fillStyle = seg.state === 'active' ? COLORS.active : COLORS.idle;
           ctx.fillRect(x1, bandTop, Math.max(x2 - x1, 1), bandH);
         }
-        // Unknown-end hatch over the tail of a force-killed/crashed period.
         if (!p.endKnown) {
           const x2 = Math.min(w, xForTs(p.end, w));
           const hatchW = Math.min(18, Math.max(6, w * 0.01));
@@ -270,20 +417,17 @@
           ctx.setLineDash([3, 3]);
           ctx.beginPath(); ctx.moveTo(x2, bandTop); ctx.lineTo(x2, bandTop + bandH); ctx.stroke();
           ctx.setLineDash([]);
-          // Scaled-to-zero gap: dashed outline from the bounded end (last
-          // heartbeat) to the next boot — process dead, nothing billed.
           if (p.deadUntil != null && p.deadUntil > p.end) {
             const gx1 = Math.max(0, x2);
             const gx2 = Math.min(w, xForTs(p.deadUntil, w));
             if (gx2 > gx1 + 1) {
-              ctx.strokeStyle = '#555';
+              ctx.strokeStyle = '#666';
               ctx.setLineDash([4, 4]);
               ctx.strokeRect(gx1 + 1, bandTop + 1, gx2 - gx1 - 2, bandH - 2);
               ctx.setLineDash([]);
             }
           }
         }
-        // Open-ended (still running now): fade at right edge.
         if (p.openEnded) {
           const x2 = Math.min(w, xForTs(p.end, w));
           const grad = ctx.createLinearGradient(x2 - 14, 0, x2, 0);
@@ -294,27 +438,34 @@
         }
       }
 
-      // Event markers
-      const markerY = bandTop - 14;
+      // Event markers. Lifecycle (boot/shutdown) sits on the lower rank so it
+      // never collides with the wake/idle transitions above it.
+      const markerY = bandTop - 16;
       for (const ev of events) {
         if (ev.ts < viewStart || ev.ts > viewEnd) continue;
         const x = xForTs(ev.ts, w);
         const color = COLORS[ev.type] || '#aaa';
         const isLifecycle = ev.type === 'boot' || ev.type === 'shutdown';
-        const y = isLifecycle ? markerY : markerY - 12;
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        const y = isLifecycle ? markerY : markerY - 15;
         ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath(); ctx.moveTo(x, y + 4); ctx.lineTo(x, bandTop + bandH); ctx.stroke();
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, bandTop + bandH); ctx.stroke();
         ctx.globalAlpha = 1;
-        markerHits.push({ x, y, r: 7, event: ev });
+        drawMark(MARKS[ev.type] || 'circle', x, y, 5.5, color);
+        markerHits.push({ x, y, r: 8, event: ev });
       }
 
-      ctx.fillStyle = '#666';
+      drawLegend(w, 16);
+
+      ctx.fillStyle = '#777';
       ctx.textAlign = 'left';
       ctx.font = '11px sans-serif';
-      ctx.fillText(`${fmtTs(viewStart)}  →  ${fmtTs(viewEnd)}  (${fmtDurCoarse(viewEnd - viewStart)})`, 8, 14);
+      ctx.fillText(
+        `${fmtTs(viewStart)}  →  ${fmtTs(viewEnd)}  (${fmtDurCoarse(viewEnd - viewStart)})`,
+        2, 40
+      );
+      renderSummary();
     }
 
     function drawHatch(x, y, w, h) {
@@ -331,28 +482,52 @@
       ctx.restore();
     }
 
-    // ---- Interaction: zoom (wheel), pan (drag), hover/click markers ----
+    // ---- Interaction: zoom, pan, hover/click — pointer AND keyboard ----
+
+    function zoomBy(factor, anchorFrac) {
+      let range = (viewEnd - viewStart) * factor;
+      range = Math.min(Math.max(range, MIN_RANGE_MS), MAX_RANGE_MS);
+      const anchor = viewStart + (viewEnd - viewStart) * anchorFrac;
+      viewStart = anchor - range * anchorFrac;
+      viewEnd = viewStart + range;
+      draw();
+      scheduleLoadIfNeeded();
+    }
+    function panBy(fraction) {
+      const dt = (viewEnd - viewStart) * fraction;
+      viewStart += dt; viewEnd += dt;
+      draw();
+      scheduleLoadIfNeeded();
+    }
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const anchor = tsForX(mx, rect.width);
-      const factor = Math.exp(e.deltaY * 0.0015);
-      let range = (viewEnd - viewStart) * factor;
-      range = Math.min(Math.max(range, MIN_RANGE_MS), MAX_RANGE_MS);
-      const frac = mx / rect.width;
-      viewStart = anchor - range * frac;
-      viewEnd = viewStart + range;
-      draw();
-      scheduleLoadIfNeeded();
+      zoomBy(Math.exp(e.deltaY * 0.0015), (e.clientX - rect.left) / rect.width);
     }, { passive: false });
+
+    // The chart is the page's only real interaction; before this it was
+    // reachable with a mouse and by no other means (F4).
+    canvas.addEventListener('keydown', (e) => {
+      let handled = true;
+      if (e.key === 'ArrowLeft') panBy(-0.15);
+      else if (e.key === 'ArrowRight') panBy(0.15);
+      else if (e.key === '+' || e.key === '=') zoomBy(1 / 1.6, 0.5);
+      else if (e.key === '-' || e.key === '_') zoomBy(1.6, 0.5);
+      else if (e.key === 'Home') {
+        const range = viewEnd - viewStart;
+        viewEnd = Date.now(); viewStart = viewEnd - range;
+        draw(); scheduleLoadIfNeeded();
+      } else handled = false;
+      if (handled) e.preventDefault();
+    });
 
     let dragging = false, dragX = 0, dragMoved = false;
     canvas.addEventListener('pointerdown', (e) => {
       dragging = true; dragMoved = false; dragX = e.clientX;
       canvas.classList.add('dragging');
       canvas.setPointerCapture(e.pointerId);
+      canvas.focus();
     });
     canvas.addEventListener('pointermove', (e) => {
       const rect = canvas.getBoundingClientRect();
@@ -367,19 +542,18 @@
         tooltip.style.display = 'none';
         return;
       }
-      // Hover: marker tooltip
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const hit = hitTest(mx, my);
       if (hit) {
         tooltip.style.display = 'block';
         tooltip.textContent = markerText(hit.event);
-        positionTooltip(mx, my, rect);
+        positionTooltip(e.clientX, e.clientY);
       } else {
         const seg = segmentAt(tsForX(mx, rect.width), my);
         if (seg) {
           tooltip.style.display = 'block';
           tooltip.textContent = segText(seg);
-          positionTooltip(mx, my, rect);
+          positionTooltip(e.clientX, e.clientY);
         } else {
           tooltip.style.display = 'none';
         }
@@ -396,12 +570,15 @@
     });
     canvas.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; });
 
-    function positionTooltip(mx, my, rect) {
-      let left = mx + 14, top = my + 14;
-      if (left + 330 > rect.width) left = mx - 330;
-      if (left < 0) left = 4;
-      tooltip.style.left = left + 'px';
-      tooltip.style.top = top + 'px';
+    // Viewport coordinates: the tooltip is position:fixed so it can leave the
+    // chart's box instead of being clipped by it.
+    function positionTooltip(clientX, clientY) {
+      const t = tooltip.getBoundingClientRect();
+      let left = clientX + 16, top = clientY + 16;
+      if (left + t.width > window.innerWidth - 8) left = clientX - t.width - 16;
+      if (top + t.height > window.innerHeight - 8) top = clientY - t.height - 16;
+      tooltip.style.left = Math.max(8, left) + 'px';
+      tooltip.style.top = Math.max(8, top) + 'px';
     }
 
     function hitTest(mx, my) {
@@ -414,9 +591,8 @@
     }
 
     function segmentAt(ts, my) {
-      if (my < 60 || my > 150) return null;
+      if (my < 92 || my > 260) return null;
       for (const p of periods) {
-        // Hover in the scaled-to-zero gap after a heartbeat-bounded end.
         if (!p.endKnown && p.deadUntil != null && ts > p.end && ts <= p.deadUntil) {
           return { deadGap: true, start: p.end, end: p.deadUntil, period: p };
         }
@@ -429,7 +605,7 @@
     }
 
     function markerText(ev) {
-      let txt = `${ev.type}  —  ${fmtTs(ev.ts)}`;
+      let txt = `${MARK_GLYPH[ev.type] || '•'} ${ev.type}  —  ${fmtTs(ev.ts)}`;
       if (ev.detail) {
         for (const [k, v] of Object.entries(ev.detail)) {
           txt += `\n${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`;
@@ -475,7 +651,7 @@
       detailPanel.style.display = 'block';
       const detailJson = ev.detail ? JSON.stringify(ev.detail, null, 2) : '(none)';
       detailPanel.innerHTML =
-        `<h3>${escapeHtml(ev.type)} event</h3>` +
+        `<h3>${escapeHtml(MARK_GLYPH[ev.type] || '•')} ${escapeHtml(ev.type)} event</h3>` +
         `<div>Time: ${escapeHtml(fmtTs(ev.ts))} (${escapeHtml(String(ev.ts))} ms)</div>` +
         `<div>Event id: ${escapeHtml(String(ev.id))}</div>` +
         `<pre>${escapeHtml(detailJson)}</pre>`;
@@ -483,17 +659,22 @@
 
     // ---- Toolbar ----
 
-    document.querySelectorAll('.toolbar button[data-range]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.toolbar button[data-range]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const range = Number(btn.dataset.range);
-        viewEnd = Date.now();
-        viewStart = viewEnd - range;
-        loadEvents();
+    function applyRange(btn) {
+      document.querySelectorAll('.toolbar button[data-range]').forEach(b => {
+        b.classList.remove('active');
+        b.removeAttribute('aria-pressed');
       });
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      viewEnd = Date.now();
+      viewStart = viewEnd - Number(btn.dataset.range);
+    }
+
+    document.querySelectorAll('.toolbar button[data-range]').forEach(btn => {
+      btn.addEventListener('click', () => { applyRange(btn); loadEvents(); });
     });
     document.getElementById('refreshBtn').addEventListener('click', () => loadEvents());
+    window.PageChrome.key((e) => e.key === 'r', () => loadEvents(), ['r', 'reload this window']);
 
     window.addEventListener('resize', draw);
 
@@ -502,17 +683,11 @@
       const label = (location.hash || '').replace('#', '');
       const btn = Array.from(document.querySelectorAll('.toolbar button[data-range]'))
         .find(b => b.textContent === label);
-      if (btn) {
-        document.querySelectorAll('.toolbar button[data-range]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        viewEnd = Date.now();
-        viewStart = viewEnd - Number(btn.dataset.range);
-      }
+      if (btn) applyRange(btn);
     })();
 
     // Initial load — one fetch, no timers after that.
     loadEvents();
   </script>
-<script src="/firebase-status-banner.js"></script>
 </body>
 </html>

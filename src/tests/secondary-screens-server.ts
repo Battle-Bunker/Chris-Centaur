@@ -144,7 +144,6 @@ function historyGames(now: number): unknown[] {
 }
 
 function main(): void {
-  const now = Date.now();
   const app = express();
   app.use(express.json());
   app.use(express.static(WEB));

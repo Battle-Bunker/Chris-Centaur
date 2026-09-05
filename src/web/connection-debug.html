@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>WebSocket Connection Debugger</title>
+  <!-- The shared chrome: this page used to carry a single `← Back to Play`
+       and was otherwise a one-way street (04-SECONDARY-SCREENS §1 F9). -->
+  <link rel="stylesheet" href="/chrome.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a1a; color: #e0e0e0; padding: 20px;
-    }
-    h1 { font-size: 20px; margin-bottom: 16px; }
+    body { padding: 0 20px 20px; }
+    .main-content { max-width: 100%; padding: 20px 0; }
     .toolbar {
       display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
       flex-wrap: wrap;
@@ -55,10 +54,10 @@
   </style>
 </head>
 <body>
-  <h1>WebSocket Connection Debugger</h1>
+  <div class="header"><h1>Connection debug</h1></div>
+  <div class="main-content">
 
   <div class="toolbar">
-    <a href="/play">← Back to Play</a>
     <a href="/api/connection-log/download">Download log file</a>
     <button id="refreshBtn">Refresh</button>
     <button id="clearBtn">Clear view</button>
@@ -102,7 +101,10 @@
     </div>
   </div>
 
+  </div>
+
   <script src="/dom-utils.js"></script>
+  <script src="/page-chrome.js"></script>
   <script>
     const rowsEl = document.getElementById('rows');
     const statsEl = document.getElementById('stats');
