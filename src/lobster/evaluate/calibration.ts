@@ -142,9 +142,7 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * of its own:
    *
    * · the term's range is [−2, 1] by construction — the collector's peril is a
-   *   share in [0, 1] scaled by `PERIL_WEIGHT` (`PERIL_CONCAVITY` shapes that
-   *   share inside [0, 1], so it leaves this bound exactly where it is),
-   *   each ally's profit is a share
+   *   share in [0, 1] scaled by `PERIL_WEIGHT`, each ally's profit is a share
    *   in [0, 1], and the whole sum is divided by our unit count — so `2 × 2`
    *   sits well inside the cliff ceiling of `10 × lightest unit weight` and can
    *   never buy or sell a unit's life;

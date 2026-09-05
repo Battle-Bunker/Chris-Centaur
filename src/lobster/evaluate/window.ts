@@ -227,30 +227,6 @@ import { perBoard, perBoardPerTeam } from './memo';
  */
 export const PERIL_WEIGHT = 2;
 
-/**
- * THE SHAPE OF THE SHARE, before `PERIL_WEIGHT` scales it. `perilOf` reads the
- * FRACTION of the collector's own reachable ground an enemy beats, so the same
- * three beaten cells read 0.375 under a knight's eight and 0.12 under a queen's
- * twenty-five: the wider the collector, the cheaper identical danger looks —
- * yet it will stand on exactly ONE cell, and which one is not its choice alone.
- * `γ < 1` makes the reading concave in the share, so a little exposure on a lot
- * of ground stops rounding to nothing: 3-of-25 reads 0.35 at `γ = 1/2` rather
- * than 0.12, while a fully beaten ground still reads `1^γ = 1`.
- *
- * THIS IS NOT D4. That rule re-weighted the HORIZONS and, with the tail
- * saturated, moved mass off a constant — a price CUT on every pickup, which
- * admitted 24 more of exactly the marginal, exposed ones (`potions.md` D4).
- * This knob redistributes nothing between horizons; `share ∈ [0, 1]` and
- * `γ ≤ 1` give `share^γ ≥ share` at every horizon, so the price only ever
- * rises. The range is untouched — `share^γ` is still in `[0, 1]` — so the
- * calibration inequality behind `potion: 2` reads exactly as before.
- *
- * `γ = 1` is the term this replaces: `share ** 1` is `share` identically, and
- * the only difference from the line it replaces is which multiply associates
- * first. See `docs/design/potions.md` "P2".
- */
-export const PERIL_CONCAVITY = 1 / 2;
-
 // ---------------------------------------------------------------------------
 // The window, the edge, and who collects
 // ---------------------------------------------------------------------------
@@ -540,11 +516,9 @@ function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam
 
 /**
  * The share of the collector's own ground, over the whole window, on which some
- * enemy arrival beats it at the tier the pickup leaves it on — shaped by
- * `PERIL_CONCAVITY` so that a wide collector cannot dilute identical danger
- * into nothing. The near turns carry the reading: a claim at horizon k grants
- * the enemy k free turns and the collector none, and the measurement says the
- * far horizons saturate. What the
+ * enemy arrival beats it at the tier the pickup leaves it on. The near turns
+ * carry the reading: a claim at horizon k grants the enemy k free turns and the
+ * collector none, and the measurement says the far horizons saturate. What the
  * saturated tail costs the reading is D4 in the audit, and the geometric
  * alternative to `W − k + 1` is measured and reverted in `potions.md`.
  */
@@ -563,47 +537,18 @@ function perilOf(
   if (unit === undefined) return 0;
   const debuffed = after.get(collector.unitId) ?? collector.tierAtArrival;
   const rows = read.ground.get(collector.unitId);
-  const readGround: Array<readonly [number, number]> = [];
+  let num = 0;
+  let den = 0;
   for (let k = 1; k <= read.horizons.length; k++) {
     const cells = rows?.[k - 1];
     const h = read.horizons[k - 1] as ArrivalField;
-    if (cells === undefined || cells.length === 0) {
-      readGround.push(NO_GROUND);
-      continue;
-    }
+    if (cells === undefined || cells.length === 0) continue;
     let beaten = 0;
     for (const cell of cells) {
       if (beatenAt(h, debuffed, unit.weight, cell)) beaten++;
     }
-    readGround.push([beaten, cells.length]);
-  }
-  return perilOverHorizons(readGround, window);
-}
-
-/** A horizon at which the collector has no claim at all: no ground, no weight. */
-const NO_GROUND: readonly [number, number] = [0, 0];
-
-/**
- * THE PERIL ARITHMETIC ON ITS OWN, over one collector's already-read ground:
- * `[beaten, |ground|]` per horizon in horizon order, a zero-length ground
- * meaning "no claim at that horizon" and carrying no weight of its own.
- *
- * Split out from the field reading for one reason — the audit's reproductions
- * are grounds, not games, and a fixture that pins `3 of 9 beaten at k = 1 over
- * a saturated tail` costs three numbers here and a sixty-turn replay otherwise.
- * The arithmetic lives in exactly one place either way.
- */
-export function perilOverHorizons(
-  ground: ReadonlyArray<readonly [number, number]>,
-  window: number
-): number {
-  let num = 0;
-  let den = 0;
-  for (let k = 1; k <= ground.length; k++) {
-    const [beaten, cells] = ground[k - 1] as readonly [number, number];
-    if (cells === 0) continue;
     const w = window - k + 1;
-    num += w * (beaten / cells) ** PERIL_CONCAVITY;
+    num += (w * beaten) / cells.length;
     den += w;
   }
   return den > 0 ? num / den : 0;

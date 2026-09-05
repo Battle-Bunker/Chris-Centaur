@@ -240,6 +240,50 @@ refuse exactly what the counter counts.
 from 21. `mixed`, `snakes`, `sparse`, `sparse-lean`: **byte-identical** —
 `collectorsOf` gates the whole member and no potion exists on those boards.
 
+### Status: BUILT, SWEPT AT BOTH γ, REFUTED, REVERTED
+
+`docs/design/potions.md` "P2" carries the arms and the fixture. `potions`, 60
+turns, seeds 1–8, `--nodes`, paired per class:
+
+| arm | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths |
+|---|---|---|---|---|---|---|
+| BEFORE (`γ = 1`) | 35 | 15 | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 |
+| `γ = 1/2` | 31 | 11 | 22 (**71.0%**) | 6 (**19.4%**) | 0 | 22 |
+| `γ = 1/3` | 24 | 12 | 16 (**66.7%**) | 5 (**20.8%**) | **2** | **30** |
+
+Reckless ≤50% — **no**, it does not move. Profitable-and-safe ≥25% — **no**.
+Pickups ≥20 — yes, but the count is the only thing that moves: the composition
+is flat while the total falls a third. `deathsWhileDebuffed` 0 and deaths not up
+— yes at `γ = 1/2`, **no** at `γ = 1/3`, which costs nine deaths (up on 7 of 8
+seeds, p = 0.070) and brings back two `edge` deaths, the class §1 above records
+as cleared. `mixed`/`snakes`/`sparse` byte-identical at both γ, as predicted.
+Sixteen-arm inversion gate silent. The knob is backed out; the three source
+files are a zero diff against `33c2b23` and all eight `potions` summaries come
+back byte-identical to the baseline.
+
+**Why, and it is not the level.** The prediction was sized against the wrong
+margin. `perilOf` reads the collector's ground from where it STANDS as the turn
+opens, not from the cell the plan sends it to — deliberately, since that is what
+keeps the peril half memoisable per collector rather than per plan — so the
+peril charge is IDENTICAL on every joint plan in which that collector picks the
+potion up, and raising it adds the same constant to both sides of the comparison
+that decides the move. At the reproduction, every red candidate on turn 36 shifts
+by the same −0.16 and red-C plays `(0,7)` again on the same margin; the one
+candidate whose best joint plan collects nothing, `(1,4)`, does not move at all
+and is **0.65** away, sixteen times the 0.04 this rule was sized against. On
+three of the eight seeds not one move changed anywhere in sixty turns. And
+`s^γ` maps [0, 1] onto [0, 1], so the reading is not widened at any γ — the
+range over a saturated tail is `[0.5, 1]` throughout. What the knob buys is a
+level shift, which is D4 with the sign flipped, and D4's own prescription
+("separate the level from the shape") is exactly what it did not do.
+
+**What survives.** The mechanic in "Mechanic, member and line" is correct and
+unrepaired: the wider the collector the cheaper identical danger reads. The
+repair that is left is the one `potions.md` §1 item 3 already names as
+unmeasured — read the ground from the PLAN's destination, at a claim pass per
+candidate — because that is the only change that gives the term a gradient over
+the collector's own options. Every scaling of the current share cannot.
+
 ---
 
 ## P3 — hunger is denominated in the tank, not in meals, so a lean board is under-eaten
