@@ -409,6 +409,58 @@ describe('a modelled sibling answers its OWN claim question', () => {
     expect(widerPeril(true)).toEqual([]);
   });
 
+  test('a NARROWER sibling still reads peril on a board WE ARE NOT ON', () => {
+    // REVIEW-1 F2. `perilOf`'s whole point is to ask the peril question of a
+    // board WE ARE NOT ON, so that a plan which TAKES a piece does not score
+    // like one that ignores it. The probe board was `heldOutside(modeledIds)`
+    // — and the bank's B1/B3 views are `withModelled([enemy])`, whose modelled
+    // set names the ENEMY alone. So on those views OUR units were held on the
+    // probe board, and the peril of the other enemies then included what our
+    // own units could do to them, in every plan alike: the flattening `perilOf`
+    // exists to prevent, re-appearing at the B1/B3 branch scores.
+    //
+    // A(0,0) red and C(2,1) blue take each other; B(10,10) blue reaches
+    // neither. The parent's probe board is {B, C} and its peril is {B}. The
+    // view that models B used to read {A, C} — our own A standing on the probe
+    // board, and C in peril for that reason and no other.
+    const board = boardOf([
+      piece('A', { x: 0, y: 0 }, 'knight', 1, { teamID: 'red' }),
+      piece('B', { x: 10, y: 10 }, 'knight', 1, { teamID: 'blue' }),
+      piece('C', { x: 2, y: 1 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    try {
+      const b = sub.unitOfWireId('B')?.unitId as UnitId;
+      expect([...sub.perilOf()].sort()).toEqual(['B']);
+      const view = sub.withModelled([b]) as unknown as EngineSubstrate;
+      // Was ['A', 'C']: our own A held, and C in peril from it.
+      expect([...view.perilOf()].sort()).toEqual([]);
+    } finally {
+      sub.release();
+    }
+  });
+
+  test('a view keeps the peril its own held units make for each other', () => {
+    // The other half of the same fix: taking OUR units off the view's probe
+    // board may not take the enemies off it. C(2,1) and D(4,2) are blue
+    // knights that take each other, so on a view that models B both are
+    // possibly-gone without us — and would be whatever our A did.
+    const board = boardOf([
+      piece('A', { x: 0, y: 0 }, 'knight', 1, { teamID: 'red' }),
+      piece('B', { x: 10, y: 10 }, 'knight', 1, { teamID: 'blue' }),
+      piece('C', { x: 2, y: 1 }, 'knight', 1, { teamID: 'blue' }),
+      piece('D', { x: 4, y: 2 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    try {
+      const b = sub.unitOfWireId('B')?.unitId as UnitId;
+      const view = sub.withModelled([b]) as unknown as EngineSubstrate;
+      expect([...view.perilOf()].sort()).toEqual(['C', 'D']);
+    } finally {
+      sub.release();
+    }
+  });
+
   test("a sibling's settlements count into the FAMILY's meter", () => {
     // `settlements()` is the currency the search's budget is denominated in,
     // and the bank prices B1/B3 on siblings. The counters used to be own
