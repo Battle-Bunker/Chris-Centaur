@@ -79,6 +79,16 @@ arm):
 - **half the budget: deaths worse 8, better 0, tied 4 (p = 0.0078); meals fewer
   on 12 of 12 seeds (p = 0.0005).** The floor is real.
 
+**8× was not run, and that is a decision rather than an omission.** The point
+of another doubling would be to find the budget at which value returns; the
+measurement says the curve is not merely flat above 1× but drifting the wrong
+way, and `08-DEPTH-VERDICT.md` §7 already names the escape as *"a budget an
+order of magnitude larger"* than production's. An 8× arm on the two classes
+that move is twelve 60-turn games at 4400 work units a decision — about two
+hours of this container — to extend a null that four points already establish
+in both directions. Run it when there is a REASON to expect a knee up there,
+not to fill in a column.
+
 **The marginal-value curve, per class.** Value rises steeply from 0.5× to 1×
 (mixed −5 deaths and +74 meals, potions −8 deaths and +91 meals), is flat to
 negative from 1× to 4× on those two, and is exactly zero everywhere on `snakes`
