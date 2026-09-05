@@ -645,6 +645,22 @@ export interface UnitTrace {
   /** The chosen move is the generator's FIRST candidate — the search's seed. */
   readonly seeded: boolean;
   readonly reversed: boolean;
+  /**
+   * THE ANYTIME ORACLE (`docs/design/DEADLINE.md` §1). The B0-shaped floor of
+   * the move actually staged, and the best floor available among the options
+   * the generator OFFERED the search, both priced after the decision on an
+   * unbounded bank — the same `price()` rung 0 pays for.
+   *
+   * `stagedFloor === -Infinity` while `bestFloor > -Infinity` is the one thing
+   * a cut-short decision must never do: stage a move it has already proved
+   * fatal while a non-fatal alternative was on its own candidate list. A
+   * pruned option is deliberately NOT an alternative — the search was never
+   * offered it — so `bestFloor` reads the offered set only.
+   *
+   * NaN where nothing could be priced (`scores: false`, or every option threw).
+   */
+  readonly stagedFloor: number;
+  readonly bestFloor: number;
 }
 
 export interface TeamDecision {
@@ -661,6 +677,15 @@ export interface TeamDecision {
   /** The loud product, over this decision's own B3 preambles (08 §5 step 1).
    *  Measured, never acted on: the decision above is byte-identical with it. */
   readonly loud: LoudHistogram;
+  /** Records the kernel actually emitted. 0 is `stagedNothing` — the wire got
+   *  nothing at all for this team, which no cutoff may ever produce. */
+  readonly emitted: number;
+  /** Live units of ours the decision was asked about. `commandable - staged.size`
+   *  is the count of units the answer left off the wire. */
+  readonly commandable: number;
+  /** `KernelReport.overshootMs` — how far past its own deadline the decision
+   *  ran. Meaningful in `ms` mode; work units in `nodes` mode. */
+  readonly overshootMs: number;
 }
 
 export async function decideTeam(
@@ -696,7 +721,18 @@ export async function decideTeam(
   const traces: UnitTrace[] = [];
   const clock = new DecisionClock(budget.kind === 'nodes');
   if (ourIds.length === 0) {
-    return { staged, traces, horizon: 0, nodes: 0, slices: 0, reads: 0, loud: emptyLoudHistogram() };
+    return {
+      staged,
+      traces,
+      horizon: 0,
+      nodes: 0,
+      slices: 0,
+      reads: 0,
+      loud: emptyLoudHistogram(),
+      emitted: 0,
+      commandable: 0,
+      overshootMs: 0,
+    };
   }
 
   const sub = makeSubstrate({ gameId: 'local', board, turn, asTeam: teamId, modeled: ourIds });
@@ -776,11 +812,22 @@ export async function decideTeam(
     } finally {
       stopWatching();
     }
-    const stats = (): { nodes: number; slices: number; reads: number; loud: LoudHistogram } => ({
+    const stats = (): {
+      nodes: number;
+      slices: number;
+      reads: number;
+      loud: LoudHistogram;
+      emitted: number;
+      commandable: number;
+      overshootMs: number;
+    } => ({
       nodes: clock.nodes,
       slices: kernel.lastReport?.slices ?? 0,
       reads: clock.reads,
       loud,
+      emitted: kernel.lastReport?.emits ?? 0,
+      commandable: ourIds.length,
+      overshootMs: kernel.lastReport?.overshootMs ?? 0,
     });
     if (plan === null) return { staged, traces, horizon, ...stats() };
 
@@ -867,6 +914,12 @@ function traceFor(
   // ties. Reading a trace sorted by `est` is what makes an evaluator look
   // ignored when it is merely outranked.
   scored.sort((a, b) => b.floor - a.floor || b.est - a.est);
+  // THE ANYTIME ORACLE, read off the same prices. `stagedFloor` is the floor of
+  // the move that went to the wire; `bestFloor` the best floor among the
+  // options the generator offered. Both NaN when nothing was priced at all,
+  // which is what `scores: false` means and is never a finding.
+  const stagedRow = scored.find((c) => c.to_ === chosen.to);
+  const offeredFloors = scored.filter((c) => !c.pruned).map((c) => c.floor);
   return {
     wireId: unit?.wireId ?? '?',
     letter: unit?.wireId.split('-')[1] ?? '?',
@@ -877,6 +930,8 @@ function traceFor(
     top: scored.slice(0, 3),
     seeded: chosen.to === seed,
     reversed: false,
+    stagedFloor: stagedRow === undefined ? Number.NaN : stagedRow.floor,
+    bestFloor: offeredFloors.length === 0 ? Number.NaN : Math.max(...offeredFloors),
   };
 }
 
@@ -1702,6 +1757,23 @@ export interface GameMetrics {
    */
   deathsWhileImmobile: number;
   // --- end immobility instrument -------------------------------------------
+  // --- the anytime instrument (docs/design/DEADLINE.md) ---------------------
+  /** Decisions the kernel ended having emitted NOTHING. The anytime property
+   *  says this is 0 at every cutoff, an expired deadline included. */
+  emptyDecisions: number;
+  /** Live units of ours a decision left with no staged destination. Also 0 at
+   *  every cutoff: rung 0's seed names every unit by construction. */
+  unstagedUnits: number;
+  /** Unit-turns whose staged move the unbounded bank prices at DEAD. */
+  fatalStaged: number;
+  /** Of those, the ones where an OFFERED option priced better than DEAD — the
+   *  B0 floor already knew, and the answer took the fatal cell anyway. */
+  avoidablyFatalStaged: number;
+  /** Unit-turns the oracle could price at all — `fatalStaged`'s denominator. */
+  pricedUnitTurns: number;
+  /** The worst `KernelReport.overshootMs` of the game. */
+  worstOvershootMs: number;
+  // --- end anytime instrument ----------------------------------------------
   /** Health of every living unit at the end. */
   endHealth: number[];
   /** Wall time of the slowest single team decision, ms. NOT reproducible. */
@@ -1758,11 +1830,45 @@ export function resolveOpponent(name: string): Opponent {
   return { name, evaluate: new BoundEvaluator(parsed.spec.profile) };
 }
 
+/**
+ * THE DEADLINE ADVERSITY MODEL — `docs/design/DEADLINE.md` §2.
+ *
+ * Three ways a production deadline SHRINKS, and all three are the same thing
+ * to a decision: fewer work units between `t0` and `searchDeadline`.
+ *
+ *   · `late`   the turn's `endTime` reached this host with a fraction of the
+ *              turn already gone, so the window is `(1 - late)` of nominal.
+ *   · `jitter` the window wobbles by ±`jitter`, drawn per decision from the
+ *              game's OWN seeded stream (a stream of its own, so the boards a
+ *              jittered run plays are the boards an unjittered one plays).
+ *   · `slow`   the host does `1 / slow` as much work per millisecond, so the
+ *              same wall-clock window buys `1 / slow` of the work units. Under
+ *              the node clock that IS the model — `BUDGET.md` §5's exchange
+ *              rate read backwards — and it keeps every arm reproducible.
+ *
+ * All three multiply, and the identity at (0, 0, 1) is exact: the multiplier
+ * is applied only when it differs from 1, so an unstressed run takes the
+ * caller's budget object through untouched.
+ */
+export interface DeadlineAdversity {
+  /** Fraction of the turn already gone when `endTime` arrived. 0 <= late < 1. */
+  readonly late: number;
+  /** Symmetric fractional wobble on the window. 0 <= jitter < 1. */
+  readonly jitter: number;
+  /** Host slowdown factor, >= 1. The work-unit rate is divided by it. */
+  readonly slow: number;
+}
+
+export const NO_ADVERSITY: DeadlineAdversity = { late: 0, jitter: 0, slow: 1 };
+
 export async function runGame(
   spec: GameSpec,
   opts: {
     evaluate?: Evaluator;
     scores?: boolean;
+    /** The deadline this game's decisions actually get. Absent is `NO_ADVERSITY`
+     *  and is byte-identical to having no such option at all. */
+    adversity?: DeadlineAdversity;
     onTurn?: (line: string) => void;
     /** Asked once per (turn, team). Returning undefined leaves
      *  `KernelInput.lens` unset, which is the unwatched decision the cost gate
@@ -1864,6 +1970,12 @@ export async function runGame(
     immobileUnitTurns: 0,
     deathsWhileImmobile: 0,
     // --- end immobility instrument -----------------------------------------
+    emptyDecisions: 0,
+    unstagedUnits: 0,
+    fatalStaged: 0,
+    avoidablyFatalStaged: 0,
+    pricedUnitTurns: 0,
+    worstOvershootMs: 0,
     endHealth: [],
     worstDecisionMs: 0,
     nodes: 0,
@@ -1913,6 +2025,19 @@ export async function runGame(
   // `opts.opponent` never touches.
   const deciderTeamId = spec.teams[0]?.id;
 
+  // THE ADVERSITY STREAM IS ITS OWN. A jittered run must play the SAME boards
+  // as an unjittered one — otherwise a deaths column compares two games rather
+  // than two deadlines — so the wobble is drawn from a stream seeded beside the
+  // game's, never from `rng`.
+  const adversity = opts.adversity ?? NO_ADVERSITY;
+  const stressRng = mulberry32(((spec.seed ?? 1) ^ 0x9e3779b9) >>> 0);
+  const stressed = (b: DecisionBudget): DecisionBudget => {
+    if (adversity.late === 0 && adversity.jitter === 0 && adversity.slow === 1) return b;
+    const wobble =
+      adversity.jitter === 0 ? 1 : 1 - adversity.jitter + 2 * adversity.jitter * stressRng();
+    return scaleBudget(b, ((1 - adversity.late) * wobble) / adversity.slow);
+  };
+
   for (let turn = 1; turn <= maxTurns; turn++) {
     const teams = new Set(
       (board.snakes ?? []).filter((s) => s.health > 0).map((s) => s.teamID as string)
@@ -1935,7 +2060,7 @@ export async function runGame(
           board,
           turn,
           teamId,
-          budget,
+          stressed(budget),
           evaluateForTeam,
           opts.scores ?? true,
           opts.lensFor?.(turn, teamId)
@@ -1946,6 +2071,12 @@ export async function runGame(
         metrics.reads += decision.reads;
         metrics.worstDecisionNodes = Math.max(metrics.worstDecisionNodes, decision.nodes);
         metrics.decisions++;
+        // --- the anytime instrument. A decision that emitted nothing, or that
+        // named fewer units than it was asked about, is a hole in the anytime
+        // property and not a degradation of it.
+        if (decision.emitted === 0 && decision.commandable > 0) metrics.emptyDecisions++;
+        metrics.unstagedUnits += Math.max(0, decision.commandable - decision.staged.size);
+        metrics.worstOvershootMs = Math.max(metrics.worstOvershootMs, decision.overshootMs);
         addLoud(metrics.loud, decision.loud);
         if (opts.probe !== undefined && decision.traces.length > 0) {
           const probe = opts.probe;
@@ -2018,6 +2149,15 @@ export async function runGame(
             }
           }
           previousStage.set(tr.wireId, key(tr.to));
+          // --- the anytime oracle: what the unbounded bank says about the move
+          // that actually went to the wire. NaN means nothing was priced.
+          if (!Number.isNaN(tr.stagedFloor)) {
+            metrics.pricedUnitTurns++;
+            if (tr.stagedFloor === Number.NEGATIVE_INFINITY) {
+              metrics.fatalStaged++;
+              if (tr.bestFloor > Number.NEGATIVE_INFINITY) metrics.avoidablyFatalStaged++;
+            }
+          }
           if (tr.seeded) metrics.seedKept++;
           metrics.unitTurns++;
           const opts3 = tr.top
@@ -2482,8 +2622,25 @@ export interface RunSummary {
    * budget) like everything else here, so two arms' files still subtract.
    */
   readonly loud: LoudHistogram;
+  /**
+   * THE ANYTIME PROPERTY, as four numbers (`docs/design/DEADLINE.md` §1).
+   *
+   * Reproducible in the deterministic mode like everything else here, and the
+   * first two are CONTRACT rather than measurement: a decision that emitted
+   * nothing, or that left a live unit off the wire, is a hole at any budget.
+   * The last two are the B0 oracle — the staged move priced after the fact on
+   * an unbounded bank — and `avoidablyFatal` is the one a shorter deadline is
+   * able to move.
+   */
+  readonly anytime: {
+    readonly emptyDecisions: number;
+    readonly unstagedUnits: number;
+    readonly pricedUnitTurns: number;
+    readonly fatalStaged: number;
+    readonly avoidablyFatalStaged: number;
+  };
   /** Wall clock. `ms` mode only: it is not reproducible and never compared. */
-  readonly wall?: { readonly worstDecisionMs: number };
+  readonly wall?: { readonly worstDecisionMs: number; readonly worstOvershootMs: number };
   readonly crashed: string | null;
 }
 
@@ -2603,12 +2760,25 @@ export function summaryOf(
       worstDecisionNodes: metrics.worstDecisionNodes,
     },
     loud: { ...metrics.loud },
+    anytime: {
+      emptyDecisions: metrics.emptyDecisions,
+      unstagedUnits: metrics.unstagedUnits,
+      pricedUnitTurns: metrics.pricedUnitTurns,
+      fatalStaged: metrics.fatalStaged,
+      avoidablyFatalStaged: metrics.avoidablyFatalStaged,
+    },
     crashed: metrics.crashed,
   };
   // The wall reading rides only where it means something. In the deterministic
   // mode its absence is the point: the object is then byte-identical run to run.
   return budget.kind === 'ms'
-    ? { ...summary, wall: { worstDecisionMs: Math.round(metrics.worstDecisionMs) } }
+    ? {
+        ...summary,
+        wall: {
+          worstDecisionMs: Math.round(metrics.worstDecisionMs),
+          worstOvershootMs: Math.round(metrics.worstOvershootMs),
+        },
+      }
     : summary;
 }
 
@@ -2627,6 +2797,10 @@ async function summarise(
     opponent?: Opponent;
     /** `--probe`: the paired per-decision diff, on every seed this summarises. */
     probe?: { readonly scales: ReadonlyArray<number>; readonly row: (row: ProbeRow) => void };
+    /** The deadline every decision of every seed runs under. */
+    adversity?: DeadlineAdversity;
+    /** `--score-traces`: pay for the anytime oracle in the multi-seed mode. */
+    scoreTraces?: boolean;
   }
 ): Promise<void> {
   const totals: Record<string, number> = {
@@ -2664,10 +2838,18 @@ async function summarise(
     immobileUnitTurns: 0,
     deathsWhileImmobile: 0,
     // --- end immobility instrument -------------------------------------------
+    // --- the anytime instrument (docs/design/DEADLINE.md) --------------------
+    emptyDecisions: 0,
+    unstagedUnits: 0,
+    pricedUnitTurns: 0,
+    fatalStaged: 0,
+    avoidablyFatalStaged: 0,
+    // --- end anytime instrument ----------------------------------------------
   };
   const causes: Record<string, number> = {};
   const loud = emptyLoudHistogram();
   let worst = 0;
+  let worstOvershoot = 0;
   let nodes = 0;
   // A MAXIMUM, NOT A SUM — the longest park any one unit had on any seed. It
   // is kept out of `totals` because everything in there is added up.
@@ -2681,8 +2863,9 @@ async function summarise(
         ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
       },
       {
-        scores: false,
+        scores: out.scoreTraces ?? false,
         opponent: out.opponent,
+        ...(out.adversity === undefined ? {} : { adversity: out.adversity }),
         ...(out.probe === undefined ? {} : { probe: { scenario, ...out.probe } }),
       }
     );
@@ -2691,6 +2874,7 @@ async function summarise(
     }
     for (const [c, n] of Object.entries(r.metrics.deathsByCause)) causes[c] = (causes[c] ?? 0) + n;
     worst = Math.max(worst, r.metrics.worstDecisionMs);
+    worstOvershoot = Math.max(worstOvershoot, r.metrics.worstOvershootMs);
     longestPark = Math.max(longestPark, r.metrics.longestPark);
     nodes += r.metrics.nodes;
     addLoud(loud, r.metrics.loud);
@@ -2770,6 +2954,16 @@ async function summarise(
       `deathsWhileImmobile=${totals.deathsWhileImmobile}`
   );
   // --- end immobility instrument -------------------------------------------
+  // --- THE ANYTIME INSTRUMENT, on its own line (docs/design/DEADLINE.md §1).
+  // The first two are the contract and read 0 at every cutoff; the last two are
+  // the B0 oracle and are silent unless `--score-traces` paid for it.
+  out.say(
+    `${scenario} A: empty=${totals.emptyDecisions} unstaged=${totals.unstagedUnits} ` +
+      `priced=${totals.pricedUnitTurns} fatalStaged=${totals.fatalStaged} ` +
+      `avoidablyFatal=${totals.avoidablyFatalStaged} ` +
+      `worstOvershoot=${worstOvershoot.toFixed(1)}`
+  );
+  // --- end anytime instrument ------------------------------------------------
   // THE LOUD PRODUCT, on its own line and only where there was one to measure.
   // `open` is the subset that matters: B3 declined there, so the bracket is
   // open and a ceiling ply would have something to remove.
@@ -2816,6 +3010,26 @@ Flags
                  the identity: the budget object is passed through untouched
                  and the run is byte-identical to one from before this flag
                  existed. Use with --nodes, where the budget is reproducible.
+  --deadline-ms=N  THE WALL-CLOCK ARM, named. Budget each decision by N ms
+                 instead of by work units, which is the clock production runs.
+                 N may be 0 or NEGATIVE: negative is a deadline that had
+                 already passed when decide() was entered, which is what the
+                 wire hands the kernel when a turn spent its window in flight.
+                 Not reproducible (the summary carries a 'wall' block and the
+                 counters move run to run) - read it for margins, never for a
+                 byte diff.
+  --deadline-late=F  The turn's endTime reached this host with fraction F of
+                 the turn already gone: every decision's window is (1-F) of
+                 nominal. Deterministic.
+  --deadline-jitter=F  The window wobbles by +/-F per decision, drawn from a
+                 stream of its own so a jittered run plays the same boards as
+                 an unjittered one. Deterministic per seed.
+  --host-slow=X  The host does 1/X as much work per millisecond, so the same
+                 window buys 1/X of the work units (BUDGET.md §5's exchange
+                 rate, read backwards). Deterministic.
+  --score-traces  Price every option in the multi-seed 'sum' mode too, so the
+                 anytime oracle (the "A:" line and the JSON 'anytime' block)
+                 has floors to read. Slow: a bound bank per unit per decision.
   --probe=FILE   THE PAIRED PER-DECISION DIFF. Play the game at the given
                  budget and, at every (turn, team), decide the SAME position
                  again at each --probe-scales scale; write one JSON row per
@@ -2874,6 +3088,24 @@ interface Flags {
    *  every scenario but `sparse-lean` is nothing at all and therefore the
    *  engine's own `DEFAULT_FOOD_ENERGY`. */
   readonly foodEnergy: number | null;
+  /**
+   * `--deadline-ms=<n>`: THE WALL-CLOCK ARM, named.
+   *
+   * The `ms` mode was only ever reachable through a positional argument, which
+   * meant the clock production actually runs on had no flag of its own and no
+   * way to say the two readings that matter: a window shorter than one slice,
+   * and a window that is already over. `n` may be 0 or negative, and negative
+   * is the deadline that had already passed when `decide` was entered —
+   * exactly what `deadlineFromWallClock` hands the kernel when the turn spent
+   * its window on the wire.
+   */
+  readonly deadlineMs: number | null;
+  /** `--deadline-late=<f>`, `--deadline-jitter=<f>`, `--host-slow=<x>`: the
+   *  adversity model, see `DeadlineAdversity`. */
+  readonly adversity: DeadlineAdversity;
+  /** `--score-traces`: price every option in the multi-seed `sum` mode too, so
+   *  the anytime oracle (`RunSummary.anytime`) has something to read. Slow. */
+  readonly scoreTraces: boolean;
   readonly positional: string[];
 }
 
@@ -2887,6 +3119,18 @@ function parseFlags(argv: readonly string[]): Flags {
   let label = 'local';
   let opponent: string | null = null;
   let foodEnergy: number | null = null;
+  let deadlineMs: number | null = null;
+  let late = 0;
+  let jitter = 0;
+  let slow = 1;
+  let scoreTraces = false;
+  const fraction = (value: string | null, flag: string): number => {
+    const n = value === null ? Number.NaN : Number(value);
+    if (!Number.isFinite(n) || n < 0 || n >= 1) {
+      throw new Error(`${flag} requires a fraction in [0, 1), e.g. ${flag}=0.4`);
+    }
+    return n;
+  };
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -2940,6 +3184,31 @@ function parseFlags(argv: readonly string[]): Flags {
         foodEnergy = n;
         break;
       }
+      case 'deadline-ms': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n)) {
+          throw new Error('--deadline-ms requires a number, e.g. --deadline-ms=150 (0 or negative is an already-expired deadline)');
+        }
+        deadlineMs = n;
+        break;
+      }
+      case 'deadline-late':
+        late = fraction(value, '--deadline-late');
+        break;
+      case 'deadline-jitter':
+        jitter = fraction(value, '--deadline-jitter');
+        break;
+      case 'host-slow': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isFinite(n) || n < 1) {
+          throw new Error('--host-slow requires a factor >= 1, e.g. --host-slow=2');
+        }
+        slow = n;
+        break;
+      }
+      case 'score-traces':
+        scoreTraces = true;
+        break;
       case 'help':
         console.log(HELP);
         process.exit(0);
@@ -2948,7 +3217,20 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, budgetScale, probe, probeScales, json, label, opponent, foodEnergy, positional };
+  return {
+    nodes,
+    budgetScale,
+    probe,
+    probeScales,
+    json,
+    label,
+    opponent,
+    foodEnergy,
+    deadlineMs,
+    adversity: { late, jitter, slow },
+    scoreTraces,
+    positional,
+  };
 }
 
 /**
@@ -2967,6 +3249,30 @@ function scenariosNamed(which: string, foodEnergy: number | null = null): Array<
     if (spec === undefined) throw new Error(`unknown scenario ${name}`);
     return [name, withFoodEnergy(spec, foodEnergy)];
   });
+}
+
+/**
+ * THE BUDGET THIS INVOCATION RUNS ON, in one place.
+ *
+ * Precedence is `--deadline-ms` (the named wall-clock arm), then `--nodes`
+ * (the deterministic one), then the positional default the caller passed —
+ * which is what every existing command line resolves to, so a run with none of
+ * the three flags takes the same object it always did and `--budget-scale`
+ * still multiplies it.
+ */
+function budgetFrom(
+  flags: Flags,
+  positionalMs: DecisionBudget
+): DecisionBudget {
+  const base: DecisionBudget =
+    flags.deadlineMs !== null
+      ? { kind: 'ms', ms: flags.deadlineMs }
+      : flags.nodes === null
+        ? positionalMs
+        : { kind: 'nodes', nodes: flags.nodes };
+  // An already-expired window has nothing to scale, and `scaleBudget` refuses
+  // a non-positive one anyway: the arm IS the number, verbatim.
+  return base.kind === 'ms' && base.ms <= 0 ? base : scaleBudget(base, flags.budgetScale);
 }
 
 async function main(): Promise<void> {
@@ -2997,12 +3303,7 @@ async function main(): Promise<void> {
   if (argv[0] === 'sum') {
     const turns = Number(argv[2] ?? 60);
     const seeds = Number(argv[3] ?? 5);
-    const budget: DecisionBudget = scaleBudget(
-      flags.nodes === null
-        ? { kind: 'ms', ms: Number(argv[4] ?? 100) }
-        : { kind: 'nodes', nodes: flags.nodes },
-      flags.budgetScale
-    );
+    const budget: DecisionBudget = budgetFrom(flags, { kind: 'ms', ms: Number(argv[4] ?? 100) });
     const probeRows: string[] = [];
     for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
       await summarise(name, spec, turns, seeds, budget, {
@@ -3010,6 +3311,8 @@ async function main(): Promise<void> {
         json: emitJson,
         say,
         opponent,
+        adversity: flags.adversity,
+        scoreTraces: flags.scoreTraces,
         ...(flags.probe === null
           ? {}
           : {
@@ -3031,12 +3334,7 @@ async function main(): Promise<void> {
   const which = argv[0] ?? 'snakes';
   const turns = Number(argv[1] ?? 30);
   const seed = Number(argv[2] ?? 1);
-  const budget: DecisionBudget = scaleBudget(
-    flags.nodes === null
-      ? { kind: 'ms', ms: Number(argv[3] ?? 150) }
-      : { kind: 'nodes', nodes: flags.nodes },
-    flags.budgetScale
-  );
+  const budget: DecisionBudget = budgetFrom(flags, { kind: 'ms', ms: Number(argv[3] ?? 150) });
   const named = SCENARIOS[which];
   if (named === undefined) throw new Error(`unknown scenario ${which}`);
   const spec = withFoodEnergy(named, flags.foodEnergy);
@@ -3050,6 +3348,7 @@ async function main(): Promise<void> {
     {
       onTurn: say,
       opponent,
+      adversity: flags.adversity,
       ...(flags.probe === null
         ? {}
         : {
