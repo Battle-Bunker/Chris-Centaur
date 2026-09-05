@@ -99,6 +99,15 @@ plan on the sibling, read `sub.settlements()` — it is 0 while the sibling's is
 and `bounds/testkit.ts` meters separately), fatal the day a budget reads it.
 Fix would be a shared counter object, not an own field.
 
+**REVIEW-2 verdict: CONFIRMED and fixed.** Reproduced exactly as written —
+`sub.settlements()` read 0 with the sibling's reading 1. The two scalars are now
+one `counters: { settle, assess }` object on the family, mutated in place
+through the prototype, which is the shape `bounds/testkit.ts` already uses for
+the same reason. Regression beside the other sibling tests in
+`src/lobster/__tests__/substrate.test.ts`; it asserts both counters, and that
+`settleMover` still meters apart from `resolveBoundedFor`. No pin moves —
+nothing on the decision path reads either counter.
+
 ### F2 — `perilOf` on a B1/B3 view is computed on a board WE ARE ON
 
 `src/lobster/substrate.ts:752` (`perilOf`), `src/lobster/bounds/bank.ts:406`
