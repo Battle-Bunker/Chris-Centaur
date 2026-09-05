@@ -539,6 +539,69 @@
     .lens-row-foil .lens-band-span { background: var(--wash-teal-50); }
     .lens-band-open { border-right: 0; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); }
     .lens-band-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink-bright); }
+    /* THE LEADER'S FLOOR, on every row's band. `refutedAt`'s arithmetic — this
+       row's ceiling sits at or below rank 1's proved floor — becomes a thing
+       the eye does instead of a subtraction the reader does. 1 px, violet,
+       under the span so it never hides a bracket. */
+    .lens-band-lead { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--lens-ink); opacity: .85; }
+    /* THE CLIFF. `DEAD` is the lattice bottom and not a small number, so it
+       gets its own SHAPE at the scale's left edge — a hatched wedge with a
+       solid stop-coloured stop — and never a band that merely starts further
+       left. Hatch, not hue: the reading survives a deuteranope. */
+    .lens-band-cliff {
+      position: absolute; left: 0; top: -2px; bottom: -2px; width: 9px;
+      border-left: 2px solid var(--stop);
+      background: repeating-linear-gradient(135deg, var(--stop) 0 2px, transparent 2px 4px);
+    }
+    /* WHAT SEPARATES RANK 1 FROM RANK 2 — L2, directly under the two cards,
+       because it is the answer to question (c) and the rows it is about are
+       the two immediately above it. */
+    .lens-contrast {
+      margin-top: var(--space-6); padding: var(--space-5) var(--space-7);
+      border-left: 3px solid var(--lens-ink); background: var(--wash-violet-14);
+      font-size: var(--lens-size); line-height: 1.45;
+    }
+    .lens-contrast b { color: var(--ink-bright); }
+    .lens-contrast-rung { display: block; color: var(--lens-foil); }
+    /* THE AUTHORITY-COLLAPSE ASK (02 §3.5). Where the rung is the tie-break,
+       the advisory channel or nothing at all, the operator's own call is worth
+       more than the bot's — which is the one place the lens asks for
+       attention, so it is the one place the strip changes colour. */
+    .lens-contrast-ask { border-left-color: var(--lens-open); background: rgba(255,183,77,.07); }
+    .lens-contrast-ask .lens-contrast-rung { color: var(--lens-open); }
+    /* HOW SURE — the margin read against the width. Amber by default because
+       the default answer on this build is "the order is not proved", and green
+       only where it is. */
+    .lens-unsure {
+      margin-top: var(--space-6); padding: var(--space-5) var(--space-7);
+      border-left: 3px solid var(--lens-open); background: rgba(255,183,77,.07);
+      font-size: calc(var(--lens-size) - 1px); line-height: 1.45;
+    }
+    .lens-unsure-proved { border-left-color: var(--lens-ours); background: rgba(129,199,132,.07); }
+    .lens-unsure b { color: var(--ink-bright); }
+    .lens-unsure-pt { display: block; color: var(--ink-dim); font-size: max(9px, calc(var(--lens-size) - 2px)); }
+    /* THE THREAT RANKING and THE LINE — L3, quiet, and both draw their own
+       absence rather than vanishing. */
+    .lens-threats, .lens-line { margin-top: var(--space-8); font-size: max(9px, calc(var(--lens-size) - 1px)); }
+    .lens-threats-head {
+      font-size: max(9px, calc(var(--lens-size) - 2px)); font-weight: var(--weight-bold);
+      letter-spacing: .04em; text-transform: uppercase; color: var(--lens-ink);
+    }
+    .lens-threats-head .lens-sub { display: block; text-transform: none; letter-spacing: 0; font-weight: var(--weight-normal); }
+    .lens-threat { display: flex; gap: var(--space-6); align-items: baseline; padding: var(--space-2) 0; border-bottom: 1px solid var(--grey-3a3a3a); }
+    .lens-threat-u { color: var(--lens-warn); font-weight: var(--weight-bold); min-width: 84px; }
+    .lens-threat-at { color: var(--ink-bright); font-variant-numeric: tabular-nums; min-width: 44px; }
+    .lens-threat-why { color: var(--ink-dim); }
+    .lens-threat-loud { color: var(--lens-foil); margin-top: var(--space-3); }
+    .lens-threat-absence, .lens-line-note { color: var(--ink-dim); font-style: italic; margin-top: var(--space-3); }
+    .lens-ply { display: flex; gap: var(--space-6); align-items: baseline; padding: var(--space-2) 0; border-bottom: 1px solid var(--grey-3a3a3a); }
+    .lens-ply-side { min-width: 62px; color: var(--ink-dim); }
+    /* A held enemy's layer is drawn in the refuter's ink and never in the
+       lens violet: violet means OUR hypothesis, and a claim cloud is theirs. */
+    .lens-ply-theirs .lens-ply-side, .lens-ply-theirs .lens-ply-what { color: var(--lens-warn); }
+    .lens-ply-leaf .lens-ply-what { color: var(--lens-ink); }
+    .lens-ply-what { flex: 1; color: var(--grey-dddddd); }
+    .lens-ply-br { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
     /* Depth as a depth: `h<n>` keeps the number and gains a gauge lit to it. */
     .lens-depth { display: inline-flex; gap: var(--space-1); margin-left: var(--space-3); vertical-align: middle; }
     .lens-depth i { width: 4px; height: 6px; background: var(--grey-333333); border-radius: var(--radius-1); }
@@ -7430,6 +7493,10 @@
         boardSizePref = Prefs.get('board.sizePx');
         applyBoardSize();
       }
+      // The two L3 explanation readings are drawn by `LensPanel` out of the
+      // same transcript, so turning one on or off is a re-render and nothing
+      // else: no frame changes, no op disappears, and the fold is untouched.
+      if (ids.includes('explain.threats') || ids.includes('explain.line')) lensRender();
     });
     renderStageLine();
 

@@ -40,6 +40,7 @@ var LensView = (() => {
     checkDivergence: () => checkDivergence,
     clusterGlyph: () => clusterGlyph,
     clusterOf: () => clusterOf,
+    contrastOf: () => contrastOf,
     cursorState: () => cursorState,
     depthCell: () => depthCell,
     dominanceClause: () => dominanceClause,
@@ -47,6 +48,7 @@ var LensView = (() => {
     frameAtSeq: () => frameAtSeq,
     incumbentCandidate: () => incumbentCandidate,
     initialCursor: () => initialCursor,
+    lineOf: () => lineOf,
     makeLiveDecisionSource: () => makeLiveDecisionSource,
     makeReplayDecisionSource: () => makeReplayDecisionSource,
     markForArrivalIndex: () => markForArrivalIndex,
@@ -68,6 +70,8 @@ var LensView = (() => {
     rowsFor: () => rowsFor,
     stageSummary: () => stageSummary,
     stagedCellOf: () => stagedCellOf,
+    threatsOf: () => threatsOf,
+    unsureOf: () => unsureOf,
     widenAutoAcceptMs: () => widenAutoAcceptMs
   });
 
@@ -1282,7 +1286,14 @@ var LensView = (() => {
           // draws the bracket as a BAND with `est` as its marked point rather
           // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
           row.key === foil?.key,
-          priced ? row.est : null
+          priced ? row.est : null,
+          // THE CEILING, AS THE ROW'S OWN NUMBER. The band used to derive its
+          // right-hand end as `lo + ⌈w⌉`, which mixes this row's floor with the
+          // DEEPEST reading's width — equal today, and different on the first
+          // row that deepens (the same family as D6). It also could not draw a
+          // DEAD floor at all: `−∞ + ∞` is `NaN`. The endpoint the band is a
+          // band of is the endpoint the row carries.
+          priced ? row.hi : null
         )
       );
     }
@@ -1312,6 +1323,13 @@ var LensView = (() => {
         )
       );
     }
+    const contrast = contrastOf(frame, selected, foil);
+    if (contrast !== null) ops.push(call("panel.contrast", contrast));
+    const unsure = unsureOf(selected, foil);
+    if (unsure !== null) ops.push(call("panel.unsure", unsure));
+    ops.push(call("panel.threats", threatsOf(rows, selected ?? leader, loud)));
+    const line = lineOf(selected ?? leader, loud);
+    if (line !== null) ops.push(call("panel.line", line));
     return ops;
   }
   function noFoilReason(list) {
@@ -1340,6 +1358,201 @@ var LensView = (() => {
       case "indifferent":
         return "my proof rungs are silent here — your call beats my tie-break";
     }
+  }
+  var RUNG_OF = {
+    leader: "floor",
+    "refuted-by-witness": "witness",
+    "incomparable-basis": "basis",
+    contingent: "floor",
+    dominated: "floor",
+    "advisory-only": "est",
+    indifferent: "tie"
+  };
+  var RUNG_SAYS = {
+    witness: "by a banked witness that refutes it",
+    basis: "by nothing — the two are not comparable",
+    floor: "on the proved floor",
+    est: "on the advisory channel — the proved floors are equal",
+    tie: "by my tie-break — my proof rungs are silent here",
+    unsealed: "by nothing yet — the barrier has not run"
+  };
+  function contrastOf(frame, selected, foil) {
+    if (selected === null || foil === null) return null;
+    const theirsOf = new Map(foil.moves.map((m) => [m.unit, m.to]));
+    const differing = selected.moves.filter(
+      (m) => theirsOf.has(m.unit) && theirsOf.get(m.unit) !== m.to
+    );
+    const agreed = selected.moves.length - differing.length;
+    const loser = selected.rank > foil.rank ? selected : foil;
+    const rung = loser.dominance === null ? "unsealed" : RUNG_OF[loser.dominance.kind];
+    const margin = selected.unpriced === true || foil.unpriced === true ? null : Number((selected.lo - foil.lo).toFixed(2));
+    const base = { differing: differing.length, agreed, rung, says: RUNG_SAYS[rung], margin, foilRank: foil.rank };
+    if (differing.length === 0) {
+      return { ...base, decider: null, mine: null, theirs: null, attribution: "identical" };
+    }
+    if (differing.length === 1) {
+      const only = differing[0];
+      return {
+        ...base,
+        decider: only.unit,
+        mine: only.to,
+        theirs: theirsOf.get(only.unit) ?? null,
+        attribution: "sole"
+      };
+    }
+    let best = null;
+    for (const move of differing) {
+      const delta = memberDelta(frame, foil, selected, move.unit);
+      if (delta === null) continue;
+      if (best === null || Math.abs(delta) > Math.abs(best.delta)) {
+        best = { unit: move.unit, to: move.to, delta };
+      }
+    }
+    if (best === null) {
+      return { ...base, decider: null, mine: null, theirs: null, attribution: "unattributed" };
+    }
+    return {
+      ...base,
+      decider: best.unit,
+      mine: best.to,
+      theirs: theirsOf.get(best.unit) ?? null,
+      attribution: "marginal"
+    };
+  }
+  function unsureOf(leader, foil) {
+    if (leader === null) return null;
+    const points = [];
+    if (leader.unpriced === true) {
+      return {
+        headline: "no row here carries a price",
+        points: ["`conform` returns a plan, not a bound — these rows are assignments, and every number on them is absent rather than zero"],
+        proved: null,
+        margin: null,
+        width: null
+      };
+    }
+    const width = Number.isFinite(leader.hi) && Number.isFinite(leader.lo) ? Number((leader.hi - leader.lo).toFixed(2)) : null;
+    const margin = foil === null || foil.unpriced === true ? null : Number((leader.lo - foil.lo).toFixed(2));
+    points.push(
+      leader.exact ? "exact — the ledger is empty and there is nothing left to learn" : `${leader.ledgerSize} ledger ${leader.ledgerSize === 1 ? "entry" : "entries"} still open`
+    );
+    points.push(
+      leader.channel === "est" ? "adjudicating on `est`, the channel that never proves anything" : "adjudicating on the proved floor"
+    );
+    if (leader.vacuity === "material-dead") {
+      points.push("every world this row was priced in reads dead on material");
+    } else if (leader.vacuity === "cloud-contingent-dead") {
+      points.push("the floor is dead only because of what a claim cloud could do");
+    }
+    if (!Number.isFinite(leader.lo)) {
+      return {
+        headline: "the floor is ON THE CLIFF — the worst world here is our elimination",
+        points,
+        proved: false,
+        margin,
+        width
+      };
+    }
+    if (!Number.isFinite(leader.hi)) {
+      return {
+        headline: "nothing is proved above the floor — the ceiling is open",
+        points,
+        proved: false,
+        margin,
+        width
+      };
+    }
+    if (margin === null) {
+      return {
+        headline: "no runner-up on this list to measure the order against",
+        points,
+        proved: null,
+        margin,
+        width
+      };
+    }
+    const proved = width !== null && margin > width;
+    const headline = proved ? `the order is proved — the gap to #${foil?.rank ?? 2} (${margin}) is wider than this bracket (${width})` : margin === 0 ? `the order is NOT proved — this row and #${foil?.rank ?? 2} share one floor` : `the order is NOT proved — the gap to #${foil?.rank ?? 2} is ${margin} and this bracket is ${width} wide`;
+    return { headline, points, proved, margin, width };
+  }
+  function threatsOf(rows, leader, loud) {
+    const held = /* @__PURE__ */ new Map();
+    const bump = (key, atStake, why) => {
+      const name = namedUnit(key);
+      const seen = held.get(name);
+      if (seen === void 0) {
+        held.set(name, { atStake, rows: 1, why });
+        return;
+      }
+      held.set(name, {
+        atStake: atStake === null ? seen.atStake : Math.max(seen.atStake ?? 0, atStake),
+        rows: seen.rows + 1,
+        why: seen.atStake === null && atStake !== null ? why : seen.why
+      });
+    };
+    for (const row of rows) {
+      if (row.dominance?.kind !== "contingent") continue;
+      for (const unit of row.dominance.onUnits) {
+        bump(unit, round1(row.dominance.atStake), `would carry #${row.rank} if it resolves against us`);
+      }
+    }
+    for (const unit of leader?.citedUnits ?? []) {
+      bump(unit, null, "the leader's floor is open on it");
+    }
+    const items = [...held.entries()].map(([unit, v]) => ({ unit, atStake: v.atStake, rows: v.rows, why: v.why })).sort(
+      (a, b) => (b.atStake ?? -Infinity) - (a.atStake ?? -Infinity) || b.rows - a.rows || (a.unit < b.unit ? -1 : 1)
+    );
+    const loudLine = loud === null ? null : loud.q === 0 ? `${loud.product} replies are held and NONE of them touches our staged footprint — there is nothing a ceiling ply could enumerate` : `${loud.q} of ${loud.product} held replies touch our staged footprint${loud.b3 ? " · the gate closed this bracket" : ""}${loud.covers ? "" : " · the gate did not reach every held unit"}`;
+    const absence = items.length === 0 && loudLine === null ? "nothing is named — this decision’s bounds cite no held unit at all" : "no enemy CELL is stored: every reading here is h1, so the line has no `theirs` ply and the witness map does not survive the wire";
+    return { items, loud: loudLine, absence };
+  }
+  var BRACKET = (lo, hi) => `${Number.isFinite(lo) ? lo.toFixed(1) : "−∞"}…${Number.isFinite(hi) ? hi.toFixed(1) : "∞"}`;
+  function lineOf(row, loud) {
+    if (row === null) return null;
+    const { line, derived, lineTruncated, deepest, terminal } = row.depth;
+    if (line.length > 0) {
+      return {
+        plies: line.map((s) => ({
+          side: s.side,
+          label: `ply ${s.ply} ${s.side === "ours" ? "us" : "them"}`,
+          what: s.moves.map((m) => `${m.unit}→${m.to}`).join(" · "),
+          bracket: BRACKET(s.lo, s.hi),
+          ledger: s.ledgerSize,
+          narrowed: s.narrowed
+        })),
+        note: derived ? "derived from h1 by backup" : "hull, not derived — the deeper reading is not a refinement of the shallow one",
+        derived,
+        truncated: lineTruncated,
+        premise: false
+      };
+    }
+    const cited = row.citedUnits.map(namedUnit);
+    const theirs = cited.length === 0 ? "every uncontrolled unit held as a claim cloud — none of them cited" : `${cited.join(", ")} held as claim clouds` + (loud === null ? "" : ` — ${loud.product} replies, ${loud.q} of them touching us`);
+    return {
+      plies: [
+        {
+          side: "ours",
+          label: "ply 1 us",
+          what: row.moves.map((m) => `${m.unit}→${m.to}`).join(" · "),
+          bracket: null,
+          ledger: null,
+          narrowed: false
+        },
+        { side: "theirs", label: "ply 1 them", what: theirs, bracket: null, ledger: null, narrowed: false },
+        {
+          side: "leaf",
+          label: "leaf",
+          what: row.unpriced === true ? "unpriced — this row is an assignment, not a reading" : `${BRACKET(row.lo, row.hi)} · ${row.vacuity}${terminal === "none" ? " · not terminal" : ` · ${terminal}`}`,
+          bracket: null,
+          ledger: row.unpriced === true ? null : row.ledgerSize,
+          narrowed: false
+        }
+      ],
+      note: `h${deepest.horizon} — no ply was taken. This is the PREMISE the bracket was proved under, and the \`them\` layer is a claim set, never a move we know they will play.`,
+      derived: true,
+      truncated: false,
+      premise: true
+    };
   }
   function whyItLost(selected, foil) {
     const loser = selected.rank > foil.rank ? selected : foil;

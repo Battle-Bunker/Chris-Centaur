@@ -677,7 +677,14 @@ function movesetOps(
         // draws the bracket as a BAND with `est` as its marked point rather
         // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
         row.key === foil?.key,
-        priced ? row.est : null
+        priced ? row.est : null,
+        // THE CEILING, AS THE ROW'S OWN NUMBER. The band used to derive its
+        // right-hand end as `lo + ⌈w⌉`, which mixes this row's floor with the
+        // DEEPEST reading's width — equal today, and different on the first
+        // row that deepens (the same family as D6). It also could not draw a
+        // DEAD floor at all: `−∞ + ∞` is `NaN`. The endpoint the band is a
+        // band of is the endpoint the row carries.
+        priced ? row.hi : null
       )
     );
   }
@@ -721,6 +728,24 @@ function movesetOps(
           )
     );
   }
+
+  // ── THE EXPLANATION SURFACE ───────────────────────────────────────────
+  //
+  // Four ops, in the order an operator needs them: what separates this row
+  // from the one below it, how sure the bot is that the separation is real,
+  // what the bound is open on, and what world the number was read in. All
+  // four are reads of the rows already in this list; none of them asks the
+  // bank a question, so no node count moves and no decision changes.
+  const contrast = contrastOf(frame, selected, foil);
+  if (contrast !== null) ops.push(call('panel.contrast', contrast));
+
+  const unsure = unsureOf(selected, foil);
+  if (unsure !== null) ops.push(call('panel.unsure', unsure));
+
+  ops.push(call('panel.threats', threatsOf(rows, selected ?? leader, loud)));
+
+  const line = lineOf(selected ?? leader, loud);
+  if (line !== null) ops.push(call('panel.line', line));
 
   return ops;
 }
@@ -802,6 +827,418 @@ export function dominanceClause(dominance: DominanceCondition | null): string {
     case 'indifferent':
       return 'my proof rungs are silent here — your call beats my tie-break';
   }
+}
+
+// ---------------------------------------------------------------------------
+// THE EXPLANATION SURFACE (15-EXPLANATION §3)
+//
+// Four readings, all of them derived from fields the frame ALREADY publishes,
+// none of them a new number. The rule every one of them obeys — and the reason
+// the round exists — is that an explanation may not be more confident than the
+// bound it explains. `est` is not a probability, a bracket is not a
+// distribution, and a margin between two floors that are equal is not a
+// reason. Each reading therefore has a state for "I cannot say", and draws it.
+// ---------------------------------------------------------------------------
+
+/** `better()`'s ladder, read backwards off the LOSER's own condition. The
+ *  winner's reason is not the loser's reason, and A5 is the bug that comes of
+ *  reading the wrong one. */
+export type ContrastRung = 'witness' | 'basis' | 'floor' | 'est' | 'tie' | 'unsealed';
+
+const RUNG_OF: Readonly<Record<DominanceCondition['kind'], ContrastRung>> = {
+  leader: 'floor',
+  'refuted-by-witness': 'witness',
+  'incomparable-basis': 'basis',
+  contingent: 'floor',
+  dominated: 'floor',
+  'advisory-only': 'est',
+  indifferent: 'tie',
+};
+
+/** What that rung is worth as authority — the sentence completes "the order
+ *  between these two is decided …". The `tie` wording is `02 §3.5`'s
+ *  authority-collapse ask, verbatim, because this is where operator attention
+ *  is worth the most and it is the one place the lens asks for it. */
+const RUNG_SAYS: Readonly<Record<ContrastRung, string>> = {
+  witness: 'by a banked witness that refutes it',
+  basis: 'by nothing — the two are not comparable',
+  floor: 'on the proved floor',
+  est: 'on the advisory channel — the proved floors are equal',
+  tie: 'by my tie-break — my proof rungs are silent here',
+  unsealed: 'by nothing yet — the barrier has not run',
+};
+
+export interface ContrastLine {
+  /** The member that carries the order, when ONE can be named. */
+  readonly decider: UnitKey | null;
+  readonly mine: CellIndex | null;
+  readonly theirs: CellIndex | null;
+  /** How the decider was found — or why it could not be. */
+  readonly attribution: 'sole' | 'marginal' | 'unattributed' | 'identical';
+  readonly differing: number;
+  readonly agreed: number;
+  readonly rung: ContrastRung;
+  readonly says: string;
+  /** `selected.lo − foil.lo`, or null where either row carries no price. */
+  readonly margin: number | null;
+  readonly foilRank: number;
+}
+
+/**
+ * THE ONE MEMBER THAT DECIDES THE ORDER.
+ *
+ * Two movesets over one cluster differ in a set of members. When that set has
+ * exactly one element, that element IS the whole difference and no attribution
+ * is needed — which is the common case on a cluster of ≤3 (98.9% of turns,
+ * `search/02-DECOMPOSITION` §1). When it has more, the honest attribution is
+ * the two rows' own per-member marginals, and those exist only where a
+ * breakdown has been drilled: with none in the frame the strip says how many
+ * members differ and that nothing has priced them, rather than picking one.
+ *
+ * NOTHING HERE PRICES ANYTHING. Every input is a field on the two rows.
+ */
+export function contrastOf(
+  frame: LensFrame,
+  selected: Moveset | null,
+  foil: Moveset | null
+): ContrastLine | null {
+  if (selected === null || foil === null) return null;
+  const theirsOf = new Map(foil.moves.map((m) => [m.unit, m.to]));
+  const differing = selected.moves.filter(
+    (m) => theirsOf.has(m.unit) && theirsOf.get(m.unit) !== m.to
+  );
+  const agreed = selected.moves.length - differing.length;
+  // The rung is the LOSER's own condition. `whyItLost` reads the same field for
+  // the same reason and they must not disagree.
+  const loser = selected.rank > foil.rank ? selected : foil;
+  const rung: ContrastRung = loser.dominance === null ? 'unsealed' : RUNG_OF[loser.dominance.kind];
+  const margin =
+    selected.unpriced === true || foil.unpriced === true
+      ? null
+      : Number((selected.lo - foil.lo).toFixed(2));
+  const base = { differing: differing.length, agreed, rung, says: RUNG_SAYS[rung], margin, foilRank: foil.rank };
+
+  if (differing.length === 0) {
+    return { ...base, decider: null, mine: null, theirs: null, attribution: 'identical' };
+  }
+  if (differing.length === 1) {
+    const only = differing[0] as { unit: UnitKey; to: CellIndex };
+    return {
+      ...base,
+      decider: only.unit,
+      mine: only.to,
+      theirs: theirsOf.get(only.unit) ?? null,
+      attribution: 'sole',
+    };
+  }
+  // MORE THAN ONE MEMBER MOVED, so which of them carries the order is a
+  // question about contributions — and the only contributions this system has
+  // are the two rows' marginals, which exist when somebody has drilled both.
+  // Absent them the strip counts and stops: naming one of three on a hunch is
+  // the plausible wrong number this whole lens is built to make unrepresentable.
+  let best: { unit: UnitKey; to: CellIndex; delta: number } | null = null;
+  for (const move of differing) {
+    const delta = memberDelta(frame, foil, selected, move.unit);
+    if (delta === null) continue;
+    if (best === null || Math.abs(delta) > Math.abs(best.delta)) {
+      best = { unit: move.unit, to: move.to, delta };
+    }
+  }
+  if (best === null) {
+    return { ...base, decider: null, mine: null, theirs: null, attribution: 'unattributed' };
+  }
+  return {
+    ...base,
+    decider: best.unit,
+    mine: best.to,
+    theirs: theirsOf.get(best.unit) ?? null,
+    attribution: 'marginal',
+  };
+}
+
+export interface UnsureLine {
+  readonly headline: string;
+  readonly points: ReadonlyArray<string>;
+  /** Null where the question cannot be asked — an unpriced list, or no foil. */
+  readonly proved: boolean | null;
+  readonly margin: number | null;
+  readonly width: number | null;
+}
+
+/**
+ * WHAT THE BOT IS UNSURE ABOUT — the margin read against the width.
+ *
+ * The rail already draws the width (`⌈w⌉`, and the band). The question an
+ * operator is actually asking before they overrule is whether the ORDER is
+ * proved, and that is the gap to the runner-up compared with how wide each
+ * row's own bracket is. Both numbers are on screen today and never in one
+ * sentence, so a table whose top two floors are EQUAL and whose brackets are
+ * seventy points wide reads exactly like one that has proved its ranking.
+ *
+ * The headline leads with the negative reading wherever there is one. That is
+ * deliberate: an explanation that reads as confidence raises reliance on wrong
+ * advice, and the failure this line exists to prevent is the operator locking
+ * a coin-flip because the rail looked certain.
+ */
+export function unsureOf(leader: Moveset | null, foil: Moveset | null): UnsureLine | null {
+  if (leader === null) return null;
+  const points: string[] = [];
+  if (leader.unpriced === true) {
+    return {
+      headline: 'no row here carries a price',
+      points: ['`conform` returns a plan, not a bound — these rows are assignments, and every number on them is absent rather than zero'],
+      proved: null,
+      margin: null,
+      width: null,
+    };
+  }
+  const width = Number.isFinite(leader.hi) && Number.isFinite(leader.lo)
+    ? Number((leader.hi - leader.lo).toFixed(2))
+    : null;
+  const margin =
+    foil === null || foil.unpriced === true ? null : Number((leader.lo - foil.lo).toFixed(2));
+
+  points.push(
+    leader.exact
+      ? 'exact — the ledger is empty and there is nothing left to learn'
+      : `${leader.ledgerSize} ledger ${leader.ledgerSize === 1 ? 'entry' : 'entries'} still open`
+  );
+  points.push(
+    leader.channel === 'est'
+      ? 'adjudicating on `est`, the channel that never proves anything'
+      : 'adjudicating on the proved floor'
+  );
+  if (leader.vacuity === 'material-dead') {
+    points.push('every world this row was priced in reads dead on material');
+  } else if (leader.vacuity === 'cloud-contingent-dead') {
+    points.push('the floor is dead only because of what a claim cloud could do');
+  }
+
+  // THE CLIFF IS NOT A LOW NUMBER. `DEAD` is the lattice bottom
+  // (`evaluate/bound.ts`), so a floor of −∞ says the worst world is our
+  // elimination — a different statement from "worth very little", and the one
+  // an operator must never read as the other.
+  if (!Number.isFinite(leader.lo)) {
+    return {
+      headline: 'the floor is ON THE CLIFF — the worst world here is our elimination',
+      points,
+      proved: false,
+      margin,
+      width,
+    };
+  }
+  if (!Number.isFinite(leader.hi)) {
+    return {
+      headline: 'nothing is proved above the floor — the ceiling is open',
+      points,
+      proved: false,
+      margin,
+      width,
+    };
+  }
+  if (margin === null) {
+    return {
+      headline: 'no runner-up on this list to measure the order against',
+      points,
+      proved: null,
+      margin,
+      width,
+    };
+  }
+  const proved = width !== null && margin > width;
+  const headline = proved
+    ? `the order is proved — the gap to #${foil?.rank ?? 2} (${margin}) is wider than this bracket (${width})`
+    : margin === 0
+      ? `the order is NOT proved — this row and #${foil?.rank ?? 2} share one floor`
+      : `the order is NOT proved — the gap to #${foil?.rank ?? 2} is ${margin} and this bracket is ${width} wide`;
+  return { headline, points, proved, margin, width };
+}
+
+export interface ThreatItem {
+  /** Already named for a human: the residue sentinel is not shown as `#-1`. */
+  readonly unit: string;
+  readonly atStake: number | null;
+  readonly rows: number;
+  readonly why: string;
+}
+
+export interface ThreatMap {
+  readonly items: ReadonlyArray<ThreatItem>;
+  /** The loud reading as a sentence, or null where none was measured. */
+  readonly loud: string | null;
+  /** ALWAYS drawn: what this build cannot say about the other side. */
+  readonly absence: string;
+}
+
+/**
+ * THE THREAT RANKING — who the bound is open on, ranked by what they hold.
+ *
+ * Three published sources, and no fourth:
+ *
+ *  · every losing row's `contingent.onUnits` with its own `atStake`, which is
+ *    the only per-unit-set number in the system that means "what turns on
+ *    this";
+ *  · the leader's `citedUnits` — the ledger entries its bracket is still open
+ *    on, already translated to WIRE keys by `rowOf`;
+ *  · the leader's `LoudReading`: how many of the enemy's replies could touch
+ *    our staged footprint at all.
+ *
+ * WHAT IT MAY NOT SAY IS WHICH CELL. `depth.line` is empty at h1 on every
+ * reading this bot has taken, and `Witness.replies` is a `Map` that
+ * `lensStringify` writes as `{}`, so no enemy MOVE survives to the browser.
+ * The absence line says that rather than leaving the reader to infer that the
+ * enemy has no plan.
+ */
+export function threatsOf(
+  rows: ReadonlyArray<Moveset>,
+  leader: Moveset | null,
+  loud: LoudReading | null
+): ThreatMap {
+  const held = new Map<string, { atStake: number | null; rows: number; why: string }>();
+  const bump = (key: UnitKey, atStake: number | null, why: string): void => {
+    const name = namedUnit(key);
+    const seen = held.get(name);
+    if (seen === undefined) {
+      held.set(name, { atStake, rows: 1, why });
+      return;
+    }
+    held.set(name, {
+      atStake: atStake === null ? seen.atStake : Math.max(seen.atStake ?? 0, atStake),
+      rows: seen.rows + 1,
+      why: seen.atStake === null && atStake !== null ? why : seen.why,
+    });
+  };
+  for (const row of rows) {
+    if (row.dominance?.kind !== 'contingent') continue;
+    for (const unit of row.dominance.onUnits) {
+      bump(unit, round1(row.dominance.atStake), `would carry #${row.rank} if it resolves against us`);
+    }
+  }
+  for (const unit of leader?.citedUnits ?? []) {
+    bump(unit, null, "the leader's floor is open on it");
+  }
+  const items = [...held.entries()]
+    .map(([unit, v]) => ({ unit, atStake: v.atStake, rows: v.rows, why: v.why }))
+    // A number outranks no number; among equals, the unit more rows name.
+    .sort(
+      (a, b) =>
+        (b.atStake ?? -Infinity) - (a.atStake ?? -Infinity) ||
+        b.rows - a.rows ||
+        (a.unit < b.unit ? -1 : 1)
+    );
+
+  const loudLine =
+    loud === null
+      ? null
+      : loud.q === 0
+        ? `${loud.product} replies are held and NONE of them touches our staged footprint — ` +
+          'there is nothing a ceiling ply could enumerate'
+        : `${loud.q} of ${loud.product} held replies touch our staged footprint` +
+          `${loud.b3 ? ' · the gate closed this bracket' : ''}` +
+          `${loud.covers ? '' : ' · the gate did not reach every held unit'}`;
+
+  const absence =
+    items.length === 0 && loudLine === null
+      ? 'nothing is named — this decision’s bounds cite no held unit at all'
+      : 'no enemy CELL is stored: every reading here is h1, so the line has no `theirs` ply ' +
+        'and the witness map does not survive the wire';
+  return { items, loud: loudLine, absence };
+}
+
+export interface LinePly {
+  readonly side: 'ours' | 'theirs' | 'leaf';
+  readonly label: string;
+  readonly what: string;
+  readonly bracket: string | null;
+  readonly ledger: number | null;
+  readonly narrowed: boolean;
+}
+
+export interface LineStrip {
+  readonly plies: ReadonlyArray<LinePly>;
+  readonly note: string;
+  readonly derived: boolean;
+  readonly truncated: boolean;
+  /** True where the strip is the row's PREMISE rather than a proved line. */
+  readonly premise: boolean;
+}
+
+const BRACKET = (lo: number, hi: number): string =>
+  `${Number.isFinite(lo) ? lo.toFixed(1) : '−∞'}…${Number.isFinite(hi) ? hi.toFixed(1) : '∞'}`;
+
+/**
+ * THE SETTLEMENT THE BOUND WAS READ ON (06 §2.3, one strip rather than a panel).
+ *
+ * Where a refiner has produced `depth.line`, this is that line: one row per
+ * LAYER, `us` and `them` alternating, the bracket at each node and the
+ * divergence count falling down the column. Where it has not — which is every
+ * reading this bot has ever taken — the row still has a premise, and the
+ * premise is a real object: our cluster's moves, then every uncontrolled unit
+ * held as a claim cloud, then one settlement, then the evaluator.
+ *
+ * The strip draws that premise and SAYS IT IS ONE. A `them` layer synthesised
+ * here is a claim SET and never a move: it names the units the bracket is open
+ * on and how many replies they hold, and it names no cell, because no cell
+ * exists to name. Rule L-1 — a row with a depth number and no line is a number
+ * the operator cannot check — is answered by making the h1 case checkable
+ * rather than by drawing a line that was never walked.
+ */
+export function lineOf(row: Moveset | null, loud: LoudReading | null): LineStrip | null {
+  if (row === null) return null;
+  const { line, derived, lineTruncated, deepest, terminal } = row.depth;
+  if (line.length > 0) {
+    return {
+      plies: line.map((s) => ({
+        side: s.side,
+        label: `ply ${s.ply} ${s.side === 'ours' ? 'us' : 'them'}`,
+        what: s.moves.map((m) => `${m.unit}→${m.to}`).join(' · '),
+        bracket: BRACKET(s.lo, s.hi),
+        ledger: s.ledgerSize,
+        narrowed: s.narrowed,
+      })),
+      note: derived ? 'derived from h1 by backup' : 'hull, not derived — the deeper reading is not a refinement of the shallow one',
+      derived,
+      truncated: lineTruncated,
+      premise: false,
+    };
+  }
+  const cited = row.citedUnits.map(namedUnit);
+  const theirs =
+    cited.length === 0
+      ? 'every uncontrolled unit held as a claim cloud — none of them cited'
+      : `${cited.join(', ')} held as claim clouds` +
+        (loud === null ? '' : ` — ${loud.product} replies, ${loud.q} of them touching us`);
+  return {
+    plies: [
+      {
+        side: 'ours',
+        label: 'ply 1 us',
+        what: row.moves.map((m) => `${m.unit}→${m.to}`).join(' · '),
+        bracket: null,
+        ledger: null,
+        narrowed: false,
+      },
+      { side: 'theirs', label: 'ply 1 them', what: theirs, bracket: null, ledger: null, narrowed: false },
+      {
+        side: 'leaf',
+        label: 'leaf',
+        what:
+          row.unpriced === true
+            ? 'unpriced — this row is an assignment, not a reading'
+            : `${BRACKET(row.lo, row.hi)} · ${row.vacuity}` +
+              `${terminal === 'none' ? ' · not terminal' : ` · ${terminal}`}`,
+        bracket: null,
+        ledger: row.unpriced === true ? null : row.ledgerSize,
+        narrowed: false,
+      },
+    ],
+    note:
+      `h${deepest.horizon} — no ply was taken. This is the PREMISE the bracket was proved under, ` +
+      'and the `them` layer is a claim set, never a move we know they will play.',
+    derived: true,
+    truncated: false,
+    premise: true,
+  };
 }
 
 /**

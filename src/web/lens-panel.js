@@ -92,6 +92,23 @@ const LensPanel = (() => {
   }
 
   /**
+   * A PREFERENCE, or its default. `Prefs` is the one store (12-PREFERENCES
+   * §2) and it is a page global; this module is also `require`d by the jest
+   * suites, where there is no window at all, so the read is guarded and the
+   * default is what a headless reader gets. A preference decides only what is
+   * DRAWN — never what the transcript says, and never what any of it means.
+   */
+  function pref(id, def) {
+    try {
+      const store = typeof window !== 'undefined' ? window.Prefs : undefined;
+      const value = store && typeof store.get === 'function' ? store.get(id) : undefined;
+      return value === undefined ? def : value;
+    } catch (e) {
+      return def;
+    }
+  }
+
+  /**
    * A BRACKET AS A BAND, not as two numbers. Roughly one reader in three
    * inverts an interval printed as text even with a correct key beside it, and
    * `-51.6 ⌈93.0⌉` asks them to do the subtraction as well. The band is drawn
@@ -102,40 +119,67 @@ const LensPanel = (() => {
    *   · the TICK is `est`, the estimate, which never adjudicates and is drawn
    *     as a mark inside the span rather than as a third number beside it;
    *   · an open end (`hi = +∞`) draws an ARROWHEAD, never a bar: nothing is
-   *     proved above, which is a reading and not a big number.
+   *     proved above, which is a reading and not a big number;
+   *   · a DEAD floor (`lo = −∞`) draws a HATCHED CLIFF at the scale's left
+   *     edge, because `DEAD` is the lattice bottom (`evaluate/bound.ts`) and
+   *     not a small number — "the worst world here is our elimination" and
+   *     "worth very little" are two different statements and the band used to
+   *     draw them the same way;
+   *   · a 1 px HAIRLINE at the LEADER's floor, on every row, so
+   *     `this row's ceiling is below the leader's floor` — which is exactly
+   *     `refutedAt`'s arithmetic — is geometry the eye does rather than a
+   *     subtraction the reader does.
    *
    * The numbers stay in the cell beside it. The band is the fast read; the
    * text is the checkable one, and Law A wants both.
    */
-  function bandHTML(lo, width, est, scale) {
+  function bandHTML(lo, hi, est, scale, leaderLo) {
     if (typeof lo !== 'number' || Number.isNaN(lo) || !scale || scale.span <= 0) return '';
-    const hi = typeof width === 'number' && Number.isFinite(width) ? lo + width : Infinity;
     const pct = (v) => Math.max(0, Math.min(100, ((v - scale.lo) / scale.span) * 100));
-    const left = pct(lo);
-    const open = !Number.isFinite(hi);
+    const dead = lo === -Infinity;
+    const open = typeof hi !== 'number' || !Number.isFinite(hi);
+    const left = dead ? 0 : pct(lo);
     const right = open ? 100 : pct(hi);
     const tick =
       typeof est === 'number' && Number.isFinite(est)
         ? `<i class="lens-band-tick" style="left:${pct(est).toFixed(1)}%"></i>`
         : '';
+    const lead =
+      typeof leaderLo === 'number' && Number.isFinite(leaderLo)
+        ? `<i class="lens-band-lead" style="left:${pct(leaderLo).toFixed(1)}%"></i>`
+        : '';
+    const cliff = dead ? '<i class="lens-band-cliff"></i>' : '';
+    const label =
+      `worst ${dead ? 'DEAD' : num(lo, 1)}` +
+      `${typeof est === 'number' && Number.isFinite(est) ? `, expected ${num(est, 1)}` : ''}` +
+      `, best ${open ? 'nothing proved above' : num(hi, 1)}`;
     return (
-      `<span class="lens-band" role="img" aria-label="floor ${num(lo, 1)} to ${open ? 'open' : num(hi, 1)}">` +
+      `<span class="lens-band${dead ? ' lens-band-dead' : ''}" role="img" aria-label="${escapeHTML(label)}">` +
       `<i class="lens-band-span${open ? ' lens-band-open' : ''}" ` +
-      `style="left:${left.toFixed(1)}%;width:${Math.max(1.5, right - left).toFixed(1)}%"></i>${tick}</span>`
+      `style="left:${left.toFixed(1)}%;width:${Math.max(1.5, right - left).toFixed(1)}%"></i>` +
+      `${cliff}${tick}${lead}</span>`
     );
   }
 
-  /** One scale for the whole table: the widest finite reading in it. */
+  /**
+   * One scale for the whole table: the widest FINITE reading in it.
+   *
+   * A non-finite endpoint is skipped rather than folded in. It used to be
+   * folded in, and the consequence was worse than a wrong scale: one row whose
+   * floor is `DEAD` made `lo` `−Infinity`, the finiteness guard below then
+   * returned null, and EVERY BAND IN THE TABLE disappeared — silently, on
+   * exactly the turn the operator most needs to see the intervals.
+   */
   function bandScale(rows) {
     let lo = Infinity;
     let hi = -Infinity;
     for (const row of rows) {
       const args = ARGS(row);
       const a = args[2];
-      const w = args[3];
-      if (typeof a !== 'number' || Number.isNaN(a)) continue;
-      lo = Math.min(lo, a);
-      hi = Math.max(hi, a + (typeof w === 'number' && Number.isFinite(w) ? w : 0));
+      const b = args[14];
+      if (typeof a === 'number' && Number.isFinite(a)) lo = Math.min(lo, a);
+      if (typeof a === 'number' && Number.isFinite(a)) hi = Math.max(hi, a);
+      if (typeof b === 'number' && Number.isFinite(b)) hi = Math.max(hi, b);
     }
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
     const pad = Math.max(0.5, (hi - lo) * 0.08);
@@ -294,6 +338,132 @@ const LensPanel = (() => {
       : `no conditional was answered — ${of}`;
   }
 
+  // ─────────────────────── THE EXPLANATION SURFACE ───────────────────────
+  //
+  // Four readings the view-model computed off the rows already in the list.
+  // This file holds no lens logic, so nothing below decides anything: it maps
+  // a structured op to markup, and every sentence in it was written by
+  // `src/lens/view/index.ts` where the frame is.
+
+  /**
+   * WHAT SEPARATES RANK 1 FROM RANK 2, in one line, naming the ONE member that
+   * carries the order and the rung `better()` actually decided on.
+   *
+   * The measured before-state is `◇ foil #2 · #2 unsealed — the barrier has
+   * not run · at h1`: a runner-up with no member, no margin and no reason. The
+   * strip's hardest case is the one the harness produces every turn — two rows
+   * with the SAME floor, ordered by a salted tie-break — and the line for it
+   * says so rather than printing `margin 0.0`, which reads as a reason.
+   */
+  function contrastHTML(transcript) {
+    const call = firstOf(transcript, 'panel.contrast');
+    if (!call) return '';
+    const c = ARGS(call)[0];
+    if (!c) return '';
+    const head =
+      c.attribution === 'sole'
+        ? `<b>${escapeHTML(c.decider)}</b> decides it: ${escapeHTML(c.mine)} against ` +
+          `${escapeHTML(c.theirs)}${c.agreed > 0 ? ` — the other ${c.agreed} agree` : ''}.`
+        : c.attribution === 'marginal'
+          ? `<b>${escapeHTML(c.decider)}</b> carries most of it: ${escapeHTML(c.mine)} against ` +
+            `${escapeHTML(c.theirs)}, of ${escapeHTML(c.differing)} members that differ.`
+          : c.attribution === 'unattributed'
+            ? `${escapeHTML(c.differing)} members differ and nothing has priced them — ` +
+              `<kbd>B</kbd> prices this row and names which one carries the order.`
+            : 'the two rows assign the same moves.';
+    // THE RUNG IS THE AUTHORITY, AND IT IS NOT THE MARGIN. A tie-break and a
+    // proved floor render as different sentences before either renders a
+    // number, because that difference is the whole of what an operator needs
+    // in order to know whether their own call is worth more than the bot's.
+    const tone = c.rung === 'tie' || c.rung === 'unsealed' || c.rung === 'est' ? ' lens-contrast-ask' : '';
+    // NEITHER THE WORD NOR THE NUMBER, where there is no number. `conform`
+    // returns a plan and not a price, so the gap between two conditional rows
+    // is a difference of two readings nobody took — and `lens-panel.test.ts`
+    // holds the whole panel to that, the word included.
+    const margin =
+      c.margin === null
+        ? 'neither row carries a price — there is no gap to measure'
+        : `${num(c.margin, 1)} on the proved floor`;
+    return (
+      `<div class="lens-contrast${tone}">${head}` +
+      `<span class="lens-contrast-rung">decided ${escapeHTML(c.says)}</span>` +
+      `<span class="lens-sub">vs #${escapeHTML(c.foilRank)} · ${escapeHTML(margin)}</span></div>`
+    );
+  }
+
+  /** HOW SURE — the margin read against the width, which are two numbers the
+   *  rail has always drawn and never compared. The headline leads with the
+   *  negative reading wherever there is one. */
+  function unsureHTML(transcript) {
+    const call = firstOf(transcript, 'panel.unsure');
+    if (!call) return '';
+    const u = ARGS(call)[0];
+    if (!u) return '';
+    const cls = u.proved === true ? ' lens-unsure-proved' : '';
+    const points = (u.points || [])
+      .map((p) => `<span class="lens-unsure-pt">${escapeHTML(p)}</span>`)
+      .join('');
+    return (
+      `<div class="lens-unsure${cls}"><b>${escapeHTML(u.headline)}</b>${points}</div>`
+    );
+  }
+
+  /** THE THREAT RANKING. Every entry is a wire key off the frame; the ranking
+   *  rule is on screen; and the one thing this build cannot say — which CELL
+   *  the reply plays — is said rather than omitted. */
+  function threatsHTML(transcript) {
+    if (!pref('explain.threats', true)) return '';
+    const call = firstOf(transcript, 'panel.threats');
+    if (!call) return '';
+    const t = ARGS(call)[0];
+    if (!t) return '';
+    const items = (t.items || [])
+      .slice(0, 4)
+      .map(
+        (i) =>
+          `<div class="lens-threat"><span class="lens-threat-u">${escapeHTML(i.unit)}</span>` +
+          `<span class="lens-threat-at">${i.atStake == null ? '—' : num(i.atStake, 1)}</span>` +
+          `<span class="lens-threat-why">${escapeHTML(i.why)}</span></div>`
+      )
+      .join('');
+    return (
+      `<div class="lens-threats"><div class="lens-threats-head">threats · what the bounds are open on` +
+      `<span class="lens-sub">ranked by what a row says is at stake if it resolves against us</span></div>` +
+      `<div class="lens-threats-list">${items}</div>` +
+      (t.loud ? `<div class="lens-threat-loud">${escapeHTML(t.loud)}</div>` : '') +
+      `<div class="lens-threat-absence">${escapeHTML(t.absence)}</div></div>`
+    );
+  }
+
+  /** THE SETTLEMENT THE BOUND WAS READ ON. On a build where nothing deepens
+   *  this is the row's PREMISE and says so; when a refiner lands it is the
+   *  line, in the same strip, with no other change. */
+  function lineHTML(transcript) {
+    if (!pref('explain.line', true)) return '';
+    const call = firstOf(transcript, 'panel.line');
+    if (!call) return '';
+    const l = ARGS(call)[0];
+    if (!l) return '';
+    const plies = (l.plies || [])
+      .map(
+        (p) =>
+          `<div class="lens-ply lens-ply-${escapeHTML(p.side)}">` +
+          `<span class="lens-ply-side">${escapeHTML(p.label)}</span>` +
+          `<span class="lens-ply-what">${escapeHTML(p.what)}</span>` +
+          `${p.bracket ? `<span class="lens-ply-br">${escapeHTML(p.bracket)}</span>` : ''}` +
+          `${p.ledger == null ? '' : `<span class="lens-ply-br">${escapeHTML(p.ledger)} open</span>`}` +
+          `</div>`
+      )
+      .join('');
+    return (
+      `<div class="lens-line"><div class="lens-threats-head">` +
+      `line · ${l.premise ? 'the settlement this bracket was read on' : 'the proved line'}</div>` +
+      plies +
+      `${l.truncated ? '<div class="lens-sub">the line is truncated at the ply cap</div>' : ''}` +
+      `<div class="lens-line-note">${escapeHTML(l.note)}</div></div>`
+    );
+  }
+
   function movesetsHTML(transcript) {
     const empty = firstOf(transcript, 'panel.movesets.empty');
     if (empty) return `<div class="lens-empty">${escapeHTML(ARGS(empty)[0])}</div>`;
@@ -304,6 +474,16 @@ const LensPanel = (() => {
     const rowCalls = allOf(transcript, 'panel.movesets.row');
     const rowCount = rowCalls.length;
     const scale = bandScale(rowCalls);
+    // THE LEADER'S FLOOR, as the table's own reference mark. Rank 1 is the row
+    // every other row is being measured against, so its floor is the one line
+    // on the band that means the same thing on every row of the table.
+    const leader = rowCalls.reduce((best, call) => {
+      const a = ARGS(call);
+      const lo = a[2];
+      if (typeof lo !== 'number' || !Number.isFinite(lo)) return best;
+      return best === null || a[0] < best.rank ? { rank: a[0], lo } : best;
+    }, null);
+    const leaderLo = leader === null ? null : leader.lo;
 
     // WHAT SEPARATES THIS ROW FROM THE ONE BEING READ.
     //
@@ -387,6 +567,7 @@ const LensPanel = (() => {
           trail,
           isFoil,
           est,
+          ceiling,
         ] = ARGS(call);
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound: struck through, kept, never dropped.
@@ -423,7 +604,7 @@ const LensPanel = (() => {
           // they are absent (Law A, F7).
           `<td>${num(aggregate, 1)}${
             width == null ? '' : ` <span class="lens-width">⌈${num(width, 1)}⌉</span>`
-          }${bandHTML(aggregate, width, est, scale)}</td>` +
+          }${bandHTML(aggregate, ceiling, est, scale, leaderLo)}</td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
           // THE `unless` CELL — what this moveset is betting on, per row. It is
@@ -484,8 +665,18 @@ const LensPanel = (() => {
       // into a fact the operator can check (10 §4 O1).
       `<div class="lens-list-source">${sourceLine(source, retained, rowCount, truncated)}</div>` +
       `<table class="lens-table">${rows}</table>` +
+      // L2, IMMEDIATELY UNDER THE TWO CARDS: what separates them, and whether
+      // the separation is proved. The two questions an operator has to answer
+      // before they can either trust the ranking or overrule it, in the two
+      // lines nearest the rows they are about.
+      contrastHTML(transcript) +
       (fixed ? `<div class="lens-fixed-strip">${fixed}</div>` : '') +
       foil +
+      unsureHTML(transcript) +
+      // L3, and preference-gated for the operator who wants the rail shorter:
+      // who the bound is open on, and what world it was read in.
+      threatsHTML(transcript) +
+      lineHTML(transcript) +
       // THE LEGEND, UNDER THE TABLE IT GLOSSES. Four tokens are on that table
       // with no gloss anywhere, and three of them mean something else in the
       // rest of the codebase, so it stays. But it is L4 — "needed to check a
@@ -1002,6 +1193,12 @@ const LensPanel = (() => {
     focusHTML,
     candidatesHTML,
     movesetsHTML,
+    contrastHTML,
+    unsureHTML,
+    threatsHTML,
+    lineHTML,
+    bandHTML,
+    bandScale,
     breakdownHTML,
     provenanceHTML,
     laneHTML,

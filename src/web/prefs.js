@@ -128,6 +128,19 @@
       ],
     },
     {
+      group: 'explain',
+      title: 'The explanation',
+      note:
+        'The two L3 readings under the moveset table (15 §3). The L2 pair — what ' +
+        'separates rank 1 from rank 2, and whether that separation is proved — is ' +
+        'not a preference: an operator who can turn off the reason a ranking exists ' +
+        'is an operator who will overrule it without one.',
+      prefs: [
+        { id: 'explain.threats', label: 'The threat ranking', type: 'boolean', def: true },
+        { id: 'explain.line', label: 'The settlement the bound was read on', type: 'boolean', def: true },
+      ],
+    },
+    {
       group: 'board',
       title: 'The board',
       note: 'What is drawn at rest, and how large.',
