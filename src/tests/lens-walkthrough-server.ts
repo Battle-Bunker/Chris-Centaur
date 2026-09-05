@@ -40,6 +40,23 @@
  *   --latency-game=300       centaur ↔ game server: the turn arrives late
  *   --turn-timeout=500       give the harness a real turn deadline
  *
+ * OR, INSTEAD OF FIVE NUMBERS, ONE NAME. `src/tests/latency-profiles.ts`
+ * carries five wires worth designing against — `lan`, `regional`,
+ * `continental`, `mobile` (jitter tail, 2 % loss, 800 ms handover stalls) and
+ * `saturated` (bufferbloat: the queue climbs while the turn talks and drains
+ * between turns) — stated as round trips and split across the two hops:
+ *
+ *   --profile=mobile         both hops
+ *   --profile-down=saturated only the centaur → client hop (an old board)
+ *   --profile-up=continental only the client → centaur hop (a late press)
+ *   --profile-game=regional  the centaur ↔ game-server hop
+ *   --wire-seed=7            every loss and jitter draw is a function of this
+ *
+ * A profile is deterministic under its seed: two runs drop the same frames and
+ * jitter each by the same amount, which is what makes a measurement of what
+ * the operator was SHOWN against what was TRUE a measurement of the surface
+ * rather than of the weather.
+ *
  * Every one of them also reads from the environment (`LENS_LATENCY`,
  * `LENS_JITTER`, `LENS_LATENCY_GAME`, …). All default to zero, and at zero
  * nothing is installed at all.
@@ -77,6 +94,13 @@ import { NO_ORDER_MOVE } from '../lobster/contracts';
 import { buildDecisionRows } from '../lobster/telemetry';
 import { moveIndexToDirection } from '../firebase/translate';
 import { DEFAULT_KERNEL_OPTIONS, LobsterKernel } from '../lobster/kernel';
+import {
+  PROFILE_NAMES,
+  hopShapingOf,
+  profileOf,
+  shapingOf,
+  type LatencyProfile,
+} from './latency-profiles';
 import { rigFor } from '../lobster/candidates';
 // The SHIPPED digest, not a second opinion about one: it is what puts
 // `evalVersion` on the frame, and a harness that built its own would be the
@@ -117,6 +141,11 @@ interface Args {
   readonly lossRate: number;
   readonly lossAny: boolean;
   readonly gameLagMs: number;
+  /** Named wires, per hop. Null ⇒ that hop is whatever the numbers above say. */
+  readonly downProfile: LatencyProfile | null;
+  readonly upProfile: LatencyProfile | null;
+  readonly gameProfile: LatencyProfile | null;
+  readonly wireSeed: number;
   /** A real turn clock, in ms. `0` — the default — is the harness as it has
    *  always been: no `turnExpiryTime` on any envelope, so no countdown, and
    *  the widen banner's deadline-scaled timer stays on its 6 s cap. Setting
@@ -136,6 +165,7 @@ function args(): Args {
   // them, because the two are not symmetric to an operator: a slow DOWN hop
   // makes the board old, and a slow UP hop makes the press late.
   const both = read('latency', '0');
+  const bothProfile = read('profile', '');
   return {
     port: parseInt(read('port', '5055'), 10),
     scenario: read('scenario', 'mixed'),
@@ -150,7 +180,50 @@ function args(): Args {
     lossAny: read('loss-any', '') !== '',
     gameLagMs: parseInt(read('latency-game', '0'), 10) || 0,
     turnTimeoutMs: parseInt(read('turn-timeout', '0'), 10) || 0,
+    downProfile: named(read('profile-down', bothProfile)),
+    upProfile: named(read('profile-up', bothProfile)),
+    gameProfile: named(read('profile-game', '')),
+    wireSeed: parseInt(read('wire-seed', '1'), 10) || 1,
   };
+}
+
+/** A profile by name, or null for none. An unknown name is an error and not a
+ *  silent free wire: a run that was meant to be `mobile` and was `free` would
+ *  produce a table of numbers about nothing. */
+function named(name: string): LatencyProfile | null {
+  if (name === '' || name === 'none') return null;
+  const p = profileOf(name);
+  if (p === null) {
+    throw new Error(`unknown latency profile "${name}" — one of ${PROFILE_NAMES.join(', ')}`);
+  }
+  return p.rttMs === 0 && p.lossRate === 0 && p.rateBytesPerMs === 0 ? null : p;
+}
+
+/** mulberry32 again — the game hop's own draws, seeded like the wire's. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** One turn, as the harness itself saw it happen — the sim's oracle. */
+interface TurnTruth {
+  readonly turn: number;
+  /** When the game server produced the turn. */
+  readonly producedAt: number;
+  /** When the centaur learned of it, after the game hop. */
+  readonly arrivedAt: number;
+  /** The deadline the client is counting down to, in this same clock. */
+  readonly deadlineAt: number | null;
+  readonly gameLagMs: number;
+  decisionBeganAt: number | null;
+  decisionEndedAt: number | null;
+  firstEmissionAt: number | null;
 }
 
 /** An unref'd sleep, for the injected game-server hop. */
@@ -374,21 +447,54 @@ async function main(): Promise<void> {
   // ZERO IS THE DEFAULT AND ZERO IS THE SHIPPED WIRE: with no flags the
   // shaping is never installed, so `10-WALKTHROUGH.md`'s re-run compares
   // against the same transport it always did.
-  const shaped =
-    opts.downMs > 0 || opts.upMs > 0 || opts.jitterMs > 0 || opts.lossRate > 0;
-  if (shaped) {
-    ws.shapeTransport({
-      downMs: opts.downMs,
-      upMs: opts.upMs,
-      jitterMs: opts.jitterMs,
-      lossRate: opts.lossRate,
-      lossAny: opts.lossAny,
-    });
-  }
+  //
+  // A NAMED PROFILE WINS OVER THE NUMBERS, per hop, because that is the only
+  // reading of `--latency=120 --profile-down=mobile` that is not a surprise:
+  // the name is the more specific statement about that hop.
+  const byName = shapingOf(opts.downProfile, opts.upProfile, {
+    seed: opts.wireSeed,
+    lossAny: opts.lossAny,
+  });
+  const byNumber =
+    opts.downMs > 0 || opts.upMs > 0 || opts.jitterMs > 0 || opts.lossRate > 0
+      ? {
+          downMs: opts.downMs,
+          upMs: opts.upMs,
+          jitterMs: opts.jitterMs,
+          lossRate: opts.lossRate,
+          lossAny: opts.lossAny,
+          seed: opts.wireSeed,
+        }
+      : null;
+  const shape =
+    byName === null
+      ? byNumber
+      : {
+          ...(byNumber ?? {}),
+          ...byName,
+          down: opts.downProfile === null ? byName.down : hopShapingOf(opts.downProfile),
+          up: opts.upProfile === null ? byName.up : hopShapingOf(opts.upProfile),
+        };
+  const shaped = shape !== null;
+  if (shape !== null) ws.shapeTransport(shape);
   // The one outbound path, wired exactly as `src/index.ts` wires it — and
   // tapped on the way past, because the manager is also the only place the
   // turn's written events can be read back without a database.
   const captured = new Map<number, TurnEvent[]>();
+  // The turn's own stamps, in this process's clock — see `/dev/truth`.
+  const truth: TurnTruth[] = [];
+  // The centaur ↔ game-server hop, drawn from its own seeded stream so the
+  // three hops of a run are independently reproducible.
+  const gameRand = seededRandom((opts.wireSeed ^ 0x517cc1b7) >>> 0);
+  const gameHopMs = (): number => {
+    const p = opts.gameProfile;
+    if (p === null) return opts.gameLagMs;
+    // The game hop is ONE WAY (the turn travels to us and the decision goes
+    // back with the next board), so a round-trip profile is halved here too.
+    const jitter = p.jitterRttMs === 0 ? 0 : (gameRand() * 2 - 1) * (p.jitterRttMs / 2);
+    const stall = p.stallRate > 0 && gameRand() < p.stallRate ? p.stallMs : 0;
+    return Math.max(0, opts.gameLagMs + p.rttMs / 2 + jitter + stall);
+  };
   manager.onLensEvents((gameId, at, events, head) => {
     const held = captured.get(at) ?? [];
     held.push(...events);
@@ -419,7 +525,7 @@ async function main(): Promise<void> {
     // a late number.
     const producedAt = Date.now();
     ws.noteTurnOrigin(opts.gameId, producedAt);
-    await delay(opts.gameLagMs);
+    await delay(gameHopMs());
     const settlement: BoardSnapshot = { game: meta, turn, board };
     const ourIds = (board.snakes ?? [])
       .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
@@ -436,10 +542,28 @@ async function main(): Promise<void> {
     // (`arrival + timeout − delivery estimate`) with a locally-sourced arrival.
     // It is set BEFORE `updateBoard`, because that is what broadcasts the turn
     // and the deadline has to be on the envelope that carries it.
+    const arrivedAt = Date.now();
     if (opts.turnTimeoutMs > 0) {
-      manager.recordTurnArrival(opts.gameId, Date.now(), opts.turnTimeoutMs);
+      manager.recordTurnArrival(opts.gameId, arrivedAt, opts.turnTimeoutMs);
     }
     manager.updateBoard(opts.gameId, settlement);
+    // THE TRUTH, WRITTEN DOWN AS IT HAPPENS. `scripts/latency-sim.js` compares
+    // the ladder an operator was SHOWN against what was TRUE, and the truth
+    // about a turn is these five stamps plus the transport's own ledger. Every
+    // one of them is `Date.now()` in this process, which is the same clock the
+    // sim reads — the one advantage of a dev box with no wire on it.
+    truth.push({
+      turn,
+      producedAt,
+      arrivedAt,
+      // What `recordTurnArrival` computed, restated rather than re-derived by
+      // the reader: `arrival + timeout − the 50 ms delivery estimate`.
+      deadlineAt: opts.turnTimeoutMs > 0 ? arrivedAt + opts.turnTimeoutMs - 50 : null,
+      gameLagMs: arrivedAt - producedAt,
+      decisionBeganAt: null,
+      decisionEndedAt: null,
+      firstEmissionAt: null,
+    });
 
     const sub = makeSubstrate({
       gameId: opts.gameId,
@@ -491,6 +615,8 @@ async function main(): Promise<void> {
         unitKeyOf: (unitId: number): UnitKey | null => unitKeyOf(sub, unitId),
       });
 
+      const truthRow = truth[truth.length - 1];
+      truthRow.decisionBeganAt = Date.now();
       const t0 = clock.now();
       const stopAt = t0 + opts.nodes;
       const kin: KernelInput = {
@@ -517,6 +643,7 @@ async function main(): Promise<void> {
       for await (const rec of kernel.decide(kin)) {
         plan = rec.plan;
         emitted++;
+        if (truthRow.firstEmissionAt === null) truthRow.firstEmissionAt = Date.now();
         const cluster = port.partition().find((c) => c.members.length > 0);
         if (cluster !== undefined && !drilled) {
           const leader = port.movesets(cluster.id)[0];
@@ -567,6 +694,7 @@ async function main(): Promise<void> {
         }
       }
 
+      truthRow.decisionEndedAt = Date.now();
       lens?.end({ abandoned: true, stagedNothing: plan === null, counters: { nodes: clock.nodes } });
 
       if (plan !== null) {
@@ -734,6 +862,39 @@ async function main(): Promise<void> {
     res.json({ ok: true, wire: on ? shape : null });
   });
 
+  /**
+   * THE TRUTH, FOR AN INSTRUMENT THAT MEASURES THE SURFACE AGAINST IT.
+   *
+   * `/dev/truth` is the turn's five stamps; `/dev/wire-log` is every frame the
+   * shaping touched, with the hold it was given and the reason it was dropped.
+   * Between them a reader outside the browser can reconstruct, for any instant,
+   * how old the newest frame the client could possibly have was — which is the
+   * only honest way to ask whether the ladder the operator was shown was right.
+   *
+   * Neither route exists in production and neither is reachable while the wire
+   * is unshaped: the ledger is empty unless `shapeTransport` was called.
+   */
+  app.get('/dev/truth', (_req, res) => res.json({ turns: truth, now: Date.now() }));
+  app.get('/dev/wire-log', (req, res) => {
+    const since = Number(req.query.since ?? 0);
+    res.json({
+      rows: ws.transportLedger(Number.isFinite(since) ? since : 0),
+      now: Date.now(),
+    });
+  });
+  app.get('/dev/wire', (_req, res) =>
+    res.json({
+      shape: ws.transportShape(),
+      profiles: {
+        down: opts.downProfile,
+        up: opts.upProfile,
+        game: opts.gameProfile,
+      },
+      seed: opts.wireSeed,
+      turnTimeoutMs: opts.turnTimeoutMs,
+    })
+  );
+
   // The turn's events AS BROADCAST (settlement intact) — the live side of the
   // live-vs-replay diff, readable without a browser.
   app.get('/dev/events', (req, res) => {
@@ -747,8 +908,12 @@ async function main(): Promise<void> {
   await new Promise<void>((resolve) => httpServer.listen(opts.port, '127.0.0.1', resolve));
   console.log(`[walkthrough] listening on http://127.0.0.1:${opts.port}`);
   console.log(
-    shaped || opts.gameLagMs > 0 || opts.turnTimeoutMs > 0
-      ? `[walkthrough] wire: down ${opts.downMs}ms · up ${opts.upMs}ms · ` +
+    shaped || opts.gameLagMs > 0 || opts.gameProfile !== null || opts.turnTimeoutMs > 0
+      ? `[walkthrough] wire: ` +
+          `${opts.downProfile ? `down=${opts.downProfile.name} ` : ''}` +
+          `${opts.upProfile ? `up=${opts.upProfile.name} ` : ''}` +
+          `${opts.gameProfile ? `game=${opts.gameProfile.name} ` : ''}` +
+          `seed ${opts.wireSeed} · down ${opts.downMs}ms · up ${opts.upMs}ms · ` +
           `jitter ±${opts.jitterMs}ms · loss ${(opts.lossRate * 100).toFixed(0)}%` +
           `${opts.lossAny ? ' (any type)' : ''} · game hop ${opts.gameLagMs}ms` +
           `${opts.turnTimeoutMs > 0 ? ` · turn clock ${opts.turnTimeoutMs}ms` : ''}`
