@@ -159,6 +159,7 @@ var LensView = (() => {
     const arrival = payloadOf(anchor);
     let partition = [];
     const movesets = {};
+    const truncation = {};
     const breakdown = {};
     const priced = /* @__PURE__ */ new Map();
     const staged = {};
@@ -191,6 +192,9 @@ var LensView = (() => {
           const p = payloadOf(event);
           for (const lock of p.locks) {
             movesets[conditionalKey(p.cluster, lock.unit, lock.to)] = p.rows;
+            if (p.truncated !== null) {
+              truncation[conditionalKey(p.cluster, lock.unit, lock.to)] = p.truncated;
+            }
           }
           quantaSpent = Math.max(quantaSpent, quantaOf(p.rows));
           noteCandidates(priced, p.rows, true);
@@ -301,6 +305,7 @@ var LensView = (() => {
       partition,
       candidates: candidatesOf(priced),
       movesets,
+      movesetTruncation: truncation,
       breakdown,
       loud,
       staged,
@@ -499,7 +504,7 @@ var LensView = (() => {
   function reservoirListKey(cluster) {
     return String(cluster);
   }
-  var EMPTY_LIST = { rows: [], source: "none", retained: 0 };
+  var EMPTY_LIST = { rows: [], source: "none", retained: 0, truncated: null };
   function movesetListFor(frame, unit, to) {
     if (unit === null || to === null) return EMPTY_LIST;
     const cluster = clusterOf(frame, unit);
@@ -507,12 +512,18 @@ var LensView = (() => {
     const conditional = frame.movesets[movesetListKey(cluster.id, unit, to)];
     const retained = frame.movesets[reservoirListKey(cluster.id)] ?? [];
     if (conditional !== void 0) {
-      return { rows: conditional, source: "conditional", retained: retained.length };
+      return {
+        rows: conditional,
+        source: "conditional",
+        retained: retained.length,
+        truncated: frame.movesetTruncation?.[movesetListKey(cluster.id, unit, to)] ?? null
+      };
     }
     return {
       rows: retained.filter((row) => row.moves.some((m) => m.unit === unit && m.to === to)),
       source: "restricted",
-      retained: retained.length
+      retained: retained.length,
+      truncated: null
     };
   }
   function rowsFor(frame, unit, to) {
@@ -1094,7 +1105,12 @@ var LensView = (() => {
         // "there is nowhere for `]` to go" is a readable fact rather than a
         // suspicion (10 §4 O1).
         list.source,
-        list.retained
+        list.retained,
+        // WHERE THE RANKING STOPPED. A conditional list that the reserve cut
+        // short and a cluster with nothing else in it are the same table on
+        // screen unless the head says which one this is — the same distinction
+        // a typed refusal draws for a request nobody could serve (10 §4 O1).
+        list.truncated
       )
     ];
     for (const row of rows) {
@@ -1159,7 +1175,7 @@ var LensView = (() => {
   }
   function noFoilReason(list) {
     if (list.source === "conditional") {
-      return "no runner-up — the conditional list has one row";
+      return list.truncated === null ? "no runner-up — the conditional list has one row" : `no runner-up — ${list.truncated.detail}`;
     }
     return list.retained <= 1 ? "no runner-up — the reservoir retained one row for this cluster" : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
   }

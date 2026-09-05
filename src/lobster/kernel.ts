@@ -2878,6 +2878,10 @@ export class LobsterKernel implements Kernel {
         ...(run.wirePlan === null ? {} : { wirePlan: run.wirePlan }),
         retained: run.reservoir?.rows(cluster) ?? [],
         cursor: run.active.cursor,
+        // THE KERNEL'S OWN CLOCK. The ranking of the rest of the cluster is
+        // bounded by what it SPENDS, measured here, and not by an assumption
+        // about what a conform costs.
+        now: run.now,
       })
     } catch {
       answer = {
@@ -3076,6 +3080,10 @@ export class LobsterKernel implements Kernel {
         true,
       ),
       final: false,
+      // THE FIRST PAINT RANKS NOTHING, so there is nothing it cut short: the
+      // rows are the ones the search already priced, and phase 2 is where the
+      // rest of the cluster is ranked and where the reserve can stop it.
+      truncated: null,
     }
     this.emitLens(run, (at) => ({ kind: "conditional", at, ranking }))
     return { ok: true, ...ranking }

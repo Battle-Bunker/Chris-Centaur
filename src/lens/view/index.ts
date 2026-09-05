@@ -501,7 +501,12 @@ function movesetOps(
       // "there is nowhere for `]` to go" is a readable fact rather than a
       // suspicion (10 §4 O1).
       list.source,
-      list.retained
+      list.retained,
+      // WHERE THE RANKING STOPPED. A conditional list that the reserve cut
+      // short and a cluster with nothing else in it are the same table on
+      // screen unless the head says which one this is — the same distinction
+      // a typed refusal draws for a request nobody could serve (10 §4 O1).
+      list.truncated
     ),
   ];
 
@@ -590,7 +595,12 @@ function movesetOps(
  */
 function noFoilReason(list: MovesetList): string {
   if (list.source === 'conditional') {
-    return 'no runner-up — the conditional list has one row';
+    // The conditional list's own shortness has a cause and the head already
+    // knows it; the foil line is where it matters, because the foil is the
+    // thing the operator lost by it.
+    return list.truncated === null
+      ? 'no runner-up — the conditional list has one row'
+      : `no runner-up — ${list.truncated.detail}`;
   }
   return list.retained <= 1
     ? 'no runner-up — the reservoir retained one row for this cluster'
