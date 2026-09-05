@@ -1,4 +1,4 @@
-# The wide corpus — 100 games
+# The wide corpus — 200 games
 
 Recorded by `scripts/wide-corpus.sh`, deterministic mode (`--nodes`), so every number is a function of (build, scenario, seed, arm). Nothing is pooled across board classes; every row is one class on one arm.
 
@@ -6,107 +6,107 @@ Recorded by `scripts/wide-corpus.sh`, deterministic mode (`--nodes`), so every n
 
 | class | arm | runs | unit-turns | meals/100 | grown/meals | deaths | deaths/100 | by cause | survivors | crashed |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `asym` | material-only | 5 | 1943 | 17.55 | 1.00 | 19 | 0.978 | contest 17, edge 1, self 1 | 26 | 0 |
-| `asym` | mirror | 5 | 1994 | 20.71 | 1.00 | 17 | 0.853 | contest 15, edge 1, bodyBlock 1 | 28 | 0 |
-| `dense` | material-only | 5 | 2057 | 18.96 | 1.00 | 39 | 1.896 | contest 31, bodyBlock 7, edge 1 | 21 | 0 |
-| `dense` | mirror | 5 | 2285 | 19.96 | 1.00 | 39 | 1.707 | contest 25, bodyBlock 7, edge 4, self 2, wall 1 | 21 | 0 |
-| `long` | material-only | 5 | 2503 | 20.10 | 1.00 | 31 | 1.239 | contest 28, bodyBlock 2, wall 1 | 9 | 2 |
-| `long` | mirror | 5 | 3073 | 20.01 | 1.00 | 23 | 0.748 | contest 13, self 5, bodyBlock 4, wall 1 | 17 | 3 |
-| `mixed` | material-only | 5 | 1836 | 16.67 | 1.00 | 21 | 1.144 | contest 19, bodyBlock 1, wall 1 | 19 | 0 |
-| `mixed` | mirror | 5 | 2063 | 18.32 | 1.00 | 12 | 0.582 | contest 9, bodyBlock 2, self 1 | 28 | 0 |
-| `potion-rich` | material-only | 5 | 1756 | 13.90 | 1.00 | 19 | 1.082 | contest 16, edge 2, bodyBlock 1 | 21 | 0 |
-| `potion-rich` | mirror | 5 | 2043 | 15.96 | 0.99 | 14 | 0.685 | contest 14 | 26 | 0 |
-| `potions` | material-only | 5 | 1956 | 15.03 | 1.00 | 16 | 0.818 | contest 13, edge 2, wall 1 | 24 | 0 |
-| `potions` | mirror | 5 | 2046 | 18.96 | 1.00 | 11 | 0.538 | contest 10, bodyBlock 1 | 29 | 0 |
-| `snakes` | material-only | 5 | 1353 | 12.64 | 1.00 | 16 | 1.183 | bodyBlock 13, self 2, wall 1 | 14 | 0 |
-| `snakes` | mirror | 5 | 1557 | 16.89 | 1.00 | 14 | 0.899 | self 7, bodyBlock 6, contest 1 | 16 | 0 |
-| `sparse` | material-only | 5 | 1149 | 6.01 | 1.00 | 2 | 0.174 | contest 1, self 1 | 18 | 0 |
-| `sparse` | mirror | 5 | 1200 | 7.67 | 1.00 | 0 | 0.000 | — | 20 | 0 |
-| `sparse-lean` | material-only | 5 | 1134 | 6.00 | 0.94 | 3 | 0.265 | contest 2, self 1 | 17 | 0 |
-| `sparse-lean` | mirror | 5 | 1154 | 6.85 | 0.85 | 2 | 0.173 | contest 2 | 18 | 0 |
-| `wide` | material-only | 5 | 2557 | 13.38 | 1.00 | 35 | 1.369 | contest 21, bodyBlock 12, edge 2 | 25 | 0 |
-| `wide` | mirror | 5 | 2751 | 15.67 | 1.00 | 27 | 0.981 | contest 18, bodyBlock 7, edge 1, self 1 | 33 | 0 |
+| `asym` | material-only | 10 | 3666 | 16.91 | 1.00 | 37 | 1.009 | contest 31, edge 3, bodyBlock 2, self 1 | 53 | 0 |
+| `asym` | mirror | 10 | 4159 | 19.93 | 1.00 | 34 | 0.818 | contest 25, bodyBlock 4, edge 2, self 2, wall 1 | 56 | 0 |
+| `dense` | material-only | 10 | 4056 | 19.45 | 1.00 | 83 | 2.046 | contest 61, bodyBlock 14, edge 4, self 2, wall 2 | 37 | 0 |
+| `dense` | mirror | 10 | 4471 | 20.47 | 1.00 | 78 | 1.745 | contest 54, bodyBlock 17, edge 4, self 2, wall 1 | 42 | 0 |
+| `long` | material-only | 10 | 5025 | 19.96 | 1.00 | 62 | 1.234 | contest 53, bodyBlock 5, self 2, wall 1, edge 1 | 18 | 3 |
+| `long` | mirror | 10 | 6064 | 20.00 | 1.00 | 46 | 0.759 | contest 33, self 6, bodyBlock 5, wall 2 | 34 | 6 |
+| `mixed` | material-only | 10 | 3586 | 17.04 | 1.00 | 44 | 1.227 | contest 37, bodyBlock 3, self 2, wall 1, edge 1 | 36 | 0 |
+| `mixed` | mirror | 10 | 3967 | 18.45 | 1.00 | 26 | 0.655 | contest 23, bodyBlock 2, self 1 | 54 | 0 |
+| `potion-rich` | material-only | 10 | 3664 | 13.65 | 1.00 | 36 | 0.983 | contest 32, edge 2, bodyBlock 2 | 44 | 0 |
+| `potion-rich` | mirror | 10 | 3945 | 16.60 | 1.00 | 29 | 0.735 | contest 29 | 51 | 0 |
+| `potions` | material-only | 10 | 3786 | 16.56 | 1.00 | 36 | 0.951 | contest 23, edge 7, wall 2, self 2, bodyBlock 2 | 44 | 0 |
+| `potions` | mirror | 10 | 3941 | 19.16 | 1.00 | 26 | 0.660 | contest 22, bodyBlock 3, self 1 | 54 | 0 |
+| `snakes` | material-only | 10 | 2696 | 12.28 | 1.00 | 32 | 1.187 | bodyBlock 25, self 5, wall 1, contest 1 | 28 | 0 |
+| `snakes` | mirror | 10 | 3139 | 17.36 | 1.00 | 25 | 0.796 | bodyBlock 16, self 8, contest 1 | 35 | 0 |
+| `sparse` | material-only | 10 | 2349 | 5.75 | 1.00 | 2 | 0.085 | contest 1, self 1 | 38 | 0 |
+| `sparse` | mirror | 10 | 2400 | 6.88 | 1.00 | 0 | 0.000 | — | 40 | 0 |
+| `sparse-lean` | material-only | 10 | 2334 | 5.66 | 0.91 | 3 | 0.129 | contest 2, self 1 | 37 | 0 |
+| `sparse-lean` | mirror | 10 | 2354 | 6.46 | 0.82 | 3 | 0.127 | contest 2, self 1 | 37 | 0 |
+| `wide` | material-only | 10 | 4967 | 13.37 | 1.00 | 70 | 1.409 | contest 45, bodyBlock 20, edge 3, self 2 | 50 | 0 |
+| `wide` | mirror | 10 | 5406 | 15.82 | 1.00 | 58 | 1.073 | contest 40, bodyBlock 15, edge 1, self 1, wall 1 | 62 | 0 |
 
 ## Parking, immobility and reversals, per 100 unit-turns
 
 | class | arm | parked | longestPark (max) | immobile | diedImmobile | reversals | unjustified | seedKept |
 |---|---|---|---|---|---|---|---|---|
-| `asym` | material-only | 9.42% | 30 | 2.42% | 2 | 1.70% | 0.46% | 54.55% |
-| `asym` | mirror | 5.67% | 32 | 4.51% | 0 | 0.75% | 0.35% | 44.03% |
-| `dense` | material-only | 10.50% | 10 | 1.26% | 7 | 2.92% | 0.92% | 60.87% |
-| `dense` | mirror | 7.35% | 10 | 1.88% | 3 | 1.18% | 0.26% | 47.96% |
-| `long` | material-only | 15.50% | 16 | 3.24% | 6 | 2.32% | 0.84% | 61.41% |
-| `long` | mirror | 8.04% | 19 | 1.99% | 4 | 1.89% | 0.98% | 45.10% |
-| `mixed` | material-only | 16.23% | 16 | 4.30% | 5 | 1.80% | 0.71% | 62.47% |
-| `mixed` | mirror | 7.61% | 6 | 2.13% | 3 | 1.41% | 0.53% | 44.50% |
-| `potion-rich` | material-only | 14.52% | 33 | 6.78% | 3 | 4.27% | 1.03% | 65.09% |
-| `potion-rich` | mirror | 8.22% | 19 | 5.19% | 3 | 0.54% | 0.15% | 41.21% |
-| `potions` | material-only | 21.73% | 38 | 5.47% | 4 | 2.86% | 1.07% | 61.91% |
-| `potions` | mirror | 10.65% | 36 | 6.40% | 1 | 1.03% | 0.44% | 43.60% |
-| `snakes` | material-only | 0.00% | 0 | 0.00% | 0 | 0.07% | 0.00% | 79.08% |
-| `snakes` | mirror | 0.00% | 0 | 0.00% | 0 | 0.19% | 0.13% | 57.68% |
-| `sparse` | material-only | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 68.93% |
-| `sparse` | mirror | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 44.50% |
-| `sparse-lean` | material-only | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 69.93% |
-| `sparse-lean` | mirror | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 42.20% |
-| `wide` | material-only | 9.70% | 16 | 1.49% | 4 | 1.88% | 0.86% | 69.57% |
-| `wide` | mirror | 7.09% | 13 | 1.82% | 2 | 0.91% | 0.69% | 53.25% |
+| `asym` | material-only | 9.66% | 30 | 2.97% | 4 | 1.88% | 0.41% | 53.96% |
+| `asym` | mirror | 4.35% | 32 | 2.79% | 0 | 0.82% | 0.41% | 44.99% |
+| `dense` | material-only | 10.21% | 10 | 1.38% | 12 | 2.59% | 0.81% | 60.55% |
+| `dense` | mirror | 7.96% | 10 | 2.46% | 10 | 1.05% | 0.31% | 49.61% |
+| `long` | material-only | 15.60% | 20 | 3.52% | 10 | 2.61% | 1.00% | 60.84% |
+| `long` | mirror | 8.94% | 43 | 3.91% | 9 | 1.48% | 0.73% | 45.10% |
+| `mixed` | material-only | 16.15% | 18 | 4.43% | 8 | 2.12% | 0.78% | 61.57% |
+| `mixed` | mirror | 7.76% | 29 | 3.23% | 6 | 1.18% | 0.40% | 44.14% |
+| `potion-rich` | material-only | 16.59% | 37 | 7.15% | 5 | 3.33% | 0.87% | 64.03% |
+| `potion-rich` | mirror | 8.75% | 20 | 5.65% | 7 | 0.94% | 0.23% | 42.03% |
+| `potions` | material-only | 20.26% | 38 | 5.94% | 6 | 3.17% | 1.14% | 60.27% |
+| `potions` | mirror | 10.12% | 44 | 5.73% | 5 | 1.17% | 0.41% | 44.33% |
+| `snakes` | material-only | 0.00% | 0 | 0.00% | 0 | 0.07% | 0.00% | 77.71% |
+| `snakes` | mirror | 0.00% | 0 | 0.00% | 0 | 0.13% | 0.06% | 58.01% |
+| `sparse` | material-only | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 70.24% |
+| `sparse` | mirror | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 45.75% |
+| `sparse-lean` | material-only | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 70.74% |
+| `sparse-lean` | mirror | 0.00% | 0 | 0.00% | 0 | 0.00% | 0.00% | 44.39% |
+| `wide` | material-only | 10.81% | 38 | 2.15% | 9 | 1.75% | 0.77% | 69.18% |
+| `wide` | mirror | 6.71% | 13 | 1.63% | 4 | 0.89% | 0.59% | 52.79% |
 
 ## Entrapment instrument
 
 | class | arm | episodes | escaped | fatal | entrapped unit-turns | mean lead before a fatal |
 |---|---|---|---|---|---|---|
-| `asym` | material-only | 20 | 0 | 11 | 877 (45.14%) | 36.64 |
-| `asym` | mirror | 20 | 0 | 8 | 910 (45.64%) | 23.75 |
-| `dense` | material-only | 25 | 0 | 17 | 962 (46.77%) | 28.35 |
-| `dense` | mirror | 25 | 0 | 19 | 1072 (46.91%) | 37.47 |
-| `long` | material-only | 15 | 0 | 15 | 781 (31.20%) | 52.07 |
-| `long` | mirror | 15 | 0 | 11 | 1129 (36.74%) | 64.09 |
-| `mixed` | material-only | 15 | 0 | 9 | 700 (38.13%) | 37.78 |
-| `mixed` | mirror | 15 | 0 | 4 | 849 (41.15%) | 47.25 |
-| `potion-rich` | material-only | 30 | 16 | 8 | 614 (34.97%) | 20.38 |
-| `potion-rich` | mirror | 34 | 19 | 8 | 697 (34.12%) | 21.88 |
-| `potions` | material-only | 22 | 7 | 9 | 643 (32.87%) | 29.56 |
-| `potions` | mirror | 41 | 27 | 5 | 669 (32.70%) | 15.60 |
-| `snakes` | material-only | 81 | 63 | 16 | 200 (14.78%) | 2.31 |
-| `snakes` | mirror | 95 | 75 | 14 | 307 (19.72%) | 4.07 |
-| `sparse` | material-only | 34 | 29 | 2 | 74 (6.44%) | 2.50 |
-| `sparse` | mirror | 10 | 9 | 0 | 15 (1.25%) | — |
-| `sparse-lean` | material-only | 44 | 37 | 3 | 75 (6.61%) | 3.00 |
-| `sparse-lean` | mirror | 12 | 10 | 0 | 26 (2.25%) | — |
-| `wide` | material-only | 30 | 0 | 16 | 1491 (58.31%) | 40.69 |
-| `wide` | mirror | 30 | 0 | 12 | 1477 (53.69%) | 33.08 |
+| `asym` | material-only | 40 | 0 | 19 | 1669 (45.53%) | 33.00 |
+| `asym` | mirror | 40 | 0 | 17 | 1892 (45.49%) | 30.12 |
+| `dense` | material-only | 50 | 0 | 38 | 1893 (46.67%) | 30.87 |
+| `dense` | mirror | 50 | 0 | 36 | 2027 (45.34%) | 32.97 |
+| `long` | material-only | 30 | 0 | 29 | 1558 (31.00%) | 50.03 |
+| `long` | mirror | 30 | 0 | 22 | 2105 (34.71%) | 57.50 |
+| `mixed` | material-only | 30 | 0 | 20 | 1322 (36.87%) | 36.10 |
+| `mixed` | mirror | 30 | 0 | 11 | 1533 (38.64%) | 35.73 |
+| `potion-rich` | material-only | 63 | 34 | 17 | 1242 (33.90%) | 23.53 |
+| `potion-rich` | mirror | 76 | 46 | 16 | 1309 (33.18%) | 22.50 |
+| `potions` | material-only | 47 | 18 | 19 | 1270 (33.54%) | 32.16 |
+| `potions` | mirror | 80 | 52 | 11 | 1274 (32.33%) | 15.82 |
+| `snakes` | material-only | 158 | 124 | 32 | 391 (14.50%) | 2.66 |
+| `snakes` | mirror | 190 | 150 | 25 | 664 (21.15%) | 5.72 |
+| `sparse` | material-only | 81 | 75 | 2 | 159 (6.77%) | 2.50 |
+| `sparse` | mirror | 24 | 21 | 0 | 35 (1.46%) | — |
+| `sparse-lean` | material-only | 95 | 86 | 3 | 156 (6.68%) | 3.00 |
+| `sparse-lean` | mirror | 26 | 21 | 1 | 47 (2.00%) | 1.00 |
+| `wide` | material-only | 60 | 0 | 34 | 2763 (55.63%) | 35.38 |
+| `wide` | mirror | 60 | 0 | 29 | 2801 (51.81%) | 32.45 |
 
 ## Potions (classes that have any)
 
 | class | arm | pickups | profitable | reckless | profitable AND safe | tier ups | tier downs | died debuffed | died buffed |
 |---|---|---|---|---|---|---|---|---|---|
-| `potion-rich` | material-only | 29 | 8 | 27 (93.10%) | 1 (3.45%) | 66 | 66 | 0 | 0 |
-| `potion-rich` | mirror | 32 | 14 | 19 (59.38%) | 8 (25.00%) | 75 | 74 | 0 | 0 |
-| `potions` | material-only | 28 | 2 | 22 (78.57%) | 1 (3.57%) | 61 | 66 | 3 | 0 |
-| `potions` | mirror | 25 | 13 | 17 (68.00%) | 5 (20.00%) | 73 | 73 | 0 | 0 |
+| `potion-rich` | material-only | 54 | 9 | 46 (85.19%) | 1 (1.85%) | 128 | 129 | 1 | 0 |
+| `potion-rich` | mirror | 67 | 22 | 38 (56.72%) | 15 (22.39%) | 167 | 168 | 3 | 0 |
+| `potions` | material-only | 49 | 7 | 39 (79.59%) | 2 (4.08%) | 113 | 118 | 3 | 0 |
+| `potions` | mirror | 40 | 17 | 29 (72.50%) | 8 (20.00%) | 111 | 111 | 0 | 0 |
 
 ## Enemy-occupied entries (D1 instrument, board-wide — read per team or not at all)
 
 | class | arm | entries | lost |
 |---|---|---|---|
-| `asym` | material-only | 17 | 2 |
-| `asym` | mirror | 27 | 5 |
-| `dense` | material-only | 50 | 14 |
-| `dense` | mirror | 52 | 11 |
-| `long` | material-only | 75 | 9 |
-| `long` | mirror | 50 | 7 |
-| `mixed` | material-only | 53 | 8 |
-| `mixed` | mirror | 35 | 5 |
-| `potion-rich` | material-only | 65 | 8 |
-| `potion-rich` | mirror | 29 | 4 |
-| `potions` | material-only | 81 | 17 |
-| `potions` | mirror | 36 | 3 |
-| `snakes` | material-only | 8 | 6 |
-| `snakes` | mirror | 1 | 0 |
+| `asym` | material-only | 45 | 9 |
+| `asym` | mirror | 53 | 12 |
+| `dense` | material-only | 122 | 30 |
+| `dense` | mirror | 87 | 17 |
+| `long` | material-only | 176 | 20 |
+| `long` | mirror | 102 | 15 |
+| `mixed` | material-only | 124 | 19 |
+| `mixed` | mirror | 66 | 11 |
+| `potion-rich` | material-only | 150 | 14 |
+| `potion-rich` | mirror | 61 | 8 |
+| `potions` | material-only | 137 | 25 |
+| `potions` | mirror | 69 | 6 |
+| `snakes` | material-only | 15 | 11 |
+| `snakes` | mirror | 4 | 0 |
 | `sparse` | material-only | 0 | 0 |
 | `sparse` | mirror | 0 | 0 |
 | `sparse-lean` | material-only | 0 | 0 |
 | `sparse-lean` | mirror | 0 | 0 |
-| `wide` | material-only | 57 | 10 |
-| `wide` | mirror | 36 | 4 |
+| `wide` | material-only | 117 | 15 |
+| `wide` | mirror | 65 | 8 |
