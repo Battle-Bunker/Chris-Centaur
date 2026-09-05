@@ -186,8 +186,15 @@ const INSTRUMENT = () => {
         // without it a driver that arms after a deadline has already passed
         // fires at once, and a press made 700 ms into a dead clock tests
         // nothing about the notch it was supposed to be standing on.
+        // INSIDE THE NOTCH, NEVER PAST IT. The window is
+        // `(slack, slack + margin]` — every press this driver makes is one the
+        // surface itself calls safe, so a press that lands late is
+        // unambiguously the SURFACE being wrong and not an operator ignoring
+        // it. The first run pressed on `remaining <= slack + margin` alone,
+        // which let it fire just past the notch, and then counted a press the
+        // page had already warned about as a failure of the page.
         if (r && r.remainingMs !== null && r.pressSlackMs !== null
-            && r.remainingMs > 0 && r.remainingMs <= r.pressSlackMs + margin) {
+            && r.remainingMs > r.pressSlackMs && r.remainingMs <= r.pressSlackMs + margin) {
           clearInterval(timer);
           const rows = [].slice.call(document.querySelectorAll('.snake-info-item.selectable'));
           const active = document.querySelector('.snake-info-item.active-perspective');
@@ -381,15 +388,19 @@ function measure(profile, samples, presses, truth, ledger) {
       shownState: p.shown.state,
       // What the surface CLAIMED about this press: it was made at or inside
       // the notch, so the surface said it lands.
+      // What the surface CLAIMED: the press was made before the notch, so the
+      // page said this lock lands this turn.
       shownSafe: p.shown.remainingMs !== null && p.shown.pressSlackMs !== null
-        && p.shown.remainingMs > 0,
+        && p.shown.remainingMs > p.shown.pressSlackMs,
       landedAt: landed,
       dropped,
       lateBy: landed === null || deadlineAt === null ? null : Math.round(landed - deadlineAt),
     };
   });
   const answered = pressRows.filter((p) => p.lateBy !== null);
-  const late = answered.filter((p) => p.lateBy > 0);
+  // THE HEADLINE FAILURE: the surface said it lands, and it did not.
+  const late = answered.filter((p) => p.lateBy > 0 && p.shownSafe);
+  const lateWarned = answered.filter((p) => p.lateBy > 0 && !p.shownSafe);
   const lostPresses = pressRows.filter((p) => p.dropped).length;
 
   // 2. THE LADDER, SHOWN AGAINST TRUE.
@@ -470,6 +481,9 @@ function measure(profile, samples, presses, truth, ledger) {
     presses: pressRows.length,
     pressesAnswered: answered.length,
     pressesLate: late.length,
+    pressesLateButWarned: lateWarned.length,
+    pressCostP50: pct(pressRows.filter((p) => p.landedAt !== null).map((p) => Math.round(p.landedAt - p.at)), 50),
+    pressCostP95: pct(pressRows.filter((p) => p.landedAt !== null).map((p) => Math.round(p.landedAt - p.at)), 95),
     pressesLost: lostPresses,
     lateByP50: pct(late.map((p) => p.lateBy), 50),
     lateByMax: late.length === 0 ? null : Math.max(...late.map((p) => p.lateBy)),
@@ -560,6 +574,7 @@ function table(rows) {
     ['max queue', (r) => `${r.queueDownMax} ms`],
     ['presses', (r) => `${r.presses}`],
     ['late', (r) => `${r.pressesLate}` + (r.lateByMax === null ? '' : ` (≤${r.lateByMax} ms)`)],
+    ['press cost p50/p95', (r) => (r.pressCostP50 === null ? '—' : `${r.pressCostP50}/${r.pressCostP95} ms`)],
     ['notch error p50/p95', (r) => (r.slackErrP50 === null ? '—' : `${r.slackErrP50}/${r.slackErrP95} ms`)],
     ['ladder lag p50/max', (r) => (r.lagP50 === null ? '—' : `${r.lagP50}/${r.lagMax} ms`)],
     ['turn visible after', (r) => (r.turnLagP50 === null ? '—' : `${r.turnLagP50}/${r.turnLagMax} ms`)],

@@ -1,0 +1,29 @@
+
+── lan ──
+  559 samples over 15.0s · 8 presses, 0 late · lag p50 43ms · miss 2.6% · false 37.9%
+
+── regional ──
+  582 samples over 15.2s · 8 presses, 0 late · lag p50 29ms · miss 2.8% · false 28.3%
+
+── continental ──
+  · turn 8: no press (the notch never came round)
+  973 samples over 25.3s · 7 presses, 0 late · lag p50 37ms · miss 1.4% · false 17.8%
+
+── mobile ──
+  515 samples over 13.9s · 8 presses, 1 late · lag p50 50ms · miss 18.8% · false 33.2%
+
+── saturated ──
+  · turn 3: no press (the notch never came round)
+  · turn 6: no press (the notch never came round)
+  · turn 8: no press (the notch never came round)
+  1697 samples over 45.6s · 5 presses, 0 late · lag p50 0ms · miss 9.2% · false 0%
+
+| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | press cost p50/p95 | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | 4/30 ms | -66/-25 ms | 43/108 ms | 794/1208 ms | 37.9% (9) | 2.6% (6) |
+| regional | 40/50 ms | 0/0 | 0 ms | 8 | 0 | 25/43 ms | -20/-7 ms | 29/100 ms | 552/1043 ms | 28.3% (8) | 2.8% (7) |
+| continental | 122/148 ms | 0/0 | 0 ms | 7 | 0 | 59/80 ms | -32/-5 ms | 37/125 ms | 523/1396 ms | 17.8% (9) | 1.4% (7) |
+| mobile | 230/1788 ms | 2/0 | 0 ms | 8 | 1 (≤46 ms) | 108/141 ms | -181/8 ms | 50/124 ms | 443/810 ms | 33.2% (8) | 18.8% (9) |
+| saturated | 2154/5592 ms | 19/0 | 3460 ms | 5 | 0 | 37/42 ms | -342/-110 ms | 0/104 ms | 855/1375 ms | 0% (0) | 9.2% (6) |
+
+wrote /tmp/claude-0/-home-user/a18b7986-c57c-575f-b43a-7d659ae5fe7d/scratchpad/sim-base/latency-sim.json

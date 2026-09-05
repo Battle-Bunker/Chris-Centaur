@@ -1,0 +1,976 @@
+{
+ "at": "2026-09-05T20:41:28.697Z",
+ "turns": 8,
+ "budgetMs": 1500,
+ "seed": 1,
+ "pressMarginMs": 40,
+ "table": "| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |\n|---|---|---|---|---|---|---|---|---|---|---|\n| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | -14/-4 ms | 27/75 ms | 405/678 ms | 21.4% (8) | 2.7% (7) |\n| regional | 40/50 ms | 0/0 | 0 ms | 8 | 0 | -17/-5 ms | 24/100 ms | 410/721 ms | 21.8% (9) | 2.7% (7) |\n| continental | 124/148 ms | 0/0 | 0 ms | 8 | 1 (≤582 ms) | -89/1839 ms | 48/84 ms | 625/1283 ms | 31.1% (8) | 2.1% (5) |\n| mobile | 244/1750 ms | 2/0 | 0 ms | 8 | 1 (≤204 ms) | -123/1309 ms | 0/125 ms | 534/719 ms | 45.6% (7) | 6.7% (1) |\n| saturated | 3188/8254 ms | 24/0 | 5099 ms | 7 | 0 | -494/-106 ms | 0/107 ms | 869/1362 ms | 0% (0) | 12.5% (3) |",
+ "rows": [
+  {
+   "profile": "lan",
+   "turns": 10,
+   "samples": 594,
+   "spanMs": 15455,
+   "presses": 8,
+   "pressesAnswered": 8,
+   "pressesLate": 0,
+   "pressesLost": 0,
+   "lateByP50": null,
+   "lateByMax": null,
+   "slackErrP50": -14,
+   "slackErrP95": -4,
+   "lagP50": 27,
+   "lagP95": 68,
+   "lagMax": 75,
+   "lagSamples": 18,
+   "turnLagP50": 405,
+   "turnLagMax": 678,
+   "falseAlarmRuns": 8,
+   "falseAlarmMs": 3304,
+   "falseAlarmPct": 21.4,
+   "missRuns": 7,
+   "missMs": 419,
+   "missPct": 2.7,
+   "droppedDown": 0,
+   "droppedUp": 0,
+   "downFrames": 207,
+   "holdDownP50": 3,
+   "holdDownP95": 3,
+   "queueDownMax": 0,
+   "falseAlarmWhy": {
+    "STALE while LIVE: no decision frame for N ms, past this turn's deadline": 106,
+    "STALE while LIVE: ": 12
+   },
+   "missWhy": {
+    "THINKING while STALE": 12
+   },
+   "upTypes": {
+    "subscribe-game": 1,
+    "ping": 32,
+    "select-snake": 8,
+    "lens-conditional": 8
+   },
+   "presses_": [
+    {
+     "turn": 3,
+     "at": 1788640753744,
+     "clicked": true,
+     "shownRemainingMs": 96,
+     "shownSlackMs": 61,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640753748.5,
+     "dropped": false,
+     "lateBy": -92
+    },
+    {
+     "turn": 4,
+     "at": 1788640755407,
+     "clicked": true,
+     "shownRemainingMs": 55,
+     "shownSlackMs": 19,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640755413.5,
+     "dropped": false,
+     "lateBy": -49
+    },
+    {
+     "turn": 5,
+     "at": 1788640757048,
+     "clicked": true,
+     "shownRemainingMs": 63,
+     "shownSlackMs": 23,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640757051.5,
+     "dropped": false,
+     "lateBy": -60
+    },
+    {
+     "turn": 6,
+     "at": 1788640758734,
+     "clicked": true,
+     "shownRemainingMs": 49,
+     "shownSlackMs": 17,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640758736.5,
+     "dropped": false,
+     "lateBy": -47
+    },
+    {
+     "turn": 7,
+     "at": 1788640760419,
+     "clicked": true,
+     "shownRemainingMs": 46,
+     "shownSlackMs": 9,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640760423.5,
+     "dropped": false,
+     "lateBy": -40
+    },
+    {
+     "turn": 8,
+     "at": 1788640762063,
+     "clicked": true,
+     "shownRemainingMs": 61,
+     "shownSlackMs": 23,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640762066.5,
+     "dropped": false,
+     "lateBy": -56
+    },
+    {
+     "turn": 9,
+     "at": 1788640763692,
+     "clicked": true,
+     "shownRemainingMs": 75,
+     "shownSlackMs": 35,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640763720.5,
+     "dropped": false,
+     "lateBy": -46
+    },
+    {
+     "turn": 10,
+     "at": 1788640765340,
+     "clicked": true,
+     "shownRemainingMs": 62,
+     "shownSlackMs": 26,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640765346.5,
+     "dropped": false,
+     "lateBy": -54
+    }
+   ],
+   "wire": {
+    "shape": {
+     "down": {
+      "baseMs": 2.5,
+      "jitterMs": 0,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "up": {
+      "baseMs": 2.5,
+      "jitterMs": 0,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "lossAny": false,
+     "seed": 1
+    },
+    "profiles": {
+     "down": {
+      "name": "lan",
+      "rttMs": 5,
+      "jitterRttMs": 0,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "the machine next to you"
+     },
+     "up": {
+      "name": "lan",
+      "rttMs": 5,
+      "jitterRttMs": 0,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "the machine next to you"
+     },
+     "game": null
+    },
+    "seed": 1,
+    "turnTimeoutMs": 1500
+   }
+  },
+  {
+   "profile": "regional",
+   "turns": 10,
+   "samples": 577,
+   "spanMs": 15245,
+   "presses": 8,
+   "pressesAnswered": 8,
+   "pressesLate": 0,
+   "pressesLost": 0,
+   "lateByP50": null,
+   "lateByMax": null,
+   "slackErrP50": -17,
+   "slackErrP95": -5,
+   "lagP50": 24,
+   "lagP95": 100,
+   "lagMax": 100,
+   "lagSamples": 18,
+   "turnLagP50": 410,
+   "turnLagMax": 721,
+   "falseAlarmRuns": 9,
+   "falseAlarmMs": 3323,
+   "falseAlarmPct": 21.8,
+   "missRuns": 7,
+   "missMs": 407,
+   "missPct": 2.7,
+   "droppedDown": 0,
+   "droppedUp": 0,
+   "downFrames": 207,
+   "holdDownP50": 20,
+   "holdDownP95": 25,
+   "queueDownMax": 0,
+   "falseAlarmWhy": {
+    "STALE while LIVE: no decision frame for N ms": 2,
+    "STALE while LIVE: ": 12,
+    "STALE while LIVE: no decision frame for N ms, past this turn's deadline": 105,
+    "STALE while THINKING: no decision frame for N ms, past this turn's deadline": 5
+   },
+   "missWhy": {
+    "THINKING while STALE": 12
+   },
+   "upTypes": {
+    "subscribe-game": 1,
+    "ping": 32,
+    "select-snake": 8,
+    "lens-conditional": 8
+   },
+   "presses_": [
+    {
+     "turn": 3,
+     "at": 1788640782596,
+     "clicked": true,
+     "shownRemainingMs": 81,
+     "shownSlackMs": 42,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640782621.1907,
+     "dropped": false,
+     "lateBy": -56
+    },
+    {
+     "turn": 4,
+     "at": 1788640784164,
+     "clicked": true,
+     "shownRemainingMs": 135,
+     "shownSlackMs": 102,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640784182.452,
+     "dropped": false,
+     "lateBy": -118
+    },
+    {
+     "turn": 5,
+     "at": 1788640785771,
+     "clicked": true,
+     "shownRemainingMs": 96,
+     "shownSlackMs": 56,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640785794.5933,
+     "dropped": false,
+     "lateBy": -73
+    },
+    {
+     "turn": 6,
+     "at": 1788640787396,
+     "clicked": true,
+     "shownRemainingMs": 79,
+     "shownSlackMs": 39,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640787413.3862,
+     "dropped": false,
+     "lateBy": -63
+    },
+    {
+     "turn": 7,
+     "at": 1788640789027,
+     "clicked": true,
+     "shownRemainingMs": 73,
+     "shownSlackMs": 39,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640789052.9272,
+     "dropped": false,
+     "lateBy": -47
+    },
+    {
+     "turn": 8,
+     "at": 1788640790673,
+     "clicked": true,
+     "shownRemainingMs": 72,
+     "shownSlackMs": 35,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640790700.5977,
+     "dropped": false,
+     "lateBy": -44
+    },
+    {
+     "turn": 9,
+     "at": 1788640792312,
+     "clicked": true,
+     "shownRemainingMs": 65,
+     "shownSlackMs": 29,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640792336.434,
+     "dropped": false,
+     "lateBy": -41
+    },
+    {
+     "turn": 10,
+     "at": 1788640793940,
+     "clicked": true,
+     "shownRemainingMs": 90,
+     "shownSlackMs": 53,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640793961.7595,
+     "dropped": false,
+     "lateBy": -68
+    }
+   ],
+   "wire": {
+    "shape": {
+     "down": {
+      "baseMs": 20,
+      "jitterMs": 5,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "up": {
+      "baseMs": 20,
+      "jitterMs": 5,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "lossAny": false,
+     "seed": 1
+    },
+    "profiles": {
+     "down": {
+      "name": "regional",
+      "rttMs": 40,
+      "jitterRttMs": 10,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "one hop through a city"
+     },
+     "up": {
+      "name": "regional",
+      "rttMs": 40,
+      "jitterRttMs": 10,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "one hop through a city"
+     },
+     "game": null
+    },
+    "seed": 1,
+    "turnTimeoutMs": 1500
+   }
+  },
+  {
+   "profile": "continental",
+   "turns": 10,
+   "samples": 467,
+   "spanMs": 13222,
+   "presses": 8,
+   "pressesAnswered": 8,
+   "pressesLate": 1,
+   "pressesLost": 0,
+   "lateByP50": 582,
+   "lateByMax": 582,
+   "slackErrP50": -89,
+   "slackErrP95": 1839,
+   "lagP50": 48,
+   "lagP95": 84,
+   "lagMax": 84,
+   "lagSamples": 10,
+   "turnLagP50": 625,
+   "turnLagMax": 1283,
+   "falseAlarmRuns": 8,
+   "falseAlarmMs": 4108,
+   "falseAlarmPct": 31.1,
+   "missRuns": 5,
+   "missMs": 284,
+   "missPct": 2.1,
+   "droppedDown": 0,
+   "droppedUp": 0,
+   "downFrames": 201,
+   "holdDownP50": 62,
+   "holdDownP95": 74,
+   "queueDownMax": 0,
+   "falseAlarmWhy": {
+    "STALE while LIVE: no decision frame for N ms": 2,
+    "STALE while LIVE: no decision frame for N ms, past this turn's deadline": 117,
+    "STALE while LIVE: ": 9,
+    "STALE while THINKING: no decision frame for N ms, past this turn's deadline": 9
+   },
+   "missWhy": {
+    "LIVE while STALE": 2,
+    "THINKING while STALE": 5
+   },
+   "upTypes": {
+    "subscribe-game": 1,
+    "ping": 29,
+    "select-snake": 7,
+    "lens-conditional": 7
+   },
+   "presses_": [
+    {
+     "turn": 3,
+     "at": 1788640812821,
+     "clicked": true,
+     "shownRemainingMs": 245,
+     "shownSlackMs": 207,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640812884.146,
+     "dropped": false,
+     "lateBy": -185
+    },
+    {
+     "turn": 4,
+     "at": 1788640814129,
+     "clicked": true,
+     "shownRemainingMs": 400,
+     "shownSlackMs": 368,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640814183.3555,
+     "dropped": false,
+     "lateBy": -349
+    },
+    {
+     "turn": 5,
+     "at": 1788640814416,
+     "clicked": true,
+     "shownRemainingMs": 113,
+     "shownSlackMs": 179,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640816433.7598,
+     "dropped": false,
+     "lateBy": 582
+    },
+    {
+     "turn": 6,
+     "at": 1788640816384,
+     "clicked": true,
+     "shownRemainingMs": 174,
+     "shownSlackMs": 139,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640816433.7598,
+     "dropped": false,
+     "lateBy": -127
+    },
+    {
+     "turn": 7,
+     "at": 1788640817962,
+     "clicked": true,
+     "shownRemainingMs": 167,
+     "shownSlackMs": 127,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640818012.6643,
+     "dropped": false,
+     "lateBy": -118
+    },
+    {
+     "turn": 8,
+     "at": 1788640819533,
+     "clicked": true,
+     "shownRemainingMs": 132,
+     "shownSlackMs": 97,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640819608.782,
+     "dropped": false,
+     "lateBy": -56
+    },
+    {
+     "turn": 9,
+     "at": 1788640820967,
+     "clicked": true,
+     "shownRemainingMs": 274,
+     "shownSlackMs": 235,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640821045.861,
+     "dropped": false,
+     "lateBy": -195
+    },
+    {
+     "turn": 10,
+     "at": 1788640822280,
+     "clicked": true,
+     "shownRemainingMs": 400,
+     "shownSlackMs": 366,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640822352.3022,
+     "dropped": false,
+     "lateBy": -328
+    }
+   ],
+   "wire": {
+    "shape": {
+     "down": {
+      "baseMs": 60,
+      "jitterMs": 15,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "up": {
+      "baseMs": 60,
+      "jitterMs": 15,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "lossAny": false,
+     "seed": 1
+    },
+    "profiles": {
+     "down": {
+      "name": "continental",
+      "rttMs": 120,
+      "jitterRttMs": 30,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "coast to coast, or a sea crossing"
+     },
+     "up": {
+      "name": "continental",
+      "rttMs": 120,
+      "jitterRttMs": 30,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "coast to coast, or a sea crossing"
+     },
+     "game": null
+    },
+    "seed": 1,
+    "turnTimeoutMs": 1500
+   }
+  },
+  {
+   "profile": "mobile",
+   "turns": 10,
+   "samples": 367,
+   "spanMs": 9872,
+   "presses": 8,
+   "pressesAnswered": 7,
+   "pressesLate": 1,
+   "pressesLost": 0,
+   "lateByP50": 204,
+   "lateByMax": 204,
+   "slackErrP50": -123,
+   "slackErrP95": 1309,
+   "lagP50": 0,
+   "lagP95": 125,
+   "lagMax": 125,
+   "lagSamples": 11,
+   "turnLagP50": 534,
+   "turnLagMax": 719,
+   "falseAlarmRuns": 7,
+   "falseAlarmMs": 4498,
+   "falseAlarmPct": 45.6,
+   "missRuns": 1,
+   "missMs": 661,
+   "missPct": 6.7,
+   "droppedDown": 2,
+   "droppedUp": 0,
+   "downFrames": 194,
+   "holdDownP50": 122,
+   "holdDownP95": 875,
+   "queueDownMax": 0,
+   "falseAlarmWhy": {
+    "DEGRADED while LIVE: N ms round trip — a press needs N ms to land": 78,
+    "DEGRADED while THINKING: N ms round trip — a press needs N ms to land": 46,
+    "STALE while LIVE: no decision frame for N ms, past this turn's deadline": 29,
+    "STALE while LIVE: N ms round trip — a press needs N ms to land": 2,
+    "DEGRADED while LIVE: no decision frame for N ms, past this turn's deadline": 2
+   },
+   "missWhy": {
+    "LIVE while DEGRADED": 27
+   },
+   "upTypes": {
+    "subscribe-game": 1,
+    "ping": 25,
+    "select-snake": 6,
+    "lens-conditional": 6
+   },
+   "presses_": [
+    {
+     "turn": 3,
+     "at": 1788640843815,
+     "clicked": true,
+     "shownRemainingMs": 525,
+     "shownSlackMs": 490,
+     "shownState": "LIVE",
+     "shownSafe": true,
+     "landedAt": 1788640843955.4185,
+     "dropped": false,
+     "lateBy": -325
+    },
+    {
+     "turn": 4,
+     "at": 1788640844089,
+     "clicked": true,
+     "shownRemainingMs": 252,
+     "shownSlackMs": 490,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640844809.8423,
+     "dropped": false,
+     "lateBy": -716
+    },
+    {
+     "turn": 5,
+     "at": 1788640844994,
+     "clicked": true,
+     "shownRemainingMs": 586,
+     "shownSlackMs": 660,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640845668.4956,
+     "dropped": false,
+     "lateBy": -760
+    },
+    {
+     "turn": 6,
+     "at": 1788640845893,
+     "clicked": true,
+     "shownRemainingMs": 585,
+     "shownSlackMs": 551,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640846321.4392,
+     "dropped": false,
+     "lateBy": -925
+    },
+    {
+     "turn": 7,
+     "at": 1788640847559,
+     "clicked": true,
+     "shownRemainingMs": 426,
+     "shownSlackMs": 386,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640847629.22,
+     "dropped": false,
+     "lateBy": -316
+    },
+    {
+     "turn": 8,
+     "at": 1788640847821,
+     "clicked": true,
+     "shownRemainingMs": 156,
+     "shownSlackMs": 336,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640849465.9114,
+     "dropped": false,
+     "lateBy": 204
+    },
+    {
+     "turn": 9,
+     "at": 1788640849372,
+     "clicked": true,
+     "shownRemainingMs": 387,
+     "shownSlackMs": 353,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640849465.9114,
+     "dropped": false,
+     "lateBy": -257
+    },
+    {
+     "turn": 10,
+     "at": 1788640849637,
+     "clicked": true,
+     "shownRemainingMs": 122,
+     "shownSlackMs": 353,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": null,
+     "dropped": false,
+     "lateBy": null
+    }
+   ],
+   "wire": {
+    "shape": {
+     "down": {
+      "baseMs": 100,
+      "jitterMs": 40,
+      "lossRate": 0.02,
+      "stallMs": 800,
+      "stallRate": 0.015,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "up": {
+      "baseMs": 100,
+      "jitterMs": 40,
+      "lossRate": 0.02,
+      "stallMs": 800,
+      "stallRate": 0.015,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0
+     },
+     "lossAny": false,
+     "seed": 1
+    },
+    "profiles": {
+     "down": {
+      "name": "mobile",
+      "rttMs": 200,
+      "jitterRttMs": 80,
+      "lossRate": 0.02,
+      "stallMs": 800,
+      "stallRate": 0.015,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "a phone, handovers and all"
+     },
+     "up": {
+      "name": "mobile",
+      "rttMs": 200,
+      "jitterRttMs": 80,
+      "lossRate": 0.02,
+      "stallMs": 800,
+      "stallRate": 0.015,
+      "rateBytesPerMs": 0,
+      "queueMaxMs": 0,
+      "note": "a phone, handovers and all"
+     },
+     "game": null
+    },
+    "seed": 1,
+    "turnTimeoutMs": 1500
+   }
+  },
+  {
+   "profile": "saturated",
+   "turns": 10,
+   "samples": 800,
+   "spanMs": 21550,
+   "presses": 7,
+   "pressesAnswered": 7,
+   "pressesLate": 0,
+   "pressesLost": 0,
+   "lateByP50": null,
+   "lateByMax": null,
+   "slackErrP50": -494,
+   "slackErrP95": -106,
+   "lagP50": 0,
+   "lagP95": 107,
+   "lagMax": 107,
+   "lagSamples": 3,
+   "turnLagP50": 869,
+   "turnLagMax": 1362,
+   "falseAlarmRuns": 0,
+   "falseAlarmMs": 0,
+   "falseAlarmPct": 0,
+   "missRuns": 3,
+   "missMs": 2700,
+   "missPct": 12.5,
+   "droppedDown": 24,
+   "droppedUp": 0,
+   "downFrames": 209,
+   "holdDownP50": 1594,
+   "holdDownP95": 4127,
+   "queueDownMax": 5099,
+   "falseAlarmWhy": {},
+   "missWhy": {
+    "LIVE while DEGRADED": 27,
+    "THINKING while DEGRADED": 71,
+    "THINKING while STALE": 8
+   },
+   "upTypes": {
+    "subscribe-game": 1,
+    "ping": 39,
+    "select-snake": 7,
+    "lens-conditional": 5,
+    "keepalive": 1
+   },
+   "presses_": [
+    {
+     "turn": 3,
+     "at": 1788640869582,
+     "clicked": true,
+     "shownRemainingMs": 185,
+     "shownSlackMs": 146,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640869621.8306,
+     "dropped": false,
+     "lateBy": -115
+    },
+    {
+     "turn": 4,
+     "at": 1788640870754,
+     "clicked": true,
+     "shownRemainingMs": 561,
+     "shownSlackMs": 524,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640870784.0874,
+     "dropped": false,
+     "lateBy": -506
+    },
+    {
+     "turn": 5,
+     "at": 1788640871038,
+     "clicked": true,
+     "shownRemainingMs": 278,
+     "shownSlackMs": 524,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640871425.264,
+     "dropped": false,
+     "lateBy": -1034
+    },
+    {
+     "turn": 6,
+     "at": 1788640872349,
+     "clicked": true,
+     "shownRemainingMs": 125,
+     "shownSlackMs": 907,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640872386.893,
+     "dropped": false,
+     "lateBy": -704
+    },
+    {
+     "turn": 8,
+     "at": 1788640885986,
+     "clicked": true,
+     "shownRemainingMs": 579,
+     "shownSlackMs": 540,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640886019.4185,
+     "dropped": false,
+     "lateBy": -439
+    },
+    {
+     "turn": 9,
+     "at": 1788640886257,
+     "clicked": true,
+     "shownRemainingMs": 308,
+     "shownSlackMs": 540,
+     "shownState": "THINKING",
+     "shownSafe": true,
+     "landedAt": 1788640886594.8894,
+     "dropped": false,
+     "lateBy": -1096
+    },
+    {
+     "turn": 10,
+     "at": 1788640887306,
+     "clicked": true,
+     "shownRemainingMs": 463,
+     "shownSlackMs": 805,
+     "shownState": "DEGRADED",
+     "shownSafe": true,
+     "landedAt": 1788640887337.8398,
+     "dropped": false,
+     "lateBy": -936
+    }
+   ],
+   "wire": {
+    "shape": {
+     "down": {
+      "baseMs": 30,
+      "jitterMs": 5,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 25,
+      "queueMaxMs": 1200
+     },
+     "up": {
+      "baseMs": 30,
+      "jitterMs": 5,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 25,
+      "queueMaxMs": 1200
+     },
+     "lossAny": false,
+     "seed": 1
+    },
+    "profiles": {
+     "down": {
+      "name": "saturated",
+      "rttMs": 60,
+      "jitterRttMs": 10,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 25,
+      "queueMaxMs": 1200,
+      "note": "bufferbloat: a deep buffer in front of a slow link"
+     },
+     "up": {
+      "name": "saturated",
+      "rttMs": 60,
+      "jitterRttMs": 10,
+      "lossRate": 0,
+      "stallMs": 0,
+      "stallRate": 0,
+      "rateBytesPerMs": 25,
+      "queueMaxMs": 1200,
+      "note": "bufferbloat: a deep buffer in front of a slow link"
+     },
+     "game": null
+    },
+    "seed": 1,
+    "turnTimeoutMs": 1500
+   }
+  }
+ ]
+}

@@ -467,6 +467,35 @@
   --lat-cmd-refused-line: var(--red-6b2f28);
   --lat-over-w:        340px;
 
+  /* WHERE THE TURN'S TIME WENT — 13-LATENCY-2 §3a. One ramp, ordered by who
+   * can do anything about the segment: the hops and the queues are grey and
+   * get darker the further they are from the operator, the kernel's own work
+   * is the ladder's own THINKING green (it is the same fact the dot reports),
+   * and the operator's own share is the brightest thing on the bar because it
+   * is the only segment a press can move. Everything unmeasured is hatched
+   * over the same dim ground, so "we do not know" never reads as "nothing". */
+  --lat-seg-game:      var(--blue-55606b);
+  --lat-seg-centaur:   var(--grey-444444);
+  --lat-seg-kernel:    var(--green-3d5c34);
+  --lat-seg-kernel-2:  var(--green-1b5e20);
+  --lat-seg-push:      var(--grey-5c5c5c);
+  --lat-seg-you:       var(--grey-dcdcdc);
+  --lat-seg-unknown:   var(--grey-2e2e2e);
+  --lat-seg-hatch:     var(--wash-white-08);
+  --lat-seg-line:      var(--grey-222222);
+
+  /* THE NOTCH BAND — 13-LATENCY-2 §3b. The solid notch stays where it was and
+   * now marks the CONFIDENT end; the band behind it is the spread between
+   * that and the usual press, drawn dim because it is uncertainty and not
+   * urgency. */
+  --clock-band:     var(--wash-white-10);
+
+  /* THE NET GRAPH — 13-LATENCY-2 §3d. Last N turns, one bar each. */
+  --lat-hist-ink:      var(--grey-4a4a4a);
+  --lat-hist-warn:     var(--amber-8a7524);
+  --lat-hist-bad:      var(--red-8a3b2a);
+  --lat-hist-drop:     var(--red-e0685a);
+
   /* The alert channel (alerts.js). */
   --al-btn-bg:         var(--grey-1f1f1f);
   --al-btn-ink:        var(--grey-bbbbbb);
