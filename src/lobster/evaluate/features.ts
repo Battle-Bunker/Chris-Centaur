@@ -993,22 +993,46 @@ function commandSum(
   // way. Measured by a randomised R1 sweep over 205 held boards: five ceilings
   // under a world, all of them here.
   //
-  // Both fall back to the open board when plane 1 is contesting NOTHING — a
-  // team whose last trail unit died has an empty domain, and a term that read
-  // only the domain would go blind on exactly the position where the pieces
-  // are the entire game. The fallback is gated on the FULL domain, never on
-  // the certain one: an empty certain domain under a non-empty full one is the
+  // AND `wide` IS NOT ONE READING'S DOMAIN, WHICH IS WHERE THE CEILING WAS
+  // WRONG. `partition.domain` is the running union of the fronts of the trail
+  // units THIS READING ADMITS, and `ADMISSION.hi` drops every held unit of
+  // theirs — so on a board where the enemy trail is a claim, the `hi` domain is
+  // our own cover and nothing else, while the world puts that trail back on the
+  // board and our piece is paid for acting on its ground. The board a term
+  // bounded ABOVE has to be read against is the ground plane 1 could contest in
+  // ANY world, and that is the UNION of the two readings' domains: `lo` admits
+  // `worstAlive` of theirs and `worstAlive && !held` of ours, `hi` admits
+  // `bestAlive && !held` of theirs and `bestAlive` of ours, and on either side
+  // one of the two predicates is the weaker, so the union is exactly "every
+  // trail unit that could be alive". Measured on `law-sweep.test.ts`'s 240
+  // boards: 393 of 400 sampled `command.hi` violations had the world's own
+  // trail domain OUTSIDE `partition('hi').domain`, and the union covered
+  // 400 of 400 (`docs/design/RATCHET-2.md` §1). The union is taken word by word
+  // in the counting loop rather than into a third board — nothing here
+  // allocates, and both partitions are built for this feature anyway.
+  //
+  // Both sides fall back to the open board when plane 1 is contesting NOTHING —
+  // a team whose last trail unit died has an empty domain, and a term that read
+  // only the domain would go blind on exactly the position where the pieces are
+  // the entire game. The fallback is gated on the WIDE pair and never on the
+  // certain one: an empty certain domain under a non-empty wide one is the
   // defect above, not a piece-only board, and widening a side there would
   // restore precisely what this fixes.
-  const wide = partition.domain;
+  const other = ctx.partition(reading === 'lo' ? 'hi' : 'lo');
+  const wideA = partition.domain;
+  const wideB = other.domain;
   const certain = partition.certainDomain;
-  let ourDomain = reading === 'lo' ? certain : wide;
-  let theirDomain = reading === 'lo' ? wide : certain;
+  let ourA = reading === 'lo' ? certain : wideA;
+  let ourB = reading === 'lo' ? certain : wideB;
+  let theirA = reading === 'lo' ? wideA : certain;
+  let theirB = reading === 'lo' ? wideB : certain;
   let any = 0;
-  for (let i = 0; i < words; i++) any |= wide[i] as number;
+  for (let i = 0; i < words; i++) any |= ((wideA[i] as number) | (wideB[i] as number));
   if (any === 0) {
-    ourDomain = partition.openBoard;
-    theirDomain = partition.openBoard;
+    ourA = partition.openBoard;
+    ourB = partition.openBoard;
+    theirA = partition.openBoard;
+    theirB = partition.openBoard;
   }
   // TWO FOOD BOARDS, for the same reason and with the same flip: a meal a held
   // unit's cloud covers is one our floor may not count for our own piece and
@@ -1029,12 +1053,13 @@ function commandSum(
     if (front === null) continue;
     let ground = 0;
     let meals = 0;
-    const domain = mine ? ourDomain : theirDomain;
+    const domainA = mine ? ourA : theirA;
+    const domainB = mine ? ourB : theirB;
     const food = mine ? ourFood : theirFood;
     for (let i = 0; i < words; i++) {
       const f = front[i] as number;
       if (f === 0) continue;
-      ground += popcount32((f & (domain[i] as number)) >>> 0);
+      ground += popcount32((f & ((domainA[i] as number) | (domainB[i] as number))) >>> 0);
       meals += popcount32((f & (food[i] as number)) >>> 0);
     }
     const c = Math.min(1, (ground * knobs.ground + meals * knobs.food) / open);

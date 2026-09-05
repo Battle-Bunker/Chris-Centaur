@@ -93,13 +93,32 @@ Two cause classes:
   so making the first step per-reading doubles the shell cost for 2% of one
   class.
 
-**The repair (1a).** Read the ADDED side's ground against the union of the two
-readings' domain boards, per word, in the counting loop — no third sweep and no
-third board. `lo` is untouched: it adds our pieces off `certainDomain` and
-subtracts theirs off its own `domain`, and `command.lo` has zero violations.
-R2 holds because a refinement shrinks both domains, so the union shrinks and
-`hi` falls. R3 holds because with nothing held and nothing contingent the two
-domains are the same board.
+**The repair (1a).** Read the WIDE board — wherever `commandSum` names one, so
+`hi`'s ours and `lo`'s theirs alike — as the union of the two readings' domain
+boards, taken per word in the counting loop rather than into a third board. The
+CERTAIN boards are untouched; a term bounded BELOW still reads the subset. R2
+holds because a refinement shrinks both domains, so the union shrinks, `hi`
+falls and `lo` rises. R3 holds because with nothing held and nothing contingent
+the two domains are the same board.
+
+**Measured: `command.hi` 600 → 65, and the 65 are two further sub-causes, both
+refused.** Re-classified with the same instrument on the repaired tree:
+
+| residue | worlds |
+|---|---:|
+| the WORLD's trail domain is empty, so the open-board fallback fires in the world and hands our pieces the whole board | **35** |
+| 1b — our own piece's front at `turn + 1` grew in the world | **30** |
+
+The first is the fallback's own discontinuity: `command` reads "contested
+ground" while plane 1 contests anything and the WHOLE OPEN BOARD the moment it
+does not, and a world in which our last trail unit dies crosses that step. A
+ceiling that covered it would have to take the fallback whenever no trail unit
+is CERTAINLY alive — which on these boards is most of them, and which
+saturates the term. That is the blanket widening again, and it is refused for
+the same reason as §2. The second needs the shells' first step, which is
+computed against the real settled board, to be taken per reading; the shells are
+interned per decision and shared by five members, so that doubles their cost for
+30 worlds of one class. Both are recorded and neither is taken.
 
 ## 2. `reach.hi` (220) and `reach.lo` (128) — plane 2 pays out on plane 1's cover
 

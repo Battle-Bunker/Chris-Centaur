@@ -287,6 +287,13 @@ export function lawSweep(boards: number, cap = 96): Counts {
  * pinned at what it measures on THIS head — unrepaired — a class may only go
  * DOWN, and a class not in this table may not appear at all.
  *
+ * TWO OF THE NINE ARE NOW CLOSED AND PINNED AT ZERO — `contest.lo` (D1) and
+ * `food.hi` (`docs/design/RATCHET-2.md` §4) — and both closed the SAME defect
+ * in two different members: a contingent settle cell read as a point. Two of
+ * the remaining seven are classified and REFUSED rather than open by neglect:
+ * `reach.hi` and `reach.lo` are plane 2 paying out on plane 1's cover, and the
+ * only single-sweep bound on that is the saturating one (§2 of the same doc).
+ *
  * ── AND A NUMBER GOING DOWN IS NOT BY ITSELF A REASON TO SHIP ──────────────
  *
  * `b1-sound` closed two of these (`command.hi` 600 → 199, `reach.lo` 128 →
@@ -306,7 +313,6 @@ export function lawSweep(boards: number, cap = 96): Counts {
  * exact-reply oracle both check directly.
  */
 const RATCHET: Readonly<Record<string, number>> = {
-  'food.hi': 63,
   'reach.hi': 220,
   'command.hi': 600,
   'room.lo': 73,
@@ -321,6 +327,15 @@ const RATCHET: Readonly<Record<string, number>> = {
   // `settlesOn`) and the class goes 30 -> 0. See D1 of
   // `docs/design/BEHAVIOUR-AUDIT.md`.
   'contest.lo': 0,
+  // CLOSED, and pinned at zero for the same reason and by the same rule:
+  // `food` read `pull` at the cell the PARTIAL settlement stopped a mover on,
+  // and a held claim halts a SLIDER somewhere along its path rather than
+  // killing it. All 63 worlds were a rook, a queen or a bishop the engine's
+  // own `fates` calls `contingent`, and the world's settle cell was inside
+  // `settlesOn`'s set every time. `food.ts` now brackets over that set — the
+  // ceiling at the dearest cell, the floor at the cheapest — and the class
+  // goes 63 -> 0. See §4 of `docs/design/RATCHET-2.md`.
+  'food.hi': 0,
 };
 /** R1 on the TOTAL, which is the property the bank's floor rests on. */
 const TOTAL_LO_RATCHET = 0;
