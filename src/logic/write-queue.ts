@@ -49,6 +49,19 @@ export class WriteQueue<I extends { retries: number }> {
   private dropScanFrom = 0;
 
   private workerRunning = true;
+  /**
+   * Set by `shutdown` when the flush deadline passes. The worker stops at its
+   * next checkpoint and the retry ladder stops writing, so the deadline BOUNDS
+   * the drain instead of merely timing it: without this the loop's own
+   * condition (`workerRunning || queue.length > 0`) kept it draining, the
+   * "dropping N unflushed entries" line described something that never
+   * happened, and a slow-but-alive database held the process open for exactly
+   * as long as the deadline was added to prevent.
+   */
+  private abandoned = false;
+  /** The batch currently inside `opts.flush` — not in `queue`, not yet
+   *  written, and the reason the deadline's own count used to read 0. */
+  private inFlight = 0;
   private workerPromise: Promise<void>;
   private wakeup: (() => void) | null = null;
 
@@ -106,7 +119,7 @@ export class WriteQueue<I extends { retries: number }> {
   }
 
   private async runWorkerLoop(): Promise<void> {
-    while (this.workerRunning || this.queue.length > 0) {
+    while (!this.abandoned && (this.workerRunning || this.queue.length > 0)) {
       if (this.queue.length === 0) {
         if (!this.workerRunning) break;
         await this.waitForWork();
@@ -119,28 +132,46 @@ export class WriteQueue<I extends { retries: number }> {
         if (this.opts.droppable(item)) this.droppableCount--;
       }
 
-      await this.opts.flush(batch, item => this.withRetry(item));
+      this.inFlight = batch.length;
+      try {
+        await this.opts.flush(batch, item => this.withRetry(item));
+      } finally {
+        this.inFlight = 0;
+      }
     }
   }
 
   private async withRetry(item: I): Promise<void> {
-    while (true) {
-      try {
-        await this.opts.write(item);
-        return;
-      } catch (error) {
-        item.retries++;
-        if (item.retries > MAX_RETRIES) {
-          console.error(
-            `[${this.opts.name}] Failed to write ${this.opts.describe(item)} after ${MAX_RETRIES} retries:`,
-            error
-          );
-          this.droppedCount++;
+    try {
+      while (true) {
+        // PAST THE DEADLINE NOTHING MORE IS WRITTEN. The batch already handed
+        // to `opts.flush` cannot be recalled, but every item it has not
+        // reached yet returns here rather than being retried — which is what
+        // bounds the drain to at most one in-flight write. Already counted:
+        // `shutdown` charged the whole stranded remainder to `droppedCount`
+        // when it set the flag.
+        if (this.abandoned) return;
+        try {
+          await this.opts.write(item);
           return;
+        } catch (error) {
+          item.retries++;
+          if (item.retries > MAX_RETRIES) {
+            console.error(
+              `[${this.opts.name}] Failed to write ${this.opts.describe(item)} after ${MAX_RETRIES} retries:`,
+              error
+            );
+            this.droppedCount++;
+            return;
+          }
+          const delay = RETRY_DELAY_MS * Math.pow(2, item.retries - 1) * (0.5 + Math.random() * 0.5);
+          await transientDelay(delay);
         }
-        const delay = RETRY_DELAY_MS * Math.pow(2, item.retries - 1) * (0.5 + Math.random() * 0.5);
-        await transientDelay(delay);
       }
+    } finally {
+      // Settled one way or the other, so it is no longer part of what a
+      // deadline would strand.
+      if (this.inFlight > 0) this.inFlight--;
     }
   }
 
@@ -148,6 +179,14 @@ export class WriteQueue<I extends { retries: number }> {
    * Flush and stop the worker. `timeoutMs` overrides `opts.shutdownMs` for
    * this call only (tests use this to keep the deadline gate fast). Returns
    * whether the queue drained within the deadline.
+   *
+   * FALSE MEANS ABANDONED, and it is true of the queue rather than only of the
+   * clock: the deadline sets `abandoned`, which stops the worker at its next
+   * checkpoint and stops the retry ladder writing, and the entries still
+   * queued are counted into `droppedCount` and discarded. Returning false
+   * while the worker kept draining made the log line false in both halves —
+   * nothing was dropped, and the count it printed excluded the batch in
+   * flight, which is where the entries actually were.
    */
   public async shutdown(timeoutMs?: number): Promise<boolean> {
     const ms = timeoutMs ?? this.opts.shutdownMs;
@@ -159,9 +198,16 @@ export class WriteQueue<I extends { retries: number }> {
       transientDelay(ms).then(() => false),
     ]);
     if (!flushed) {
+      this.abandoned = true;
+      const stranded = this.queue.length + this.inFlight;
+      this.queue.length = 0;
+      this.droppableCount = 0;
+      this.dropScanFrom = 0;
+      this.droppedCount += stranded;
+      this.signalWakeup();
       console.warn(
         `[${this.opts.name}] Shutdown flush deadline (${ms}ms) reached; ` +
-        `dropping ${this.queue.length} unflushed entries.`
+        `dropping ${stranded} unflushed entries.`
       );
       return false;
     }

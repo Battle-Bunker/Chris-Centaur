@@ -343,6 +343,33 @@ unref'd — but the line does not describe what happens, and a caller that treat
 `src/tests/logger-shutdown-deadline.test.ts`'s fixture plus a queue that is
 still draining when the deadline fires.
 
+**REVIEW-2 verdict: CONFIRMED and fixed, and it was worse than written on both
+halves.** Reproduced with a WriteQueue over a SLOW-but-alive write (30 ms an
+entry, twenty entries, a 120 ms deadline). `shutdown` returned false, warned
+
+    Shutdown flush deadline (120ms) reached; dropping 0 unflushed entries.
+
+— and 800 ms later all twenty had been written. So (a) nothing was dropped, and
+(b) the count was 0, because `queue.length` excludes the batch already handed
+to `opts.flush`, which is exactly where every stranded entry was.
+
+"Nothing leaks" is also not quite right. Against a DEAD database the worker
+awaits a promise that never settles, which holds no handle, so the process
+still exits — which is why the existing suite could not see this. Against a
+slow one the drain keeps a socket open and `gracefulShutdown` has no
+`process.exit`, so exit is delayed by the whole remaining drain: precisely the
+unbounded grind the deadline was added to bound.
+
+Fix: an `abandoned` flag, set at the deadline. `runWorkerLoop` stops at its
+next checkpoint and `withRetry` returns without writing, so the drain is
+bounded to the ONE write already inside `opts.write` — which cannot be
+recalled, and is the single entry the count may over-report. `inFlight` makes
+the count the real remainder, and the stranded entries are charged to
+`droppedCount` and discarded, so `false` now means abandoned rather than merely
+late. Regressions beside the two deadline tests: one that the drain stops and
+the count is real, one that a queue draining inside its deadline still reports
+true and drops nothing. Every pin unmoved.
+
 ### F9 — the facing probe stands on one fixed cell
 
 `src/lobster/evaluate/shells.ts:407` (`orientationSensitive`).
