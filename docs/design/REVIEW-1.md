@@ -172,6 +172,31 @@ Confirm: a board with a reference-action teammate whose ray meets a held
 enemy's claim, and no commandable unit near it; `gate()` returns an empty pool
 and `members` carries B0 alone.
 
+**REVIEW-2 verdict: CONFIRMED at the gate's input, not fixed — `bounds/bank.ts`
+is another worker's.** On an 11x11 with our rook at (0,0) staging (1,0), a
+THEIRS rook at (9,9) held by reference to (9,7) (path 97, 86) and a THEIRS rook
+H at (5,7) whose file claim meets 86:
+
+    sub.entangled(footprintOf(plan))  →  []        // what `price` asks
+    sub.entangled(footprintOf(base))  →  [2, 3]    // what it resolves
+
+H (unit 3) is enumerable only from the second. The assertion, once `price`
+passes `base`:
+
+    expect(sub.entangled(footprintOf(base)).filter(uncontrolled)).toContain(3);
+    // and, on this board, `members` gains its B1/B3 member for unit 3
+
+The fix is one word: `this.gate(base, b0.bounds.ledger)` in `price`.
+
+One qualification the finding does not make, and it should: the loss is MASKED
+on every board tried. The gate is a UNION, and its second arm — `residueOf(b0
+ledger)` — named unit 3 in all eight variants swept (rook and knight H, energies
+60/4/2/1/0, four placements), so `members` still carried B3 and B2/3. The
+geometric arm is the one that is wrong; the ledger arm happened to cover it
+each time. So this is a latent gap in coverage, not an observed one — which is
+consistent with the finding's own reading that missing a unit only loosens a
+floor.
+
 ### F4 — `continuationDirection` dereferences an absent orientation
 
 `src/firebase/translate.ts:100`, called from
