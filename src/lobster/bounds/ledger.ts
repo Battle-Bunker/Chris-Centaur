@@ -46,14 +46,17 @@ function entryOf(sub: EngineSubstrate, d: Divergence): LedgerEntry | null {
   const held = sub.unitOfWireId(d.heldId);
   if (held === undefined) return null;
   const route = d.via.length === 0 ? "" : ` via ${d.via.join(">")}`;
+  const polarity = d.assumedPresent ? "if_absent" : "if_present";
   return {
     unitId: held.unitId,
     cell: d.cell as CellIndex,
     subStep: d.subStep as SubStep,
-    polarity: d.assumedPresent ? "if_absent" : "if_present",
+    polarity,
     note: `${d.kind} with live ${d.unitId}${route}${d.couldBeat ? " (could beat it)" : ""}${
       d.narrowed ? " [narrowed]" : ""
     }`,
+    // `ledgerKey`'s own string, built once here rather than on every merge.
+    canonicalKey: `${held.unitId}:${d.cell}:${d.subStep}:${polarity}`,
   };
 }
 
@@ -124,5 +127,6 @@ export function evaluatorResidueEntry(note: string): LedgerEntry {
     subStep: -1 as SubStep,
     polarity: "if_present",
     note,
+    canonicalKey: `${EVALUATOR_RESIDUE_UNIT}:${-1}:${-1}:if_present`,
   };
 }
