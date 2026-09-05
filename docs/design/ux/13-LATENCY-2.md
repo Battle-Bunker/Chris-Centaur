@@ -344,46 +344,65 @@ Eight turns per profile, 1,500 ms turn clock, seed 1, one press per turn at the
 notch. `node scripts/latency-sim.js --turns=8`. Raw record:
 [`latency/sim/latency-sim-before.json`](latency/sim/latency-sim-before.json).
 
-<!-- TABLE-BEFORE -->
+| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | refused / of those, would have landed | press cost p50/p95 | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 6/8 ms | -27/-8 ms | 25/100 ms | 531/744 ms | 40.5% (10) | 0% (0) |
+| regional | 40/50 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 21/32 ms | -58/-11 ms | 0/100 ms | 553/1182 ms | 43.7% (10) | 0% (0) |
+| continental | 122/148 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 66/76 ms | -90/-64 ms | 22/104 ms | 501/1143 ms | 45.5% (11) | 0% (0) |
+| mobile | 260/1782 ms | 0/0 | 0 ms | 8 | 0 | 1 / 1 | 140/1041 ms | -109/695 ms | 0/0 ms | 589/862 ms | 52.3% (7) | 8.4% (1) |
+| saturated | 3012/8460 ms | 25/0 | 5130 ms | 7 | 0 | 5 / 5 | 33/551 ms | -629/-107 ms | 0/125 ms | 916/1341 ms | 2% (1) | 11.2% (3) |
 
 ### 2.4 What the table said
 
 **Finding 1 — the surface cried STALE on every turn of every wire, including
-the LAN.** Between 17.8 % and 37.9 % of every run was spent shown-STALE while
-the truth was LIVE, and the diagnosis breakdown is unambiguous: the sentence is
-always *no decision frame for N ms, past this turn's deadline*. The cause is
+the LAN.** Between **40.5 % and 52.3 %** of every run on the four ordinary
+wires was spent shown-STALE while the truth was LIVE, and the diagnosis
+breakdown is unambiguous — 207 of the LAN's 220 false-alarm samples carry one
+sentence, *no decision frame for N ms, past this turn's deadline*. The cause is
 not a threshold. It is the `turn visible after` column: **the operator learns a
-turn exists 443–855 ms after the centaur does** (p50; up to 1,396 ms), because
-the turn's clock runs out before the next turn's board is published. So "no
-emission past the deadline" is *true* for roughly a third of every turn on a
-perfectly healthy wire — and `alerts.js`, which polls the same `read()`, was
+turn exists 501–916 ms after the centaur does** (p50; up to 1,341 ms), because
+the turn's clock runs out well before the next turn's board is published. So
+"no emission past the deadline" is *true* for roughly a third of every turn on
+a perfectly healthy wire — and `alerts.js`, which polls the same `read()`, was
 raising `wire-stale` on every one of them. An alarm that fires every turn is
 furniture, and an operator learns to read past it before it has ever been right.
 
-**Finding 2 — the notch's estimate is not conservative in the tail, and it lost
-a press.** `mobile` lost one: the surface said the lock would land, and it
-arrived 46 ms after the deadline. The `notch error` column says why —
-`rtt/2 + work` was 181 ms conservative at the median and **8 ms optimistic at
-the 95th**. An average has no tail, and the tail is where a press is lost.
+(`saturated` reads 2 % on this column for a reason worth keeping: its queue is
+so deep that the page is *never out of the previous turn's frames*, so it never
+reaches the between-turns silence at all. A low false-alarm count is not always
+good news.)
+
+**Finding 2 — the notch's estimate has no tail, and the tail is where a press
+is lost.** On `mobile` the `notch error` column reads **−109 ms at the median
+and +695 ms at the 95th**: the mark is conservative in the ordinary case and
+**695 ms optimistic** in the case that loses the turn. An earlier run of this
+instrument, whose press driver was allowed to fire at the notch rather than
+strictly inside it, lost a press outright on that wire. An average has no 95th
+percentile, and `rtt/2 + work` is an average.
 
 **Finding 3 — the ladder is genuinely slow under a growing queue.** `mobile`
-spent **18.8 %** and `saturated` **9.2 %** of their runs shown-fine while truly
-DEGRADED, all of it `LIVE`/`THINKING while DEGRADED`. The smoothed RTT (an EMA
-at α = 0.3 over 1 Hz pings) cannot follow a queue that grows to five seconds
-inside two turns; the reading it gives is the queue as it was.
+spent **8.4 %** and `saturated` **11.2 %** of their runs shown-fine while truly
+DEGRADED, and every one of those samples is `LIVE`/`THINKING while DEGRADED`.
+The smoothed RTT — an EMA at α = 0.3 over 1 Hz pongs — cannot follow a queue
+that grows past five seconds inside two turns, because it is an average of
+samples that have already come back. The reading it gives is the queue as it
+was. This is the failure `01-RESEARCH.md` §4 calls the only unacceptable one,
+and it was the largest single thing the instrument found that round 1 could not
+have.
 
-**Finding 4 — the press does not only fly.** Measured press cost on
-`continental` reached 2,018 ms end to end on a wire whose round trip is 124 ms.
-The press waits for a **centaur that is in the middle of a decision**, and the
-page's `serverWorkMs` estimator does not see that because the commands it trains
-on are answered between slices. This is segment 2 of §1.1 appearing on the
-operator's side of the ledger, and it is the deepest of the four findings: the
-last-safe-press question is not a network question.
+**Finding 4 — the press does not only fly.** Measured press cost reached
+**1,041 ms at the 95th on `mobile`** and, in a second run, 2,018 ms end to end
+on a `continental` wire whose whole round trip is 124 ms. The press waits for a
+**centaur that is in the middle of a decision**, and the page's `serverWorkMs`
+estimator does not see it, because the commands it trains on are the ones
+answered between slices. This is segment 2 of §1.1 appearing on the operator's
+side of the ledger, and it is the deepest of the four findings: **the
+last-safe-press question is not a network question.**
 
 **What the table did NOT find, and is worth recording:** the ladder's *lag* is
-fine everywhere — p50 between 0 and 50 ms, max 125 ms, which is one to two
-ticks of a 10 Hz readout and is the readout's own cadence rather than a defect
-in the rules. Nothing in §3 touches the tick rate.
+fine everywhere — p50 between 0 and 25 ms, max 125 ms, one to two ticks of a
+10 Hz readout, which is the readout's own cadence and not a defect in the
+rules. Nothing in §3 touches the tick rate.
 
 ---
 
@@ -496,7 +515,18 @@ bad now"; an operator's actual question after a lost press is "has it been
 bad", and a rung cannot answer that. This is the smallest thing that lets a
 *look* settle it rather than a memory.
 
-### 3e. Considered and not built
+### 3e. What it looks like
+
+[`latency/round2/after/09-last-safe-press.png`](latency/round2/after/09-last-safe-press.png),
+beside its own before, is in §5. Read left to right along the strip: the rung's
+dot and word, then the segment bar (§3a), then the four numbers hard against
+the bar's end, then the twelve-turn graph (§3d); the clock track above carries
+the fill, the band and the notch (§3b); and the overlay under it carries the
+diagnosis and, dimmer, the instruction (§3c). Everything after the dot is for a
+reader who has already looked — which is the division `01-RESEARCH.md` §4 asked
+for, with three more things on the strip than it had.
+
+### 3f. Considered and not built
 
 * **Compensating the deadline the way lichess compensates a clock.** The game
   server's deadline is not ours to move, and `DEADLINE.md`'s guard already
@@ -520,15 +550,139 @@ bad", and a rung cannot answer that. This is the smallest thing that lets a
 Same command, same seed, same eight turns, against the surface §3 built. Raw
 record: [`latency/sim/latency-sim.json`](latency/sim/latency-sim.json).
 
-<!-- TABLE-AFTER -->
+| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | refused / of those, would have landed | press cost p50/p95 | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 4/17 ms | -30/-17 ms | 25/100 ms | 400/798 ms | 17.1% (8) | 1.1% (2) |
+| regional | 42/50 ms | 0/0 | 0 ms | 8 | 1 (≤582 ms) | 0 / 0 | 24/1941 ms | -47/1865 ms | 25/100 ms | 452/832 ms | 20.1% (8) | 0.7% (1) |
+| continental | 126/148 ms | 0/0 | 0 ms | 8 | 0 | 2 / 2 | 57/1241 ms | -74/718 ms | 50/77 ms | 321/548 ms | 17.2% (7) | 0.4% (1) |
+| mobile | 588/1736 ms | 1/0 | 0 ms | 8 | 0 | 4 / 4 | 333/421 ms | -597/-499 ms | 0/200 ms | 422/982 ms | 39.4% (5) | 10.2% (2) |
+| saturated | 4412/10652 ms | 29/0 | 6315 ms | 7 | 0 | 6 / 6 | 216/417 ms | -1182/-228 ms | 0/0 ms | 406/1192 ms | 0% (0) | 8.2% (4) |
 
-<!-- VERDICT -->
+### 4.1 What moved, and what did not
+
+**The false alarm is the win, and it is a large one.** Every wire improved, and
+the three an operator would call healthy improved by more than half:
+
+| | before | after |
+|---|---|---|
+| `lan` | 40.5 % | **17.1 %** |
+| `regional` | 43.7 % | **20.1 %** |
+| `continental` | 45.5 % | **17.2 %** |
+| `mobile` | 52.3 % | **39.4 %** |
+| `saturated` | 2.0 % | **0 %** |
+
+That is §3c's between-turns clause and nothing else. The residual on the
+healthy wires — a sixth of the run rather than a half — is the window between
+the deadline passing and the demotion's own evidence arriving: the clause
+requires *this turn's* first emission stamp, and on a slow down hop that stamp
+is itself in flight. It is the correct residual: the page waits for evidence
+before it stops alarming, which is the right direction to be wrong in.
+
+**The misses moved in both directions and the honest summary is "not much".**
+`saturated` improved (11.2 % → **8.2 %**), which is the outstanding-ping floor
+doing what it was built for. `mobile` did not (8.4 % → 10.2 %), and its wire was
+also worse in the second run (held RTT p50 260 ms → 588 ms) — on a profile whose
+stalls are 1.5 % per frame, eight turns is not enough samples to separate the
+change from the wire. **The floor is kept on the `saturated` evidence and on the
+argument, not on `mobile`'s number.** The healthy wires went from 0 % to
+0.4–1.1 %, which is the price of the between-turns demotion, paid in the two or
+three samples where the page demoted a beat before the truth agreed.
+
+**The notch got safer and the retune cost less than 0.9 did.** At 0.9 the band
+refused all eight `mobile` presses and **seven of them would have landed**; at
+0.75 it refuses four, of which four would have landed. Both are worse than the
+old estimator on that wire, which refused one — and both are better on the
+failure that matters more, since the old estimator's mark was 695 ms optimistic
+in the tail. That trade is the judgement this round makes explicitly, and
+`latency.notchConfidence` is where an operator overrides it.
+
+**One press was lost after the change that was not lost before, and it is not
+noise.** `regional`, turn 5: press cost p95 **1,941 ms on a 40 ms wire**, 582 ms
+past the deadline, and the surface said it would land. No quantile could have
+predicted it. The band is a quantile of the press costs this page has *seen*,
+and on `regional` every press it had seen cost about 24 ms — a first-ever
+1,941 ms block by the centaur's own decision loop is not in that distribution
+and cannot be. **This is finding 4 arriving as a limit rather than as an
+observation: the last-safe-press mark is bounded by the fact that the client
+cannot see a slice boundary.** §3e names the fix and it is not on this surface.
+
+**What the round did not touch, restated:** the ladder's lag (still 0–50 ms
+p50), the tick rate, the client cost measured in `03` §1, and the DEGRADED/STALE
+thresholds themselves. Every threshold in §3.2 of `03-LATENCY.md` is unchanged;
+what changed is one *reading* of the STALE condition, one estimator, and what
+the surface says.
 
 ---
 
 ## 5. Gates
 
-<!-- GATES -->
+`npx tsc --noEmit -p .` — clean. `npx eslint src/**/*.ts src/web/*.js` — clean.
+`npm run build:lens` — clean. `node --check src/web/latency.js` is in the loop
+too, for the reason `03` §2.4 gives (this file is not TypeScript and no jest
+suite loads it, so a syntax error in it is invisible until the readout is not
+there).
+
+**Jest — `src/tests/lens-*`, `src/lobster/__tests__/lens-*`,
+`local-game-determinism`: 22 suites, 353 tests, all passing.**
+
+**The operator drills** (`scripts/lens-walkthrough.js`, run against a freshly
+started harness): **11 of 11 steps `ok`** — stage, pin, the undo stack's depth
+either side of a pin, the stage line, `U` taking the stage back, the named
+refusal, the lock arming and firing, the widen banner, and undo popping exactly
+one determination. Zero page exceptions. The eight console errors are the
+harness's own (`firebase-status: not_configured`, two 404s on the replay route)
+and are present on the base build too.
+
+**The pixel gate — a PAIR of walks, base and branch, on freshly started
+servers, differenced shot by shot with `scripts/lens-png-diff.js`:**
+
+* **All 40 element shots are byte-identical — 0 differing pixels.** That
+  includes every rail and panel shot (`03b`, `03d`, `04`–`10`, `12`–`14`,
+  `16`, `16b`, `17b`, `19b`, `21a`, `21b`), three of the four board shots
+  (`03c`, `05b`, `13b`, `19c`), all ten drill shots (`d1`–`d5` and their
+  control crops), the two key-scheme crops, and — the one that matters most
+  here — **`d8-clock-notch.png`, the notch drill's own close-up of the clock
+  track, at 0 pixels.** The notch has not moved on an unshaped wire, which is
+  exactly what §3b predicts: with a free wire the observed press costs are all
+  the same and the band collapses onto the line it replaced.
+* **All three REPLAY full-page shots are 0** (`18`, `19`, `20`) — a replayed
+  game opens no socket, the mount stays empty and `#latency-mount:empty` takes
+  it out of flow, so the page is byte-for-byte the page it always was. That is
+  round 1's `:empty` rule still holding after round 2 added three elements to
+  the strip.
+* **`08b-foil-board` differs in a three-row band at the top** (rows 2–4) and
+  the six LIVE full-page shots differ by 0.25–1.1 %. A full-page comparison
+  across two separately started servers is not a controlled comparison — the
+  two walks drive live sockets whose ages, chip contents and hover timings
+  differ by construction — which is why `03` §2.4 made the element shots the
+  gate, and they are the gate here.
+* **`d9-tour-last` differs by 10 %**, in two bands. It is the tour's last-step
+  spotlight, and the tour steps through elements whose contents this branch
+  changed. Recorded rather than explained away; the tour belongs to another
+  owner and a merge should re-take that shot.
+
+**The intended change, photographed.** `node scripts/lens-latency-shots.js
+--only=slow`, run once on the base build and once on this one, same scene
+(`--latency=500 --jitter=60 --turn-timeout=3000`):
+
+| | before | after |
+|---|---|---|
+| past the last safe press | [`round2/before/09-last-safe-press.png`](latency/round2/before/09-last-safe-press.png) | [`round2/after/09-last-safe-press.png`](latency/round2/after/09-last-safe-press.png) |
+| DEGRADED on a slow wire | [`round2/before/06-degraded-rtt.png`](latency/round2/before/06-degraded-rtt.png) | [`round2/after/06-degraded-rtt.png`](latency/round2/after/06-degraded-rtt.png) |
+
+The `09` pair is the clearest statement of what this round did. Before: a bar,
+four numbers, and one sentence — *1633 ms round trip — a press needs 1181 ms to
+land · a lock issued now may not land this turn*. After, on the same scene: the
+segment bar sits between the state word and the numbers, the twelve-bar net
+graph sits at the far right of the same 15 px line, and the banner has gained
+its second, dimmer line — *a lock still lands: 1296 ms of press left*. The
+strip's height is unchanged and the board below it has not moved.
+
+**The instrument** — `node scripts/latency-sim.js --turns=8` — runs clean on
+all five profiles, before and after, and its two records are committed under
+[`latency/sim/`](latency/sim/).
+
+
 
 ### 5.1 What a merge must check
 

@@ -1,0 +1,740 @@
+{
+  "scenes": [
+    {
+      "note": "contest",
+      "adaHeld": "red-A",
+      "boHolds": "red-C"
+    },
+    {
+      "name": "slow",
+      "flags": [
+        "--latency=500",
+        "--jitter=60"
+      ],
+      "turnTimeoutMs": 3000,
+      "why": "a second of round trip: DEGRADED, the widened press slack, and a write in flight",
+      "failure": null
+    }
+  ],
+  "shots": [
+    {
+      "scene": "slow",
+      "name": "06-degraded-rtt",
+      "note": "DEGRADED on round trip — 500 ms ± 60 injected on each hop. The banner says the number AND what it costs (\"a press needs N ms to land\"), and the notch has walked left off the shoulder of the bar to where it now belongs",
+      "driftedTo": "STALE",
+      "bytes": 24362,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1354 ms round trip — a press needs 929 ms to land",
+        "advice": null,
+        "betweenTurns": false,
+        "turn": 2,
+        "budgetMs": 2890,
+        "rttMs": 1354,
+        "oneWayDownMs": 521,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 7,
+        "deadlineAt": 1788644223093,
+        "lastSafePressAt": 1788644222164,
+        "pressSlackMs": 929,
+        "rttSteerMs": 1354,
+        "noSafePress": false,
+        "pressCost": {
+          "midMs": 929,
+          "highMs": 929,
+          "confidence": 0.75,
+          "samples": 1
+        },
+        "gapCause": "bot",
+        "spend": [
+          {
+            "key": "game",
+            "label": "game server → centaur",
+            "ms": 53,
+            "how": "measured"
+          },
+          {
+            "key": "queue",
+            "label": "centaur, before the kernel",
+            "ms": 2,
+            "how": "measured"
+          },
+          {
+            "key": "think1",
+            "label": "kernel → first answer",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "think2",
+            "label": "kernel, refining",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "push",
+            "label": "centaur → browser",
+            "ms": 521,
+            "how": "measured"
+          },
+          {
+            "key": "operator",
+            "label": "you",
+            "ms": 1582,
+            "how": "measured"
+          },
+          {
+            "key": "press",
+            "label": "browser → centaur",
+            "ms": 677,
+            "how": "estimated"
+          },
+          {
+            "key": "submit",
+            "label": "centaur → game server",
+            "ms": null,
+            "how": "unknown"
+          }
+        ],
+        "history": [
+          {
+            "turn": 1,
+            "rttMs": 1416,
+            "botMs": null,
+            "gameLagMs": null,
+            "dropped": 0
+          }
+        ],
+        "reconnectedMsAgo": null,
+        "turnsMissedOnReconnect": 0,
+        "remainingMs": 102,
+        "frameAgeMs": 1712,
+        "boardAgeMs": 2788,
+        "gameLagMs": 53,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1445,
+          "degradedMs": 2890,
+          "rttDegradedMs": 867,
+          "rttWarnMs": 289,
+          "pendingMs": 4063
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 58
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1354ms frame +1673ms board +2749ms game +53ms 1354 ms round trip — a press needs 929 ms to land · a lock issued now may not land this turn ⟳ select red-A 19ms",
+      "banner": "1354 ms round trip — a press needs 929 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 19ms"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "07-optimistic-pending",
+      "note": "OPTIMISTIC — the gesture is on screen in the frame it was made in, ⟳ and its own age, with nothing yet having answered it",
+      "driftedTo": "DEGRADED",
+      "bytes": 21899,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 2475 ms, past this turn's deadline",
+        "advice": null,
+        "betweenTurns": false,
+        "turn": 2,
+        "budgetMs": 2890,
+        "rttMs": 1354,
+        "oneWayDownMs": 521,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 7,
+        "deadlineAt": 1788644223093,
+        "lastSafePressAt": 1788644222164,
+        "pressSlackMs": 929,
+        "rttSteerMs": 1354,
+        "noSafePress": false,
+        "pressCost": {
+          "midMs": 929,
+          "highMs": 929,
+          "confidence": 0.75,
+          "samples": 1
+        },
+        "gapCause": "bot",
+        "spend": [
+          {
+            "key": "game",
+            "label": "game server → centaur",
+            "ms": 53,
+            "how": "measured"
+          },
+          {
+            "key": "queue",
+            "label": "centaur, before the kernel",
+            "ms": 2,
+            "how": "measured"
+          },
+          {
+            "key": "think1",
+            "label": "kernel → first answer",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "think2",
+            "label": "kernel, refining",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "push",
+            "label": "centaur → browser",
+            "ms": 521,
+            "how": "measured"
+          },
+          {
+            "key": "operator",
+            "label": "you",
+            "ms": 2371,
+            "how": "measured"
+          },
+          {
+            "key": "press",
+            "label": "browser → centaur",
+            "ms": 677,
+            "how": "estimated"
+          },
+          {
+            "key": "submit",
+            "label": "centaur → game server",
+            "ms": null,
+            "how": "unknown"
+          }
+        ],
+        "history": [
+          {
+            "turn": 1,
+            "rttMs": 1416,
+            "botMs": null,
+            "gameLagMs": null,
+            "dropped": 0
+          }
+        ],
+        "reconnectedMsAgo": null,
+        "turnsMissedOnReconnect": 0,
+        "remainingMs": -661,
+        "frameAgeMs": 2475,
+        "boardAgeMs": 3551,
+        "gameLagMs": 53,
+        "droppedTurns": 0,
+        "pending": 2,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1445,
+          "degradedMs": 2890,
+          "rttDegradedMs": 867,
+          "rttWarnMs": 289,
+          "pendingMs": 4063
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 821
+        },
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 32
+        }
+      ],
+      "domState": "STALE",
+      "text": "STALE rtt 1354ms frame +2466ms board +3542ms game +53ms no decision frame for 2466 ms, past this turn's deadline ⟳ select red-A 813ms ⟳ select red-A 24ms",
+      "banner": "no decision frame for 2466 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 813ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 24ms"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "08-reconciled",
+      "note": "RECONCILED — the same chip after the server answered: the age it took is exactly the measurement the last-safe-press mark is drawn from, which is why the two are on the same surface",
+      "driftedTo": null,
+      "bytes": 26568,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1505 ms round trip — a press needs 1468 ms to land",
+        "advice": "a lock still lands: 539 ms of press left",
+        "betweenTurns": false,
+        "turn": 4,
+        "budgetMs": 2949,
+        "rttMs": 1505,
+        "oneWayDownMs": 580,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 7,
+        "deadlineAt": 1788644226758,
+        "lastSafePressAt": 1788644225290,
+        "pressSlackMs": 1468,
+        "rttSteerMs": 1505,
+        "noSafePress": false,
+        "pressCost": {
+          "midMs": 929,
+          "highMs": 1468,
+          "confidence": 0.75,
+          "samples": 3
+        },
+        "gapCause": "bot",
+        "spend": [
+          {
+            "key": "game",
+            "label": "game server → centaur",
+            "ms": 1,
+            "how": "measured"
+          },
+          {
+            "key": "queue",
+            "label": "centaur, before the kernel",
+            "ms": 0,
+            "how": "measured"
+          },
+          {
+            "key": "think1",
+            "label": "kernel → first answer",
+            "ms": 56,
+            "how": "measured"
+          },
+          {
+            "key": "think2",
+            "label": "kernel, refining",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "push",
+            "label": "centaur → browser",
+            "ms": 580,
+            "how": "measured"
+          },
+          {
+            "key": "operator",
+            "label": "you, so far",
+            "ms": 341,
+            "how": "measured"
+          },
+          {
+            "key": "press",
+            "label": "browser → centaur",
+            "ms": 753,
+            "how": "estimated"
+          },
+          {
+            "key": "submit",
+            "label": "centaur → game server",
+            "ms": null,
+            "how": "unknown"
+          }
+        ],
+        "history": [
+          {
+            "turn": 1,
+            "rttMs": 1416,
+            "botMs": null,
+            "gameLagMs": null,
+            "dropped": 0
+          },
+          {
+            "turn": 2,
+            "rttMs": 1354,
+            "botMs": null,
+            "gameLagMs": 53,
+            "dropped": 0
+          },
+          {
+            "turn": 3,
+            "rttMs": 1505,
+            "botMs": 799,
+            "gameLagMs": 13,
+            "dropped": 0
+          }
+        ],
+        "reconnectedMsAgo": null,
+        "turnsMissedOnReconnect": 0,
+        "remainingMs": 2007,
+        "frameAgeMs": 582,
+        "boardAgeMs": 942,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 4515
+        }
+      },
+      "pending": [
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 343
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1505ms frame +711ms board +864ms game +1ms 1505 ms round trip — a press needs 1468 ms to land a lock still lands: 617 ms of press left ✓ select red-A 1468ms ✓ select red-A 681ms ⟳ ask red-A 265ms",
+      "banner": "1505 ms round trip — a press needs 1468 ms to land\na lock still lands: 617 ms of press left",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1468ms"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-A 681ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 265ms"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "20.9%"
+    },
+    {
+      "scene": "slow",
+      "name": "09-last-safe-press",
+      "note": "PAST THE LAST SAFE PRESS — inside the deadline, outside the flight time. The fill goes to its urgent tone and the banner gains the sentence a countdown alone cannot say: a lock issued now may not land this turn",
+      "driftedTo": null,
+      "bytes": 28954,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1322 ms round trip — a press needs 929 ms to land",
+        "advice": "a lock still lands: 1370 ms of press left",
+        "betweenTurns": false,
+        "turn": 5,
+        "budgetMs": 2947,
+        "rttMs": 1322,
+        "oneWayDownMs": 563,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 6,
+        "deadlineAt": 1788644228335,
+        "lastSafePressAt": 1788644227406,
+        "pressSlackMs": 929,
+        "rttSteerMs": 1322,
+        "noSafePress": false,
+        "pressCost": {
+          "midMs": 929,
+          "highMs": 929,
+          "confidence": 0.75,
+          "samples": 4
+        },
+        "gapCause": "bot",
+        "spend": [
+          {
+            "key": "game",
+            "label": "game server → centaur",
+            "ms": 3,
+            "how": "measured"
+          },
+          {
+            "key": "queue",
+            "label": "centaur, before the kernel",
+            "ms": 0,
+            "how": "measured"
+          },
+          {
+            "key": "think1",
+            "label": "kernel → first answer",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "think2",
+            "label": "kernel, refining",
+            "ms": null,
+            "how": "unknown"
+          },
+          {
+            "key": "push",
+            "label": "centaur → browser",
+            "ms": 563,
+            "how": "measured"
+          },
+          {
+            "key": "operator",
+            "label": "you, so far",
+            "ms": 137,
+            "how": "measured"
+          },
+          {
+            "key": "press",
+            "label": "browser → centaur",
+            "ms": 661,
+            "how": "estimated"
+          },
+          {
+            "key": "submit",
+            "label": "centaur → game server",
+            "ms": null,
+            "how": "unknown"
+          }
+        ],
+        "history": [
+          {
+            "turn": 1,
+            "rttMs": 1416,
+            "botMs": null,
+            "gameLagMs": null,
+            "dropped": 0
+          },
+          {
+            "turn": 2,
+            "rttMs": 1354,
+            "botMs": null,
+            "gameLagMs": 53,
+            "dropped": 0
+          },
+          {
+            "turn": 3,
+            "rttMs": 1505,
+            "botMs": 799,
+            "gameLagMs": 13,
+            "dropped": 0
+          },
+          {
+            "turn": 4,
+            "rttMs": 1322,
+            "botMs": 493,
+            "gameLagMs": 1,
+            "dropped": 0
+          }
+        ],
+        "reconnectedMsAgo": null,
+        "turnsMissedOnReconnect": 0,
+        "remainingMs": 2299,
+        "frameAgeMs": 583,
+        "boardAgeMs": 648,
+        "gameLagMs": 3,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1474,
+          "degradedMs": 2947,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 3967
+        }
+      },
+      "pending": [
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 930
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1322ms frame +557ms board +558ms game +3ms 1322 ms round trip — a press needs 929 ms to land a lock still lands: 1460 ms of press left ✓ select red-A 1468ms ✓ select red-A 681ms ✗ ask red-A 918ms — no decision is inspectable on this game right… ⟳ ask red-A 840ms",
+      "banner": "1322 ms round trip — a press needs 929 ms to land\na lock still lands: 1460 ms of press left",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1468ms"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-A 681ms"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 918ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 840ms"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "49.5%"
+    },
+    {
+      "scene": "slow",
+      "name": "10-rollback",
+      "note": "ROLLED BACK, AND SAID SO — a second operator held the unit, so the optimistic chip does not quietly vanish: it becomes ✗ with the reason, and stays long enough to read",
+      "driftedTo": null,
+      "bytes": 19844,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 9731 ms, past this turn's deadline",
+        "advice": null,
+        "betweenTurns": false,
+        "turn": 5,
+        "budgetMs": 2947,
+        "rttMs": 994,
+        "oneWayDownMs": 534,
+        "serverWorkMs": 38,
+        "clockOffsetMs": -5,
+        "deadlineAt": 1788644228335,
+        "lastSafePressAt": 1788644227095,
+        "pressSlackMs": 1240,
+        "rttSteerMs": 994,
+        "noSafePress": false,
+        "pressCost": {
+          "midMs": 1121,
+          "highMs": 1240,
+          "confidence": 0.75,
+          "samples": 6
+        },
+        "gapCause": "bot",
+        "spend": [
+          {
+            "key": "game",
+            "label": "game server → centaur",
+            "ms": 3,
+            "how": "measured"
+          },
+          {
+            "key": "queue",
+            "label": "centaur, before the kernel",
+            "ms": 0,
+            "how": "measured"
+          },
+          {
+            "key": "think1",
+            "label": "kernel → first answer",
+            "ms": 56,
+            "how": "measured"
+          },
+          {
+            "key": "think2",
+            "label": "kernel, refining",
+            "ms": 330,
+            "how": "measured"
+          },
+          {
+            "key": "push",
+            "label": "centaur → browser",
+            "ms": 534,
+            "how": "measured"
+          },
+          {
+            "key": "operator",
+            "label": "you",
+            "ms": 8494,
+            "how": "measured"
+          },
+          {
+            "key": "press",
+            "label": "browser → centaur",
+            "ms": 497,
+            "how": "estimated"
+          },
+          {
+            "key": "submit",
+            "label": "centaur → game server",
+            "ms": null,
+            "how": "unknown"
+          }
+        ],
+        "history": [
+          {
+            "turn": 1,
+            "rttMs": 1416,
+            "botMs": null,
+            "gameLagMs": null,
+            "dropped": 0
+          },
+          {
+            "turn": 2,
+            "rttMs": 1354,
+            "botMs": null,
+            "gameLagMs": 53,
+            "dropped": 0
+          },
+          {
+            "turn": 3,
+            "rttMs": 1505,
+            "botMs": 799,
+            "gameLagMs": 13,
+            "dropped": 0
+          },
+          {
+            "turn": 4,
+            "rttMs": 1322,
+            "botMs": 493,
+            "gameLagMs": 1,
+            "dropped": 0
+          }
+        ],
+        "reconnectedMsAgo": null,
+        "turnsMissedOnReconnect": 0,
+        "remainingMs": -7190,
+        "frameAgeMs": 9731,
+        "boardAgeMs": 10137,
+        "gameLagMs": 3,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1474,
+          "degradedMs": 2947,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 2981
+        }
+      },
+      "pending": [],
+      "domState": "STALE",
+      "text": "STALE rtt 994ms frame +9709ms board +10115ms game +3ms no decision frame for 9709 ms, past this turn's deadline ✗ select red-C 1121ms — another operator holds it",
+      "banner": "no decision frame for 9709 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ select red-C 1121ms — another operator holds it"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    }
+  ],
+  "console": [
+    {
+      "scene": "slow",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T21:36:54.586Z)"
+    },
+    {
+      "scene": "slow",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "exceptions": [
+    {
+      "what": "06-degraded-rtt",
+      "why": "drifted DEGRADED→STALE"
+    },
+    {
+      "what": "07-optimistic-pending",
+      "why": "drifted STALE→DEGRADED"
+    }
+  ]
+}
