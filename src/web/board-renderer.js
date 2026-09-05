@@ -686,6 +686,21 @@ const BoardRenderer = (function () {
     return { x, y };
   }
 
+  // AND BACK. The rail, the moveset assignments and the stage line all name a
+  // cell by that same full-board index, so anything that knows only an api
+  // coordinate — a snake's head plus a Direction, say — needs the inverse to
+  // say `144` where its neighbours say `144`. Exact inverse of
+  // `moveDestinationCell` for every interior cell, and `null` outside it.
+  function cellDestinationMove(cell, board) {
+    if (!cell || !board) return null;
+    const { x, y } = cell;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (x < 0 || x >= board.width || y < 0 || y >= board.height) return null;
+    const fullW = board.width + 2;
+    const fullH = board.height + 2;
+    return (fullH - y - 2) * fullW + (x + 1);
+  }
+
   // The quarter-turn glyph for turning `from` → `to`. Both orientations use the
   // wire convention (y grows downward), which matches canvas rows: a positive
   // cross product is a clockwise (screen) quarter turn. An unknown `from`
@@ -4515,6 +4530,7 @@ const BoardRenderer = (function () {
     hexToRgba,
     processMoveEvaluations,
     moveDestinationCell,
+    cellDestinationMove,
     renderBoard,
     createBoardOverlay,
     renderSnakeInfo,

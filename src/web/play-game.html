@@ -1392,6 +1392,37 @@
     /** The page's own staged map, in the shape the stage line reads. It knows
      *  two things the frame does not: a REQUESTED move that has not confirmed,
      *  and a COMMITTED one. Where it has no answer the frame's is used. */
+    /**
+     * A WIRE MOVE IS NOT A CELL, AND L1 IS WHERE THAT SHOWS.
+     *
+     * `stagedMoves[u].move` is the wire move: for a chess piece it is already
+     * the full-board destination index the rail and the frame both name, and
+     * for a SNAKE it is a Direction string. The stage line prints it beside
+     * units whose cell came off the frame, so one unit read `A → right` while
+     * its neighbours read `B → 144` — the same Direction-versus-cell confusion
+     * as `05` H-2, in the one sentence `02 §2.2` says the whole IA is built
+     * around, and invisible until `ux-fixes` taught the harness to publish
+     * production-shaped snake data.
+     *
+     * The direction is resolved against the unit's own head, which is the only
+     * thing that makes it a cell. Where the board cannot answer — no snake, no
+     * head, a move off the interior — the wire move is left exactly as it was
+     * rather than replaced by a guess.
+     */
+    function stagedCellForUnit(unitId, wireMove) {
+      if (typeof wireMove !== 'string' || !directionOffset(wireMove)) return wireMove;
+      const board = currentGameState && currentGameState.board;
+      const snake = board && (board.snakes || []).find((s) => s.id === unitId);
+      const head = snake && snake.body && snake.body[0];
+      if (!board || !head) return wireMove;
+      const off = directionOffset(wireMove);
+      const cell = BoardRenderer.cellDestinationMove(
+        { x: head.x + off.dx, y: head.y + off.dy },
+        board
+      );
+      return cell === null ? wireMove : cell;
+    }
+
     function stagedViewForStageLine() {
       const out = {};
       for (const [unit, staged] of Object.entries(stagedMoves || {})) {
@@ -1401,7 +1432,7 @@
         const to = confirmed != null ? confirmed : requested;
         if (to == null) continue;
         out[unit] = {
-          to,
+          to: stagedCellForUnit(unit, to),
           state: staged.committed
             ? 'committed'
             : requested != null && requested !== confirmed
