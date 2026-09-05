@@ -271,25 +271,281 @@ alone, and it should move when that file next opens.
 
 ### 2.4 The gates
 
-`npx tsc --noEmit`, `npx eslint "src/**/*.ts"`, `npm run build:lens`, and the
-jest lens suites (`src/tests/lens-*`, `src/lobster/__tests__/lens-*`,
-`local-game-determinism`) are green. The walkthrough was re-run at **zero
-injected latency** and diffed against a pre-change run, five runs deep, and
-what that comparison actually establishes needs stating precisely because the
-walk is not deterministic to the pixel:
+`npx tsc --noEmit -p .`, `npx eslint "src/**/*.ts"`, `npm run build:lens` and
+the jest lens suites (`src/tests/lens-*`, `src/lobster/__tests__/lens-*`,
+`local-game-determinism`) are green: **21 suites, 317 tests**. `latency.js` is
+not TypeScript and no jest suite loads it, so **`node --check src/web/latency.js`
+is in the loop too** — a backtick inside its CSS template literal ended that
+string early and killed the whole module, twice, and the only symptom on the
+page was a readout that was not there.
 
-* **Byte-identical across every run, before and after:** every board shot
-  (`03c`, `05b`, `08b`, `13b`, `19c`) and every rail and panel shot — `03b`,
-  `03d`, `04`, `05`, `06`, `06b`, `07`, `08`, `12`, `13`, `14`, `16`, `16b`.
-  These are the pictures `10-WALKTHROUGH.md` argues from and they did not move.
-* **Varies run-to-run on the BASE build too**, so it carries no signal:
-  `01`, `02`, `03`, `11`, `15`, `17` — the full-page shots, which contain the
-  turn timer and the ping readout — and the lane, which differs by **three
-  pixels of anti-aliasing on its top border** (grey 41 against grey 42) between
-  two runs of the *unchanged* build.
-* **Explained:** the full-page live shots now also contain the latency readout
-  in the board header, which is the one thing this branch adds to that page.
-  The replayed page has no live wire, draws no readout, and its header is the
-  height it always was — `19b-replay-rail` and `21b-replay-frame` are
-  byte-identical. The `21a`/`21b` live-vs-replay `seq` drift is the harness
-  property `10-WALKTHROUGH.md` §2 already records.
+**The walkthrough is the pixel gate, and it is run as a PAIR on today's code.**
+The committed pictures in `docs/design/decision-lens/walkthrough` predate the
+bot changes this branch merged, so they differ from anything this branch draws
+for reasons that have nothing to do with this surface — comparing against them
+would be comparing two different bots. So: two freshly started servers, same
+seed, same 550 nodes, one walk each, one with `play-game.html`'s mount and
+script tag removed and one as shipped. Thirty-three shots, differenced pixel by
+pixel with `scripts/lens-png-diff.js`:
+
+* **Zero differing pixels on every board shot and every rail/panel shot** —
+  `03b`, `03c`, `03d`, `04`, `05`, `05b`, `06`, `06b`, `07`, `08`, `08b`, `09`,
+  `10`, `12`, `13`, `13b`, `14`, `16`, `16b`, `17b`, `19b`, `19c`, `21a`,
+  `21b`. These are the pictures `10-WALKTHROUGH.md` argues from; twenty-four of
+  them, byte-identical, with the surface installed and reading a live socket.
+* **Zero on all three REPLAY full-page shots** (`18`, `19`, `20`) — the whole
+  1500 × 950 page, unchanged. A replayed game opens no socket, the mount stays
+  empty, `#latency-mount:empty { display: none }` takes it out of flow entirely,
+  and the page is the page it always was. That is the `:empty` rule being
+  tested rather than asserted.
+* **The six LIVE full-page shots differ** (`01`, `02`, `03`, `11`, `15`,
+  `17`), by 14–23 % of their pixels, and every one of them differs **only from
+  the strip's own row downwards** (the first differing row is 60–95 in a
+  950-row image, which is where the strip is). That is the strip existing and
+  the 30 px of board below it moving down by 30 px. It is the change, not a
+  regression, and it is the reason the element shots above are the gate.
+
+Earlier runs of this comparison, before the fixes in §3.6, are what caught the
+three defects recorded there.
+
+---
+
+## 3. The operator surface — `src/web/latency.js`
+
+One module, one mount, and nothing else on the page. `<div id="latency-mount">`
+is a full-width strip under the board header; the script tag is after
+`ws-client.js`. Those two lines are the whole of this branch's footprint in
+`play-game.html`, which belongs to `ux-ia`.
+
+### 3.1 What it reads, and why it does not open a socket
+
+`ws-client.js` gained an observatory: every frame the page sends or receives is
+announced to `WSClient.observe`. The surface subscribes to that. **It therefore
+reports on the socket the operator is actually using** — a second connection
+would have a second RTT, a second reconnect and a second opinion about the
+clock, and would report on none of them.
+
+Three things had to exist on the wire before any of this could be honest:
+
+* **`serverSentAt`, on every outbound envelope**, stamped by
+  `websocket-server.ts` as it lets go of the frame. Subtracting it from arrival
+  gives **flight**, not skew; and `turnExpiryTime − serverSentAt` gives the turn
+  budget with **both ends in the server's own clock**, so the number every
+  threshold hangs off carries no clock correction at all.
+* **`gameLagMs` on `board-update`**, from `noteTurnOrigin`: how old the turn
+  already was when the centaur learned about it. It is `null` — never `0` —
+  wherever nobody reported the game server's own clock, because "we do not know"
+  and "no lag" are different readings and only one of them is a reassurance.
+* **A clock estimate.** NTP-style over the transport's own ping/pong, at 1 Hz
+  rather than the page's 5 s (5 s is too coarse to steer a 500 ms turn by), on
+  the low-RTT half of a 12-sample window.
+
+### 3.2 The signals, and every threshold
+
+Every threshold is a **fraction of the current turn budget** and not a number of
+milliseconds — `01-RESEARCH.md` §4's instruction, and the reason it is the right
+one is visible in §4's pictures: the same ladder is photographed at budgets of
+1,126 ms, 1,434 ms and 2,949 ms and the rungs land in the same places.
+
+| signal | drawn as | threshold | at B = 500 ms | at B = 1,500 ms |
+|---|---|---|---|---|
+| **RTT** | `rtt Nms`, graded | warn at `0.1 · B`; DEGRADED at `max(150 ms, 0.3 · B)` | 50 / 150 ms | 150 / 450 ms |
+| **frame age** (clock B) | `frame +Nms`, graded | THINKING at `0.5 · B`; DEGRADED at `1 · B`; STALE at `2 · B` | 250 / 500 / 1000 ms | 750 / 1500 / 3000 ms |
+| **board age** | `board +Nms` | same ladder, reported not laddered | | |
+| **game lag** | `game +Nms`, graded | DEGRADED at `1 · B` | 500 ms | 1500 ms |
+| **deadline** | a bar that depletes | `warn` under 35 % left; `urgent` past the notch; `past` at zero | | |
+| **last safe press** | a notch on the bar | `deadline − (RTT/2 + server work)` | | |
+| **unacknowledged write** | `⟳ label Nms` | DEGRADED at `max(1200 ms, 3 · RTT)` | | |
+| **dropped turn** | DEGRADED, named | any gap in `board-update`'s own turn numbers | | |
+
+**The ladder**, in the order it is evaluated — the first rung that matches wins,
+so the reading is always the worst true thing rather than the first:
+
+1. `DISCONNECTED` — the socket is not open. Names the close code and that a
+   reconnect is pending.
+2. `STALE` — the deadline has passed and **nothing has arrived since it
+   passed**, or the frame age is past twice the budget.
+3. `DEGRADED` — RTT over threshold, **or** the game server over a budget
+   behind, **or** a write unacknowledged past `3 · RTT`, **or** a frame age past
+   a whole budget, **or** a turn that never arrived.
+4. `THINKING` — half a budget with no decision frame, inside the deadline.
+5. `LIVE` — none of the above. **Draws nothing beyond the bar.**
+
+The `last safe press` is the one number here that is a decision input rather
+than a diagnostic. A lock issued at `T` lands at `T + one-way-up + the centaur's
+own work`; the surface estimates the first as `RTT/2` and **measures** the
+second, as an EMA over the commands that answer for themselves (§3.4). Past the
+notch the fill goes to its urgent tone and the banner gains the sentence a
+countdown alone cannot say: *a lock issued now may not land this turn.*
+
+### 3.3 How it draws — the periphery reads brightness and motion
+
+`01-RESEARCH.md`'s §4 principle is a constraint, not a preference: peripheral
+vision reads **motion** and **luminance**, and does not read colour, shape
+detail or text. So everything urgent is encoded twice — a bar that **shortens**
+and a fill that **brightens** as it goes (dim green → amber → red) — and the
+words are for the reader who has already looked.
+
+* **Nothing is red for a recoverable state.** DEGRADED and STALE are amber;
+  DISCONNECTED, the one rung the operator can do nothing about, is the only red.
+* **Nothing is modal.** A modal on a 500 ms clock is a lost turn.
+* **Nothing flashes.** One 900 ms transient per state change, never a loop,
+  never above 3 Hz, and nothing at all under `prefers-reduced-motion`.
+* **The strip never relayouts the page.** Banner and chips live in an overlay
+  that is out of flow and `pointer-events: none`, so a page that goes bad does
+  not also jump — and the mount is `display: none` while empty, so a replayed
+  game's page is byte-identical (§2.4).
+* **No geometry is read.** The bar and the notch are percentages; the surface
+  measures nothing, which is what keeps §1.4's "no layout thrash on this
+  surface" true after adding one.
+
+### 3.4 Optimistic commands, reconciliation, and a rollback you can see
+
+Every outbound envelope the page sends is matched against the inbound frame
+that answers it. Thirteen command types are named with what acknowledges each,
+and the distinction between them is drawn:
+
+* **A chip appears in the frame the gesture was made in**, `⟳ label Nms`, ageing
+  live. That is the optimism, and it costs nothing to be wrong about.
+* **`✓ ack`** — the command had an answer of its own (`lens-lock`,
+  `snake-selected`, `toggle-hold-result`, …) and it came. The age it took is
+  also the sample that trains the server-work estimate the last-safe-press notch
+  is drawn from, which is why the two live on the same surface.
+* **`✓ applied`** — the command had no answer of its own and was acknowledged
+  only by the next broadcast that would carry its effect. Weaker evidence,
+  drawn weaker.
+* **`✗ refused — <reason>`** — the server disagreed with the picture the press
+  was made against. **The chip does not quietly vanish**; it becomes the
+  refusal, carries the reason, and stays 9 s (an accepted one stays 2.5 s).
+  Silent rollback is the failure `01-RESEARCH.md` §4 says is the only
+  unacceptable one, and a gesture that was on screen and is now not is a silent
+  rollback unless something says so.
+
+Photographing this found a real one nobody had reported: **the page fires a
+`lens-conditional` on every unit focus, and the harness refuses it between
+turns.** Nine of the thirteen pictures below carry `✗ ask red-A — no decision is
+inspectable on this game right now` without anyone having asked for it. It has
+presumably always done that; it was simply invisible.
+
+### 3.5 The injected wire — `lens-walkthrough-server.ts`
+
+In this process both hops are free: the browser and the server are the same
+machine and the game server is a list in memory. **A latency surface designed
+against a free wire is a surface nobody has ever read**, so the harness can make
+the wire cost something:
+
+| flag (or `LENS_*` env) | what it does |
+|---|---|
+| `--latency=N` | N ms each way, client ↔ centaur |
+| `--latency-down=N` / `--latency-up=N` | split them: a slow DOWN hop makes the board old, a slow UP hop makes the press late |
+| `--jitter=N` | uniform ± on each direction, **order preserved** |
+| `--loss=F` | drop that fraction of superseded broadcasts |
+| `--loss-any` | …and of every other type, `lens-frames` included |
+| `--latency-game=N` | the centaur learns of the turn N ms late, and says so as `gameLagMs` |
+| `--turn-timeout=N` | give the harness a real turn deadline to count down |
+
+`shapeTransport` lives on the websocket server, is order-preserving, and
+**production cannot reach it** — only the walkthrough server calls it. Every
+flag defaults to zero and **at zero nothing is installed at all**, which is what
+keeps §2.4's re-run a comparison against the same transport rather than against
+a shaped one.
+
+### 3.6 Three defects the camera found
+
+None of these were reachable before there was a picture, which is the argument
+for taking the pictures.
+
+1. **The mount was a 210 px box at the end of the header's flex row.** Four
+   numbers and a state word do not fit in 210 px: the first photograph shows the
+   readout running past the card's edge and stopping mid-word at `board +50`.
+   It is now a full-width strip under the header — which the deadline bar wanted
+   anyway, since a 210 px bar puts the whole last-safe-press question inside a
+   centimetre.
+2. **The budget was an EMA and an average lags.** On the first frames of a turn
+   `remaining` exceeded the smoothed `budget`, so the bar's fill clamped to
+   100 % **and the last-safe-press notch clamped with it** — pinned off the
+   right edge, which is exactly where it says nothing. The sample is one number
+   per turn and wants no averaging; taken whole it also makes `remaining ≤
+   budget` true by construction, because `serverSentAt` is stamped no later than
+   the deadline it defines.
+3. **STALE was the weaker reading.** It required an OLD emission past the
+   deadline; §4 says *no emission past the deadline*. The camera caught a page
+   reading `THINKING` 189 ms after its deadline had passed with a 552 ms-old
+   frame — which is silent degradation, the one failure §4 rules out. STALE is
+   now "the clock ran out and nothing has arrived since", which also correctly
+   leaves a kernel that is still emitting past its own deadline on the DEGRADED
+   rung rather than the stale one (see `12-loss` in §4).
+
+---
+
+## 4. What an operator sees, at each rung, under injected latency
+
+`node scripts/lens-latency-shots.js --out=docs/design/ux/latency` — four scenes,
+a server each, thirteen shots. It **waits for the rung and never for a clock**:
+this CPU is shared, so a `sleep(600)` that catches THINKING on an idle machine
+catches DEGRADED on a busy one. Every shot is gated on the state the widget has
+actually **drawn**, the strip is cropped out of the same capture as the page so a
+close-up cannot disagree with the page it is a close-up of, and
+`docs/design/ux/latency/report.json` carries the whole of `LatencyView.read()`
+at the instant of every picture — because a screenshot of a readout is not
+evidence that the readout is right.
+
+The turn clock is set longer than a real game on purpose (1.2–3.0 s): taking a
+screenshot costs a few hundred milliseconds, and on a 500 ms turn the rung has
+moved on before the bytes are taken. Every threshold is a fraction of the
+budget, so a longer budget photographs the same ladder at the same proportions —
+which is the argument for fractions, tested.
+
+### 4.1 The shipped wire — `--turn-timeout=3000`, nothing injected
+
+| | picture | what the surface said |
+|---|---|---|
+| **LIVE** | [`01-live.png`](latency/01-live.png) · [page](latency/01-live-page.png) | `rtt 5ms · frame +106ms · board +107ms · game +31ms`. B = 2,919 ms, 2,812 ms left, press slack **3 ms**, notch at **97.3 %** — hard against the right shoulder, which is what a free wire looks like. No banner. Silence is the signal. |
+| **THINKING** | [`02-thinking.png`](latency/02-thinking.png) | `frame +1542ms` against a 1,475 ms threshold, 797 ms still on the clock. The dot dims and **nothing else changes** — the bot is allowed to think, and a banner every turn is a banner nobody reads. |
+| **acknowledged** | [`03-acknowledged.png`](latency/03-acknowledged.png) | `✓ select red-B 11ms` beside `✗ ask red-B — no decision is inspectable…`. Both halves of §3.4 in one picture: an answer, and a refusal that says why. |
+| **STALE** | [`04-stale.png`](latency/04-stale.png) · [page](latency/04-stale-page.png) | 71 ms past the deadline with `frame +2756ms`: *no decision frame for 2756 ms, past this turn's deadline*. The fill goes flat grey, the notch is gone. Determinations are still offered — and labelled. |
+| **DISCONNECTED** | [`05-disconnected.png`](latency/05-disconnected.png) · [page](latency/05-disconnected-page.png) | *socket closed (4001) — reconnecting.* The one red rung, and it still names the code rather than going quietly grey. |
+
+### 4.2 A slow wire — `--latency=500 --jitter=60`, `--turn-timeout=3000`
+
+| | picture | what the surface said |
+|---|---|---|
+| **DEGRADED** | [`06-degraded-rtt.png`](latency/06-degraded-rtt.png) · [page](latency/06-degraded-rtt-page.png) | `rtt 1214ms` in amber against an 884 ms threshold: *1214 ms round trip — a press needs 627 ms to land.* The notch has walked from 97 % to **1.6 %**: on this wire almost the whole turn is flight. |
+| **optimistic** | [`07-optimistic-pending.png`](latency/07-optimistic-pending.png) | `⟳ select red-A 8ms` — the gesture is on screen in the frame it was made in, ageing, with nothing having answered it. |
+| **reconciled** | [`08-reconciled.png`](latency/08-reconciled.png) | the same chips at `✓ select red-A 1310ms`. That 1,310 ms is not decoration: it is the sample the press-slack estimate is built from. |
+| **past the last safe press** | [`09-last-safe-press.png`](latency/09-last-safe-press.png) · [page](latency/09-last-safe-press-page.png) | 529 ms left, 576 ms of slack needed. The fill turns red and the banner gains *· a lock issued now may not land this turn.* **This is the picture the whole surface exists for**: the countdown alone still reads "half a second left", and half a second is not enough. |
+| **rolled back** | [`10-rollback.png`](latency/10-rollback.png) · [page](latency/10-rollback-page.png) | a second operator held the unit: `✗ select red-C 1005ms — another operator holds it`. The optimistic chip became the refusal instead of vanishing. |
+
+### 4.3 The other hop — `--latency-game=1500`, `--turn-timeout=1200`
+
+[`11-game-lag.png`](latency/11-game-lag.png) · [page](latency/11-game-lag-page.png)
+
+`rtt 24ms · frame +8ms · board +77ms · **game +1524ms**`. The client's own wire
+is perfect and the turn was already a second and a half old when it arrived. The
+deadline bar is green, the notch is at 97 %, and the only amber thing on the
+strip is the number that is actually wrong — *the game server is 1524 ms
+behind*. An operator on this page can tell that pressing faster will not help,
+which is the entire reason the two hops are two numbers.
+
+### 4.4 Loss — `--latency=180 --jitter=60 --loss=0.5 --loss-any`, `--turn-timeout=1500`
+
+| | picture | what the surface said |
+|---|---|---|
+| **DEGRADED under loss** | [`12-loss.png`](latency/12-loss.png) · [page](latency/12-loss-page.png) | `rtt 486ms` (threshold 430 ms), `frame +230ms`, `board +2673ms`, and 1,239 ms **past** a deadline that decision frames are still arriving after. The `board-update` carrying the next deadline was one of the dropped ones — so the page is counting down a dead clock while the kernel talks. The new STALE rule reads this correctly as DEGRADED and not stale: something *is* arriving. |
+| **STALE under loss** | [`13-loss-stale.png`](latency/13-loss-stale.png) | `frame +2938ms`, `board +5568ms`. The same rung as `04`, reached by a wire that is up, fast, and losing frames rather than by a turn that ended. **A dropped frame is indistinguishable from a frame that was never sent**, which is the honest reading and the reason the ladder is built on age rather than on socket liveness. |
+
+### 4.5 What is not built, and who owns it
+
+* **The board's own optimistic ink.** `LatencyView.read()` and
+  `LatencyView.pending()` are exported for exactly this — the board renderer can
+  draw a ghost arrow for a write still in flight, and clear it on the same
+  reconciliation the chip uses, from the same numbers rather than a second
+  estimate. The board belongs to another owner and is not touched here.
+* **The turn clock on the board's edge.** It still counts to the deadline and
+  not to the last safe press. `read().lastSafePressAt` is there when `ux-ia`
+  next opens that file; putting a second countdown on the page from this module
+  would be two clocks disagreeing.
+* **`installPanelWriteGuard`'s permanent home** is `lensRender` (§2.2).
+* **`prefers-contrast` and a colour-blind check.** The ladder is encoded in
+  brightness and motion first and colour second, on purpose, but it has not been
+  measured against a simulated deficiency.
