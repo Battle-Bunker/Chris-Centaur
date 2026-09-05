@@ -19,11 +19,17 @@
  * unit-turns and it carries 67-73% of every contest death, at twenty times the
  * rate of equally exposed unit-turns where the member still has a gradient.
  *
- * §3's proposed repair is σ (`CONTEST_STANDING`): a second addend, folded as a
- * POINT, charging a plan for staging a unit onto a cell an enemy beats in
- * `field⁺` = `contestField` ∪ each enemy's own turn-start cell. It is a fact
- * about the PLAN and the turn-start board, so no bracket reads it and the
- * origin never enters it.
+ * §3's proposed repair — σ, a point-valued charge for staging a unit onto a
+ * cell an enemy beats in `field⁺` (`contestField` ∪ each enemy's own turn-start
+ * cell) — WAS BUILT AND IS NOT IN THE TREE. It shrank this state exactly as
+ * predicted and the deaths went the other way; see the STATUS section of
+ * `contest-gap.md` for the per-class table and the mechanism.
+ *
+ * What is left here is the state itself, asserted rather than argued: the
+ * arrival charge is EXACTLY equal on every one of five options, and `field⁺`
+ * still tells one of them apart. The gap between those two sentences is what a
+ * fourth attempt has to spend, and this file is where it will find out whether
+ * it has.
  *
  * ── THE BOARD ──────────────────────────────────────────────────────────────
  *
@@ -41,15 +47,14 @@
  * options is `contingent` and every one of them is charged at the beaten
  * ORIGIN; and being LIGHTER it does not beat red-B at (1,3), so `field⁺` still
  * tells the diagonal apart from the other four. The arrival charge has thrown
- * that distinction away and the standing charge has not: which is §3's whole
- * claim, on a board of three units.
+ * that distinction away and `field⁺` has not: which is §2.2's whole claim, on
+ * a board of three units.
  */
 import type { Board, Coord, Snake } from '../../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
 import type { Bound, Candidate, JointPlan, UnitId } from '../contracts';
 import {
   CONTEST_LOSS,
-  CONTEST_STANDING,
   DEFAULT_PROFILE,
   contestFeature,
   contestField,
@@ -90,12 +95,7 @@ const reproduction = (): Board =>
 
 const at = (board: Board, c: Coord): number => cellAt(board, TURN, c);
 
-/**
- * The `contest` member alone, for one staged destination of red-B — through
- * `makeContext`'s PLAN parameter, because `EvalContext.staged` is what the
- * standing addend reads and a context built without a plan has none. That is
- * the same seam `evaluate/index.ts` uses on every shipped evaluation.
- */
+/** The `contest` member alone, for one staged destination of red-B. */
 function contestOf(board: Board, to: Coord): Bound {
   const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red', modeled: ['red-B'] });
   try {
@@ -106,9 +106,7 @@ function contestOf(board: Board, to: Coord): Bound {
     ]);
     const team = sub.teamNumber('red');
     return sub.withResolution(plan, team, ({ resolution, bounds }) =>
-      contestFeature.evaluate(
-        makeContext(sub, resolution, bounds, team, 0, DEFAULT_PROFILE, plan)
-      )
+      contestFeature.evaluate(makeContext(sub, resolution, bounds, team, 0, DEFAULT_PROFILE))
     );
   } finally {
     sub.release();
@@ -178,18 +176,12 @@ describe('the flat member: a unit whose own cell is beaten', () => {
     const board = reproduction();
     const forward = contestOf(board, FORWARD);
     const hold = contestOf(board, HOLD);
-    // Both are beaten at the destination AND at the origin, so nothing σ does
-    // can separate them either: the addend is a fact about the staged cell and
-    // a hold stages the cell the unit is already standing on. This equality
-    // holds at EVERY σ, which is what makes it the pin on the bracket rather
-    // than on the dose.
     expect(hold).toEqual(forward);
     // One unit of ours is modelled, so a charge is the whole `CONTEST_LOSS`.
-    expect(forward.lo).toBeCloseTo(-CONTEST_LOSS - CONTEST_STANDING, 9);
+    expect(forward.lo).toBeCloseTo(-CONTEST_LOSS, 9);
     // The alive-polarity's half: `worstAlive` is false for a unit the ledger
-    // names, so the ARRIVAL cost is paid into `lo` and not into `hi`. What is
-    // left in `hi` is the standing charge alone — a point pays both ends.
-    expect(forward.hi).toBeCloseTo(-CONTEST_STANDING, 9);
+    // names, so the cost is paid into `lo` and not into `hi` at all.
+    expect(forward.hi).toBe(0);
   });
 
   test('§3 — `field⁺` separates the diagonal from the other four staged cells', () => {
@@ -213,29 +205,20 @@ describe('the flat member: a unit whose own cell is beaten', () => {
     }
   });
 
-  test('the member separates the diagonal from the file exactly when σ is nonzero', () => {
+  test('THE DEFECT — the member is exactly equal on the step INTO the file and the step OUT of it', () => {
     const board = reproduction();
     const forward = contestOf(board, FORWARD);
     const diagonal = contestOf(board, DIAGONAL);
-    // THE ARRIVAL CHARGE IS FLAT ACROSS THE TWO. `chargeAt(diagonal) = 0` and
-    // `chargeAt(forward) = CONTEST_LOSS`, and the max over a settle set that
+    // `chargeAt(diagonal) = 0` and `chargeAt(forward) = CONTEST_LOSS` — the
+    // per-cell charge DOES discriminate — and the max over a settle set that
     // contains the beaten origin makes both of them `CONTEST_LOSS` anyway. So
-    // the whole of the gap below is σ, at every dose including zero.
-    expect(diagonal.lo - forward.lo).toBeCloseTo(CONTEST_STANDING, 9);
-    expect(diagonal.est - forward.est).toBeCloseTo(CONTEST_STANDING, 9);
-    // A POINT AND NOT A BRACKET: the addend moves both ends by the same
-    // amount, which is how it reaches `lo` — the rung `search/core.ts::better`
-    // decides on first — without widening the interval it sits inside.
-    expect(diagonal.hi - forward.hi).toBeCloseTo(CONTEST_STANDING, 9);
-    if (CONTEST_STANDING === 0) {
-      // THE DEFECT, PINNED. With no standing charge the member is EXACTLY
-      // equal on the step up the queen's file and the step out of it, on every
-      // end of the interval, and the move is decided by whatever else moves.
-      // §2.2 as an assertion rather than as a paragraph, and what σ was
-      // proposed to break.
-      expect(diagonal).toEqual(forward);
-    } else {
-      expect(diagonal).not.toEqual(forward);
-    }
+    // the member expresses no preference between walking up an enemy queen's
+    // file and walking off it, on every end of the interval, and the move is
+    // decided by whatever else moves.
+    expect(diagonal).toEqual(forward);
+    expect(diagonal.lo).toBeCloseTo(-CONTEST_LOSS, 9);
+    // ANY repair to this has to be paid somewhere `costOf`'s bracket does not
+    // read, because a bracket containing the origin is pinned by the origin —
+    // which is the theorem §4 leaves to the next attempt.
   });
 });

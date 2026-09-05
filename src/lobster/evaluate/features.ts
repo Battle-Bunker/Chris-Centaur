@@ -59,7 +59,7 @@ import {
   moverWeightCeiling,
 } from '../bounds/material';
 import type { EngineSubstrate } from '../substrate';
-import type { JointPlan, UnitId } from '../contracts';
+import type { UnitId } from '../contracts';
 import { royalMargin } from '../staging-safety';
 import { type Bound, type Feature, envelope, ourUnitTerm, perReading, point } from './bound';
 import { REACH_HORIZON_TURNS } from './calibration';
@@ -180,26 +180,6 @@ export interface EvalContext {
   readonly command: CommandKnobs | null;
   /** The energy-budget reserve fraction, or null for the linear reading. */
   readonly energyReserveRatio: number | null;
-  /**
-   * THE CELL THIS PLAN'S STAGED ACTION LEAVES EACH UNIT STANDING ON.
-   *
-   * A fact about the PLAN and the turn-start board, and nothing else: a
-   * candidate's own ray, or — for a rotate, a hold and the `NO_ORDER_MOVE`
-   * sentinel, all of which have an empty path — the cell the unit set out
-   * from. So it is the SAME number in every completion world the claims admit,
-   * which is what lets `contest`'s standing charge be a POINT rather than a
-   * bracket. Nothing the settlement produces has that property: the cell a
-   * mover SETTLES on is contingent (`contest.ts`'s `settlesOn`), and reading
-   * one of those as a point is exactly the defect `law-sweep`'s `contest.lo`
-   * class was opened by and then closed at.
-   *
-   * NULL when the caller built the context without naming a plan. Every
-   * shipped evaluation names one (`evaluate/index.ts`); a test that reaches
-   * for `makeContext` directly to inspect a partition does not, and a term
-   * that reads this must treat the absence as "nothing staged" rather than
-   * inventing a destination.
-   */
-  readonly staged: ReadonlyMap<UnitId, number> | null;
   /** The food board of the RESOLVED position — post food phase, so a meal this
    * turn is gone from it for every reader. Built once, on demand. */
   food(): Bitboard;
@@ -350,26 +330,6 @@ export function buildArrivals(
   return out;
 }
 
-/**
- * Where each named unit's staged action leaves it standing — see
- * `EvalContext.staged`. `Candidate.path` is the engine's own ray for the
- * action (`queries.ts`'s `pathOf` returns `[]` for anything that is not a
- * move), so an empty one is a unit that stays where it is.
- */
-function stagedCellsOf(sub: EngineSubstrate, plan: JointPlan): ReadonlyMap<UnitId, number> {
-  const out = new Map<UnitId, number>();
-  for (const [unitId, candidate] of plan) {
-    const path = candidate.path;
-    if (path.length > 0) {
-      out.set(unitId, path[path.length - 1] as number);
-      continue;
-    }
-    const origin = sub.unitOf(unitId)?.cells[0];
-    if (origin !== undefined) out.set(unitId, origin);
-  }
-  return out;
-}
-
 export function makeContext(
   sub: EngineSubstrate,
   resolution: PartialSettlement,
@@ -389,14 +349,7 @@ export function makeContext(
    * `CriterionProfile` field that I1 itself added. Both defaults are preserved
    * exactly; see the context construction below.
    */
-  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>,
-  /**
-   * The plan this context is scoring, for `EvalContext.staged`. Optional
-   * because it is the one input a context can be built without and still
-   * answer every question that reads the RESOLUTION — which is what the
-   * partition-inspecting tests do. See `staged`.
-   */
-  plan?: JointPlan
+  profile?: Pick<CriterionProfile, 'command' | 'energyReserveRatio' | 'royalReachers'>
 ): EvalContext {
   const standing = standingOf(sub, resolution, asTeam);
   const ws = workspaceFor(sub);
@@ -421,7 +374,6 @@ export function makeContext(
     sub,
     asTeam,
     resolution,
-    staged: plan === undefined ? null : stagedCellsOf(sub, plan),
     engineMaterial,
     standing,
     horizonTurns,
