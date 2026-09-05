@@ -2026,6 +2026,292 @@
         "reordersUnderCursor": false,
         "movesUnderCursor": false
       }
+    ],
+    "consistency": [
+      {
+        "id": "hotkeys-operator-page",
+        "schemes": [
+          "bracket",
+          "vim",
+          "lefthand"
+        ],
+        "collisions": [
+          {
+            "scheme": "lefthand",
+            "key": "t",
+            "between": [
+              "tour — `?` then `T`, for 2 s",
+              "drill"
+            ]
+          }
+        ],
+        "tour": [
+          "Enter",
+          "Escape",
+          "ArrowLeft",
+          "ArrowRight",
+          "? then T"
+        ],
+        "pageOwns": 41
+      },
+      {
+        "id": "glyphs-operator-page",
+        "controls": [
+          "⦿ lock Space pins 3 of 3",
+          "↺ undo u nothing yet",
+          "⛨ hold H pieces only",
+          "◎ goto right-click",
+          "◉ near ctrl-click",
+          "✕ clear Del"
+        ],
+        "business": [
+          "3 units",
+          "● 1 staged",
+          "~ 2 planned"
+        ],
+        "stage": [
+          "Bot stages A → right · B → 144~ · C → 133~"
+        ],
+        "rowTags": [
+          "WOULD BE STAGED",
+          "FOIL"
+        ],
+        "latency": [
+          "✗ ask red-A 50ms — no decision is inspectable on this game right…",
+          "⟳ ask red-A 2439ms",
+          "rtt 5ms",
+          "frame +7155ms",
+          "board +7926ms",
+          "game +3ms"
+        ],
+        "cheat": [
+          "[ ] rank f foil b breakdown , . timeline n now u undo Space lock Ctrl+/ all keys bracket (default) vim left hand · density compact default roomy"
+        ]
+      },
+      {
+        "id": "reorder-under-cursor",
+        "rowsWalked": 5,
+        "lists": [
+          {
+            "list": "movesets",
+            "n": 5,
+            "reordered": false,
+            "moved": true,
+            "worstShiftPx": 60
+          },
+          {
+            "list": "candidates",
+            "n": 3,
+            "reordered": false,
+            "moved": false,
+            "worstShiftPx": 0
+          },
+          {
+            "list": "roster",
+            "n": 3,
+            "reordered": false,
+            "moved": false,
+            "worstShiftPx": 0
+          },
+          {
+            "list": "chips",
+            "n": 6,
+            "reordered": false,
+            "moved": true,
+            "worstShiftPx": 122
+          },
+          {
+            "list": "biz",
+            "n": 3,
+            "reordered": false,
+            "moved": false,
+            "worstShiftPx": 0
+          }
+        ]
+      },
+      {
+        "id": "states-operator-page",
+        "railEmpties": [
+          "[B] to price this row"
+        ],
+        "stageNone": null,
+        "undoEmpty": "↺undounothing yet",
+        "latencyMount": "block",
+        "guards": {
+          "present": true,
+          "reason": {
+            "why": "no unit is focused — pick one from the roster first",
+            "note": "no unit"
+          },
+          "chip": "⦿lockSpacepins 3 of 3",
+          "chipClass": "lens-aff lens-aff-primary",
+          "selectedSnakeId": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 108
+        },
+        "refusal": {
+          "notice": null,
+          "chip": "⦿lockSpacepins 3 of 3↺undounothing yet⛨holdHpieces only◎gotoright-click◉nearctrl-click✕clearDel"
+        }
+      },
+      {
+        "id": "merge-regressions",
+        "rowBorder": "1px solid rgb(68, 68, 68)",
+        "lockAffordances": [
+          "⦿lockSpacepins 3 of 3"
+        ],
+        "lensLockClassPresent": false
+      },
+      {
+        "id": "hotkeys-review",
+        "advertised": [
+          {
+            "at": 0,
+            "key": "Ctrl + /",
+            "means": "this list"
+          },
+          {
+            "at": 1,
+            "key": "p",
+            "means": "go to Play"
+          },
+          {
+            "at": 2,
+            "key": "h",
+            "means": "go to History"
+          },
+          {
+            "at": 3,
+            "key": "c",
+            "means": "go to Config"
+          },
+          {
+            "at": 4,
+            "key": "a",
+            "means": "go to Activity"
+          },
+          {
+            "at": 5,
+            "key": "d",
+            "means": "go to Debug"
+          },
+          {
+            "at": 6,
+            "key": "/",
+            "means": "filter the list"
+          },
+          {
+            "at": 7,
+            "key": "↑ ↓",
+            "means": "move the selection"
+          },
+          {
+            "at": 8,
+            "key": "Enter",
+            "means": "open the selected row"
+          },
+          {
+            "at": 9,
+            "key": "1 … 9",
+            "means": "open that row directly"
+          },
+          {
+            "at": 10,
+            "key": "Esc",
+            "means": "clear the filter"
+          },
+          {
+            "at": 11,
+            "key": "j / k",
+            "means": "next / previous moment (in a review)"
+          },
+          {
+            "at": 12,
+            "key": "h / l",
+            "means": "previous / next turn (in a review)"
+          },
+          {
+            "at": 13,
+            "key": "b",
+            "means": "bookmark this turn"
+          },
+          {
+            "at": 14,
+            "key": "y",
+            "means": "copy the link to this turn"
+          },
+          {
+            "at": 15,
+            "key": "Enter",
+            "means": "open this turn in the lens"
+          },
+          {
+            "at": 16,
+            "key": "Esc",
+            "means": "back to the list"
+          }
+        ],
+        "advertisedTwice": [
+          {
+            "key": "Enter",
+            "means": [
+              "open the selected row",
+              "open this turn in the lens"
+            ]
+          },
+          {
+            "key": "Esc",
+            "means": [
+              "clear the filter",
+              "back to the list"
+            ]
+          }
+        ],
+        "reviewOpenBeforeEsc": true,
+        "reviewOpenAfterEsc": true,
+        "escClosesTheReview": false
+      },
+      {
+        "id": "glyphs-review",
+        "legend": [
+          "▼ we lost a unit",
+          "▼",
+          "△ a rival died",
+          "△",
+          "◆ the lead changed hands",
+          "◆",
+          "◇ the lead swung",
+          "◇",
+          "■ an operator acted",
+          "■",
+          "■ a determination was refused",
+          "■",
+          "● the leader changed on the last emission",
+          "●",
+          "○ the ranking was narrow",
+          "○"
+        ],
+        "strip": [
+          "■",
+          "●",
+          "△",
+          "▼",
+          "◇",
+          "○"
+        ],
+        "empties": [
+          "95 quieter readings did not make the cut; they are on the strip, dim, and h l still walk to them.",
+          "None yet. b marks the turn you are on; the mark lives in this browser."
+        ],
+        "buttons": [
+          "☆ bookmark",
+          "open in the lens ↗",
+          "embed the lens",
+          "copy y",
+          "cluster 0 · 1 units",
+          "cluster 1 · 1 units"
+        ]
+      }
     ]
   },
   "shots": [
@@ -2278,16 +2564,27 @@
       "name": "s9-strip",
       "note": "S9 — the moments strip: one cell per stored turn, glyph first",
       "bytes": 10440
+    },
+    {
+      "name": "c1-operator-states",
+      "note": "the operator page: chips, strip and notice in one frame",
+      "notVisible": ".lens-rail"
+    },
+    {
+      "name": "c2-review-states",
+      "note": "the review: strip, legend and the empty states beside it",
+      "bytes": 126939
     }
   ],
-  "ranAt": "2026-09-05T22:06:18.571Z",
-  "ranSuites": "newSurfaces",
+  "ranAt": "2026-09-05T22:17:10.299Z",
+  "ranSuites": "consistency",
   "ports": {
     "heuristic": 5260,
     "scenarios": 5260,
     "a11y": 5260,
     "density": 5260,
-    "newSurfaces": 5261
+    "newSurfaces": 5261,
+    "consistency": 5266
   },
   "takeovers": 1
 }

@@ -64,7 +64,17 @@ async function shot(page, name, note, selector) {
     console.log(`  · ${name} — MISSING ${selector}`);
     return null;
   }
-  await target.screenshot({ path: file });
+  // AN INVISIBLE TARGET IS A FINDING, NOT A CRASH. Playwright waits thirty
+  // seconds for an element that is in the DOM and not on screen and then
+  // throws, which loses every measurement the run has already taken. The
+  // absence is recorded and the suite carries on.
+  try {
+    await target.screenshot({ path: file, timeout: 8000 });
+  } catch (e) {
+    out.shots.push({ name, note, notVisible: selector || 'page' });
+    console.log(`  · ${name} — NOT VISIBLE ${selector || ''}`);
+    return null;
+  }
   const bytes = fs.statSync(file).size;
   out.shots.push({ name, note, bytes });
   console.log(`  · ${name} (${(bytes / 1024).toFixed(0)} KB)${bytes > 300000 ? ' — OVER BUDGET' : ''}`);
@@ -2191,6 +2201,327 @@ async function newSurfaces(browser) {
   for (const r of results) console.log(`  · ${r.id} — ${r.task}`);
 }
 
+
+/**
+ * SUITE 6 — CROSS-MODULE CONSISTENCY.
+ *
+ * Six modules now draw on one surface — `lens-panel.js`, `latency.js`,
+ * `alerts.js`, `tour.js`, `review.js` and `page-chrome.js` — and each of them
+ * was written from inside its own file. `09-DESIGN-TOKENS.md` counted what
+ * that cost in CSS. This counts what it costs in the two other shared
+ * abstractions nobody owns: the KEY (which press does what, and who gets it
+ * first) and the GLYPH (what a mark means, in a vocabulary the operator
+ * carries between screens).
+ *
+ * Everything here is asked of the running page rather than of the source, and
+ * where a claim is that something did NOT move, it is a geometry read on both
+ * sides of the gesture.
+ */
+async function consistency(browser) {
+  console.log('\n── consistency ──');
+  const found = [];
+
+  const order = (page, sel) =>
+    page.evaluate((s) => {
+      const els = [...document.querySelectorAll(s)];
+      return els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return {
+          id: e.getAttribute('data-lens-moveset') ||
+            e.getAttribute('data-lens-candidate') ||
+            e.getAttribute('data-turn') ||
+            (e.innerText || '').replace(/\s+/g, ' ').slice(0, 24),
+          box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
+        };
+      });
+    }, sel);
+
+  // ── the operator page ───────────────────────────────────────────────────
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    await enter(page, GAME, 'Consist');
+    await step();
+    await sleep(WAIT);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    const rows = await walkToAnsweredList(page);
+
+    // 1. EVERY KEY THE PAGE CLAIMS, PER SCHEME, WITH ITS OWNER.
+    //
+    // The lens's own table is read from the module that both the strip and
+    // the modal render from, so it cannot be a restatement. The page's own
+    // reserved set is `02 §3.1`'s constraint list — the keys every scheme is
+    // required not to take — and the tour's three are read from its source of
+    // truth, the card it draws.
+    const keys = await page.evaluate(() => {
+      const out = { schemes: {}, page: [], tour: [] };
+      // `lens-panel.js` declares `const LensPanel` at the top level of a
+      // classic script, which is a global LEXICAL binding and therefore not a
+      // property of `window` — a probe that asks for `window.LensPanel` gets
+      // `undefined` and reports a page with no keymap at all.
+      const LP = typeof LensPanel === 'undefined' ? null : LensPanel;
+      if (LP && LP.keymapFor) {
+        for (const name of LP.schemeNames()) {
+          out.schemes[name] = LP.keymapFor(name).map((b) => ({
+            key: b.key, shift: !!b.shift, action: b.action, display: b.display,
+          }));
+        }
+      }
+      // What the shipped move schema owns, from the page's own cheat sheet
+      // rather than from a list retyped here.
+      out.page = [...document.querySelectorAll('#shortcutsOverlay dt')]
+        .map((dt) => (dt.innerText || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+      out.tour = ['Enter', 'Escape', 'ArrowLeft', 'ArrowRight', '? then T'];
+      return out;
+    });
+    // A COLLISION IS TWO OWNERS FOR ONE PRESS, and the only ones that matter
+    // are the ones an operator can make by accident in the state they are in.
+    const RESERVED = {
+      Tab: 'the page — cycle owned units',
+      Escape: 'the page — cancel an armed gesture; the tour, while it is open',
+      Enter: 'the page — submit; the tour, while it is open',
+      ' ': 'the page — stage the candidate under the cursor',
+      h: 'the page — hold',
+      Delete: 'the page — clear',
+    };
+    const collisions = [];
+    for (const [scheme, binds] of Object.entries(keys.schemes)) {
+      const seen = new Map();
+      for (const b of binds) {
+        const id = `${b.shift ? 'Shift+' : ''}${b.key}`;
+        if (seen.has(id)) collisions.push({ scheme, key: id, between: [seen.get(id), b.action] });
+        else seen.set(id, b.action);
+        if (Object.prototype.hasOwnProperty.call(RESERVED, b.key) && !b.shift) {
+          collisions.push({ scheme, key: id, between: [RESERVED[b.key], b.action] });
+        }
+        // The tour's chord takes `t` for two seconds after a `?`, which is
+        // `lefthand`'s drill.
+        if (b.key === 't' && !b.shift) {
+          collisions.push({ scheme, key: id, between: ['tour — `?` then `T`, for 2 s', b.action] });
+        }
+      }
+    }
+    found.push({ id: 'hotkeys-operator-page', schemes: Object.keys(keys.schemes), collisions, tour: keys.tour, pageOwns: keys.page.length });
+
+    // 2. THE GLYPH CENSUS. One vocabulary or several.
+    const glyphs = await page.evaluate(() => {
+      const grab = (sel) => [...document.querySelectorAll(sel)]
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+      return {
+        controls: grab('#lensControls .lens-aff'),
+        business: grab('.lens-biz span'),
+        stage: grab('.lens-stage-line'),
+        rowTags: grab('.lens-row-tag'),
+        latency: grab('.lat-cmd').concat(grab('.lat-num')),
+        cheat: grab('#lensKeys'),
+      };
+    });
+    found.push({ id: 'glyphs-operator-page', ...glyphs });
+
+    // 3. NOTHING RE-ORDERS UNDER THE CURSOR (`01` P3), asked of every list on
+    //    the surface rather than of the one the first evaluation checked.
+    const before = {
+      movesets: await order(page, '.lens-movesets .lens-table tr[data-lens-moveset]'),
+      candidates: await order(page, '.lens-candidates [data-lens-candidate]'),
+      roster: await order(page, '.snake-info-item.selectable'),
+      chips: await order(page, '#lensControls .lens-aff'),
+      biz: await order(page, '.lens-biz span'),
+    };
+    await page.keyboard.press(']');
+    await sleep(500);
+    await page.keyboard.press(']');
+    await sleep(500);
+    const after = {
+      movesets: await order(page, '.lens-movesets .lens-table tr[data-lens-moveset]'),
+      candidates: await order(page, '.lens-candidates [data-lens-candidate]'),
+      roster: await order(page, '.snake-info-item.selectable'),
+      chips: await order(page, '#lensControls .lens-aff'),
+      biz: await order(page, '.lens-biz span'),
+    };
+    const idsOf = (a) => a.map((x) => x.id);
+    found.push({
+      id: 'reorder-under-cursor',
+      rowsWalked: rows,
+      lists: Object.keys(before).map((k) => {
+        // HOW FAR, not whether. A row that grows into a card when the cursor
+        // lands on it is `02 §2.3` working; a CONTROL BAR that slides because
+        // a row above it grew is `01` P3 broken, and the two are the same
+        // boolean until the pixels are counted.
+        const worst = before[k].reduce((m, x, i) => {
+          const a = after[k][i];
+          return a ? Math.max(m, Math.abs(a.box[1] - x.box[1]), Math.abs(a.box[0] - x.box[0])) : m;
+        }, 0);
+        return {
+          list: k,
+          n: before[k].length,
+          reordered: JSON.stringify(idsOf(before[k])) !== JSON.stringify(idsOf(after[k])),
+          moved: JSON.stringify(before[k].map((x) => x.box)) !== JSON.stringify(after[k].map((x) => x.box)),
+          worstShiftPx: worst,
+        };
+      }),
+    });
+
+    // 4. THE EMPTY AND REFUSAL STATES THE PAGE CAN BE DRIVEN TO.
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    const states = await page.evaluate(() => {
+      const t = (sel) => {
+        const e = document.querySelector(sel);
+        return e ? (e.innerText || '').replace(/\s+/g, ' ').trim() : null;
+      };
+      return {
+        // EVERY empty state the rail is drawing, not the first one.
+        railEmpties: [...document.querySelectorAll('.lens-empty')]
+          .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()),
+        stageNone: t('.lens-stage-line.lens-stage-none'),
+        undoEmpty: t('.lens-aff-undo'),
+        latencyMount: (() => {
+          const m = document.getElementById('latency-mount');
+          return m ? getComputedStyle(m).display : null;
+        })(),
+      };
+    });
+    // THE REFUSAL, AT ITS SOURCE. `05` P-3 made `stageRefusalReason` the one
+    // reading of `stageSelectedMove`'s four guards; the drill in
+    // `lens-walkthrough.js` presses `Space` in a state that trips it, and
+    // what is checked here is the other half — that every guard has a
+    // sentence and that the chip and the notice are drawn from the same one.
+    const guards = await page.evaluate(() => {
+      if (typeof stageRefusalReason !== 'function') return { present: false };
+      const r = stageRefusalReason();
+      return {
+        present: true,
+        reason: r ? { why: r.why, note: r.note } : null,
+        // WHAT THE CHIP SAYS AT THE SAME INSTANT. `05` P-2 settled that the
+        // chip must say what the next press will do and be `primary` only
+        // when the press does something; if the guard has a refusal and the
+        // chip still advertises a count, they disagree about one press.
+        chip: (document.querySelector('#lensControls .lens-aff') || {}).innerText || null,
+        chipClass: (document.querySelector('#lensControls .lens-aff') || {}).className || null,
+        selectedSnakeId: typeof selectedSnakeId === 'undefined' ? null : selectedSnakeId,
+        cursorUnit: typeof lensCursor === 'undefined' ? null : lensCursor && lensCursor.unit,
+        cursorCandidate: typeof lensCursor === 'undefined' ? null : lensCursor && lensCursor.candidate,
+      };
+    });
+    // THE REFUSAL, named. `05` P-3 landed one line in the notice region; this
+    // reads it in the state the undo leaves, which is where P-3's own drill
+    // presses.
+    await page.keyboard.press('u');
+    await sleep(500);
+    await page.keyboard.press('Space');
+    await sleep(600);
+    const refusal = await page.evaluate(() => {
+      const n = document.querySelector('#lensNotice, .lens-notice, .banner-notice');
+      return {
+        notice: n ? (n.innerText || '').replace(/\s+/g, ' ').trim() : null,
+        chip: (document.getElementById('lensControls') || {}).innerText
+          ? document.getElementById('lensControls').innerText.replace(/\s+/g, ' ').slice(0, 120)
+          : null,
+      };
+    });
+    await shot(page, 'c1-operator-states', 'the operator page: chips, strip and notice in one frame', '.lens-rail');
+    found.push({ id: 'states-operator-page', ...states, guards, refusal });
+
+    // 5. THE TWO ROWS THE MERGES CHANGED.
+    //
+    // `09 §5.4` says the token sheet gave `.lens-movesets .lens-table tr` the
+    // border it had been asking for — a rule that resolved to nothing while
+    // `--line` lived in a stylesheet this page does not link — and that the
+    // fixes merge left ONE lock affordance where there had been two. Both are
+    // read back here rather than taken on trust.
+    const merges = await page.evaluate(() => {
+      const tr = document.querySelector('.lens-movesets .lens-table tr');
+      const cs = tr ? getComputedStyle(tr) : null;
+      return {
+        rowBorder: cs ? `${cs.borderBottomWidth} ${cs.borderBottomStyle} ${cs.borderBottomColor}` : null,
+        lockAffordances: [...document.querySelectorAll('.lens-lock, #lensControls .lens-aff')]
+          .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim())
+          .filter((t) => /lock/i.test(t)),
+        lensLockClassPresent: !!document.querySelector('.lens-lock'),
+      };
+    });
+    found.push({ id: 'merge-regressions', ...merges });
+    await ctx.close();
+  }
+
+  // ── the review, and the chrome it borrows ───────────────────────────────
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    await fetch(`${BASE}/dev/steps?n=30`, { method: 'POST' }).catch(() => {});
+    await sleep(2000);
+    await page.goto(`${BASE}/history`, { waitUntil: 'domcontentloaded' });
+    await sleep(WAIT);
+    const open = await page.$('.open-review');
+    if (open) await open.click();
+    await sleep(WAIT * 3);
+
+    // 6. WHOSE KEY WINS ON `/history`. `page-chrome.js::onKey` runs its own
+    //    handling for `Escape`, `?` and `/` BEFORE the `extraKeys` a page
+    //    registered, and returns from each — so a page key that shares one of
+    //    those names is registered, listed in the sheet, and unreachable.
+    //    `review.js` registers `Escape` for "back to the list".
+    const sheetRows = await page.evaluate(() =>
+      [...document.querySelectorAll('.keysheet dt')]
+        .map((e, i) => ({ at: i, key: (e.innerText || '').trim(), means: ((e.nextElementSibling || {}).innerText || '').trim() }))
+        .filter((r) => r.key)
+    );
+    const escBefore = await page.evaluate(() => ({
+      reviewOpen: (() => {
+        const r = document.getElementById('reviewPanel');
+        return !!(r && !r.hidden && r.offsetParent !== null);
+      })(),
+      turn: (document.getElementById('rvTurn') || {}).innerText || null,
+    }));
+    await page.keyboard.press('Escape');
+    await sleep(600);
+    const escAfter = await page.evaluate(() => ({
+      reviewOpen: (() => {
+        const r = document.getElementById('reviewPanel');
+        return !!(r && !r.hidden && r.offsetParent !== null);
+      })(),
+    }));
+    found.push({
+      id: 'hotkeys-review',
+      advertised: sheetRows,
+      // TWO ROWS FOR ONE PRESS is the sheet telling the operator that a key
+      // does two things and not which. It is built from what was registered,
+      // so a duplicate here is a duplicate in the handler.
+      advertisedTwice: Object.entries(
+        sheetRows.reduce((acc, r) => { acc[r.key] = (acc[r.key] || []).concat(r.means); return acc; }, {})
+      ).filter(([, v]) => v.length > 1).map(([k, v]) => ({ key: k, means: v })),
+      reviewOpenBeforeEsc: escBefore.reviewOpen,
+      reviewOpenAfterEsc: escAfter.reviewOpen,
+      escClosesTheReview: escBefore.reviewOpen === true && escAfter.reviewOpen === false,
+    });
+
+    // Re-open if Esc did take, so the rest is measured on a review.
+    if (escAfter.reviewOpen === false) {
+      const again = await page.$('.open-review');
+      if (again) await again.click();
+      await sleep(WAIT * 3);
+    }
+    // 7. THE REVIEW'S OWN GLYPHS, against the operator page's.
+    const rvGlyphs = await page.evaluate(() => ({
+      legend: [...document.querySelectorAll('#rvLegend *')]
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 24),
+      strip: [...new Set([...document.querySelectorAll('.rv-cell')].map((c) => c.textContent.trim()))],
+      empties: [...document.querySelectorAll('.rv-empty')]
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()).slice(0, 6),
+      buttons: [...document.querySelectorAll('.rv-btn, .rv-cbtn')]
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()).slice(0, 8),
+    }));
+    await shot(page, 'c2-review-states', 'the review: strip, legend and the empty states beside it', '.rv-side');
+    found.push({ id: 'glyphs-review', ...rvGlyphs });
+    await ctx.close();
+  }
+
+  out.suites.consistency = found;
+  for (const f of found) console.log(`  · ${f.id}`);
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
@@ -2206,6 +2537,7 @@ async function main() {
   if (want('a11y')) await a11y(browser);
   if (want('density')) await density(browser);
   if (want('newSurfaces')) await newSurfaces(browser);
+  if (want('consistency')) await consistency(browser);
 
   // ONE REPORT, WHETHER OR NOT THE SUITES RAN IN ONE PROCESS. The four
   // original suites and the fifth take about eleven minutes together, which
