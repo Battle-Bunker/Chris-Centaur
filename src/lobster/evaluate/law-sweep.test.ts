@@ -314,7 +314,13 @@ const RATCHET: Readonly<Record<string, number>> = {
   'material.hi': 8,
   'energy.hi': 10,
   'momentum.lo': 27,
-  'contest.lo': 30,
+  // CLOSED, and pinned at zero so it stays closed: `contest` used to charge
+  // each of our units at the one cell the OPTIMISTIC timeline settled it on,
+  // and a world that halts a mover short of it settles it somewhere else. The
+  // term now brackets over the cells its arrival could settle on (`contest.ts`,
+  // `settlesOn`) and the class goes 30 -> 0. See D1 of
+  // `docs/design/BEHAVIOUR-AUDIT.md`.
+  'contest.lo': 0,
 };
 /** R1 on the TOTAL, which is the property the bank's floor rests on. */
 const TOTAL_LO_RATCHET = 0;
