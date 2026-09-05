@@ -618,19 +618,28 @@
   position: fixed; pointer-events: none; z-index: var(--z-alert-ring);
   border-style: solid; border-width: var(--al-ring-width); border-radius: var(--radius-4);
   border-color: var(--al-ring-p2-off);
-  opacity: 0; transition: opacity var(--dur-al-ring-on) linear, border-color var(--dur-al-ring-on) linear;
+  opacity: 0;
+  /* ENTER, then EXIT — the motion vocabulary's own pair (11 §2.2), and this
+     ring is where its two numbers were measured. 140 ms in, 620 ms out: an
+     ONSET is what the periphery detects, a DECAY is what gives a returning
+     eye something to land on, and reversing them makes a cue that has
+     finished before the gaze arrives. */
+  transition: opacity var(--motion-enter) var(--ease-enter), border-color var(--motion-enter) var(--ease-enter);
 }
 .al-pulse[data-priority="1"] { border-width: var(--al-ring-width-p1); border-color: var(--al-ring-p1-off); }
 .al-pulse.on { opacity: 1; border-color: var(--al-ring-p2-on); }
 .al-pulse.on[data-priority="1"] { border-color: var(--al-ring-p1-on); }
 .al-pulse.on[data-priority="3"] { border-color: var(--al-ring-p3-on); }
-.al-pulse.off { opacity: 0; transition: opacity var(--dur-al-ring-off) ease-out, border-color var(--dur-al-ring-off) ease-out; }
+.al-pulse.off { opacity: 0; transition: opacity var(--motion-exit) var(--ease-exit), border-color var(--motion-exit) var(--ease-exit); }
 
 /* NO ANIMATION AT ALL under reduced motion: the ring appears, holds, and is
    removed. A fade is still motion, and the whole point of the preference is
    that the transient itself is the problem. The @media block that used to be
-   here is tokens.css group E, which zeroes --dur-al-ring-on and -off; a
-   transition of zero duration and "transition: none" are the same pixels. */
+   here is tokens.css group E, which zeroes --motion-enter and --motion-exit;
+   a transition of zero duration and "transition: none" are the same pixels.
+   The ONE verb group E does not zero is EMPHASIS (11 §4), which this channel
+   does not use: the ring is a transient about a state that is also in the
+   live region in words, so removing its motion removes a redundancy. */
 `;
 
   let mount = null;

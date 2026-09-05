@@ -32,7 +32,9 @@ var LensView = (() => {
   __export(index_exports, {
     LensNoMovesetError: () => LensNoMovesetError,
     LensOffHeadError: () => LensOffHeadError,
+    OPERATOR_MARKS: () => OPERATOR_MARKS,
     applyCursorEvent: () => applyCursorEvent,
+    arrivalIndexForColor: () => arrivalIndexForColor,
     boundingOf: () => boundingOf,
     bracketWidth: () => bracketWidth,
     checkDivergence: () => checkDivergence,
@@ -47,6 +49,8 @@ var LensView = (() => {
     initialCursor: () => initialCursor,
     makeLiveDecisionSource: () => makeLiveDecisionSource,
     makeReplayDecisionSource: () => makeReplayDecisionSource,
+    markForArrivalIndex: () => markForArrivalIndex,
+    markForColor: () => markForColor,
     modeBadge: () => modeBadge,
     movesetListFor: () => movesetListFor,
     movesetListKey: () => movesetListKey,
@@ -908,6 +912,77 @@ var LensView = (() => {
     );
     if (released === void 0) return null;
     return released.actor.name ?? released.actor.id ?? null;
+  }
+
+  // src/shared/player-palette.ts
+  var PLAYER_PALETTE = [
+    "#156cdd",
+    // 0  azure blue      L 0.55  C 0.19  H 258
+    "#ff4d6d",
+    // 1  coral rose      L 0.68  C 0.21  H 015
+    "#0a7e3a",
+    // 2  emerald green   L 0.52  C 0.14  H 150
+    "#8629c0",
+    // 3  violet          L 0.50  C 0.22  H 308
+    "#119ba7",
+    // 4  cyan teal       L 0.63  C 0.11  H 205
+    "#c70389",
+    // 5  magenta         L 0.55  C 0.23  H 348
+    "#88411a",
+    // 6  rust brown      L 0.46  C 0.11  H 046
+    "#12cdae",
+    // 7  turquoise       L 0.76  C 0.14  H 176
+    "#9b84ff",
+    // 8  periwinkle      L 0.69  C 0.18  H 290
+    "#05556f",
+    // 9  deep petrol     L 0.42  C 0.08  H 228
+    "#8e0746",
+    // 10 crimson wine    L 0.42  C 0.17  H 002
+    "#06726e"
+    // 11 deep teal-green L 0.50  C 0.09  H 191
+  ];
+
+  // src/shared/operator-marks.ts
+  var OPERATOR_MARKS = [
+    "■",
+    // 0  filled square        · azure blue
+    "★",
+    // 1  filled star          · coral rose
+    "▽",
+    // 2  hollow triangle down · emerald green
+    "◆",
+    // 3  filled diamond       · violet
+    "□",
+    // 4  hollow square        · cyan teal
+    "☆",
+    // 5  hollow star          · magenta
+    "▼",
+    // 6  filled triangle down · rust brown
+    "◈",
+    // 7  diamond in diamond   · turquoise
+    "▣",
+    // 8  square in square     · periwinkle
+    "◐",
+    // 9  half circle, left    · deep petrol
+    "◧",
+    // 10 half square, left    · crimson wine
+    "◒"
+    // 11 half circle, lower   · deep teal-green
+  ];
+  function markForArrivalIndex(arrivalIndex) {
+    const n = OPERATOR_MARKS.length;
+    const i = Number.isFinite(arrivalIndex) ? Math.max(0, Math.floor(arrivalIndex)) : 0;
+    return OPERATOR_MARKS[i % n];
+  }
+  function arrivalIndexForColor(color) {
+    const hex = String(color ?? "").trim().toLowerCase();
+    if (hex === "") return null;
+    const i = PLAYER_PALETTE.findIndex((c) => c.toLowerCase() === hex);
+    return i === -1 ? null : i;
+  }
+  function markForColor(color) {
+    const i = arrivalIndexForColor(color);
+    return i === null ? null : OPERATOR_MARKS[i];
   }
 
   // src/lens/view/index.ts

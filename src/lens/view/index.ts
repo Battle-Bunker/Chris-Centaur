@@ -58,6 +58,19 @@ import type { BoardSnapshot } from '../../types/battlesnake';
 
 export * from './cursor';
 
+/**
+ * THE PER-OPERATOR MARK, re-exported so the browser has it (11 §5.2).
+ *
+ * It is `src/shared/`'s, beside the palette it is index-aligned with, because
+ * the two are one arrival index read twice and splitting them across two
+ * homes is how they would come to disagree. It is re-exported HERE because
+ * this module is the one thing under `src/` that is bundled for the page
+ * (`scripts/build-lens-view.js`), and a second copy of twelve glyphs on the
+ * client is exactly the drift this bundle exists to prevent. Nothing in the
+ * view model reads it: it is a pass-through, and the transcript is unchanged.
+ */
+export { OPERATOR_MARKS, arrivalIndexForColor, markForArrivalIndex, markForColor } from '../../shared/operator-marks';
+
 // ---------------------------------------------------------------------------
 // The two sources
 // ---------------------------------------------------------------------------

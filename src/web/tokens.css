@@ -7,7 +7,9 @@
  * `<style>`, and the two use overlapping selector names (`.header`,
  * `.main-content`, `body`) with different values. Linking one into the other
  * would restyle a page. A sheet that declares CUSTOM PROPERTIES AND NOTHING
- * ELSE paints nothing on its own, so it can be linked by every page — which
+ * ELSE — and, since 11-MOTION-AND-MARKS.md §7.1, the shared `@keyframes` of
+ * group F, which are inert until an element names them — paints nothing on
+ * its own, so it can be linked by every page — which
  * is the only way the JS modules that inject their own stylesheets, and the
  * canvas renderer that cannot cascade at all, can read the same values as the
  * CSS. `chrome.css`'s first line `@import`s it; `play-game.html` links it.
@@ -16,8 +18,9 @@
  *   A. PALETTE      — raw values, named for what they ARE. No opinion.
  *   B. SEMANTIC     — what the interface MEANS by them. Points at group A.
  *   C. COMPONENT    — where one component needs its own handle. Points at B.
- *   D. SCALES       — radius, z-index, duration, shadow, space, type.
+ *   D. SCALES       — radius, z-index, MOTION, shadow, space, type.
  *   E. PREFERENCES  — prefers-reduced-motion, stated ONCE, as token overrides.
+ *   F. KEYFRAMES    — the shared animations the motion vocabulary names.
  *
  * THE RULE FOR ADDING TO IT. A new value goes in group A first, always, even
  * if it is used once: group A is the census, and the census is what makes the
@@ -543,17 +546,55 @@
   --z-keysheet:       11000;
 
   /* MOTION. Every duration on the surface, so that group E can turn all of
-   * them off in one place instead of in four @media blocks. */
+   * them off in one place instead of in four @media blocks.
+   *
+   * THE VOCABULARY comes first (11-MOTION-AND-MARKS.md §2): five verbs, each
+   * one duration and one easing, and every animated declaration on the
+   * operator surface names one of them. The numbers are NOT new — each is a
+   * value already measured and shipped, given the name of the job it does:
+   *   enter/exit    the alert ring's own onset and decay pair (06 §3.1)
+   *   emphasis      the arrival pulse 02-INSPECTION-UI §5 specified
+   *   state         the ladder's one transient per rung change (03 §3.3)
+   *   progress      the clock's fill
+   *
+   * STATE CHANGE HAS TWO REGISTERS, chosen by READING DISTANCE and not by
+   * importance: `--motion-state` is 900 ms because the ladder strip is read
+   * without a saccade and a 150 ms flick is what the periphery misses;
+   * `--motion-state-near` is 150 ms because a chip is read at arm's length
+   * with the eye already on it, and a control that finishes after the turn
+   * has lied about when it changed. */
+  --motion-enter:         140ms;
+  --motion-exit:          620ms;
+  --motion-emphasis:      600ms;
+  --motion-state:         900ms;
+  --motion-state-near:    150ms;
+  --motion-progress:      250ms;
+  /* Not a verb: what EMPHASIS becomes under the preference (group E, §4). It
+   * is deliberately NOT zeroed there — the arrival pulse is the only thing on
+   * the surface that says the board changed while you were reading the rail,
+   * and an operator who asked for less motion did not ask to be told less. */
+  --motion-emphasis-fade: 620ms;
+
+  --ease-enter:    linear;
+  --ease-exit:     ease-out;
+  --ease-emphasis: cubic-bezier(0.33, 0, 0.2, 1);
+  --ease-state:    ease-out;
+  --ease-progress: linear;
+
   --dur-instant:    0.001ms;   /* the universal reduced-motion floor */
   --dur-card:       0.12s;
-  --dur-hover:      0.15s;
   --dur-cell:       0.2s;
   --dur-tour:       0.18s;
-  --dur-slow:       0.25s;
-  --dur-al-ring-on:  140ms;
-  --dur-al-ring-off: 620ms;
-  --dur-lat-arrive:  900ms;
   --dur-badge-pulse: 2s;
+  /* THE FIVE OLD NAMES, kept as ALIASES onto the vocabulary rather than
+   * rewritten away: a sheet that has not been re-read yet still gets exactly
+   * the number it always got, group E turns both off in one place, and the
+   * `--dur-*` spelling stays greppable for whoever reads 09 next. */
+  --dur-hover:       var(--motion-state-near);
+  --dur-slow:        var(--motion-progress);
+  --dur-al-ring-on:  var(--motion-enter);
+  --dur-al-ring-off: var(--motion-exit);
+  --dur-lat-arrive:  var(--motion-state);
 
   /* SIX DROP SHADOWS, no two alike, all meaning "a panel floats". */
   --shadow-pop:    0 8px 24px var(--wash-black-50);
@@ -636,6 +677,24 @@
  * ---------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   :root {
+    /* THE VOCABULARY (11-MOTION-AND-MARKS.md §4). Four verbs go instant; the
+     * fifth does NOT, and the asymmetry is the point. The four are cues ABOUT
+     * a state the operator can also read in words, at rest, right there — the
+     * ring's alert is in the live region, the rung is in the strip, the chip
+     * says its own state — so removing their motion removes a redundancy.
+     * EMPHASIS is not redundant: it is the only thing that says the board
+     * under your eye changed while you were reading the rail. It stays, as a
+     * single non-repeating opacity fade with no transform at all (the rule
+     * that swaps the keyframe lives beside the animation, in play-game.html;
+     * `--motion-emphasis-fade` is untouched here so it has a duration to
+     * keep). `prefers-reduced-motion` is about MOVEMENT — translation, scale,
+     * parallax — and one opacity ramp on a static outline is none of those. */
+    --motion-enter:      0s;
+    --motion-exit:       0s;
+    --motion-state:      0s;
+    --motion-state-near: 0s;
+    --motion-progress:   0s;
+
     --dur-card:        0s;
     --dur-hover:       0s;
     --dur-cell:        0s;
@@ -646,6 +705,50 @@
     --dur-lat-arrive:  0s;
     --dur-badge-pulse: 0s;
   }
+}
+
+/* ── F. MOTION KEYFRAMES ───────────────────────────────────────────────────
+ * THE SHARED ANIMATIONS, and why they are in THIS file (11 §7.1).
+ *
+ * `chrome.css` is linked by the five lobby pages and deliberately NOT by
+ * `play-game.html`, so a keyframe defined there is invisible to the one
+ * surface that has an arrival pulse on it. This sheet is the one every page
+ * links.
+ *
+ * THE FILE'S INVARIANT SURVIVES. The header says "custom properties and
+ * nothing else, so it paints nothing on its own and can be linked by every
+ * page". A bare `@keyframes` preserves exactly the property that invariant
+ * exists for: A KEYFRAME PAINTS NOTHING UNTIL AN ELEMENT NAMES IT. Adding one
+ * changes no computed style anywhere. So the invariant is now "custom
+ * properties and inert `@keyframes`", and nothing else follows from it.
+ * ---------------------------------------------------------------------- */
+
+/* EMPHASIS — one shot at the eye, at a change it would otherwise miss. A RING
+ * that expands and fades once: 06 §3.1's reasoning about the alert ring
+ * transfers exactly, because the general-flash threshold is about AREA and
+ * LUMINANCE and a 2 px expanding outline changes neither by much. The scale
+ * is licensed by 11 §1.1's one exception — the layer it runs on is out of
+ * flow, `pointer-events: none` and carries no text, so it displaces nothing,
+ * intercepts nothing, and there is no word inside it for a scale to blur. */
+@keyframes motion-arrival {
+  from { opacity: 0;    transform: scale(0.72); }
+  35%  { opacity: 0.95; }
+  to   { opacity: 0;    transform: scale(1.9); }
+}
+
+/* The same emphasis under `prefers-reduced-motion`: NO transform at any
+ * offset, one iteration, opacity alone. */
+@keyframes motion-arrival-reduced {
+  from { opacity: 0.9; }
+  to   { opacity: 0; }
+}
+
+/* STATE CHANGE, as an animation rather than a transition — the shape the
+ * ladder strip already used, moved here so the strip and anything else that
+ * marks "this readout now says something else" share one definition. */
+@keyframes motion-state-arrive {
+  from { opacity: 0.25; }
+  to   { opacity: 1; }
 }
 
 /* ── LIGHT SCHEME, AND WHY THERE IS NOT ONE ────────────────────────────────

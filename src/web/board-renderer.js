@@ -1970,7 +1970,22 @@ const BoardRenderer = (function () {
         const head = headOf(board, bound.unit);
         // A held unit already says why with its shield.
         if (head && bound.why !== "hold") {
-          drawLensChip(ctx, head, board.height, cellSize, "•", ink.chipText, ink.fixed);
+          // THE PER-OPERATOR MARK (11-MOTION-AND-MARKS.md §5.3). This chip is
+          // where the board says a unit is FIXED, and it drew the same dot
+          // whoever fixed it — so two operators' pins were one mark on two
+          // heads. The mark is resolved by the page, on the same arrival index
+          // the palette is ordered by, and arrives on the ink; the renderer
+          // gains no palette, no directory and no state. `•` stays for a pin
+          // with no identified author, which is the honest drawing of one.
+          drawLensChip(
+            ctx,
+            head,
+            board.height,
+            cellSize,
+            bound.mark || "•",
+            ink.chipText,
+            ink.fixed,
+          );
         }
       }
     }
