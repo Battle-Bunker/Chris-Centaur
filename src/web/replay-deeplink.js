@@ -41,6 +41,26 @@
     return m ? parseInt(m[1], 10) : null;
   }
 
+  /**
+   * `#focus=<unit>` — WHICH unit the sender meant, beside which turn.
+   *
+   * The review exports a turn as `/game/<id>#turn=<n>&focus=<unit>`
+   * (docs/design/ux/07-REVIEW.md §1.5) and this file rewrites the fragment on
+   * every playhead move; without carrying the field through that rewrite the
+   * unit would survive exactly until the recipient scrubbed once, which is
+   * worse than never having been in the link. It is read once, on arrival,
+   * and re-emitted verbatim. This file does not act on it — moving the
+   * viewer's own focus belongs to the viewer — it keeps it addressable, and
+   * `ReplayDeepLink.focusUnit()` is where the viewer will read it from.
+   */
+  function wantedFocus() {
+    var m = /(?:^|[#&])focus=([^&]*)/.exec(global.location.hash || '');
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+  }
+
+  var focusUnit = null;
+
   /** The viewer's playhead, or null when the page has not defined one yet. */
   function playhead() {
     try {
@@ -86,6 +106,7 @@
     var id = gameIdOf();
     if (!id) return;
     var target = wantedTurn();
+    focusUnit = wantedFocus();
     var applied = target === null;
     var startedAt = Date.now();
     var lastWritten = null;
@@ -109,7 +130,8 @@
       if (head !== lastWritten) {
         lastWritten = head;
         remember(id, head);
-        var hash = '#turn=' + head;
+        var hash = '#turn=' + head +
+          (focusUnit ? '&focus=' + encodeURIComponent(focusUnit) : '');
         if (global.location.hash !== hash) {
           try {
             global.history.replaceState(null, '', global.location.pathname + hash);
@@ -119,7 +141,13 @@
     }, POLL_MS);
   }
 
-  var api = { lastTurnFor: lastTurnFor, storageKey: KEY };
+  var api = {
+    lastTurnFor: lastTurnFor,
+    storageKey: KEY,
+    /** The unit the link named, or null. Read by the viewer when it grows a
+     *  focus of its own to set; kept addressable here meanwhile. */
+    focusUnit: function () { return focusUnit; },
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

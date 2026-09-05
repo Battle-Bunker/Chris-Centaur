@@ -18,7 +18,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lens:rebuild": "node scripts/lens-rebuild.js",
-    "lens:check": "node scripts/lens-rebuild.js --check"
+    "lens:check": "node scripts/lens-rebuild.js --check",
+    "round-robin": "bash scripts/round-robin.sh",
+    "round-robin:report": "node scripts/round-robin-report.js"
   },
   "keywords": [
     "battlesnake",
