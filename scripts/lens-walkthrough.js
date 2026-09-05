@@ -126,7 +126,31 @@ const step = () => fetch(`${BASE}/dev/step`, { method: 'POST' }).then((r) => r.j
 /** Focus a unit through the shipped gesture — the roster row. A row that is
  *  already the active perspective fires no selection, so the walk goes via
  *  another unit when it has to. */
+/**
+ * THE TAKEOVER DIALOG, ANSWERED.
+ *
+ * Selecting a unit another operator has claimed raises `#confirmDialog`, and
+ * it is a modal that swallows every pointer event on the page until it is
+ * answered — including the roster click that raised it. The walk only ever
+ * worked on a VIRGIN server, where the name `Ada` is free and therefore owns
+ * the units; run it a second time against the same server and the gate takes
+ * `Ada-2`, owns nothing, and dies on a screenshot of a rail that never
+ * opened. A gate that passes only on the first run is not a gate.
+ *
+ * Answering it is what an operator taking a seat does, and the count rides in
+ * `report.json` because how many modals a second operator has to answer to
+ * pick up one team is a fact about the surface.
+ */
+async function takeOver(page) {
+  if (!(await page.$('#confirmDialog.active'))) return false;
+  await page.click('#confirmTakeoverBtn');
+  await sleep(700);
+  report.notes.takeovers = (report.notes.takeovers || 0) + 1;
+  return true;
+}
+
 async function focusUnit(page, index) {
+  await takeOver(page);
   const active = await page.evaluate(() => {
     const el = document.querySelector('.snake-info-item.active-perspective');
     return el ? [...document.querySelectorAll('.snake-info-item.selectable')].indexOf(el) : -1;
@@ -135,14 +159,16 @@ async function focusUnit(page, index) {
     const rows = await page.$$('.snake-info-item.selectable');
     const other = index === 0 ? 1 : 0;
     if (rows[other]) {
-      await rows[other].click();
+      await rows[other].click({ force: true });
       await sleep(WAIT);
+      await takeOver(page);
     }
   }
   const again = await page.$$('.snake-info-item.selectable');
   if (again[index]) {
-    await again[index].click();
+    await again[index].click({ force: true });
     await sleep(WAIT);
+    await takeOver(page);
   }
 }
 
@@ -243,7 +269,8 @@ async function selectAnsweredCandidate(page, unit) {
       continue;
     }
     try {
-      await cell.click({ timeout: 4000 });
+      await takeOver(page);
+      await cell.click({ timeout: 4000, force: true });
       await sleep(WAIT);
       return { lock, clicked: true };
     } catch (_e) {
@@ -479,16 +506,55 @@ async function main() {
   await selectAnsweredCandidate(page, 'red-A');
   const beforePin = await railOf();
 
+  /** The undo stack's own depth, from the page. The control bar's TEXT is not
+   *  a witness for it: `/undo/` matches the chip's own label whatever the
+   *  stack holds, and `nothing yet` is absent whenever the stack is non-empty
+   *  FOR ANY REASON — including the multi-unit lock at `17-locked`, which runs
+   *  before this drill and pushes an entry of its own. Read the number. */
+  const undoDepth = () =>
+    page.evaluate(() => (typeof lensUndoStack === 'undefined' ? null : lensUndoStack.length));
+
+  /** CAN THIS HARNESS STAGE AT ALL? `stageSelectedMove` needs
+   *  `userSelectedMove`, which needs a candidate in `moveState.moves`, which
+   *  `setupMoveStateForSnake` builds from `controlled-snake-turn-data` — a
+   *  message the walkthrough server does not send. So `moveState.moves` is
+   *  `{}` here and NO press of `Space` can stage anything, on any candidate,
+   *  in any state this walk reaches. That is a gap in the harness, not in the
+   *  page, and the honest thing is to say so out loud and assert what can be
+   *  asserted rather than to pass on a stack entry left standing by an earlier
+   *  step. It rides in `report.json` so the gap cannot go quiet. */
+  const stageable = await page.evaluate(
+    () => Object.keys((typeof moveState !== 'undefined' && moveState && moveState.moves) || {}).length
+  );
+  report.notes.pinStageable = stageable;
+  if (stageable === 0) {
+    console.log(
+      '  ⚠ drill/pin — this harness sends no controlled-snake-turn-data, so ' +
+        'moveState.moves is empty and no candidate is stageable. The pin step ' +
+        'asserts the undo AFFORDANCE, not a staged move.'
+    );
+  }
+
   // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
   // the operator's own unit, no confirmation, and an undo the moment it lands.
   at = 'drill/pin';
+  const depthBeforePin = await undoDepth();
   await page.keyboard.press(' ');
   await sleep(1200);
   const afterPin = await railOf();
+  const depthAfterPin = await undoDepth();
   check(
-    'pin — the undo affordance arrives with the determination',
-    /undo/i.test(afterPin.controls || '') && !/nothing yet/.test(afterPin.controls || ''),
-    { controls: afterPin.controls, before: beforePin.controls }
+    stageable === 0
+      ? 'pin — the undo affordance names the stack it stands over (nothing is stageable on this harness)'
+      : 'pin — the determination lands on the undo stack, and the affordance says so',
+    stageable === 0
+      ? // With nothing stageable, the honest property is that the bar and the
+        // stack AGREE: `nothing yet` iff the stack is empty. A bar that said
+        // otherwise would be the lie this check exists to catch.
+        depthAfterPin === depthBeforePin &&
+          /nothing yet/.test(afterPin.controls || '') === (depthAfterPin === 0)
+      : depthAfterPin === depthBeforePin + 1 && !/nothing yet/.test(afterPin.controls || ''),
+    { controls: afterPin.controls, before: beforePin.controls, depthBeforePin, depthAfterPin, stageable }
   );
   check('pin — the stage line names a plan for every unit', /Bot stages/.test(afterPin.stage || ''), {
     stage: afterPin.stage,
@@ -553,13 +619,22 @@ async function main() {
     await sleep(800);
   }
   await focusUnit(page, 0);
+  const depthBeforeUndo = await undoDepth();
   await page.keyboard.press('u');
   await sleep(1000);
   const undone = await railOf();
+  const depthAfterUndo = await undoDepth();
+  // AND HERE TOO, THE NUMBER RATHER THAN THE WORD. `/undo/` matched the
+  // chip's own label and passed whether or not anything was taken back. The
+  // property is that `U` pops exactly one entry when there is one, and that a
+  // press against an empty stack is a no-op rather than an underflow — and
+  // that the bar's sentence agrees with the stack either way.
   check(
-    'undo — takes the determination back and names what it took',
-    /undo/i.test(undone.controls || ''),
-    { controls: undone.controls }
+    'undo — pops exactly one determination, or nothing when there is nothing',
+    depthBeforeUndo > 0
+      ? depthAfterUndo === depthBeforeUndo - 1
+      : depthAfterUndo === 0 && /nothing yet/.test(undone.controls || ''),
+    { controls: undone.controls, depthBeforeUndo, depthAfterUndo }
   );
   await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
   report.notes.drill = drill;
@@ -919,6 +994,63 @@ async function main() {
     keys: restored,
   });
   report.notes.scheme = scheme;
+
+  // ── THE LAST-SAFE-PRESS NOTCH ───────────────────────────────────────────
+  //
+  // L0's other half. `02 §2.1` says the clock draws a notch "wherever
+  // `window.__lensLastSafePressMs` puts it, and nothing when nobody has set
+  // it" — and nobody ever did, so the notch had never drawn in a real game
+  // and no gate could have noticed: an absent mark and a correctly absent
+  // mark are the same pixels. It is fed from `LatencyView.read().pressSlackMs`
+  // now, and this asserts the wiring rather than the shape.
+  //
+  // The clock has to be DRIVEN here. `/dev/step` plays turns on demand, so
+  // `turnExpiryTime` is never a future instant, `startTurnTimer` paints the
+  // idle bar for the whole walk, and L0 has been shipping unphotographed. The
+  // budget and the remaining time are handed to the page's own updater; the
+  // NUMBER under test is the one the latency module measured from the real
+  // socket this walk has been talking over.
+  at = 'clock';
+  const notch = await page.evaluate(() => {
+    const slack =
+      typeof LatencyView !== 'undefined' && LatencyView.read
+        ? Number(LatencyView.read().pressSlackMs)
+        : null;
+    delete window.__lensLastSafePressMs;
+    const budget = 1500;
+    updateTurnClock(700, budget);
+    const mark = document.getElementById('turnClockMark');
+    return {
+      rttMs:
+        typeof LatencyView !== 'undefined' && LatencyView.read ? LatencyView.read().rttMs : null,
+      pressSlackMs: Number.isFinite(slack) ? slack : null,
+      picked: Number(window.__lensLastSafePressMs),
+      on: mark ? mark.classList.contains('on') : false,
+      left: mark ? mark.style.left : null,
+      budget,
+    };
+  });
+  report.notes.clockNotch = notch;
+  scheme.push({
+    step: 'the last-safe-press notch draws once the wire has an RTT',
+    // A press slack the module has not measured is not a failure of the
+    // clock, and drawing a notch for it would be the lie the absence exists
+    // to avoid — so the assertion is the IMPLICATION, both ways.
+    ok:
+      notch.pressSlackMs === null
+        ? notch.on === false
+        : notch.on === true && Number.isFinite(notch.picked) && notch.picked === notch.pressSlackMs,
+    saw: notch,
+  });
+  console.log(
+    `  ${scheme[scheme.length - 1].ok ? '\u2713' : '\u2717'} clock/last-safe-press notch — ` +
+      `rtt ${notch.rttMs}ms, slack ${notch.pressSlackMs}ms, drawn ${notch.on} at ${notch.left}`
+  );
+  await shot(page, 'd8-clock-notch', 'the clock driven to mid-turn — the last-safe-press notch, fed from the wire', '#turnClock');
+  await page.evaluate(() => {
+    delete window.__lensLastSafePressMs;
+    updateTurnClock(null, null);
+  });
 
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);

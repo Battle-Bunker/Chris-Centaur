@@ -880,6 +880,17 @@ const BoardRenderer = (function () {
     return "#43a047";
   }
 
+  // THE SAME RAMP, AS TEXT. The bar is a non-text mark and 3 : 1 is its bar;
+  // the roster's `\u2665` is TEXT at 11 px and owes 4.5 : 1, which `#43a047`
+  // misses at 4.35 on the roster's own ground. Same three steps, same
+  // meaning, lifted just far enough to be readable — kept beside the bar's
+  // ramp so the two can never drift into saying different things.
+  function healthTextColor(frac) {
+    if (frac < 0.1) return "#ef5350";
+    if (frac < 0.25) return "#ffa726";
+    return "#66bb6a";
+  }
+
   // Health fraction for a snake: health over its configured per-type max
   // (snake.maxHealth, engine default 100), clamped to [0, 1].
   function healthFraction(snake) {
@@ -3803,12 +3814,18 @@ const BoardRenderer = (function () {
       (active ? " active-perspective" : "");
     const styleParts = [];
     if (selectable) styleParts.push("cursor:pointer;");
-    if (isDead) styleParts.push("opacity:0.45;filter:grayscale(0.6);");
+    // A DEAD ROW IS STILL A ROW SOMEBODY READS. `opacity: 0.45` faded its ink
+    // onto the ground and took `(dead)` — the word that says WHY the row is
+    // quiet — to 2.4 : 1. The grayscale carries "this unit is out of the
+    // game" on its own, which is the reading that matters and the one a
+    // deuteranope keeps; the fade only has to say "quieter than the living",
+    // and 0.72 says it while leaving the words legible.
+    if (isDead) styleParts.push("opacity:0.72;filter:grayscale(0.7);");
     const clickAttr =
       (selectable ? ` data-select-snake="${snake.id}"` : "") +
       (styleParts.length ? ` style="${styleParts.join("")}"` : "");
     const deadSuffix = isDead
-      ? ' <span style="color:#aaa;font-weight:400;">(dead)</span>'
+      ? ' <span style="color:#c4c4c4;font-weight:400;">(dead)</span>'
       : "";
     // Inline health readout: the shared heart icon, the same red/orange/green
     // bar as the board cell and the unit tag (fraction of the unit's
@@ -3823,7 +3840,7 @@ const BoardRenderer = (function () {
           : "";
       healthDisplay =
         `<span title="Health" style="display:inline-flex;align-items:center;gap:4px;">` +
-        `<span style="color:${healthBarColor(frac)};">${STAT_ICON.health}</span>` +
+        `<span style="color:${healthTextColor(frac)};">${STAT_ICON.health}</span>` +
         `<span style="display:inline-block;width:48px;height:8px;background:${HEALTH_BAR_TRACK};border:1px solid rgba(0,0,0,0.25);border-radius:4px;overflow:hidden;">${fill}</span>` +
         `${snake.health}</span>`;
     }

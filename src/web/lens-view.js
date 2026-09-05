@@ -1390,7 +1390,7 @@ var LensView = (() => {
         );
       }
     }
-    return out;
+    return out.slice().sort((a, b) => a.letter === b.letter ? a.unit < b.unit ? -1 : 1 : a.letter < b.letter ? -1 : 1);
   }
   function renderFrame(frame, cursor = initialCursor(), trails = []) {
     const selected = selectedRow(frame, cursor);
