@@ -1475,6 +1475,10 @@
     //  · genuinely irreversible actions keep their dialogs: Submit All,
     //    fatal-move consent, cross-owner takeover. Those are correct already.
     let lensUndoStack = [];
+    /** Set when a turn boundary emptied a non-empty stack, cleared by the
+     *  next determination. The difference between "nothing was ever taken
+     *  back" and "what you took is no longer yours to take back". */
+    let lensUndoCleared = false;
     let lensArmed = null;      // { everyMember, pins } while a lock is armed
     let lensArmTimer = null;
     let lensUndoNote = null;   // what U would undo, as a sentence
@@ -1498,6 +1502,7 @@
     }
 
     function pushUndo(label, undo) {
+      lensUndoCleared = false;
       lensUndoStack.push({ label, undo });
       if (lensUndoStack.length > 8) lensUndoStack.shift();
       lensUndoNote = label;
@@ -1558,7 +1563,11 @@
           key: keyOf('release') || 'U',
           tone: 'undo',
           off: lensUndoStack.length === 0,
-          note: lensUndoStack.length ? `${lensUndoStack.length}` : 'nothing yet',
+          note: lensUndoStack.length
+            ? `${lensUndoStack.length}`
+            : lensUndoCleared
+              ? 'cleared — new turn'
+              : 'nothing yet',
           action: 'undo',
         }),
         LensPanel.chipHTML({
@@ -1842,6 +1851,16 @@
         // clear a unit's commands for the turn it is playing NOW, on the
         // strength of a press an operator made against a board that is gone.
         // The armed lock goes with it, for the same reason.
+        // AND IT SAYS SO. Measured, the bar went from `↺ undo u 1 · undoes:
+        // lock — 2 pins (red-A, red-B)` to `↺ undo u nothing yet` at the turn
+        // boundary with nothing said (`scenarios → S3`,
+        // `stackBeforeWiden`/`stackAfterWiden`). The rule is right — every
+        // entry names a command for a board that has resolved — but an
+        // operator who took a determination and reaches for `U` finds an
+        // empty stack and is told only that there was never anything on it,
+        // which is a different and untrue claim. The chip carries the reason
+        // for the turn it happened on.
+        lensUndoCleared = lensUndoStack.length > 0;
         lensUndoStack = [];
         lensUndoNote = null;
         lensArm(null);

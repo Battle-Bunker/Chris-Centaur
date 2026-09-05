@@ -1067,8 +1067,20 @@ async function scenarios(context) {
     const stackBeforeWiden = await page.evaluate(
       () => document.querySelector('#lensControls')?.innerText.replace(/\s+/g, ' ').trim() || null
     );
+    // ONE boundary, read before any other: the flag says "the stack was
+    // cleared by THIS turn", and a second turn over an already-empty stack
+    // has nothing new to say, so a measurement that steps three times to
+    // catch a widen measures the second answer and not the first.
     let banner = null;
-    for (let turn = 0; turn < 3 && !banner; turn++) {
+    await step();
+    for (let i = 0; i < 40 && !banner; i++) {
+      banner = await page.evaluate(() => document.querySelector('.lens-banner')?.innerText || null);
+      if (!banner) await sleep(100);
+    }
+    const stackAfterOneTurn = await page.evaluate(
+      () => document.querySelector('#lensControls')?.innerText.replace(/\s+/g, ' ').trim() || null
+    );
+    for (let turn = 0; turn < 2 && !banner; turn++) {
       await step();
       for (let i = 0; i < 40 && !banner; i++) {
         banner = await page.evaluate(() => document.querySelector('.lens-banner')?.innerText || null);
@@ -1103,6 +1115,7 @@ async function scenarios(context) {
       sameTurnUndoPaintMs: sameUndoPaint,
       sameTurnUndo,
       stackBeforeWiden,
+      stackAfterOneTurn,
       stackAfterWiden,
       widenBanner: banner,
       undoMs,

@@ -434,15 +434,20 @@ const LensPanel = (() => {
       // saying so — with the retained count beside it — turns the shortness
       // into a fact the operator can check (10 §4 O1).
       `<div class="lens-list-source">${sourceLine(source, retained, rowCount, truncated)}</div>` +
-      // THE LEGEND. Four tokens are on this table with no gloss anywhere, and
-      // three of them mean something else elsewhere in the codebase. A reader
-      // who has to be told what a column means is reading a number they
-      // cannot check.
-      `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
-      `Q loud replies · unless what this row is betting on</div>` +
       `<table class="lens-table">${rows}</table>` +
       (fixed ? `<div class="lens-fixed-strip">${fixed}</div>` : '') +
       foil +
+      // THE LEGEND, UNDER THE TABLE IT GLOSSES. Four tokens are on that table
+      // with no gloss anywhere, and three of them mean something else in the
+      // rest of the codebase, so it stays. But it is L4 — "needed to check a
+      // number, never to take a decision inside 500 ms" — and it was drawn
+      // ABOVE the two cards, at the top of L2, three lines of definitions
+      // between the operator's eye and the row that is going to happen
+      // (`heuristic → movesets-measured`: legend at y 132, rank 1 at y 160).
+      // A reader meets the decision first now and the key to it afterwards,
+      // which is the order they are needed in.
+      `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
+      `Q loud replies · unless what this row is betting on</div>` +
       (lock ? `<div class="lens-lock">${escapeHTML(ARGS(lock)[0])}</div>` : '')
     );
   }
