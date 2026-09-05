@@ -672,7 +672,29 @@ export interface BasisSnapshot {
 export interface KernelReport {
   readonly elapsedMs: number
   readonly budgetMs: number
+  /**
+   * HOW LATE THE ANSWER WAS, against the deadline the CALLER gave.
+   *
+   * Not against `run.deadline`, which is `t0 + budgetMs` and therefore
+   * `max(deadlineMs, t0)`: `budgetMs` is clamped at zero so the affordability
+   * guard and the slice cap always have a non-negative budget to be fractions
+   * of, and the clamp silently moved a deadline that had ALREADY PASSED
+   * forward to the moment the decision started. Overshoot measured against
+   * that moved deadline under-reports lateness by exactly the amount that
+   * matters most — a decision entered 300 ms late and taking 100 ms read
+   * `overshootMs: 100` and nothing anywhere said 400. It is the number an
+   * operator's last-safe-press notch is set from (`ux/03-LATENCY.md` §3), so
+   * it is measured against what the wire actually asked for.
+   */
   readonly overshootMs: number
+  /**
+   * `max(0, t0 - deadlineMs)`: the deadline was already this far in the past
+   * when `decide` was entered. Nonzero is the wire having spent the whole turn
+   * window before the kernel saw it, and it is the ONE state in which the
+   * kernel cannot make a good answer however good its search is — so it is
+   * reported rather than inferred from an absence.
+   */
+  readonly startedLateMs: number
   readonly slices: number
   /** True when the turn resolved under the decision and it stopped early. */
   readonly abandoned: boolean
@@ -880,6 +902,8 @@ interface Run {
   readonly t0: number
   readonly budgetMs: number
   readonly deadline: number
+  /** The deadline the CALLER asked for, unclamped — see `KernelReport.overshootMs`. */
+  readonly askedDeadline: number
   readonly searchDeadline: number
   readonly cache: PinContextCache
   readonly governor: PostureGovernor
@@ -1097,6 +1121,7 @@ export class LobsterKernel implements Kernel {
       t0,
       budgetMs,
       deadline,
+      askedDeadline: input.deadlineMs,
       searchDeadline,
       cache,
       governor: new PostureGovernor("SIGHTED"),
@@ -1237,6 +1262,14 @@ export class LobsterKernel implements Kernel {
     // order is never in a state where a moveset names a cluster that does not
     // exist yet — and so rung 0's own trials have clusters to be cut into.
     this.repartition(run, "decision-start")
+    // RUNG 0 RUNS AGAINST `searchDeadline` LIKE EVERYTHING ELSE, and when that
+    // is already behind `t0` its self-harm repair does nothing: `climb` breaks
+    // on the budget's first test and the seed stands. Giving rung 0 a floor of
+    // its own so the repair runs anyway was built and REFUSED — the repair's
+    // own bank is starved too, so it optimises against a bound it could not
+    // afford to compute and the answer gets worse (`docs/design/DEADLINE.md`
+    // §3). The fix for a deadline too small to be safe in is the wire's
+    // `MIN_COMPUTE_MS`, not a window the kernel invents for itself.
     const seed = this.conformNow(run, EMPTY_PLAN)
     run.stager.adopt(seed.key)
     const first = this.buildRecord(run, seed)
@@ -3123,7 +3156,8 @@ export class LobsterKernel implements Kernel {
     return {
       elapsedMs: end - run.t0,
       budgetMs: run.budgetMs,
-      overshootMs: Math.max(0, end - run.deadline),
+      overshootMs: Math.max(0, end - run.askedDeadline),
+      startedLateMs: Math.max(0, run.t0 - run.askedDeadline),
       slices: run.slices,
       abandoned: run.aborted,
       idleSlices: run.idleSlices,

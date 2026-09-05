@@ -674,6 +674,27 @@ export class TeamDecisionEngine {
       // rest of the turn (V4 B1).
       if (game.live !== null && game.live.turn === input.turn) game.live = null;
       const report = kernel.lastReport;
+      // THE DEADLINE THAT HAD ALREADY GONE, SAID OUT LOUD.
+      //
+      // `TurnDeadlineGuard.effectiveDeadlineMs` floors at `now + 200`, so the
+      // wire never hands this engine a deadline in the past — but the floor is
+      // taken at the moment the turn snapshot is read, and everything between
+      // there and `decide` (the substrate build, the bot binding, the lens
+      // sink, and any other game sharing this process) is spent out of the
+      // same 200 ms. A decision that starts with its deadline already behind
+      // it is rung 0 and nothing else: the answer is legal and every unit is
+      // named, but no refinement runs and `DEADLINE.md` §1 prices that at
+      // roughly 2.5x the deaths and a fifth of the meals. It is a WIRE
+      // condition, invisible from inside a game, and the only place it can be
+      // observed is here.
+      if (report !== null && report.startedLateMs > 0) {
+        this.log(
+          `[team-engine] ${input.gameId} turn ${input.turn}: decision entered ` +
+            `${report.startedLateMs.toFixed(1)}ms PAST its deadline — rung 0 only ` +
+            `(${report.slices} slices, ${report.emits} emissions, ` +
+            `answered ${report.overshootMs.toFixed(1)}ms after endTime-reserve)`
+        );
+      }
       // Same guard on the carried slice cost: a decision that finishes late
       // must not overwrite a newer turn's measurement with its own.
       if (report !== null && game.stepCostTurn <= input.turn) {
