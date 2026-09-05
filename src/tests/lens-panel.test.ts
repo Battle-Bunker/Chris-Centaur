@@ -30,7 +30,14 @@ import {
   modeBadge,
   renderTimeline,
 } from '../lens/view';
-import type { CursorEvent, LensCursor, LensFrame, Moveset, UnitKey } from '../lens/types';
+import type {
+  CursorEvent,
+  DrawTranscript,
+  LensCursor,
+  LensFrame,
+  Moveset,
+  UnitKey,
+} from '../lens/types';
 import {
   clusterView,
   depthColumn,
@@ -128,6 +135,17 @@ function cursorAt(f: LensFrame, events: ReadonlyArray<CursorEvent>): LensCursor 
 }
 
 const FOCUSED = (f: LensFrame) => cursorAt(f, [{ t: 'focus', unit: C }]);
+
+/**
+ * THE LOCK AFFORDANCE, AT ITS ONE SOURCE. It used to be read out of the
+ * movesets panel's HTML, because the panel drew it — a second lock affordance
+ * a few pixels above the control bar's chip, in a second grammar, for one
+ * gesture (05 H-6). Only the chip draws it now, and the chip reads this
+ * transcript call, so this is where the label's content is asserted. The
+ * `affordance.lock` op is unchanged; what went away is its second drawing.
+ */
+const lockAffordance = (transcript: DrawTranscript): string =>
+  String(transcript.find((c) => c.op === 'affordance.lock')?.args[0] ?? '');
 
 describe('the board ink comes off the transcript, and only disagreement draws', () => {
   test('the focused unit gets a filled arrow and an agreeing member gets a ring', () => {
@@ -282,12 +300,15 @@ describe('the rail says what the design says it must', () => {
 
   test('the lock affordance shows the exact pin count before the press, with no ≤', () => {
     const f = frame();
-    const rank1 = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    const rank1 = lockAffordance(renderFrame(f, FOCUSED(f)));
     expect(rank1).toContain('pins 1 of 2');
     expect(rank1).not.toContain('≤');
+    // AND NOWHERE ELSE. The count is the chip's state; a panel that drew it
+    // too is the duplicate affordance H-6 measured.
+    expect(LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)))).not.toContain('pins 1 of 2');
 
     const at2 = cursorAt(f, [{ t: 'focus', unit: C }, { t: 'moveset', key: 'a2' }]);
-    expect(LensPanel.movesetsHTML(renderFrame(f, at2))).toContain('pins 2 of 2');
+    expect(lockAffordance(renderFrame(f, at2))).toContain('pins 2 of 2');
   });
 
   /**
@@ -505,7 +526,7 @@ describe('the empty state is one honest sentence, not two different ones', () =>
     // WAY BACK is a fact about the source, not about the frame, so it rides
     // the badge component: only a scrubbed live turn has a `now`, and a
     // replayed one is no longer offered one it does not have.
-    expect(LensPanel.movesetsHTML(replay)).toContain('— read-only —');
+    expect(lockAffordance(replay)).toContain('— read-only —');
     expect(LensPanel.movesetsHTML(replay)).not.toContain('return to now');
     expect(modeBadge(scrubFrame)).toContain('[N] return to now');
     expect(modeBadge(replayFrame)).not.toContain('return to now');
@@ -537,7 +558,7 @@ describe('the empty state is one honest sentence, not two different ones', () =>
         }),
       ],
     };
-    expect(LensPanel.movesetsHTML(renderFrame(determined, FOCUSED(determined)))).toContain(
+    expect(lockAffordance(renderFrame(determined, FOCUSED(determined)))).toContain(
       'locked by Ada at +812ms → [jump]'
     );
 
@@ -558,7 +579,7 @@ describe('the empty state is one honest sentence, not two different ones', () =>
         }),
       ],
     };
-    expect(LensPanel.movesetsHTML(renderFrame(considered, FOCUSED(considered)))).toContain(
+    expect(lockAffordance(renderFrame(considered, FOCUSED(considered)))).toContain(
       '— read-only —'
     );
   });

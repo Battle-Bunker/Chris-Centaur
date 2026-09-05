@@ -285,7 +285,6 @@
     .lens-fixed { margin-right: 10px; white-space: nowrap; }
     .lens-foil { font-size: calc(var(--lens-size) - 1px); color: #4DB6AC; margin-top: 6px; }
     .lens-foil-absent { color: #9db8b3; font-style: italic; }
-    .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
     .lens-empty { font-size: var(--lens-size); color: #9a9a9a; padding: 4px 0; }
     .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
     .lens-stale-flag { color: #FF8A65; }
@@ -860,8 +859,11 @@
           <div class="lens-rail" id="lensRail"></div>
           <!-- Every control the focused unit has, in one row, in one
                vocabulary, with its key on it: pin/lock, undo, hold, goto,
-               near, clear. The lock's exact pin count is in the rail above
-               (`.lens-lock`) and its ARMED state is here, where the key is. -->
+               near, clear. THE ONLY LOCK AFFORDANCE ON THE SURFACE: the
+               movesets panel used to draw a second one in a second grammar a
+               few pixels above (05 H-6), and the exact pin count, the armed
+               state and the reason a press would refuse are all here now,
+               where the key is. -->
           <div class="lens-panel" id="lensControls"></div>
           <!-- The cheat sheet, at rest. Ctrl+/ is the full reference and it is
                a modal; this is the eight keys in the hot path, rendered from
@@ -1552,6 +1554,25 @@
       const snake = typeof getSelectedSnake === 'function' ? getSelectedSnake() : null;
       const canHold = !!snake && typeof unitIsPiece === 'function' && unitIsPiece(snake);
       const way = selectedSnakeId ? waypoints[selectedSnakeId] : null;
+      // WHAT `Space` WILL ACTUALLY DO, asked of the same four preconditions
+      // `stageSelectedMove` refuses on. `pins n of m` is the reach of the
+      // MOVESET lock (`Shift+Space`) — the units whose staged cell the
+      // selected moveset would change — and at `pins 0 of 0` there is no
+      // cluster and no moveset under the cursor, so that gesture has nothing
+      // to take. `Space` is unaffected by any of it: it stages the candidate
+      // under the cursor, which is the one-unit lock §3.4 calls "what `Space`
+      // has always done". So the bar was drawing `pins 0 of 0` in `primary` —
+      // the loudest thing in the row — beside a key whose reach it was not
+      // describing (05 H-6). The count stays where it is true, and where it
+      // is not, the chip says what the press does instead.
+      const stageRefusal =
+        typeof stageRefusalReason === 'function' ? stageRefusalReason() : null;
+      const canStage = !readOnly && stageRefusal === null;
+      const stageNote = canStage
+        ? `stages ${selectedCandidateLabel() || 'the cursor'}`
+        : readOnly
+          ? 'read-only'
+          : (stageRefusal && stageRefusal.note) || 'nothing to stage';
 
       const chips = [
         LensPanel.chipHTML({
@@ -1562,9 +1583,9 @@
           // only `Shift+Space` completes is the one lie this bar exists to
           // stop telling.
           key: lensArmed && lensArmed.everyMember ? 'Shift+Space' : 'Space',
-          tone: lensArmed ? 'armed' : readOnly ? '' : 'primary',
-          off: readOnly,
-          note: pins ? `pins ${pins[1]} of ${pins[2]}` : 'read-only',
+          tone: lensArmed ? 'armed' : canStage || (pins && Number(pins[1]) > 0) ? 'primary' : '',
+          off: !canStage && !(pins && Number(pins[1]) > 0),
+          note: pins && Number(pins[1]) > 0 ? `pins ${pins[1]} of ${pins[2]}` : stageNote,
           action: 'lock',
         }),
         LensPanel.chipHTML({
@@ -3662,6 +3683,46 @@
     // queue/waypoint, and publishes the request to Firebase until confirmed.
     // The solid arrow stays on the last Firebase-confirmed staged move until
     // the confirmation for this request lands.
+    /**
+     * WHY `Space` WOULD REFUSE, or null when it would not.
+     *
+     * `stageSelectedMove` guards on four preconditions and, until this
+     * existed, said nothing on any of them: with the cursor visibly on a
+     * candidate and the bar reading `⦿ lock Space`, the press was a no-op
+     * with no notice, no chip change and no reason (05 H-3). One reading of
+     * the four, in the order the function tests them, so the affordance and
+     * the refusal cannot disagree about what the next press will do:
+     *
+     *   · `note` is the chip's state — short enough for the bar;
+     *   · `why` is the sentence the operator gets when they press anyway.
+     */
+    function stageRefusalReason() {
+      if (!selectedSnakeId) {
+        return { note: 'no unit', why: 'no unit is focused — pick one from the roster first' };
+      }
+      if (moveSubmitted) {
+        return {
+          note: 'already committed',
+          why: 'this unit\u2019s move is already committed for this turn',
+        };
+      }
+      if (!userSelectedMove) {
+        return {
+          note: 'no candidate',
+          why: 'no candidate is selected — step the cursor onto one, or click it',
+        };
+      }
+      const entry = moveState && moveState.moves ? moveState.moves[userSelectedMove] : null;
+      const move = entry ? entry.move : userSelectedMove;
+      if (move == null) {
+        return {
+          note: 'unstageable',
+          why: 'that candidate carries no move the wire can express',
+        };
+      }
+      return null;
+    }
+
     function stageSelectedMove() {
       if (moveSubmitted || !selectedSnakeId) return;
       if (!userSelectedMove) return;

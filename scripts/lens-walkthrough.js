@@ -64,7 +64,10 @@ function railText(page) {
     keys: (document.getElementById('lensKeys') || {}).innerText || null,
     lane: (document.querySelector('.lens-lane-foot') || {}).innerText || null,
     banner: (document.querySelector('.lens-banner') || {}).innerText || null,
-    lock: (document.querySelector('.lens-lock') || {}).innerText || null,
+    // THE ONE LOCK AFFORDANCE (05 P-2). The movesets panel's `.lens-lock`
+    // line was the second drawing of this and is gone; the chip in the
+    // control bar is the affordance, so the walk reads it there.
+    lock: (document.querySelector('[data-lens-action="lock"]') || {}).innerText || null,
     state: {
       viewMode: typeof viewMode === 'undefined' ? null : viewMode,
       lensTurn: typeof lensTurn === 'undefined' ? null : lensTurn,
@@ -440,7 +443,7 @@ async function main() {
   at = 'live/lock';
   await focusUnit(page, 0);
   report.notes.lockBefore = await page.evaluate(() => {
-    const el = document.querySelector('.lens-lock');
+    const el = document.querySelector('[data-lens-action="lock"]');
     return el ? el.innerText : null;
   });
   // TWO PRESSES, ON PURPOSE. A lock over more than the focused unit ARMS
@@ -458,7 +461,7 @@ async function main() {
   }
   await sleep(1200);
   report.notes.lockAfter = await page.evaluate(() => {
-    const el = document.querySelector('.lens-lock');
+    const el = document.querySelector('[data-lens-action="lock"]');
     return el ? el.innerText : null;
   });
   await shot(page, '17-locked', 'after Shift+Space — the whole moveset pinned');
@@ -633,6 +636,18 @@ async function main() {
     controls: armed.controls,
     lock: armed.lock,
   });
+  // ONE AFFORDANCE, NOT TWO (05 H-6 / P-2). The count, the armed state and
+  // the reason a press would refuse all live on the chip; a second lock
+  // affordance anywhere on the surface is the defect, so it is counted.
+  const lockAffordances = await page.evaluate(() => ({
+    chips: document.querySelectorAll('[data-lens-action="lock"]').length,
+    panelLine: document.querySelectorAll('.lens-lock').length,
+  }));
+  check(
+    'lock — one affordance, and it is the chip',
+    lockAffordances.chips === 1 && lockAffordances.panelLine === 0,
+    lockAffordances
+  );
   await drillShot('d2-lock-armed', 'the drill: a multi-unit lock, armed — the affordance is the confirmation');
   if (isArmed) {
     await page.keyboard.press('Shift+ ');

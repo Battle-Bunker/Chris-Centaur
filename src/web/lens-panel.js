@@ -423,7 +423,14 @@ const LensPanel = (() => {
             foilArgs[1] == null ? '' : ` · margin ${num(foilArgs[1], 1)}`
           } · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
-    const lock = firstOf(transcript, 'affordance.lock');
+    // ONE LOCK AFFORDANCE, AND IT IS THE CHIP (05 H-6, P-2). This panel used
+    // to draw `[Space] lock — pins 3 of 3` under the table while
+    // `#lensControls` drew `⦿ lock Space pins 3 of 3` a few pixels below it:
+    // two affordances, in two grammars, for one gesture, on screen together —
+    // which is the exact thing §2.4 exists to end. The transcript call is
+    // still made and is still the ONE source of the count; only this second
+    // drawing of it is gone. `renderLensControls` reads `affordance.lock` off
+    // the transcript, not off this DOM, so nothing downstream lost a fact.
     return (
       `<div class="lens-panel-head">MOVESETS · cluster ${escapeHTML(clusterId)} · ` +
       `${escapeHTML(members)} of ${escapeHTML(members + bounded)} free · seq ${escapeHTML(seq)}` +
@@ -447,8 +454,7 @@ const LensPanel = (() => {
       // A reader meets the decision first now and the key to it afterwards,
       // which is the order they are needed in.
       `<div class="lens-legend">⌈w⌉ bracket width · h&lt;n&gt; horizon proved at · ` +
-      `Q loud replies · unless what this row is betting on</div>` +
-      (lock ? `<div class="lens-lock">${escapeHTML(ARGS(lock)[0])}</div>` : '')
+      `Q loud replies · unless what this row is betting on</div>`
     );
   }
 
