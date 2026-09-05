@@ -3,18 +3,21 @@
     {
       "name": "01-idle",
       "note": "live head, no unit focused — the NONE cursor state",
-      "bytes": 101199,
+      "bytes": 108905,
       "overflowPx": 0,
-      "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 20No unit focused — click one, or Tab.4 emissions at seq 20 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
-      "banner": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 20",
+      "rail": "⚑ released red-A — cluster is now 3 units. auto 6sShowthe rail below is stale @ seq 19No unit focused — click one, or Tab.4 emissions at seq 19 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e18 · 0q",
+      "stage": "Bot stages B → 119~ · C → 133~ · A → 108 pinned\n3 units\n● 1 staged\n~ 2 planned\n🔒 1 fixed",
+      "controls": "⦿lockSpacepins 0 of 0↺undounothing yet⛨holdHpieces only◎gotoright-click◉nearctrl-click✕clearDel",
+      "keys": "[]rankffoilbbreakdown,.timelinennowuundoSpacelockCtrl+/allkeys bracket (default)vimleft hand · density compactdefaultroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": "⚑ released red-A — cluster is now 3 units. auto 6sShowthe rail below is stale @ seq 19",
       "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": null,
         "finished": false
       }
@@ -22,18 +25,21 @@
     {
       "name": "02-hover-unit",
       "note": "pointer over a unit on the board — the tag calls up",
-      "bytes": 101348,
+      "bytes": 108973,
       "overflowPx": 0,
-      "rail": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 20No unit focused — click one, or Tab.4 emissions at seq 20 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
-      "banner": "⚑ released red-A — cluster is now 2 units. auto 6sShowthe rail below is stale @ seq 20",
+      "rail": "⚑ released red-A — cluster is now 3 units. auto 6sShowthe rail below is stale @ seq 19No unit focused — click one, or Tab.4 emissions at seq 19 — no unit is focusedlobster-local · walkthrough/mixed · eval:7f5b86c4 · e18 · 0q",
+      "stage": "Bot stages B → 119~ · C → 133~ · A → 108 pinned\n3 units\n● 1 staged\n~ 2 planned\n🔒 1 fixed",
+      "controls": "⦿lockSpacepins 0 of 0↺undounothing yet⛨holdHpieces only◎gotoright-click◉nearctrl-click✕clearDel",
+      "keys": "[]rankffoilbbreakdown,.timelinennowuundoSpacelockCtrl+/allkeys bracket (default)vimleft hand · density compactdefaultroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
+      "banner": "⚑ released red-A — cluster is now 3 units. auto 6sShowthe rail below is stale @ seq 19",
       "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": null,
         "finished": false
       }
@@ -41,18 +47,21 @@
     {
       "name": "03-focus-unit",
       "note": "CANDIDATE state — focus auto-advances to the incumbent (Law D)",
-      "bytes": 192801,
+      "bytes": 191517,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nno conditional was answered — 1 of 5 retained rows play this candidate, so [ and ] have nowhere to go\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\nno runner-up — only 1 of 5 retained rows plays this candidate\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.4~\t\nnothing retained for red-A at this candidate — 6 emissions by seq 27 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 0 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -60,18 +69,21 @@
     {
       "name": "03b-rail",
       "note": "the rail at CANDIDATE",
-      "bytes": 44760,
+      "bytes": 21113,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nno conditional was answered — 1 of 5 retained rows play this candidate, so [ and ] have nowhere to go\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\nno runner-up — only 1 of 5 retained rows plays this candidate\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.4~\t\nnothing retained for red-A at this candidate — 6 emissions by seq 27 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 0 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -79,18 +91,21 @@
     {
       "name": "03c-board",
       "note": "the board at CANDIDATE — chips, tethers, the violet arrow",
-      "bytes": 71227,
+      "bytes": 68789,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nno conditional was answered — 1 of 5 retained rows play this candidate, so [ and ] have nowhere to go\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸4\t-51.6 ⌈93.0⌉\th1 · Q=0/33\t—\tthe evaluator residue, blue-A resolve against us · 82.9 at stake\tred-A→94 · red-C→118\nno runner-up — only 1 of 5 retained rows plays this candidate\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.4~\t\nnothing retained for red-A at this candidate — 6 emissions by seq 27 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 0 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -98,18 +113,21 @@
     {
       "name": "03d-conditional",
       "note": "T3 — the candidate the reserve answered: the CONDITIONAL RANKING, the rows a lock here would stage",
-      "bytes": 72442,
+      "bytes": 68922,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -117,18 +135,21 @@
     {
       "name": "04-hover-moveset",
       "note": "pointer over moveset rank 2 — T4 says the cursor must not move, so this is byte-identical to 03d",
-      "bytes": 72442,
+      "bytes": 68922,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -136,18 +157,21 @@
     {
       "name": "05-moveset-next",
       "note": "the cursor walked one row down the conditional list",
-      "bytes": 58425,
+      "bytes": 54272,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n▸2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #1 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n◇1\nFOIL\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n▸2\nWOULD BE STAGED\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #1 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -155,18 +179,21 @@
     {
       "name": "05b-board",
       "note": "the board at the next rank — only disagreement draws",
-      "bytes": 70488,
+      "bytes": 69047,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n▸2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #1 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n◇1\nFOIL\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n▸2\nWOULD BE STAGED\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #1 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\n[B] to price this row\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -174,18 +201,21 @@
     {
       "name": "06-breakdown",
       "note": "BREAKDOWN drilled — members, terms, and the joint residual",
-      "bytes": 80931,
+      "bytes": 77386,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -193,18 +223,21 @@
     {
       "name": "06b-breakdown-panel",
       "note": "the breakdown panel alone",
-      "bytes": 24223,
+      "bytes": 24458,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -212,18 +245,21 @@
     {
       "name": "07-movesets-panel",
       "note": "the MOVESETS table — depth ink and the `unless` cell per row",
-      "bytes": 40819,
+      "bytes": 36980,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -231,18 +267,21 @@
     {
       "name": "08-foil",
       "note": "the contrastive foil latched",
-      "bytes": 80479,
+      "bytes": 76938,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -250,18 +289,21 @@
     {
       "name": "08b-foil-board",
       "note": "the foil on the board — teal, only where it differs",
-      "bytes": 71446,
+      "bytes": 69003,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -269,18 +311,21 @@
     {
       "name": "09-lane",
       "note": "the intra-turn lane at the head",
-      "bytes": 7494,
+      "bytes": 7289,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -288,18 +333,21 @@
     {
       "name": "10-lane-expanded",
       "note": "the lane expanded — hollow attention ticks",
-      "bytes": 7598,
+      "bytes": 7386,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -307,10 +355,13 @@
     {
       "name": "11-scrub-anchor",
       "note": "live-scrub at the turn anchor — determinations refuse",
-      "bytes": 152740,
+      "bytes": 175743,
       "overflowPx": 0,
       "rail": "A snake · hp 98 · wt 3\nunclustered\nfree\nCANDIDATES · 0 · priced here · scored as best-of-cluster\nnothing staged yet — no kernel emission yet at seq 0\n· · eval — · e0 · 0q",
-      "lane": "seq 0 · 1 / 30 · ⏸ SCRUBBED · seq 0 · read-only · [N] return to now · observed ·",
+      "stage": "nothing is staged yet",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 0 · 1 / 28 · ⏸ SCRUBBED · seq 0 · read-only · [N] return to now · observed ·",
       "banner": null,
       "lock": null,
       "state": {
@@ -318,7 +369,7 @@
         "lensTurn": 3,
         "lensSeq": 0,
         "lensAtHead": false,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -326,18 +377,21 @@
     {
       "name": "12-scrub-emission",
       "note": "live-scrub, two kernel emissions in",
-      "bytes": 81076,
+      "bytes": 77263,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\npinned · 2 of 2 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.6~\tincumbent\nMOVESETS · cluster 0 · 2 of 2 free · seq 10\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e10 · 0q",
-      "lane": "seq 10 · 11 / 30 · ⏸ SCRUBBED · seq 10 · read-only · [N] return to now · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\npinned · 3 of 3 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.5~\tincumbent\nMOVESETS · cluster 0 · 3 of 3 free · seq 9\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e9 · 0q",
+      "stage": "Bot stages A → 108~ · B → 119~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 9 · 10 / 28 · ⏸ SCRUBBED · seq 9 · read-only · [N] return to now · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by an operator at +149.28ms → [jump]",
+      "lock": "locked by an operator at +149.27ms → [jump]",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 10,
+        "lensSeq": 9,
         "lensAtHead": false,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -345,18 +399,21 @@
     {
       "name": "13-pinned",
       "note": "the frame after the operator pin — Rule E, drawn",
-      "bytes": 77199,
+      "bytes": 73555,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\npinned · 2 of 2 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.6~\tincumbent\nMOVESETS · cluster 0 · 2 of 2 free · seq 10\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e10 · 0q",
-      "lane": "seq 10 · 11 / 30 · ⏸ SCRUBBED · seq 10 · read-only · [N] return to now · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\npinned · 3 of 3 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.5~\tincumbent\nMOVESETS · cluster 0 · 3 of 3 free · seq 9\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e9 · 0q",
+      "stage": "Bot stages A → 108~ · B → 119~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 9 · 10 / 28 · ⏸ SCRUBBED · seq 9 · read-only · [N] return to now · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by an operator at +149.28ms → [jump]",
+      "lock": "locked by an operator at +149.27ms → [jump]",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 10,
+        "lensSeq": 9,
         "lensAtHead": false,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -364,18 +421,21 @@
     {
       "name": "13b-pinned-board",
       "note": "the pinned unit on the board — padlock, no tether",
-      "bytes": 71855,
+      "bytes": 69812,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\npinned · 2 of 2 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.6~\tincumbent\nMOVESETS · cluster 0 · 2 of 2 free · seq 10\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e10 · 0q",
-      "lane": "seq 10 · 11 / 30 · ⏸ SCRUBBED · seq 10 · read-only · [N] return to now · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\npinned · 3 of 3 free\nCANDIDATES · 1 · priced here · scored as best-of-cluster\n▸\t108\t-41.5~\tincumbent\nMOVESETS · cluster 0 · 3 of 3 free · seq 9\nconditional list — the rows a lock here would stage · 1 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e9 · 0q",
+      "stage": "Bot stages A → 108~ · B → 119~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 9 · 10 / 28 · ⏸ SCRUBBED · seq 9 · read-only · [N] return to now · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by an operator at +149.28ms → [jump]",
+      "lock": "locked by an operator at +149.27ms → [jump]",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 10,
+        "lensSeq": 9,
         "lensAtHead": false,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -383,18 +443,21 @@
     {
       "name": "14-released-widen",
       "note": "the frame at the release — the cluster widens again",
-      "bytes": 82113,
+      "bytes": 78320,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.6~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 22\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
-      "lane": "seq 22 · 23 / 30 · ⏸ SCRUBBED · seq 22 · read-only · [N] return to now · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 21\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by an operator at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e18 · 0q",
+      "stage": "Bot stages A → 108~ · B → 119~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 21 · 22 / 28 · ⏸ SCRUBBED · seq 21 · read-only · [N] return to now · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by an operator at +149.28ms → [jump]",
+      "lock": "locked by an operator at +149.27ms → [jump]",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 22,
+        "lensSeq": 21,
         "lensAtHead": false,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -402,18 +465,21 @@
     {
       "name": "15-back-to-now",
       "note": "back at the live head — the lock affordance returns",
-      "bytes": 216704,
+      "bytes": 213181,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.5~\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 29\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→108 · red-C→118 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→122\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→133\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→144\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→108 · red-C→108\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t0.07…0.00\tvs 106\tmaterial 0.00…10.00 · reach 0.06…0.07 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.02…-0.01 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t-0.05…0.00\tvs 122\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-83.55…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · LIVE · seq 29 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 3\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n▸\t108\t-41.4~\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 27\nconditional list — the rows a lock here would stage · 5 retained for the cluster · 2 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→108 · red-B→119 · red-C→133 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→131 · red-C→133\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→132 · red-C→133\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→145 · red-C→133\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→108 · red-B→144 · red-C→133\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.11…0.00\tvs 94\tmaterial 0.00…10.00 · reach 0.01…0.02 · room 0.00…0.00 · energyEconomy 0.02…0.02 · kingMargin 0.00…0.00 · command -0.15…-0.16 · food 0.02…0.02 · momentum 0.00…0.00 · contest 0.00…0.00 · tier 0.00…0.00 · energy 0.00…0.00 · potion 0.00…0.00\nred-B\t11.54…0.00\tvs 131\tmaterial 10.00…0.00 · reach 0.00…0.00\nred-C\t11.73…0.00\tvs 119\tmaterial 10.00…0.00 · reach 0.00…0.00\njoint\t-95.13…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e24 · 3q",
+      "stage": "Bot stages A → 108~ · B → 144~ · C → 133~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 27 · 28 / 28 · LIVE · seq 27 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 2 of 2",
+      "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 3,
-        "lensSeq": 29,
+        "lensSeq": 27,
         "lensAtHead": true,
-        "events": 30,
+        "events": 28,
         "selected": "red-A",
         "finished": false
       }
@@ -421,18 +487,21 @@
     {
       "name": "16-widen-banner",
       "note": "the widen banner — additive uncertainty is staged",
-      "bytes": 29008,
+      "bytes": 28839,
       "overflowPx": 0,
-      "rail": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21\nA snake · hp 100 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-42.4~\t\n\t121\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
-      "lane": "seq 32 · 33 / 33 · LIVE · seq 32 · observed · walkthrough/mixed",
-      "banner": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
+      "rail": "⚑ Ada released red-A — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 19\nA snake · hp 100 · wt 4\ncluster 1(2)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e18 · 0q",
+      "stage": "Bot stages B → 131~ · C → 106~ · A → 109 pinned\n3 units\n● 1 staged\n~ 2 planned\n🔒 1 fixed",
+      "controls": "⦿\nlock\nSpace\npins 0 of 0\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 25 · 26 / 26 · LIVE · seq 25 · observed · walkthrough/mixed",
+      "banner": "⚑ Ada released red-A — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 19",
       "lock": null,
       "state": {
         "viewMode": "live",
         "lensTurn": 4,
-        "lensSeq": 32,
+        "lensSeq": 25,
         "lensAtHead": true,
-        "events": 33,
+        "events": 26,
         "selected": "red-A",
         "finished": false
       }
@@ -440,18 +509,21 @@
     {
       "name": "16b-widen-accepted",
       "note": "after [Show] — the wider list lands",
-      "bytes": 72179,
+      "bytes": 67769,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 32\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 32 · 33 / 33 · LIVE · seq 32 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 25\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 3 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131~ · C → 106~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\npins 3 of 3\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 25 · 26 / 26 · LIVE · seq 25 · observed · walkthrough/mixed",
       "banner": null,
       "lock": "[Space] lock — pins 3 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 4,
-        "lensSeq": 32,
+        "lensSeq": 25,
         "lensAtHead": true,
-        "events": 33,
+        "events": 26,
         "selected": "red-A",
         "finished": false
       }
@@ -459,18 +531,21 @@
     {
       "name": "17-locked",
       "note": "after Shift+Space — the whole moveset pinned",
-      "bytes": 220574,
+      "bytes": 219401,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · LIVE · seq 40 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 33\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 33 · 34 / 34 · LIVE · seq 33 · observed · walkthrough/mixed",
       "banner": null,
       "lock": "[Space] lock — pins 1 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 4,
-        "lensSeq": 40,
+        "lensSeq": 33,
         "lensAtHead": true,
-        "events": 41,
+        "events": 34,
         "selected": "red-A",
         "finished": false
       }
@@ -478,18 +553,241 @@
     {
       "name": "17b-locked-rail",
       "note": "the rail after the lock",
-      "bytes": 72198,
+      "bytes": 67603,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · LIVE · seq 40 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 33\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 33 · 34 / 34 · LIVE · seq 33 · observed · walkthrough/mixed",
       "banner": null,
       "lock": "[Space] lock — pins 1 of 3",
       "state": {
         "viewMode": "live",
         "lensTurn": 4,
-        "lensSeq": 40,
+        "lensSeq": 33,
         "lensAtHead": true,
-        "events": 41,
+        "events": 34,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d1-pin",
+      "note": "the operator drill: a pin, and the undo it arrives with",
+      "bytes": 84701,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 57\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 57 · 58 / 58 · LIVE · seq 57 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 57,
+        "lensAtHead": true,
+        "events": 58,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d1-pin-controls",
+      "note": "the operator drill: a pin, and the undo it arrives with — the control bar",
+      "bytes": 12636,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 57\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 57 · 58 / 58 · LIVE · seq 57 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 57,
+        "lensAtHead": true,
+        "events": 58,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d2-lock-armed",
+      "note": "the drill: a multi-unit lock, armed — the affordance is the confirmation",
+      "bytes": 88913,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 61\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock — press again\nShift+Space\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n⚠ this pins 3 units — they leave the cluster. Press Shift+Space again to lock, Esc to cancel.",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 61 · 62 / 62 · LIVE · seq 61 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 61,
+        "lensAtHead": true,
+        "events": 62,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d2-lock-armed-controls",
+      "note": "the drill: a multi-unit lock, armed — the affordance is the confirmation — the control bar",
+      "bytes": 17665,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 61\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock — press again\nShift+Space\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n⚠ this pins 3 units — they leave the cluster. Press Shift+Space again to lock, Esc to cancel.",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 61 · 62 / 62 · LIVE · seq 61 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 61,
+        "lensAtHead": true,
+        "events": 62,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d3-locked",
+      "note": "the drill: the lock committed — pins written, undo standing",
+      "bytes": 87687,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 67\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n2\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 67 · 68 / 68 · LIVE · seq 67 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 67,
+        "lensAtHead": true,
+        "events": 68,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d3-locked-controls",
+      "note": "the drill: the lock committed — pins written, undo standing — the control bar",
+      "bytes": 12708,
+      "overflowPx": 0,
+      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-41.4~\tincumbent\n\t109\t-41.4~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 67\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=0/33\n—\nleads on the proved floor\nred-A→95 · red-B→131 · red-C→106 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→144 · red-C→106\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→157 · red-C→106\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→118\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→95 · red-B→131 · red-C→122\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.01…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t0.00…0.00\tvs 144\tmaterial 0.00…0.00 · reach 0.00…0.00\nred-C\t0.19…0.00\tvs 118\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-62.05…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e22 · 0q",
+      "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n2\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 67 · 68 / 68 · LIVE · seq 67 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 1 of 3",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 4,
+        "lensSeq": 67,
+        "lensAtHead": true,
+        "events": 68,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d4-widen",
+      "note": "the drill: a peer widened the cluster — held, flagged stale, nothing moved",
+      "bytes": 68637,
+      "overflowPx": 0,
+      "rail": "⚑ Ada released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 21\nA snake · hp 97 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-12.0~\tincumbent\n\t96\t·\t\n\t98\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
+      "stage": "Bot stages B → 131⋯ · A → 84 pinned · C → 106⋯\n3 units\n● 3 staged\n🔒 1 fixed",
+      "controls": "⦿\nlock\nSpace\npins 0 of 0\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
+      "banner": "⚑ Ada released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 21",
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 31,
+        "lensAtHead": true,
+        "events": 32,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d4-widen-controls",
+      "note": "the drill: a peer widened the cluster — held, flagged stale, nothing moved — the control bar",
+      "bytes": 9946,
+      "overflowPx": 0,
+      "rail": "⚑ Ada released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 21\nA snake · hp 97 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1 — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-12.0~\tincumbent\n\t96\t·\t\n\t98\t·\t\nred-A is pinned — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
+      "stage": "Bot stages B → 131⋯ · A → 84 pinned · C → 106⋯\n3 units\n● 3 staged\n🔒 1 fixed",
+      "controls": "⦿\nlock\nSpace\npins 0 of 0\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
+      "banner": "⚑ Ada released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 21",
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 31,
+        "lensAtHead": true,
+        "events": 32,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d5-undone",
+      "note": "the drill: undo — the determination taken back, in one unmodified key",
+      "bytes": 85101,
+      "overflowPx": 0,
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 106⋯ · B → 131⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 2 of 2\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 31,
+        "lensAtHead": true,
+        "events": 32,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d5-undone-controls",
+      "note": "the drill: undo — the determination taken back, in one unmodified key — the control bar",
+      "bytes": 10039,
+      "overflowPx": 0,
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 106⋯ · B → 131⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 2 of 2\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 31,
+        "lensAtHead": true,
+        "events": 32,
         "selected": "red-A",
         "finished": false
       }
@@ -497,18 +795,21 @@
     {
       "name": "18-replay",
       "note": "the same log, read back through the replay path",
-      "bytes": 130323,
+      "bytes": 153175,
       "overflowPx": 0,
-      "rail": "No unit focused — click one, or Tab.\n7 emissions at seq 40 — no unit is focused\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · REPLAY · seq 40 · read-only · observed · walkthrough/mixed",
+      "rail": "No unit focused — click one, or Tab.\n6 emissions at seq 31 — no unit is focused\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 69~ · B → 145~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · REPLAY · seq 31 · read-only · observed · walkthrough/mixed",
       "banner": null,
       "lock": null,
       "state": {
         "viewMode": "historic",
-        "lensTurn": 4,
-        "lensSeq": 40,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": false,
-        "events": 41,
+        "events": 32,
         "selected": null,
         "finished": true
       }
@@ -516,18 +817,21 @@
     {
       "name": "19-replay-focus",
       "note": "a focused unit in replay — compare against 03",
-      "bytes": 197806,
+      "bytes": 192105,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · REPLAY · seq 40 · read-only · observed · walkthrough/mixed",
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 69~ · B → 145~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · REPLAY · seq 31 · read-only · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by Ada at +149.27ms → [jump]",
+      "lock": "locked by Ada at +149.28ms → [jump]",
       "state": {
         "viewMode": "historic",
-        "lensTurn": 4,
-        "lensSeq": 40,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": false,
-        "events": 41,
+        "events": 32,
         "selected": null,
         "finished": true
       }
@@ -535,18 +839,21 @@
     {
       "name": "19b-replay-rail",
       "note": "the replay rail",
-      "bytes": 73126,
+      "bytes": 68873,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · REPLAY · seq 40 · read-only · observed · walkthrough/mixed",
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 69~ · B → 145~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · REPLAY · seq 31 · read-only · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by Ada at +149.27ms → [jump]",
+      "lock": "locked by Ada at +149.28ms → [jump]",
       "state": {
         "viewMode": "historic",
-        "lensTurn": 4,
-        "lensSeq": 40,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": false,
-        "events": 41,
+        "events": 32,
         "selected": null,
         "finished": true
       }
@@ -554,18 +861,21 @@
     {
       "name": "19c-replay-board",
       "note": "the replay board",
-      "bytes": 55750,
+      "bytes": 53255,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · REPLAY · seq 40 · read-only · observed · walkthrough/mixed",
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 69~ · B → 145~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · REPLAY · seq 31 · read-only · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by Ada at +149.27ms → [jump]",
+      "lock": "locked by Ada at +149.28ms → [jump]",
       "state": {
         "viewMode": "historic",
-        "lensTurn": 4,
-        "lensSeq": 40,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": false,
-        "events": 41,
+        "events": 32,
         "selected": null,
         "finished": true
       }
@@ -573,58 +883,111 @@
     {
       "name": "20-replay-scrub",
       "note": "the turn slider scrubbed back one turn",
-      "bytes": 141598,
+      "bytes": 171168,
       "overflowPx": 0,
-      "rail": "A snake · hp 98 · wt 3\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t94\t·\tincumbent\n\t106\t·\t\n\t108\t-41.5~\t\nnothing retained for red-A at this candidate — 6 emissions by seq 29 and no priced restriction plays it\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e25 · 3q",
-      "lane": "seq 29 · 30 / 30 · REPLAY · seq 29 · read-only · observed · walkthrough/mixed",
+      "rail": "A snake · hp 98 · wt 4\ncluster 1(1)\npinned · a constant of cluster 1, by Ada — not a member\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n\t97\t-32.1~\tincumbent\n\t111\t·\t\n\t123\t·\t\nred-A is pinned by Ada — it is a constant of cluster 1, not a variable the bot is solving\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e19 · 0q",
+      "stage": "Bot stages B → 131~ · A → 97 pinned · C → 94~\n3 units\n● 1 staged\n~ 2 planned\n🔒 1 fixed",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 24 · 25 / 25 · REPLAY · seq 24 · read-only · observed · walkthrough/mixed",
       "banner": null,
       "lock": null,
       "state": {
         "viewMode": "historic",
-        "lensTurn": 3,
-        "lensSeq": 29,
+        "lensTurn": 6,
+        "lensSeq": 24,
         "lensAtHead": false,
-        "events": 30,
+        "events": 25,
         "selected": null,
         "finished": true
       }
     },
     {
       "name": "21a-live-frame",
-      "note": "live rail, turn 4 seq 120",
-      "bytes": 72310,
+      "note": "live rail, turn 7 seq 31",
+      "bytes": 67958,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 140\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 1 of 3\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 140 · 141 / 141 · LIVE · seq 140 · observed · walkthrough/mixed",
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 106⋯ · B → 131⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 2 of 2\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "[Space] lock — pins 1 of 3",
+      "lock": "[Space] lock — pins 2 of 2",
       "state": {
         "viewMode": "live",
-        "lensTurn": 4,
-        "lensSeq": 140,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": true,
-        "events": 141,
+        "events": 32,
         "selected": "red-A",
         "finished": false
       }
     },
     {
       "name": "21b-replay-frame",
-      "note": "replay rail, turn 4 seq 40",
-      "bytes": 73126,
+      "note": "replay rail, turn 7 seq 31",
+      "bytes": 68873,
       "overflowPx": 0,
-      "rail": "A snake · hp 100 · wt 4\ncluster 0(3)\nfree · 3 of 3 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t95\t-42.4~\tincumbent\n\t109\t-41.5~\t\n\t121\t·\t\nMOVESETS · cluster 0 · 3 of 3 free · seq 40\nconditional list — the rows a lock here would stage · 5 retained for the cluster\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\t—\th1 · Q=0/33\t—\tleads on the proved floor\tred-A→95 · red-B→119 · red-C→97 staged\n2\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→131 · red-C→97\n3\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→132 · red-C→97\n4\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→133 · red-C→97\n5\t—\th1 ·\t—\tunsealed — the barrier has not run\tred-A→95 · red-B→120 · red-C→97\nfoil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.27ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t-0.03…0.00\tvs 109\tmaterial 0.00…0.00 · reach -0.01…0.00\nred-B\t-11.51…0.00\tvs 131\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t-0.14…0.00\tvs 111\tmaterial 0.00…0.00 · reach 0.00…0.00\njoint\t-61.85…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e28 · 2q",
-      "lane": "seq 40 · 41 / 41 · REPLAY · seq 40 · read-only · observed · walkthrough/mixed",
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\nlocked by Ada at +149.28ms → [jump]\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 69~ · B → 145~\n3 units\n~ 3 planned",
+      "controls": "⦿\nlock\nSpace\nread-only\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · REPLAY · seq 31 · read-only · observed · walkthrough/mixed",
       "banner": null,
-      "lock": "locked by Ada at +149.27ms → [jump]",
+      "lock": "locked by Ada at +149.28ms → [jump]",
       "state": {
         "viewMode": "historic",
-        "lensTurn": 4,
-        "lensSeq": 40,
+        "lensTurn": 7,
+        "lensSeq": 31,
         "lensAtHead": true,
-        "events": 41,
+        "events": 32,
         "selected": null,
         "finished": true
+      }
+    },
+    {
+      "name": "d6-scheme-vim",
+      "note": "the drill: the vim scheme — one action set, a different spelling",
+      "bytes": 9662,
+      "overflowPx": 0,
+      "rail": "A snake · hp 97 · wt 4\ncluster 0(2)\nfree · 2 of 2 free\nCANDIDATES · 3 · priced here · scored as best-of-cluster\n▸\t84\t-11.8~\tincumbent\n\t96\t·\t\n\t98\t·\t\nMOVESETS · cluster 0 · 2 of 2 free · seq 31\nconditional list — the rows a lock here would stage · 3 retained for the cluster · 3 more assignments of the rest of the cluster are not drawn: a list holds 5\n⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies · unless what this row is betting on\n▸1\nWOULD BE STAGED\n—\nh1\n · Q=1/33\n—\nleads on the proved floor\nred-A→84 · red-C→69 staged\n◇2\nFOIL\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→67\n3\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→79\n4\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→83\n5\n—\nh1\n ·\n—\nunsealed — the barrier has not run\nred-A→84 · red-C→94\n◇ foil #2 · #2 unsealed — the barrier has not run · at h1\n[Space] lock — pins 2 of 2\nBREAKDOWN · lobster-territory\nred-A\t9.86…0.00\tvs 96\tmaterial 10.00…10.00 · reach -0.01…0.00\nred-B\t-11.49…0.00\tvs 143\tmaterial -10.00…0.00 · reach 0.00…0.00\nred-C\t10.22…0.00\tvs 67\tmaterial 10.00…10.00 · reach 0.00…0.00\njoint\t-31.88…∞\t[why?]\nlobster-local · walkthrough/mixed · eval:7f5b86c4 · e27 · 2q",
+      "stage": "Bot stages A → 84~ · C → 106⋯ · B → 131⋯\n3 units\n● 2 staged\n~ 1 planned",
+      "controls": "⦿\nlock\nSpace\npins 2 of 2\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "k\nj\nrank\nx\nfoil\ni\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 31 · 32 / 32 · LIVE · seq 31 · observed · walkthrough/mixed",
+      "banner": null,
+      "lock": "[Space] lock — pins 2 of 2",
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 31,
+        "lensAtHead": true,
+        "events": 32,
+        "selected": "red-A",
+        "finished": false
+      }
+    },
+    {
+      "name": "d7-scheme-persisted",
+      "note": "the drill: the scheme survived a page load — read back from localStorage",
+      "bytes": 9650,
+      "overflowPx": 0,
+      "rail": "A snake · hp 97 · wt 4\nunclustered\nfree\nCANDIDATES · 0 · priced here · scored as best-of-cluster\nnothing staged yet — no kernel emission yet at seq 0\n· · eval — · e0 · 0q",
+      "stage": "nothing is staged yet",
+      "controls": "⦿\nlock\nSpace\npins 0 of 0\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel",
+      "keys": "k\nj\nrank\nx\nfoil\ni\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy",
+      "lane": "seq 0 · 1 / 1 · LIVE · seq 0 · observed ·",
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": "live",
+        "lensTurn": 7,
+        "lensSeq": 0,
+        "lensAtHead": true,
+        "events": 1,
+        "selected": "red-A",
+        "finished": false
       }
     }
   ],
@@ -632,7 +995,7 @@
     {
       "at": "live/enter",
       "type": "error",
-      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T00:25:18.517Z)"
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:07:44.886Z)"
     },
     {
       "at": "live/enter",
@@ -657,29 +1020,85 @@
     {
       "at": "replay/enter",
       "type": "error",
-      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T00:25:51.865Z)"
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:08:47.084Z)"
+    },
+    {
+      "at": "scheme/persists",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "scheme/persists",
+      "type": "error",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:09:31.434Z)"
+    },
+    {
+      "at": "scheme/persists",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "at": "scheme/persists",
+      "type": "error",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:09:33.563Z)"
+    },
+    {
+      "at": "scheme/persists",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
     }
   ],
   "requests": [
     {
       "at": "live/enter",
-      "url": "http://127.0.0.1:5055/api/connection-log/client",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
       "status": 404
     },
     {
       "at": "replay/enter",
-      "url": "http://127.0.0.1:5055/api/connection-log/client",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
       "status": 404
     },
     {
       "at": "replay/enter",
-      "url": "http://127.0.0.1:5055/api/play/game/lens-walk-replay",
+      "url": "http://127.0.0.1:5155/api/play/game/lens-walk-replay",
+      "status": 404
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
+      "status": 404
+    },
+    {
+      "at": "scheme/persists",
+      "url": "http://127.0.0.1:5155/api/connection-log/client",
       "status": 404
     }
   ],
   "exceptions": [],
   "overflow": [],
   "notes": {
+    "operator": "Ada",
     "conditional": {
       "lock": {
         "unit": "red-A",
@@ -688,35 +1107,130 @@
       "clicked": true
     },
     "operatorTicks": [
-      "pin(red-A) · seq 9 · +149.28ms",
-      "lobster operator(red-A) · seq 12 · +149.35999999999999ms",
-      "unpin(red-A) · seq 18 · +279.29ms",
-      "lobster operator(red-A) · seq 21 · +279.37ms"
+      "pin(red-A) · seq 8 · +149.27ms",
+      "lobster operator(red-A) · seq 11 · +149.35ms",
+      "unpin(red-A) · seq 17 · +279.29ms",
+      "lobster operator(red-A) · seq 20 · +279.37ms"
     ],
-    "pinnedSeq": "9",
-    "widenSeq": "21",
-    "banner": "⚑ Ada released red-A, red-C — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 21",
+    "pinnedSeq": "8",
+    "widenSeq": "20",
+    "banner": "⚑ Ada released red-A — cluster is now 3 units. auto 6sShow\nthe rail below is stale @ seq 19",
     "lockBefore": "[Space] lock — pins 3 of 3",
+    "lockArmed": "⚠ this pins 3 units — they leave the cluster. Press Shift+Space again to lock, Esc to cancel.",
     "lockAfter": "[Space] lock — pins 1 of 3",
-    "replayScrubbedTo": "3",
+    "drill": [
+      {
+        "step": "pin — the undo affordance arrives with the determination",
+        "ok": true,
+        "saw": {
+          "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+          "before": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)"
+        }
+      },
+      {
+        "step": "pin — the stage line names a plan for every unit",
+        "ok": true,
+        "saw": {
+          "stage": "Bot stages A → 109~ · B → 131⋯ · C → 106⋯\n3 units\n● 2 staged\n~ 1 planned"
+        }
+      },
+      {
+        "step": "lock — arms before it fires, and says how many it would pin",
+        "ok": true,
+        "saw": {
+          "controls": "⦿\nlock — press again\nShift+Space\npins 1 of 3\n↺\nundo\nu\n1\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n⚠ this pins 3 units — they leave the cluster. Press Shift+Space again to lock, Esc to cancel.",
+          "lock": "[Space] lock — pins 1 of 3"
+        }
+      },
+      {
+        "step": "lock — the second press commits it and the undo remembers the pins",
+        "ok": true,
+        "saw": {
+          "controls": "⦿\nlock\nSpace\npins 1 of 3\n↺\nundo\nu\n2\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel\n↺ u undoes: lock — 3 pins (red-A, red-B, red-C)",
+          "lock": "[Space] lock — pins 1 of 3"
+        }
+      },
+      {
+        "step": "widen — the banner holds the wider cluster behind one gesture",
+        "ok": true,
+        "saw": {
+          "banner": "⚑ Ada released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 21"
+        }
+      },
+      {
+        "step": "undo — takes the determination back and names what it took",
+        "ok": true,
+        "saw": {
+          "controls": "⦿\nlock\nSpace\npins 2 of 2\n↺\nundo\nu\nnothing yet\n⛨\nhold\nH\npieces only\n◎\ngoto\nright-click\n◉\nnear\nctrl-click\n✕\nclear\nDel"
+        }
+      }
+    ],
+    "replayScrubbedTo": "6",
     "diff": {
       "liveAt": {
-        "turn": 4,
-        "seq": 120
+        "turn": 7,
+        "seq": 31
       },
       "replayAt": {
-        "turn": 4,
-        "seq": 40
+        "turn": 7,
+        "seq": 31
       },
       "sameSize": true,
       "width": 346,
-      "height": 735,
-      "differingPixels": 1834,
-      "percent": 0.721,
+      "height": 713,
+      "differingPixels": 1688,
+      "percent": 0.684,
       "differingRows": [
-        180,
-        528
+        494,
+        505
       ]
-    }
+    },
+    "scheme": [
+      {
+        "step": "bracket is what the rail says at rest",
+        "ok": true,
+        "saw": {
+          "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy"
+        }
+      },
+      {
+        "step": "switching to vim rewrites the cheat strip, and takes the bracket keys off it",
+        "ok": true,
+        "saw": {
+          "keys": "k\nj\nrank\nx\nfoil\ni\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy"
+        }
+      },
+      {
+        "step": "the vim key drives the rail and the bracket key it replaced no longer does",
+        "ok": true,
+        "saw": {
+          "rows": 5,
+          "before": "0>84:84|2>69:69",
+          "afterJ": "0>84:84|2>67:67",
+          "afterBracket": "0>84:84|2>67:67"
+        }
+      },
+      {
+        "step": "the choice is written to localStorage under lensKeyScheme",
+        "ok": true,
+        "saw": {
+          "stored": "vim"
+        }
+      },
+      {
+        "step": "and it is still vim after a page load, with nothing pressed",
+        "ok": true,
+        "saw": {
+          "keys": "k\nj\nrank\nx\nfoil\ni\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy"
+        }
+      },
+      {
+        "step": "bracket goes back, binding for binding",
+        "ok": true,
+        "saw": {
+          "keys": "[\n]\nrank\nf\nfoil\nb\nbreakdown\n,\n.\ntimeline\nn\nnow\nu\nundo\nSpace\nlock\nCtrl+/\nall\nkeys\nbracket (default)\nvim\nleft hand\n· density\ncompact\ndefault\nroomy"
+        }
+      }
+    ]
   }
 }

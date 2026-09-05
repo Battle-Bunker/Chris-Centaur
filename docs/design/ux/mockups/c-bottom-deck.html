@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mockup C — the decision as a deck under the board</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ink: #e0e0e0; --ink-dim: #9a9a9a; --ink-faint: #7d7d7d;
+    --panel: #2a2a2a; --line: #3a3a3a; --lens: #B39DFF; --foil: #4DB6AC;
+    --warn: #FF8A65; --ours: #81c784; --clock-hi: #eaeaea; --clock-lo: #6a6a6a;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a1a; color: var(--ink); width: 1500px; height: 950px; overflow: hidden;
+  }
+  .header { height: 44px; background: #2a2a2a; border-bottom: 1px solid #444; display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 13px; }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  #latency-mount { margin-left: auto; font-size: 11px; color: var(--ink-faint); border: 1px dashed #555; border-radius: 4px; padding: 2px 8px; }
+  .top { display: grid; grid-template-columns: 470px minmax(0,1fr) 320px; gap: 14px; padding: 12px 14px 0; }
+  .panel { background: var(--panel); border-radius: 8px; padding: 9px 11px; }
+  .head { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--lens); margin-bottom: 5px; display: flex; gap: 8px; }
+  .head .of { color: var(--ink-faint); font-weight: 600; }
+  .clock-rail { position: relative; height: 10px; background: #141414; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .clock-fill { position: absolute; inset: 0 38% 0 0; background: linear-gradient(90deg, var(--clock-lo), var(--clock-hi)); }
+  .clock-mark { position: absolute; top: 0; bottom: 0; left: 55%; width: 2px; background: #1a1a1a; }
+  .board { width: 440px; height: 440px; display: grid; grid-template-columns: repeat(11, 40px); grid-template-rows: repeat(11, 40px); background: #fff; border: 2px solid #888; border-top: none; }
+  .cell { border: 1px solid #ececec; position: relative; }
+  .u { position: absolute; inset: 5px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #111; }
+  .u.red { background: #ffb3b3; } .u.blue { background: #a9c8ff; } .u.green { background: #a8e0b0; }
+  .chip { position: absolute; top: -4px; right: -4px; font-size: 8px; line-height: 11px; padding: 0 3px; border-radius: 6px; background: #fff; border: 1px solid var(--lens); color: #5a37b8; font-weight: 700; }
+  .arrow { position: absolute; font-size: 20px; line-height: 1; font-weight: 700; }
+  .arrow.staged { color: #2e7d32; } .arrow.implied { color: #7B4FE0; }
+  .wash { position: absolute; inset: 0; background: rgba(123,79,224,.07); }
+  .stage { background: #22262b; border-left: 3px solid var(--ours); }
+  .stage .line { font-size: 15px; color: #fff; font-weight: 600; line-height: 1.35; }
+  .biz { display: flex; gap: 5px; margin-top: 7px; flex-wrap: wrap; }
+  .biz span { font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid #4a4a4a; color: var(--ink-dim); }
+  .biz .free { border-color: var(--warn); color: var(--warn); }
+  .sub { font-size: 11px; color: var(--ink-faint); line-height: 1.5; }
+  /* THE DECK. Full page width under the board, so the moveset table finally
+     gets the columns it was designed for — and the operator's eye has to leave
+     the board to read it, which is the trade this mockup exists to show. */
+  .deck { margin: 12px 14px 0; background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10px; letter-spacing: .05em; color: var(--ink-faint); font-weight: 700; padding: 2px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 5px 8px; border-bottom: 1px solid var(--line); color: #ddd; }
+  tr.sel td { background: rgba(179,157,255,.14); }
+  tr.foil td { background: rgba(77,182,172,.10); }
+  .band { position: relative; height: 11px; width: 160px; background: #171717; border-radius: 2px; }
+  .band .span { position: absolute; top: 2px; bottom: 2px; background: rgba(179,157,255,.5); border-radius: 2px; }
+  .band .tick { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
+  tr.foil .band .span { background: rgba(77,182,172,.45); }
+  .aff { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; border: 1px solid #4a4a4a; border-radius: 4px; padding: 2px 7px; color: var(--ink-dim); margin: 0 4px 0 0; }
+  .aff k { font-family: ui-monospace, monospace; font-size: 10px; background: #33373b; border: 1px solid #55595e; border-radius: 3px; padding: 0 4px; color: #fff; }
+  .aff.primary { border-color: var(--lens); color: #fff; }
+  .lane { display: flex; align-items: center; gap: 6px; height: 13px; }
+  .lane .nm { width: 46px; font-size: 9px; color: #666; }
+  .lane .tr { position: relative; flex: 1; height: 13px; }
+  .lane .t { position: absolute; font-size: 9px; color: #888; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+  <div class="header"><h1>Centaur · lens-walk</h1><div id="latency-mount">latency-mount (ux-latency)</div></div>
+  <div class="top">
+    <div class="panel">
+      <div class="head">BOARD <span class="of">turn 41 · 0.9s</span></div>
+      <div class="clock-rail"><div class="clock-fill"></div><div class="clock-mark"></div></div>
+      <div class="board" id="board"></div>
+    </div>
+    <div>
+      <section class="panel stage">
+        <div class="line">Bot stages <b>A → 108</b> · <b>C → 118</b> · B holds <span class="sub">— rank 1 of cluster α</span></div>
+        <div class="biz"><span>3 units</span><span>● 2 staged</span><span class="free">◦ 1 unplanned</span><span>🔒 1 held</span><span>⌛ 0.9s</span></div>
+      </section>
+      <section class="panel" style="margin-top:10px">
+        <div class="head">FOCUS <span class="of">A snake · hp 98 · wt 3 · cluster α (2)</span></div>
+        <div class="sub">free · candidate →108 (incumbent) · 3 candidates, 1 priced · scored as best-of-cluster</div>
+      </section>
+      <section class="panel" style="margin-top:10px">
+        <div class="head">CONTROLS</div>
+        <span class="aff primary">⦿ lock <k>Space</k> pins 1 of 2</span><span class="aff">↺ undo <k>U</k></span>
+        <span class="aff">⛨ hold <k>H</k></span><span class="aff">✕ clear <k>Del</k></span>
+      </section>
+    </div>
+    <div>
+      <section class="panel"><div class="head">UNITS</div>
+        <div class="sub"><b style="color:#ddd">A</b> snake →108 · α<br><b style="color:#ddd">B</b> pawn held (Ben)<br><b style="color:#ddd">C</b> knight →118 · α</div>
+      </section>
+      <section class="panel" style="margin-top:10px"><div class="head">TURN</div>
+        <div class="lane"><span class="nm">kernel</span><span class="tr"><span class="t" style="left:8%">▲</span><span class="t" style="left:30%">▲</span><span class="t" style="left:52%">▲</span><span class="t" style="left:78%">▲</span></span></div>
+        <div class="lane"><span class="nm">operator</span><span class="tr"><span class="t" style="left:24%;color:var(--lens)">●</span></span></div>
+        <div class="sub">seq 29 · 30/30 · LIVE · e28 · 2q</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="deck">
+    <div class="head">DECISION <span class="of">cluster α · given A→108 · conditional list, 5 retained · seq 29 · [ ] walk · B price · F foil</span></div>
+    <table>
+      <tr><th style="width:80px">rank</th><th style="width:210px">assignment</th><th style="width:180px">bracket</th><th style="width:120px">depth</th><th>what it is betting on</th><th style="width:120px">status</th></tr>
+      <tr class="sel"><td>▸ 1</td><td>A→108 · C→118</td>
+        <td><div class="band"><div class="span" style="left:14%;right:8%"></div><div class="tick" style="left:34%"></div></div></td>
+        <td>h1 · Q 0/33</td><td>leads on the proved floor</td><td>staged</td></tr>
+      <tr class="foil"><td>◇ 2 foil</td><td>A→108 · <span style="color:var(--foil)">C→122</span></td>
+        <td><div class="band"><div class="span" style="left:11%;right:8%"></div><div class="tick" style="left:28%"></div></div></td>
+        <td>h1</td><td>unsealed — the barrier has not run</td><td>differs on C</td></tr>
+      <tr><td>3</td><td>A→108 · C→133</td><td><div class="band"><div class="span" style="left:9%;right:12%"></div></div></td><td>h1</td><td>unsealed</td><td></td></tr>
+      <tr><td>4</td><td>A→108 · C→144</td><td><div class="band"><div class="span" style="left:7%;right:16%"></div></div></td><td>h1</td><td>unsealed</td><td></td></tr>
+      <tr><td>5</td><td>A→108 · C→108</td><td><div class="band"><div class="span" style="left:5%;right:20%"></div></div></td><td>h1</td><td>unsealed</td><td></td></tr>
+    </table>
+    <div class="sub" style="margin-top:6px">BREAKDOWN · red-A −0.03…0.00 vs 109 · red-C −0.14…0.00 vs 111 · <b style="color:var(--lens)">joint −61.85…∞</b> [why?]</div>
+  </div>
+<script>
+const UNITS = [
+  { x: 1, y: 8, t: 'red', l: 'A', chip: 'α', arrow: '↑', kind: 'staged' },
+  { x: 2, y: 8, t: 'red', l: 'C', chip: 'α', arrow: '→', kind: 'implied' },
+  { x: 3, y: 6, t: 'red', l: 'B' },
+  { x: 6, y: 2, t: 'blue', l: 'A' }, { x: 7, y: 3, t: 'blue', l: 'B' },
+  { x: 9, y: 5, t: 'green', l: 'A' }, { x: 8, y: 9, t: 'green', l: 'C' },
+];
+const board = document.getElementById('board');
+for (let r = 0; r < 11; r++) for (let c = 0; c < 11; c++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const u = UNITS.find((u) => u.x === c && u.y === r);
+  if (u) {
+    cell.innerHTML = (u.chip ? '<div class="wash"></div>' : '') +
+      `<div class="u ${u.t}">${u.l}${u.chip ? `<span class="chip">${u.chip}</span>` : ''}</div>` +
+      (u.arrow ? `<div class="arrow ${u.kind}" style="left:${u.arrow === '→' ? 26 : 10}px;top:${u.arrow === '→' ? 9 : -6}px">${u.arrow}</div>` : '');
+  }
+  board.appendChild(cell);
+}
+</script>
+</body>
+</html>

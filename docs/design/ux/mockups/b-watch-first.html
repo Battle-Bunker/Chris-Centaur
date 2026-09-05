@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mockup B — watch first, intervene on demand</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ink: #e0e0e0; --ink-dim: #9a9a9a; --ink-faint: #7d7d7d;
+    --panel: #2a2a2a; --line: #3a3a3a; --lens: #B39DFF; --foil: #4DB6AC;
+    --warn: #FF8A65; --ours: #81c784; --clock-hi: #eaeaea; --clock-lo: #6a6a6a;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a1a; color: var(--ink); width: 1500px; height: 950px; overflow: hidden;
+  }
+  .header {
+    height: 44px; background: #2a2a2a; border-bottom: 1px solid #444;
+    display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 13px;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  #latency-mount { margin-left: auto; font-size: 11px; color: var(--ink-faint); border: 1px dashed #555; border-radius: 4px; padding: 2px 8px; }
+  .page { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 0 16px; padding: 14px; }
+  .board-block { background: var(--panel); border-radius: 8px; padding: 12px; }
+  .board-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .turn { font-size: 16px; font-weight: 700; }
+  .spacer { margin-left: auto; }
+  .clock-digits { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .clock-rail { position: relative; height: 12px; background: #141414; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .clock-fill { position: absolute; inset: 0 38% 0 0; background: linear-gradient(90deg, var(--clock-lo), var(--clock-hi)); }
+  .clock-mark { position: absolute; top: 0; bottom: 0; left: 55%; width: 2px; background: #1a1a1a; }
+  /* THE BOARD IS THE PRIMARY DISPLAY HERE — 800 px, and the moveset apparatus
+     is off screen until it is asked for. Every unit carries its own plan in
+     its own place, so "what is about to happen" is read on the board and not
+     in a table beside it. */
+  .board {
+    width: 800px; height: 800px; display: grid;
+    grid-template-columns: repeat(11, 72.7px); grid-template-rows: repeat(11, 72.7px);
+    background: #fff; border: 2px solid #888; border-top: none; margin: 0 auto;
+  }
+  .cell { border: 1px solid #ececec; position: relative; }
+  .u { position: absolute; inset: 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; color: #111; }
+  .u.red { background: #ffb3b3; } .u.blue { background: #a9c8ff; } .u.green { background: #a8e0b0; }
+  .plan { position: absolute; left: 4px; bottom: 2px; font-size: 11px; font-weight: 700; color: #333; background: rgba(255,255,255,.85); border-radius: 3px; padding: 0 3px; }
+  .chip { position: absolute; top: -5px; right: -5px; font-size: 10px; line-height: 13px; padding: 0 3px; border-radius: 6px; background: #fff; border: 1px solid var(--lens); color: #5a37b8; font-weight: 700; }
+  .arrow { position: absolute; font-size: 34px; line-height: 1; font-weight: 700; }
+  .arrow.staged { color: #2e7d32; } .arrow.implied { color: #7B4FE0; }
+  .wash { position: absolute; inset: 0; background: rgba(123,79,224,.07); }
+  .rail { display: flex; flex-direction: column; gap: 8px; }
+  .panel { background: var(--panel); border-radius: 8px; padding: 9px 11px; }
+  .head { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--lens); margin-bottom: 5px; }
+  .stage { background: #22262b; border-left: 3px solid var(--ours); }
+  .stage .line { font-size: 14px; line-height: 1.4; color: #fff; font-weight: 600; }
+  .biz { display: flex; gap: 5px; margin-top: 7px; flex-wrap: wrap; }
+  .biz span { font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid #4a4a4a; color: var(--ink-dim); }
+  .biz .free { border-color: var(--warn); color: var(--warn); }
+  .sub { font-size: 11px; color: var(--ink-faint); line-height: 1.5; }
+  .aff { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; border: 1px solid #4a4a4a; border-radius: 4px; padding: 2px 7px; color: var(--ink-dim); margin: 0 4px 4px 0; }
+  .aff k { font-family: ui-monospace, monospace; font-size: 10px; background: #33373b; border: 1px solid #55595e; border-radius: 3px; padding: 0 4px; color: #fff; }
+  .aff.primary { border-color: var(--lens); color: #fff; }
+  /* INTERVENE MODE is an overlay ON the board, at the point of gaze, and it is
+     one key (W) from the watch layout. Nothing moves in the rail when it
+     opens; the rail is what it was. */
+  .intervene {
+    position: absolute; left: 470px; top: 300px; width: 420px; background: rgba(26,26,26,.97);
+    border: 1px solid var(--lens); border-radius: 8px; padding: 10px 12px; box-shadow: 0 10px 40px rgba(0,0,0,.7);
+  }
+  .row2 { border: 1px solid #45405c; border-radius: 6px; padding: 6px 8px; margin-bottom: 5px; background: #262233; }
+  .row2.foilrow { border-style: dashed; border-color: #2f5b57; background: #202a29; }
+  .row2 .rank { font-size: 10px; font-weight: 700; color: var(--lens); }
+  .row2.foilrow .rank { color: var(--foil); }
+  .row2 .assign { font-size: 13px; margin: 2px 0 3px; }
+  .band { position: relative; height: 10px; background: #171717; border-radius: 2px; }
+  .band .span { position: absolute; top: 2px; bottom: 2px; left: 14%; right: 8%; background: rgba(179,157,255,.5); }
+  .band .tick { position: absolute; top: 0; bottom: 0; left: 34%; width: 2px; background: #fff; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Centaur · lens-walk</h1><span style="color:var(--ink-faint);font-size:12px">WATCH</span>
+    <div id="latency-mount">latency-mount (ux-latency)</div>
+  </div>
+  <div class="page">
+    <div class="board-block" style="position:relative">
+      <div class="board-head">
+        <span class="turn">Turn 41</span><span class="sub">red · 3 alive</span>
+        <span class="spacer"></span><span class="clock-digits">0.9s</span>
+      </div>
+      <div class="clock-rail"><div class="clock-fill"></div><div class="clock-mark"></div></div>
+      <div class="board" id="board"></div>
+
+      <div class="intervene">
+        <div class="head">INTERVENE · cluster α given A→108 &nbsp;<span style="color:var(--ink-faint);font-weight:600">W closes</span></div>
+        <div class="row2">
+          <div class="rank">▸ 1 · WOULD BE STAGED</div>
+          <div class="assign">A→108 · C→118</div>
+          <div class="band"><div class="span"></div><div class="tick"></div></div>
+        </div>
+        <div class="row2 foilrow">
+          <div class="rank">◇ 2 · THE FOIL — differs on C only</div>
+          <div class="assign">A→108 · C→122</div>
+        </div>
+        <div class="sub">3 more rows · <kbd>[</kbd> <kbd>]</kbd> walk · <kbd>B</kbd> price</div>
+        <div style="margin-top:6px"><span class="aff primary">⦿ lock <k>Space</k> pins 1 of 2</span><span class="aff">↺ undo <k>U</k></span></div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <section class="panel stage">
+        <div class="line">Bot stages<br>A → 108 · C → 118<br>B holds</div>
+        <div class="biz"><span>3 units</span><span>● 2 staged</span><span class="free">◦ 1 unplanned</span><span>🔒 1 held</span></div>
+      </section>
+      <section class="panel">
+        <div class="head">UNITS</div>
+        <div class="sub">
+          <b style="color:#ddd">A</b> snake · →108 · α<br>
+          <b style="color:#ddd">B</b> pawn · held (Ben)<br>
+          <b style="color:#ddd">C</b> knight · →118 · α
+        </div>
+      </section>
+      <section class="panel">
+        <div class="head">CONTROLS</div>
+        <span class="aff primary">⦿ lock <k>Space</k></span><span class="aff">↺ undo <k>U</k></span>
+        <span class="aff">⛨ hold <k>H</k></span><span class="aff">◱ intervene <k>W</k></span>
+        <div class="sub" style="margin-top:4px">watch layout · the rail carries the glance layer only</div>
+      </section>
+      <section class="panel">
+        <div class="head">KEYS · default</div>
+        <div class="sub"><kbd>[</kbd><kbd>]</kbd> rank · <kbd>F</kbd> foil · <kbd>B</kbd> breakdown · <kbd>,</kbd><kbd>.</kbd> timeline · <kbd>N</kbd> now · <kbd>Ctrl+/</kbd> all</div>
+      </section>
+      <section class="panel"><div class="sub">seq 29 · 30/30 · LIVE · e28 · 2q</div></section>
+    </div>
+  </div>
+<script>
+const UNITS = [
+  { x: 1, y: 8, t: 'red', l: 'A', chip: 'α', plan: '→108', arrow: '↑', kind: 'staged' },
+  { x: 2, y: 8, t: 'red', l: 'C', chip: 'α', plan: '→118', arrow: '→', kind: 'implied' },
+  { x: 3, y: 6, t: 'red', l: 'B', plan: 'hold' },
+  { x: 6, y: 2, t: 'blue', l: 'A' }, { x: 7, y: 3, t: 'blue', l: 'B' },
+  { x: 9, y: 5, t: 'green', l: 'A' }, { x: 8, y: 9, t: 'green', l: 'C' },
+];
+const board = document.getElementById('board');
+for (let r = 0; r < 11; r++) for (let c = 0; c < 11; c++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const u = UNITS.find((u) => u.x === c && u.y === r);
+  if (u) {
+    cell.innerHTML = (u.chip ? '<div class="wash"></div>' : '') +
+      `<div class="u ${u.t}">${u.l}${u.chip ? `<span class="chip">${u.chip}</span>` : ''}</div>` +
+      (u.plan ? `<div class="plan">${u.plan}</div>` : '') +
+      (u.arrow ? `<div class="arrow ${u.kind}" style="left:${u.arrow === '→' ? 46 : 20}px;top:${u.arrow === '→' ? 16 : -12}px">${u.arrow}</div>` : '');
+  }
+  board.appendChild(cell);
+}
+</script>
+</body>
+</html>

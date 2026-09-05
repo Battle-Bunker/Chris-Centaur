@@ -25,6 +25,8 @@ import {
   resolveOpponent,
   type Opponent,
 } from './local-game';
+import { OPPONENT_BOTS, RANDOM_LEGAL } from './opponents';
+import { BUILTIN_BOTS } from '../config/bot-binding';
 import { clearGeometryCache } from '../lobster/substrate';
 
 jest.setTimeout(180_000);
@@ -57,29 +59,42 @@ async function play(spec: typeof MIXED_SCENARIO, scenario: string, turns: number
   };
 }
 
-/** Same as `play`, plus a named opponent for every team but team 0. */
+/** Same as `play`, plus a named opponent for every team but the decider's. */
 async function playAgainst(
   spec: typeof MIXED_SCENARIO,
   scenario: string,
   opponent: Opponent,
-  turns: number = TURNS
+  turns: number = TURNS,
+  /** The seat the default plays. 0 is the run taken before the swap existed. */
+  deciderIndex = 0
 ) {
   const result = await runGame(
     { ...spec, maxTurns: turns, seed: SEED, nodeBudget: NODES },
-    { scores: false, opponent }
+    { scores: false, opponent, deciderIndex }
   );
   clearGeometryCache();
   return {
     json: JSON.stringify(
       summaryOf(
         result.metrics,
-        { label: 'test', scenario, seed: SEED, turnsRequested: turns, opponent: opponent.name },
+        {
+          label: 'test',
+          scenario,
+          seed: SEED,
+          turnsRequested: turns,
+          opponent: opponent.name,
+          side: deciderIndex,
+        },
         { kind: 'nodes', nodes: NODES }
       )
     ),
     log: result.log.join('\n'),
   };
 }
+
+/** The summary's counter block, typed the one way these assertions read it. */
+const counters = (json: string): Record<string, number> =>
+  (JSON.parse(json) as { counters: Record<string, number> }).counters;
 
 describe('the deterministic mode', () => {
   test('two runs of the same board produce a byte-identical JSON summary', async () => {
@@ -203,13 +218,182 @@ describe('the deterministic mode', () => {
       expect(resolveOpponent('material-only').name).toBe('material-only');
     });
 
-    test('refuses a name outside that catalog, naming what does exist', () => {
-      // No `greedy-food` or `cautious` profile exists yet (calibration.ts has
-      // no such member) — the flag says so by way of the catalog it lists,
-      // rather than silently falling back to the default or inventing one.
-      expect(() => resolveOpponent('greedy-food')).toThrow(/material-only/);
-      expect(() => resolveOpponent('cautious')).toThrow(/lobster-territory/);
+    /**
+     * THE BENCH (`./opponents.ts`) resolves through the same seam and is
+     * therefore subject to the same check. `parseBotSpec` ends in
+     * `checkWeights`, so a bench table that forgot a feature key or named one
+     * the fold has no feature for fails HERE rather than folding silently at
+     * some feature author's default weight for a whole round-robin.
+     */
+    test('every bench profile resolves, and therefore passes checkWeights', () => {
+      for (const name of Object.keys(OPPONENT_BOTS)) {
+        expect(resolveOpponent(name).name).toBe(name);
+      }
+      // Not vacuous: the bench has to actually contain the four tables
+      // docs/design/OPPONENTS.md is written about.
+      expect(Object.keys(OPPONENT_BOTS).sort()).toEqual([
+        'aggressive',
+        'cautious',
+        'glutton',
+        'territorial',
+      ]);
     });
+
+    /**
+     * The bench is played AGAINST; it is not bindable. `BUILTIN_BOTS` is the
+     * catalog a stored `bot.*` row may name, i.e. the set a live production
+     * game can be made to play, and none of these belongs in it.
+     */
+    test('but no bench profile is bindable in production', () => {
+      for (const name of Object.keys(OPPONENT_BOTS)) {
+        expect(BUILTIN_BOTS[name]).toBeUndefined();
+      }
+      expect(BUILTIN_BOTS[RANDOM_LEGAL]).toBeUndefined();
+    });
+
+    test('refuses a name outside that catalog, naming what does exist', () => {
+      // No `greedy-food` profile exists — the flag says so by way of the
+      // catalog it lists, rather than silently falling back to the default or
+      // inventing one. (`cautious` used to be the second example here and is
+      // now a bench member, which is why it is not.)
+      expect(() => resolveOpponent('greedy-food')).toThrow(/material-only/);
+      expect(() => resolveOpponent('lobster-terrritory')).toThrow(/aggressive/);
+    });
+
+    /**
+     * THE FLOOR OF COMPETENCE. `random-legal` is not a weight table and makes
+     * no evaluator call, so the two things worth asserting are that it is
+     * still reproducible — a draw from an unseeded generator would make every
+     * counter in a matchup a fact about the machine — and that its draws do
+     * not come out of the game's own stream, which drives food respawn.
+     */
+    test('the random-legal policy plays deterministically too', async () => {
+      const opponent = resolveOpponent(RANDOM_LEGAL);
+      expect(opponent.policy).toBe(RANDOM_LEGAL);
+      const first = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      const second = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      expect(second.json).toBe(first.json);
+      expect(second.log).toBe(first.log);
+      // It really is a different player: uniform draws do not reproduce the
+      // search's play, and the opponent's units never keep a generator seed
+      // they never asked for.
+      const mirror = await play(MIXED_SCENARIO, 'mixed');
+      expect(first.json).not.toBe(mirror.json);
+      expect(counters(first.json).theirsSeedKept).toBe(0);
+      expect(counters(first.json).oursSeedKept).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * THE COLOUR SWAP. Every matchup number in `docs/design/OPPONENTS.md` is
+   * taken from both seats, because these boards are not symmetric — different
+   * rosters, asymmetric food, and a turn loop that decides teams in
+   * alphabetical order. What has to hold for the swap to mean anything is
+   * that seat 0 is untouched by its existence and that seat 1 is a genuinely
+   * different game.
+   */
+  describe('the colour swap', () => {
+    test('seat 0 is the run that was always taken — the flag adds no field', async () => {
+      const { json } = await play(MIXED_SCENARIO, 'mixed');
+      // The TOP-LEVEL field, asked of the parsed object rather than of the
+      // text: the endgame instrument's `outcome` block carries a `side` of its
+      // own, so a substring search would fire on that and prove nothing about
+      // the summary's own shape.
+      const summary = JSON.parse(json) as Record<string, unknown>;
+      expect(summary.side).toBeUndefined();
+      // `decider` was the bench's own name for this field before the two
+      // merged. It is an ALIAS at the call sites and nowhere in the JSON:
+      // one seat index, one spelling on the wire.
+      expect(summary.decider).toBeUndefined();
+      expect(json).not.toContain('"decider"');
+    });
+
+    test('seat 1 names itself and plays a different game', async () => {
+      const opponent = resolveOpponent('material-only');
+      const seat0 = await playAgainst(MIXED_SCENARIO, 'mixed', opponent);
+      const seat1 = await playAgainst(MIXED_SCENARIO, 'mixed', opponent, TURNS, 1);
+      expect(JSON.parse(seat0.json).side).toBeUndefined();
+      expect(JSON.parse(seat1.json).side).toBe(1);
+      expect(seat1.log).not.toBe(seat0.log);
+      // And "ours" followed the default to its new seat: on `mixed` red has
+      // three units and blue has three, so the two seats' own unit-turn counts
+      // are both nonzero and the split is not degenerate.
+      expect(counters(seat1.json).oursUnitTurns).toBeGreaterThan(0);
+      expect(counters(seat1.json).theirsUnitTurns).toBeGreaterThan(0);
+    });
+
+    test('a seat outside the roster is refused, not clamped to 0', async () => {
+      await expect(
+        runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
+          scores: false,
+          side: 3,
+        })
+      ).rejects.toThrow(/outside this scenario's roster/);
+      // …and through the alias too, because that is the name the round-robin
+      // passes and a check that only guards one spelling guards nothing.
+      await expect(
+        runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
+          scores: false,
+          deciderIndex: 3,
+        })
+      ).rejects.toThrow(/outside this scenario's roster/);
+    });
+
+    /**
+     * `deciderIndex` IS AN ALIAS AND NOTHING ELSE. `side` is the canonical
+     * option (the endgame instrument's), `deciderIndex` is the name the
+     * opponent bench and `scripts/round-robin.sh` were written against, and
+     * the whole content of "alias" is that the two produce the SAME GAME.
+     * Two names that drift apart would be worse than either name alone.
+     */
+    test('deciderIndex is an alias for side — same game, and disagreement is refused', async () => {
+      const opponent = resolveOpponent('material-only');
+      const viaSide = await runGame(
+        { ...MIXED_SCENARIO, maxTurns: TURNS, seed: SEED, nodeBudget: NODES },
+        { scores: false, opponent, side: 1 }
+      );
+      clearGeometryCache();
+      const viaAlias = await runGame(
+        { ...MIXED_SCENARIO, maxTurns: TURNS, seed: SEED, nodeBudget: NODES },
+        { scores: false, opponent, deciderIndex: 1 }
+      );
+      clearGeometryCache();
+      expect(viaAlias.log.join('\n')).toBe(viaSide.log.join('\n'));
+      expect(viaAlias.metrics.oursUnitTurns).toBe(viaSide.metrics.oursUnitTurns);
+      expect(viaAlias.metrics.outcome).toEqual(viaSide.metrics.outcome);
+
+      await expect(
+        runGame({ ...MIXED_SCENARIO, maxTurns: 2, seed: SEED, nodeBudget: NODES }, {
+          scores: false,
+          side: 0,
+          deciderIndex: 1,
+        })
+      ).rejects.toThrow(/alias for `side`/);
+    });
+  });
+
+  /**
+   * THE SIDE SPLIT is a PARTITION of the board-wide counters, not a second
+   * measurement of them. If it ever stops adding up, every ours/theirs number
+   * in `docs/design/OPPONENTS.md` is wrong by an unknown amount.
+   */
+  test('the ours/theirs counters partition the board-wide ones', async () => {
+    const { json } = await playAgainst(
+      MIXED_SCENARIO,
+      'mixed',
+      resolveOpponent('territorial')
+    );
+    const c = counters(json);
+    expect(c.oursUnitTurns + c.theirsUnitTurns).toBe(c.unitTurns);
+    expect(c.oursSeedKept + c.theirsSeedKept).toBe(c.seedKept);
+    expect(c.oursMeals + c.theirsMeals).toBe(c.meals);
+    expect(c.oursDeaths + c.theirsDeaths).toBe(c.starvationDeaths + c.otherDeaths);
+    expect(c.oursSurvivors + c.theirsSurvivors).toBe(c.survivors);
+    expect(c.teamsOurs).toBe(1);
+    expect(c.teamsTheirs).toBe(2);
+    // The outcome proxy is a real reading and not a zero left in the struct.
+    expect(c.oursWeight).toBeGreaterThan(0);
+    expect(c.theirsWeight).toBeGreaterThan(0);
   });
 
   test('the ms mode still reports its wall clock, and is still the default', async () => {

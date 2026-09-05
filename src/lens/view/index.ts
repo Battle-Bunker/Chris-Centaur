@@ -36,6 +36,8 @@ import {
 } from './cursor';
 import type {
   CandidateRow,
+  CellIndex,
+  ClusterId,
   DominanceCondition,
   Cursor,
   DecisionSource,
@@ -126,15 +128,78 @@ export function reviveEvents(events: ReadonlyArray<TurnEvent>): ReadonlyArray<Tu
   return events.map((e) => reviveLens(e));
 }
 
-/** The turn's events, folded onto their own `board.arrived` anchor. Shared by
- *  both entry points below, because the fold is the half that must not differ
- *  between a live turn and a recorded one. */
-function storeOf(
+/**
+ * THE FOLD, KEPT — one turn's fold, reused while the turn's array is the array
+ * it was folded from.
+ *
+ * `storeOf` is a `reduce` over every event of the turn and `frameAt` is a
+ * second pass over the same array; between them they are the fold, and the
+ * page asks for one about forty-three times a turn for the twelve batches that
+ * actually arrive (`docs/design/ux/03-LATENCY.md` §1.4). Nothing about that is
+ * wrong except that the answer is the same answer: the fold is PURE, so the
+ * only thing that can change it is the array growing.
+ *
+ * So the memo is keyed on the array's own identity and validated on the two
+ * facts that make a prefix a prefix — its length, and the object that was last
+ * in it. The page grows `lensEvents` by pushing and re-sorting, and events
+ * arrive in `seq` order, so the common case is "the same events plus a few
+ * more" and the extension folds ONLY the new ones onto the store it already
+ * had. Anything else — a different anchor, a different settlement, an array
+ * whose prefix moved — falls through to the full fold, which is the
+ * un-memoised function exactly as it was.
+ *
+ * This is a cache and NOT a second fold: every entry in it was produced by
+ * `applyEvent`, in order, from `emptyStore(anchor)`. `lens-determinism` and
+ * `lens-replay-parity` are the gate, and they compare what comes out of here
+ * against what the reducer produces with no memo in front of it.
+ */
+interface FoldMemo {
+  readonly settlement: BoardSnapshot | null;
+  readonly anchorEvent: TurnEvent;
+  readonly length: number;
+  readonly tail: TurnEvent | undefined;
+  readonly store: FrameStore;
+  readonly at: Cursor;
+  readonly frames: Map<string, LensFrame>;
+}
+
+// Per events-array, and at most two entries — a live fold (no settlement) and
+// a replayed one (the turn's board handed in). Weak, so a closed turn's fold
+// is collected with the array the page dropped on the turn boundary.
+const FOLDS = new WeakMap<object, FoldMemo[]>();
+// A turn holds tens of events, so tens of distinct `seq` under the playhead.
+// The cap is two orders above that and exists so a pathological caller cannot
+// grow one turn's map without bound.
+const FRAME_CACHE_CAP = 512;
+
+function foldOf(
   events: ReadonlyArray<TurnEvent>,
   settlement?: BoardSnapshot | null
-): { store: FrameStore; at: Cursor } {
+): FoldMemo {
   const found = events.find((e) => e.kind === 'board.arrived') ?? events[0];
   if (found === undefined) throw new Error('a turn with no events has no frame');
+  const want = settlement ?? null;
+  const held = FOLDS.get(events as object);
+  const memo = held?.find((m) => m.settlement === want && m.anchorEvent === found);
+  if (
+    memo !== undefined &&
+    events.length >= memo.length &&
+    events[memo.length - 1] === memo.tail
+  ) {
+    if (events.length === memo.length) return memo;
+    let store = memo.store;
+    for (let i = memo.length; i < events.length; i++) {
+      const event = events[i] as TurnEvent;
+      if (event.seq > memo.at.seq) store = applyEvent(store, event);
+    }
+    return remember(events, held, {
+      ...memo,
+      length: events.length,
+      tail: events[events.length - 1],
+      store,
+      frames: new Map(),
+    });
+  }
   // A STORED ANCHOR HAS NO BOARD. `logStoredEvent` drops the settlement on the
   // way to Postgres — `turn_boards` holds it — so a caller folding rows read
   // back out of `turn_events` must hand the board over, exactly as
@@ -146,7 +211,38 @@ function storeOf(
   const store = events
     .filter((e) => e.seq > anchor.seq)
     .reduce<FrameStore>((acc, e) => applyEvent(acc, e), emptyStore(anchor));
-  return { store, at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq } };
+  return remember(events, held, {
+    settlement: want,
+    anchorEvent: found,
+    length: events.length,
+    tail: events[events.length - 1],
+    store,
+    at: { gameId: anchor.gameId, turn: anchor.turn, seq: anchor.seq },
+    frames: new Map(),
+  });
+}
+
+function remember(
+  events: ReadonlyArray<TurnEvent>,
+  held: FoldMemo[] | undefined,
+  memo: FoldMemo
+): FoldMemo {
+  const kept = (held ?? []).filter(
+    (m) => !(m.settlement === memo.settlement && m.anchorEvent === memo.anchorEvent)
+  );
+  kept.unshift(memo);
+  FOLDS.set(events as object, kept.slice(0, 2));
+  return memo;
+}
+
+/** One frame out of a kept fold, memoised on the cursor it answers for. */
+function frameOf(memo: FoldMemo, key: string, build: () => LensFrame): LensFrame {
+  const hit = memo.frames.get(key);
+  if (hit !== undefined) return hit;
+  const frame = build();
+  if (memo.frames.size >= FRAME_CACHE_CAP) memo.frames.clear();
+  memo.frames.set(key, frame);
+  return frame;
 }
 
 export function frameAtSeq(
@@ -154,8 +250,10 @@ export function frameAtSeq(
   seq: number,
   isHead: boolean
 ): LensFrame {
-  const { store, at } = storeOf(events);
-  return makeLiveDecisionSource({ store, at: { ...at, seq }, isHead }).frame();
+  const memo = foldOf(events);
+  return frameOf(memo, `live/${seq}/${isHead ? 'head' : 'scrub'}`, () =>
+    makeLiveDecisionSource({ store: memo.store, at: { ...memo.at, seq }, isHead }).frame()
+  );
 }
 
 /**
@@ -174,8 +272,10 @@ export function replayFrameAtSeq(
   seq: number,
   settlement: BoardSnapshot | null = null
 ): LensFrame {
-  const { store, at } = storeOf(events, settlement);
-  return makeReplayDecisionSource({ store, at: { ...at, seq } }).frame();
+  const memo = foldOf(events, settlement);
+  return frameOf(memo, `replay/${seq}`, () =>
+    makeReplayDecisionSource({ store: memo.store, at: { ...memo.at, seq } }).frame()
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -510,6 +610,13 @@ function movesetOps(
     ),
   ];
 
+  // THE FOIL IS A PROPERTY OF A ROW, not only of the line under the table.
+  // The rail draws rank 1 and the runner-up at full size — the contrastive
+  // pair is what an operator actually decides on — so the row op has to carry
+  // which row that is, computed once, here, and read by both the row and the
+  // line below it.
+  const foil = selected === null ? null : foilRow(frame, cursor, selected);
+
   for (const row of rows) {
     const cell = depthCell(row, row.key === leader?.key ? loud : null);
     // A ROW WITH NO PRICE DRAWS NO NUMBER. `conform` returns a plan; `0.0`
@@ -550,7 +657,14 @@ function movesetOps(
         row.complement,
         row.key === selected?.key,
         row.staged,
-        trail
+        trail,
+        // WHICH ROW IS THE RUNNER-UP, and the row's own estimate. Both are
+        // appended rather than woven in, so every existing reader keeps its
+        // indices: the rail marks the foil row at full size beside rank 1, and
+        // draws the bracket as a BAND with `est` as its marked point rather
+        // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
+        row.key === foil?.key,
+        priced ? row.est : null
       )
     );
   }
@@ -576,7 +690,6 @@ function movesetOps(
   // absence was silent. An absence is drawn WITH ITS REASON, exactly as the
   // depth cell draws `Q=0/33` rather than a bare `h1`.
   if (selected !== null) {
-    const foil = foilRow(frame, cursor, selected);
     ops.push(
       foil === null
         ? call('panel.foil', null, null, noFoilReason(list), null)
@@ -815,6 +928,104 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
  * live-versus-replay flag — which is what makes two sources produce one
  * picture.
  */
+/**
+ * The stage line's content: one entry per unit this decision is about, in the
+ * partition's own order, each carrying what is staged for it right now and
+ * whether the bot is still free to change it.
+ *
+ * `to === null` is the honest reading "nothing is staged for this unit yet"
+ * and is what the strip counts as unplanned; it is never rendered as a move.
+ */
+export function stageSummary(frame: LensFrame): ReadonlyArray<{
+  unit: UnitKey;
+  letter: string;
+  to: number | null;
+  source: 'staged' | 'plan' | 'none';
+  fixity: string;
+  by: string | null;
+}> {
+  const out: Array<{
+    unit: UnitKey;
+    letter: string;
+    to: number | null;
+    source: 'staged' | 'plan' | 'none';
+    fixity: string;
+    by: string | null;
+  }> = [];
+  const seen = new Set<UnitKey>();
+  const push = (
+    unit: UnitKey,
+    clusterId: ClusterId | null,
+    fixity: string,
+    by: string | null,
+    /** A CONSTANT'S OWN CELL, and the reason it is a separate argument. The
+     *  cluster's retained rows may still carry a move for a unit that has
+     *  since been pinned — they were priced before the determination, and the
+     *  reservoir is not rewritten by it. Reading the plan for a bounded unit
+     *  therefore printed `Q → 22 pinned` for a unit pinned to 30: a
+     *  contradiction in one clause, on the line the operator reads fastest and
+     *  doubts least. The bound IS the answer for a bounded unit; it is what
+     *  the whole cluster is conditioning on. */
+    boundTo: CellIndex | null = null
+  ): void => {
+    if (seen.has(unit)) return;
+    seen.add(unit);
+    const row = frame.units.find((u) => u.unit === unit);
+    // TWO SOURCES, AND THE LINE SAYS WHICH. A staged move (or a determination
+    // that fixed the unit) is a fact about the turn; where nothing is staged
+    // yet, what the bot is ABOUT to do is the rank-1 moveset's assignment for
+    // this unit — the incumbent, which is the definition the board's own
+    // violet arrow draws. What it is NOT allowed to be is "the unit's first
+    // legal candidate": that is a guess wearing a plan's clothes, and this
+    // line is read in under a second by someone who will not have time to
+    // doubt it.
+    const staged = stagedCellOf(frame, unit) ?? boundTo;
+    const planned =
+      staged !== null || clusterId === null
+        ? null
+        : (rankOne(frame.movesets[reservoirListKey(clusterId)] ?? [])?.moves.find(
+            (m) => m.unit === unit
+          )?.to ?? null);
+    out.push({
+      unit,
+      letter: row?.letter || unit,
+      to: staged !== null ? staged : planned,
+      source: staged !== null ? 'staged' : planned !== null ? 'plan' : 'none',
+      fixity,
+      by,
+    });
+  };
+  for (const cluster of frame.partition) {
+    for (const member of cluster.members) push(member, cluster.id, 'free', null);
+    for (const bound of cluster.boundedBy) {
+      push(
+        bound.unit,
+        cluster.id,
+        FIXITY_VERB[bound.why] ?? bound.why,
+        authorOf(frame, bound.unit, bound.by),
+        bound.to
+      );
+    }
+  }
+  // THE UNIT KEEPS ITS PLACE IN THE SENTENCE. Collection order is partition
+  // order — members first, then the constants — so the moment a unit is
+  // pinned it leaves `members`, joins `boundedBy`, and JUMPS TO THE END of
+  // the line. `A → 108 · B → 119 · C → 133` became `B → 119 · C → 133 ·
+  // A → 108 pinned` on the next turn, measured: `05-EVALUATION.md` H-1.
+  //
+  // This line is L1 — read in one fixation, without a saccade, by an eye that
+  // lands where it landed last turn — and §1.4's first placement rule is that
+  // nothing above L2 may MOVE, only its text may change. A determination is
+  // exactly when the operator most needs the sentence to hold still, because
+  // it is the turn they are checking their own work on. Sorting by the
+  // unit's LETTER is the order the roster, the board tags and the operator's
+  // own habit already use, and it is a fact about the unit rather than about
+  // its current fixity, so nothing the operator does can reorder it.
+  return out
+    .slice()
+    .sort((a, b) => (a.letter === b.letter ? (a.unit < b.unit ? -1 : 1) : a.letter < b.letter ? -1 : 1));
+}
+
 export function renderFrame(
   frame: LensFrame,
   cursor: LensCursor = initialCursor(),
@@ -826,6 +1037,14 @@ export function renderFrame(
   ops.push(...boardOps(frame, cursor, selected));
 
   ops.push(call('panel.advice', frame.advice.length));
+
+  // WHAT THE BOT IS ABOUT TO DO, in one op, for the units this decision is
+  // about — every cluster's members plus the constants it is conditioning on.
+  // It is the question an operator asks every single turn and the shipped rail
+  // answered it nowhere: it was derivable from the board's arrows, one unit at
+  // a time, by eye. It lives on the TRANSCRIPT rather than in the page so a
+  // replayed turn says the same sentence off the log as off the wire.
+  ops.push(call('panel.stage', stageSummary(frame)));
 
   if (cursor.unit !== null) {
     const row = frame.units.find((u) => u.unit === cursor.unit);
