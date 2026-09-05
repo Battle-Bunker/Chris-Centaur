@@ -458,6 +458,27 @@ The walk also carries the glance layer in `report.json` now — the stage line,
 the control bar and the key strip as text — because a screenshot cannot be
 grepped and the stage line is the sentence the whole IA is built around.
 
+### 4.2a The key-scheme drill
+
+`lens-ia.test.ts` proves the three keymap **tables** are three spellings of one
+vocabulary. Only a browser can prove the rest, and it is the half that breaks
+silently: a strip relabelled over a keymap the handler never consults looks
+exactly right in a photograph. So the walk ends with a second gate, six checks,
+also failing the run:
+
+| step | asserted | shot |
+|---|---|---|
+| at rest | the strip says `[` `]` — the shipped scheme, untouched | — |
+| switch | picking `vim` rewrites the strip and takes `[` off it, because both render from the one table | `d6-scheme-vim` |
+| drives | `j` really steps the list (from the top, over a list of five rows, so the assertion is not vacuous) and the `]` it replaced is inert | — |
+| persists | `localStorage.lensKeyScheme` is `vim` | — |
+| survives | after a page load, with nothing pressed, it is still `vim` — the only thing persisting it is for | `d7-scheme-persisted` |
+| restore | `bracket` goes back, binding for binding | — |
+
+It runs last because it reloads the page, and a reload re-enters through the
+login gate; nothing follows it, so an operator who has to take a numbered name
+costs nothing.
+
 Two operational notes the next reader will need. **One run per server**:
 operator names are unique per game and the walk enrols one, so a second run
 against the same process enters under a different name, and a different name

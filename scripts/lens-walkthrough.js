@@ -625,15 +625,136 @@ async function main() {
     ...(await diffPngs(page, path.join(OUT, '21a-live-frame.png'), path.join(OUT, '21b-replay-frame.png'))),
   };
 
+  // ── THE KEY SCHEME DRILL ────────────────────────────────────────────────
+  // Three schemes over one action set (§3.1) is the one deliverable a unit
+  // test cannot finish: `lens-ia.test.ts` proves the TABLES are three
+  // spellings of one vocabulary, and only a browser can show that switching
+  // one rewrites the strip, that the new key really drives the rail, and that
+  // the choice is still there after a page load. That last is the whole point
+  // of persisting it, and it is exactly the kind of thing that breaks in a
+  // refactor with nothing to notice.
+  //
+  // It runs LAST, after every other picture is taken, because it reloads the
+  // page: a reload re-enters through the login gate, and an operator who has
+  // to take a numbered name does not own the units. Nothing follows it, so
+  // nothing can be hurt by that.
+  at = 'scheme';
+  const scheme = [];
+  const schemeCheck = (name, ok, saw) => {
+    scheme.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} scheme/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+  const keysOf = async () => (await railText(page)).keys || '';
+  const rowOf = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.lens-movesets .lens-row-cursor');
+      return el ? el.getAttribute('data-lens-moveset') : null;
+    });
+
+  await focusUnit(page, 0);
+  await selectAnsweredCandidate(page, 'red-A');
+  await sleep(400);
+  const bracketKeys = await keysOf();
+  schemeCheck('bracket is what the rail says at rest', /\[/.test(bracketKeys) && /\]/.test(bracketKeys), {
+    keys: bracketKeys,
+  });
+
+  at = 'scheme/switch';
+  await page.click('[data-lens-scheme="vim"]');
+  await sleep(600);
+  const vimKeys = await keysOf();
+  // The strip and the modal render from ONE keymap table, so switching the
+  // scheme rewrites the strip — a strip still offering `[` under vim would be
+  // a second list of keys living somewhere, which is the drift §3.2 forbids.
+  schemeCheck(
+    'switching to vim rewrites the cheat strip, and takes the bracket keys off it',
+    /\bk\b/.test(vimKeys) && /\bj\b/.test(vimKeys) && !/\[/.test(vimKeys),
+    { keys: vimKeys }
+  );
+  await shot(page, 'd6-scheme-vim', 'the drill: the vim scheme — one action set, a different spelling', '#lensKeys');
+
+  at = 'scheme/drives';
+  // The strip saying `j` is not the same fact as `j` WORKING. A relabelled
+  // strip over a keymap the handler never consults is the failure this catches,
+  // and it is invisible in a screenshot.
+  //
+  // The cursor is walked to the TOP of the list first, with the scheme's own
+  // `k`, so `j` has somewhere to go: a list of one row makes any "did it move"
+  // assertion vacuously true, and a vacuous gate is worse than none. The row
+  // count rides along in the report so a one-row list is visible rather than
+  // silently passing.
+  const rowCount = await page.evaluate(
+    () => document.querySelectorAll('.lens-movesets .lens-table tr[data-lens-moveset]').length
+  );
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('k');
+    await sleep(120);
+  }
+  await sleep(400);
+  const rowBefore = await rowOf();
+  await page.keyboard.press('j');
+  await sleep(700);
+  const rowAfterVim = await rowOf();
+  // And the key `j` REPLACED is inert: `]` is bracket's, and under vim it must
+  // do nothing at all rather than quietly staying bound alongside it.
+  await page.keyboard.press(']');
+  await sleep(700);
+  const rowAfterBracket = await rowOf();
+  schemeCheck(
+    'the vim key drives the rail and the bracket key it replaced no longer does',
+    rowCount > 1 && rowBefore !== null && rowAfterVim !== rowBefore && rowAfterBracket === rowAfterVim,
+    { rows: rowCount, before: rowBefore, afterJ: rowAfterVim, afterBracket: rowAfterBracket }
+  );
+
+  at = 'scheme/persists';
+  const stored = await page.evaluate(() => {
+    try {
+      return localStorage.getItem('lensKeyScheme');
+    } catch (_e) {
+      return null;
+    }
+  });
+  schemeCheck('the choice is written to localStorage under lensKeyScheme', stored === 'vim', { stored });
+
+  // AND IT SURVIVES A PAGE LOAD, which is the only thing persisting it is for.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  if (await page.$('#loginGate.active')) await enter(page, GAME, report.notes.operator || 'walker');
+  await focusUnit(page, 0);
+  await sleep(600);
+  const reloadedKeys = await keysOf();
+  schemeCheck(
+    'and it is still vim after a page load, with nothing pressed',
+    /\bk\b/.test(reloadedKeys) && !/\[/.test(reloadedKeys),
+    { keys: reloadedKeys }
+  );
+  await shot(page, 'd7-scheme-persisted', 'the drill: the scheme survived a page load — read back from localStorage', '#lensKeys');
+
+  at = 'scheme/restore';
+  // Put the default back, so the next reader of this browser profile — and the
+  // next run of this walk — starts where the shipped page starts.
+  await page.click('[data-lens-scheme="bracket"]');
+  await sleep(600);
+  const restored = await keysOf();
+  schemeCheck('bracket goes back, binding for binding', /\[/.test(restored) && /\]/.test(restored), {
+    keys: restored,
+  });
+  report.notes.scheme = scheme;
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
 
-  // The drill is a GATE. A walk that photographs a broken determination
-  // surface and exits 0 is a slideshow; this exits non-zero and names the step.
-  const failed = (report.notes.drill || []).filter((d) => !d.ok);
+  // BOTH DRILLS ARE GATES. A walk that photographs a broken determination
+  // surface — or a key scheme that relabels a strip over a keymap nothing
+  // consults — and exits 0 is a slideshow; this exits non-zero and names the
+  // step that failed.
+  const failed = [
+    ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
+    ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
+  ].filter((d) => !d.ok);
   if (failed.length > 0) {
-    console.error(`\noperator drill FAILED: ${failed.map((f) => f.step).join('; ')}`);
+    console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);
     process.exitCode = 1;
   }
 }
