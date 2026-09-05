@@ -3924,9 +3924,30 @@
       return bestMove;
     }
 
-    /** The turn's own budget, re-learned every turn: the game's timeout is a
-     *  server fact this page is never told, so the bar's full length is the
-     *  longest remaining time this turn has shown. */
+    /** THE TURN BUDGET, FROM THE SERVER (05 H-14 / P-8).
+     *
+     *  The bar's full length used to be "the longest remaining time seen this
+     *  turn", re-learned every turn — which is right only for a page that was
+     *  watching when the turn arrived. A page that attaches MID-TURN — a
+     *  reconnect, a scrub back to now — sees a short remaining time first,
+     *  learns it as the whole budget, and draws a FULL bar over a half-spent
+     *  turn: a lie in the one channel `01 §1` P1 says is read without a
+     *  fixation.
+     *
+     *  The game's timeout is not a fact this page has to infer. It is on the
+     *  board itself (`game.timeout`, the same field
+     *  `ActiveGameManager.recordTurnArrival` computes the deadline from) and
+     *  it rides every `board-update` and every `snake-turn-update`. Read it
+     *  there; the inferred value stays as the fallback for a board that
+     *  carries no timeout at all, which is the only case it was ever right
+     *  for. */
+    function turnBudgetFromServer() {
+      const t = currentGameState && currentGameState.game && currentGameState.game.timeout;
+      return Number.isFinite(t) && t > 0 ? t : null;
+    }
+
+    /** The fallback: the longest remaining time this turn has shown. Only ever
+     *  consulted when the board names no timeout. */
     let turnClockBudget = 0;
 
     function startTurnTimer() {
@@ -3968,10 +3989,12 @@
         const seconds = (remaining / 1000).toFixed(1);
         timerEl.textContent = `${seconds}s`;
         // The same number, in the channel the periphery can read: a bar on the
-        // board's own edge. The budget is the longest remaining time seen this
-        // turn, so the bar is full at arrival whatever the game's timeout is.
+        // board's own edge, against the SERVER's budget — so a page that
+        // attached mid-turn draws the fraction that is actually left instead
+        // of a full bar over a half-spent turn (H-14).
         turnClockBudget = Math.max(turnClockBudget, remaining);
-        updateTurnClock(remaining, turnClockBudget);
+        const budget = turnBudgetFromServer() ?? turnClockBudget;
+        updateTurnClock(remaining, budget);
 
         if (remaining < 500) {
           timerEl.className = 'timer-display urgent';

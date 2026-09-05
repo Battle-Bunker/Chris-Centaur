@@ -1151,6 +1151,41 @@ async function main() {
       `rtt ${notch.rttMs}ms, slack ${notch.pressSlackMs}ms, drawn ${notch.on} at ${notch.left}`
   );
   await shot(page, 'd8-clock-notch', 'the clock driven to mid-turn — the last-safe-press notch, fed from the wire', '#turnClock');
+
+  // ── THE TURN BUDGET (05 H-14 / P-8) ─────────────────────────────────────
+  //
+  // The bar's full length used to be "the longest remaining time seen this
+  // turn", so a page that ATTACHED MID-TURN learned a short budget and drew a
+  // full bar over a half-spent turn. This puts the page in exactly that state
+  // — nothing learned this turn, a third of the budget left — and asserts the
+  // bar reads a third. The budget itself is asserted against the board's own
+  // `game.timeout`, which is the field the server computes the deadline from.
+  const budget = await page.evaluate(() => {
+    const onBoard =
+      currentGameState && currentGameState.game ? currentGameState.game.timeout : null;
+    const fromServer = turnBudgetFromServer();
+    turnClockBudget = 0; // a page that has watched none of this turn
+    const remaining = Math.round((fromServer || 0) / 3);
+    updateTurnClock(remaining, turnBudgetFromServer() ?? turnClockBudget);
+    const fill = document.getElementById('turnClockFill');
+    const width = fill ? parseFloat(fill.style.width) : null;
+    updateTurnClock(null, null);
+    return { onBoard, fromServer, remaining, width };
+  });
+  report.notes.turnBudget = budget;
+  scheme.push({
+    step: 'the turn budget is the server’s, so a mid-turn attach draws the time that is left',
+    ok:
+      budget.fromServer !== null &&
+      budget.fromServer === budget.onBoard &&
+      budget.width !== null &&
+      Math.abs(budget.width - 33.3) < 2,
+    saw: budget,
+  });
+  console.log(
+    `  ${scheme[scheme.length - 1].ok ? '\u2713' : '\u2717'} clock/turn budget — ` +
+      `${budget.fromServer}ms from the board, bar ${budget.width}% with a third left`
+  );
   await page.evaluate(() => {
     delete window.__lensLastSafePressMs;
     updateTurnClock(null, null);
