@@ -1,5 +1,17 @@
 # SUCCESSION — orchestrator handoff (written 2026-09-02, end of design session)
 
+## Addendum, 2026-09-05 (read this block first; it supersedes the ones below where they differ)
+
+The live plan is `docs/ORCHESTRATOR-LOOP.md` on the working branch; this block is the summary a successor needs before opening it.
+
+**State.** `stable/one-engine-lens-v4` = bab7238 (97 suites / 1665 tests; zero inversions on the sixteen runner arms; exact-reply oracle exact on all of them). TacticToes `stable/one-engine-v3` = a20c075. PR #17 (bot) and #24 (server) bodies are current as of this date.
+
+**Done since the 09-03 block.** Three simplification plans executed on the bot (`docs/design/SIMPLIFY-PLAN*.md`), two on TacticToes. The exact-reply oracle (`src/lobster/bounds/exact-reply.ts`, `npm run gate:exact`) proved the whole-plan bounds exact; the per-feature law sweep is a ratchet. The decision lens was driven in a browser (`scripts/lens-walkthrough.js`; `decision-lens/10-WALKTHROUGH.md`) and fourteen live defects fixed; the conditional table ranks the cluster; pin/unpin are turn events. The behaviour audit (`docs/design/BEHAVIOUR-AUDIT.md`) is the map of what the bot does wrong and why: D1 open (third attempt), D2/D3/D4 refuted with mechanisms, D5 recorded, D6 fixed.
+
+**What a successor should do next, in order.** (1) Finish D1 (the contest floor's contingency is the blocker; §D1 has the bar). (2) D5: `room` saturates under a slider. (3) A fourth behaviour audit only after D1 lands, on the same corpus, so the instruments are compared like for like. (4) Rebase `feature/drives-preferences` after #17 merges. (5) Treat every refuted rule's status section as binding: do not re-derive D2/D3/D4 from their predictions.
+
+**Process rules that cost us when broken.** Never `git stash` in a worktree (shared across worktrees; a collision killed a worker). Every worker checkpoints and pushes after each step (container restarts and the hourly session rate limit kill all workers at once; three were lost twice and nothing was lost because of this rule). Sonnet briefs must say "never pass run_in_background, never call Monitor, never wait for a notification". A dead agent cannot be resumed by message; relaunch from its branch. A full-suite result recorded while runner-heavy workers are up is not evidence; re-run failures alone. A behaviour change is kept only if it is at least as good as the baseline on every board class, deaths first; a refuted rule earns a paragraph beside the code, not a scaffold.
+
 ## Addendum, 2026-09-03 (read this block first; it supersedes the one below where they differ)
 
 Branch `claude/succession-doc-subagent-orchestration-n41iua` on BOTH repos is
