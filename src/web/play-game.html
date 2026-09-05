@@ -713,6 +713,11 @@
       <!-- The one mount the latency module owns. Nothing else on this page
            writes into it, and nothing in it is read back here. -->
       <div id="latency-mount"></div>
+      <!-- The one mount the alert channel owns: its preferences button, that
+           button's popover, and the fixed ring it draws over the board's edge.
+           Nothing else on this page writes into it and nothing in it is read
+           back here. See `docs/design/ux/06-ALERTS.md`. -->
+      <div id="alerts-mount"></div>
       <div class="connected-users" id="connectedUsers"></div>
     </div>
   </div>
@@ -1059,6 +1064,11 @@
   <!-- After ws-client.js: the latency surface reads the wire through
        `WSClient.observe`, on the socket this page is already using. -->
   <script src="/latency.js"></script>
+  <!-- After latency.js: the alert channel reads the wire through the same
+       `WSClient.observe` and the ladder through `LatencyView.read()`. It adds
+       no message type of its own, sends nothing, and never changes what is
+       staged. -->
+  <script src="/alerts.js"></script>
   <!-- The guided tour (docs/OPERATOR-MANUAL.md, in the page it is about).
        It writes into `#tour-mount` and nothing else, opens no socket and
        claims no key the lens owns. -->
