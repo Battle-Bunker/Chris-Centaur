@@ -1,6 +1,6 @@
 /**
- * REPRODUCTION A, PINNED AS THE DEFECT IT STILL IS — D1 of
- * `docs/design/BEHAVIOUR-AUDIT.md`.
+ * REPRODUCTION A — D1 of `docs/design/BEHAVIOUR-AUDIT.md`. THE FLOOR IS
+ * REPAIRED HERE; THE ORDERING IS NOT.
  *
  * `mixed` seed 1, the board as turn 47 opened, read off the runner at the
  * commit that produced the audit:
@@ -12,45 +12,40 @@
  * blue-C stepped onto the cell green-A's head occupied and `turnEngine.ts` c1
  * adjudicated the head-on exchange against it. The arithmetic that produced the
  * step is what this file pins: green-A's own square is in NO arrival set — a
- * trail unit has no `stay` in its grammar — so `contest` charges it NOTHING,
- * while blue-C's hold, which is one of green-A's four legal continuations, is
- * charged the whole `CONTEST_LOSS`. The term pays the pawn to walk into the one
- * square on the board where a meeting is certain.
+ * trail unit has no `stay` in its grammar — so the charge AT THAT CELL is
+ * nothing, while blue-C's hold, which is one of green-A's four legal
+ * continuations, is charged the whole `CONTEST_LOSS`.
  *
- * THIS IS A CHARACTERISATION TEST, NOT AN APPROVAL. D1's rule — the enemy's own
- * turn-start cell in the field, and a certainty weight
- * `p_e(c) = |{a : a.to = c}| / |actions(e)|` in place of the boolean charge —
- * was implemented and measured over the audit's corpus, and REVERTED: it took
- * `edge` deaths 3 -> 0 on `mixed` + `potions` but dividing every other charge by
- * the enemy's action count weakened the term about fourfold, and `potions` came
- * back at 26 -> 28 deaths (contest +1, bodyBlock +1, self +1, and the corpus's
- * first `deathsWhileDebuffed`), `mixed` at 246 -> 215 meals with the parked
- * share 7.2% -> 12.3% and the longest park 8 -> 49 turns. See the D1 status note
- * in the audit for the whole reading.
+ * WHAT THE FLOOR REPAIR CHANGED, AND WHAT IT DID NOT. `contest` no longer reads
+ * the charge at the one cell the optimistic timeline settles our unit on:
+ * green-A is HELD, so blue-C's arrival at (0,3) is contingent, and the world
+ * where green-A stands its ground leaves blue-C where it started — on (0,2),
+ * which IS in green-A's fan. So the entry's worst reading is the whole
+ * `CONTEST_LOSS` too, and the audit's gap of one `CONTEST_LOSS` in favour of
+ * the certain meeting closes to ZERO. That is the bound made honest
+ * (`law-sweep.test.ts`: `contest.lo` 30 -> 0), and it is only half the fix:
+ * with the two options tied on every end of the interval, the move is decided
+ * by `momentum`'s idleness charge, `0.5/3` = 0.167, which is on the entry's
+ * side. The pawn still steps onto the snake — `contest` merely stops paying it
+ * to.
  *
- * TWO MORE ATTEMPTS HAVE BEEN MEASURED AND REVERTED SINCE, and neither of them
- * changed this position's pricing, which is why this file still reads the way it
- * does. The second kept the seated boolean scale and only LIGHTENED it,
- * `CONTEST_LOSS x (1 - e + e p)`: the play came right at `e = 0.25` — `edge`
- * deaths 3 -> 0, deaths up on no board class — and `law-sweep`'s `contest.lo`
- * ratchet refused it, 30 -> 34 at every dose, because a per-unit charge that
- * depends on where the resolution settles our unit cannot have its floor
- * refined upward while that cell is contingent. The third repaired exactly that
- * — the floor brackets over the cells the arrival could settle on, taking
- * `contest.lo` 30 -> 0 with `totalLo` 0 and `exact-reply` exact — and was
- * refused by `mixed`'s meals instead, -4.1% for the repair alone and -3.3% to
- * -5.7% with the lightening on top, against a 3% budget. The bound is no longer
- * what refuses D1; the tempo is.
+ * Turning it back needs a term that charges the CERTAIN meeting MORE than the
+ * merely possible one: the enemy's own turn-start cell in the arrival field,
+ * and the flat loss LIGHTENED by how certain the meeting is,
+ * `CONTEST_LOSS x (1 - e + e p)`. That shape WAS measured on top of this
+ * repair, at `e = 0.125` and `e = 0.25`, and it is not in the tree: it is
+ * bound-clean at both doses (`contest.lo` stays closed, `totalLo` 0,
+ * `exact-reply` exact) and it is refused by the play — `mixed` meals -3.3% and
+ * -5.7% against a 3% budget, and `e = 0.125` takes `potions` deaths 26 -> 27.
+ * See the D1 status note in the audit for the whole per-arm table.
  *
- * So a fix INVERTS the two numbers below, and it is meant to: this file exists
- * so that the board, the arithmetic and the ordering are already written down
- * when someone re-opens D1, and so that a change to `contest` cannot alter this
- * position's pricing silently.
+ * So what is pinned below is the repaired floor with the BOOLEAN charge and no
+ * origin clause, which is the shipped pricing: the two options tie, and the
+ * ordering half of D1 is still open.
  */
-
 import type { Board, Coord, Snake } from '../../types/battlesnake';
 import { clearGeometryCache, makeSubstrate } from '../substrate';
-import type { Candidate, JointPlan, UnitId } from '../contracts';
+import type { Bound, Candidate, JointPlan, UnitId } from '../contracts';
 import {
   CONTEST_LOSS,
   DEFAULT_PROFILE,
@@ -153,9 +148,9 @@ const at = (board: Board, c: Coord): number => cellAt(board, TURN, c);
 
 afterEach(() => clearGeometryCache());
 
-describe('reproduction A: today the cell an enemy is standing on is priced at nothing', () => {
+describe('reproduction A: the cell an enemy is standing on', () => {
   /** The contest term alone, for one staged destination of blue-C. */
-  function contestOf(board: Board, to: Coord): number {
+  function contestOf(board: Board, to: Coord): Bound {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'blue', modeled: ['blue-C'] });
     try {
       const unit = sub.unitOfWireId('blue-C')?.unitId as UnitId;
@@ -168,7 +163,7 @@ describe('reproduction A: today the cell an enemy is standing on is priced at no
         contestFeature.evaluate(
           makeContext(sub, resolution, bounds, team, 0, DEFAULT_PROFILE)
         )
-      ).lo;
+      );
     } finally {
       sub.release();
     }
@@ -194,15 +189,44 @@ describe('reproduction A: today the cell an enemy is standing on is priced at no
     }
   });
 
-  test('so the entry costs NOTHING and the hold costs the whole loss — the wrong way round', () => {
+  test('the entry is now an INTERVAL, because green-A can refuse to leave', () => {
     const board = reproductionA();
     const entry = contestOf(board, { x: 0, y: 3 });
     const hold = contestOf(board, { x: 0, y: 2 });
     // One unit of ours is modelled, so a charge is the whole `CONTEST_LOSS`.
-    expect(entry).toBe(0);
-    expect(hold).toBeCloseTo(-CONTEST_LOSS, 9);
-    // The gap the audit measured, in the term's own units: the square where the
-    // meeting is certain is the CHEAP one. A repair inverts this line.
-    expect(entry).toBeGreaterThan(hold);
+    //
+    // THE ENTRY. The optimistic timeline settles blue-C on (0,3) and charges
+    // that cell nothing. But green-A is HELD, so the arrival is contingent, and
+    // the world where green-A stands its ground leaves blue-C where it started
+    // — on (0,2), which IS in green-A's fan. The worst reading pays for that
+    // cell now, and the floor is no longer above a world the resolver produces.
+    expect(entry.lo).toBeCloseTo(-CONTEST_LOSS, 9);
+    // THE HOLD. One cell, already occupied, charged the whole loss.
+    expect(hold.lo).toBeCloseTo(-CONTEST_LOSS, 9);
+    // Both ceilings are 0, and that is the ALIVE-SET polarity rather than
+    // anything this repair did: a contingent unit of ours is not alive in the
+    // subject's worst world, so its cost is not paid in the best reading.
+    expect(entry.hi).toBe(0);
+    expect(hold.hi).toBe(0);
+  });
+
+  test('so `contest` no longer prefers the entry — and no longer refuses it either', () => {
+    const board = reproductionA();
+    const entry = contestOf(board, { x: 0, y: 3 });
+    const hold = contestOf(board, { x: 0, y: 2 });
+    // THE LINE THE AUDIT MEASURED, HALF-INVERTED. It used to read
+    // `entry > hold` by a whole `CONTEST_LOSS` — the square where the meeting
+    // is certain was the cheap one. The floor repair takes the gap to ZERO, on
+    // every end of the interval: the two options are now indistinguishable to
+    // this term.
+    expect(entry.lo).toBeCloseTo(hold.lo, 9);
+    expect(entry.est).toBeCloseTo(hold.est, 9);
+    expect(entry.hi).toBeCloseTo(hold.hi, 9);
+    // Which is NOT yet the fix reproduction A wants. With `contest` tied, the
+    // move is decided by `momentum`'s idleness charge, `IDLE_COST / |ours|` =
+    // 0.167, which is on the entry's side — the pawn still steps onto the
+    // snake. Only a term that charges the CERTAIN meeting more than the merely
+    // possible one turns it back, and that is `CONTEST_CERTAINTY`.
+    expect(entry.est - hold.est).toBe(0);
   });
 });

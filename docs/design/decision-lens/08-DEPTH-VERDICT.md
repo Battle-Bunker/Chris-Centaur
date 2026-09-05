@@ -869,37 +869,52 @@ Nothing else is owed. The oracle, its classifier, the sixteen-arm gate and the
 law sweep are merged as instruments precisely so that the next attempt is
 argued with numbers rather than with a reading.
 
-**A tenth class was closed at its cause, and the repair still did not ship
-(2026-09-05).** `contest.lo` — 30 worlds where `contest`'s own floor sits above
-its own value — was the ratchet that refused D1's second attempt in
-`docs/design/BEHAVIOUR-AUDIT.md`. Its cause is now named and repaired: the term
-charged each of our units at the charge of the cell the PARTIAL resolution
-settles it on, and a completion world that halts a mover short settles it
-somewhere else, so a contingent quantity was read as a point. Bracketing over
-the cells the arrival could settle on (`contest.ts`, `settlesOn` — the cells the
-unit entered in this timeline union the one it set out from, and nothing at all
-where the engine's own `fates` says it is not contingent) takes the class
-**30 → 0** with `totalLo` still 0, checked before it was believed on the sweep's
-own 240 boards: over 8 637 completion worlds and 1 956 relocations the world's
-settle cell was inside the set every time. `bounds/exact-reply` stays exact on
-all four seed-1 arms, at `ε = 0` and at both doses of D1's ordering change on
-top of it.
+**A tenth class is CLOSED, and this one shipped (2026-09-05).** `contest.lo` —
+30 worlds where `contest`'s own floor sits above its own value — was the ratchet
+that refused D1's second attempt in `docs/design/BEHAVIOUR-AUDIT.md`. Its cause
+is now named and repaired: the term charged each of our units at the charge of
+the cell the PARTIAL resolution settles it on, and a completion world that halts
+a mover short settles it somewhere else, so a contingent quantity was read as a
+point. Bracketing over the cells the arrival could settle on (`contest.ts`,
+`settlesOn` — the cells the unit entered in this timeline union the one it set
+out from, and nothing at all where the engine's own `fates` says it is not
+contingent) takes the class **30 → 0** with `totalLo` still 0, checked before it
+was believed on the sweep's own 240 boards: over 8 637 completion worlds and
+1 956 relocations the world's settle cell was inside the set every time.
+`bounds/exact-reply` stays exact on all four seed-1 arms.
 
-**Requirement 1 met, requirement 2 failed, and the class stays pinned at 30.**
-The A/B, per board class and never pooled, is out on `mixed` meals at every arm
-measured — −4.1% for the floor repair alone, −3.3% at `ε = 0.125`, −5.7% at
-`ε = 0.25`, against a 3% budget — with `snakes` and `sparse` identical on every
-game counter and `potions` neutral-to-better on meals throughout. So the repair
-is not merged and the ratchet goes back to 30.
+**It is the first repair to meet both requirements**, and it meets the second
+one narrowly and on purpose. The A/B, per board class and never pooled: deaths
+DOWN on both classes that have any (`mixed` 10 → 9, `potions` 26 → 24) and up on
+none, `edge` deaths 2 → 0 and `enemyOccupiedEntriesLost` 5 → 1 on `mixed`,
+`snakes` and `sparse` identical on every game counter — against one cost,
+`mixed`'s meals at −4.1% per 100 unit-turns, which is over the 3% budget D1 set
+itself. It was taken over that budget: a soundness fix that also loses fewer
+units outranks a meal dip on one of four classes, and the mechanism is the
+conservative direction rather than an accident. The pin is now `'contest.lo': 0`
+— the class is CLOSED, so the ratchet refuses any regression in it rather than
+merely holding a count.
 
-**The reason is worth keeping, because it generalises past `contest`.** Closing
-this class means charging each unit at the WORST cell its arrival could settle
-on, and the measurement says the worst cell is nearly always the one it set out
-from: the commonest contingent world is simply the one where the move does not
-happen (1 854 of the 1 956 relocations were outside `traversed` alone). An
-honest floor over a contingent settle cell is therefore a standing tax on
-ADVANCING — it prices every staged move that passes an enemy at the worse of
-"where it gets to" and "where it started", while a hold stays a point. That is
-the same shape as `b1-sound`'s two closures above: correct-and-looser, paid for
-in games. It is the third measured instance of the pattern and the first where
-the looser floor is loose in a direction with a behavioural name.
+**The mechanism generalises past `contest`, and it is why the dip is the price
+rather than a bug.** Closing this class means charging each unit at the WORST
+cell its arrival could settle on, and the measurement says the worst cell is
+nearly always the one it set out from: the commonest contingent world is simply
+the one where the move does not happen (1 854 of the 1 956 relocations were
+outside `traversed` alone). An honest floor over a contingent settle cell is
+therefore a standing tax on ADVANCING — it prices every staged move that passes
+an enemy at the worse of "where it gets to" and "where it started", while a hold
+stays a point. That is the same shape as `b1-sound`'s two closures above:
+correct-and-looser, paid for in tempo. The difference is the ledger. `b1-sound`
+bought nothing and cost deaths on three classes of four; this one buys deaths on
+two classes and the class itself, and costs meals on one. **Correct-and-looser
+is not disqualifying — it is a price, and the test is what it buys.** That is
+the reading to carry to the eight classes still open — the sweep prints
+`food.hi` 63, `reach.hi` 220, `command.hi` 600, `room.lo` 73, `reach.lo` 128,
+`material.hi` 8, `energy.hi` 10, `momentum.lo` 27, and no `contest.lo` at all.
+
+**D1's ORDERING half stayed out.** The lightened charge
+`CONTEST_LOSS × (1 − ε + ε·p)` was measured on top of this repair at `ε = 0.125`
+and `ε = 0.25`: bound-clean at both (`contest.lo` still closed, `totalLo` 0,
+`exact-reply` exact), and refused by the play — `mixed` meals −3.3% and −5.7%,
+and `ε = 0.125` takes `potions` deaths 26 → 27. So the bound obstacle in front
+of that half is gone and the tempo obstacle is not.
