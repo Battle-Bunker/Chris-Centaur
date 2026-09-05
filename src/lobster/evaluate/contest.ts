@@ -276,7 +276,7 @@ function chargeAt(field: ArrivalField, tier: number, weight: number, cell: numbe
  * term's per-unit charge is the indicator of that one death, which is what
  * keeps the whole term inside `[-1, 0]` on every roster size.
  */
-export const EDGE_EXCHANGE: number = 0;
+export const EDGE_EXCHANGE: number = 1;
 
 /**
  * WHO IS STANDING WHERE, AND WHERE THEY COULD WALK OUT THROUGH.
