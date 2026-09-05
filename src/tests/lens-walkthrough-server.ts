@@ -49,6 +49,7 @@
  * recorded log read back through the replay path.
  */
 
+import compression from 'compression';
 import express from 'express';
 import path from 'path';
 import { createServer } from 'http';
@@ -226,6 +227,11 @@ async function main(): Promise<void> {
 
   const manager = ActiveGameManager.getInstance();
   const app = express();
+  // `src/index.ts` line for line: compression BEFORE the static mount. It was
+  // missing here, and its absence is not neutral — the operator page ships
+  // 462 KB of script and 315 KB of markup, and measuring a cold load against
+  // an uncompressed mount measures a server nobody runs.
+  app.use(compression());
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '../web')));
   // `root` rather than an absolute path: a worktree lives under `.claude/`,

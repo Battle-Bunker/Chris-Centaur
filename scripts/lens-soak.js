@@ -557,6 +557,40 @@ async function main() {
     const inst = await page.evaluate(() =>
       window.__soak ? { timers: window.__soak.timers(), listeners: window.__soak.listeners() } : null
     );
+    // THE PAGE'S OWN COLLECTIONS, counted. A heap that grows says how much;
+    // only the page can say what of. Every one of these is a top-level binding
+    // in `play-game.html`'s script or a module's public read.
+    const held = await page.evaluate(() => {
+      const size = (v) =>
+        v === undefined || v === null
+          ? null
+          : typeof v.size === 'number'
+            ? v.size
+            : typeof v.length === 'number'
+              ? v.length
+              : Object.keys(v).length;
+      const of = (name) => {
+        try { return size(eval(name)); } catch (e) { return null; }
+      };
+      return {
+        turnTimeline: of('turnTimeline'),
+        timelineTurns: of('timelineTurns'),
+        historicEvents: of('historicEvents'),
+        historicEventsInflight: of('historicEventsInflight'),
+        lensEvents: of('lensEvents'),
+        lensTranscript: of('lensTranscript'),
+        lensTrails: of('lensTrails'),
+        lensPending: of('lensPending'),
+        lensUndoStack: of('lensUndoStack'),
+        snakeLastSeen: of('snakeLastSeen'),
+        connectedUsers: of('connectedUsers'),
+        enrolledNames: of('enrolledNames'),
+        controlledSnakeTurnData: of('controlledSnakeTurnData'),
+        gameEndedSnakes: of('gameEndedSnakes'),
+        alertsLog: window.Alerts ? window.Alerts.log().length : null,
+        latencyPending: window.LatencyView ? window.LatencyView.pending().length : null,
+      };
+    });
     const dom = await page.evaluate(() => {
       const n = (sel) => {
         const el = document.querySelector(sel);
@@ -582,6 +616,7 @@ async function main() {
       turn: t,
       gc: true,
       dom,
+      held,
       heapUsed: m.JSHeapUsedSize,
       heapTotal: m.JSHeapTotalSize,
       nodes: m.Nodes,
