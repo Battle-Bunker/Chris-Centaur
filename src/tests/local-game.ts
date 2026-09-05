@@ -2622,13 +2622,23 @@ export const SPARSE_LEAN_SCENARIO: GameSpec = {
  *    with `|ax| >= |ay|`. Reflection negates `ax` and leaves `ay`, so the tie
  *    falls the same way on both sides and the orientations are mirrored too.
  *
- * Every team is therefore either the mirror image of another (red <-> blue) or
- * its own (green, on the centre file). What is NOT symmetric, and cannot be
- * made so, is item RESPAWN: `spawn.place` picks one cell out of `freeCells` in
- * ascending board order, so a meal replaced on turn 12 lands on one side of
- * the axis and not the other. That is a fair coin, not a bias — it averages
- * out over seeds, and it is why the side test below is a rate over eight seeds
- * and not a per-game identity.
+ * TWO TEAMS, AND A THIRD WOULD RUIN IT — measured, not assumed. The first cut
+ * of these boards kept the baseline classes' third team on the centre file,
+ * where the reflection maps it onto itself, and they were still won by slot 1
+ * 8/8 on `mirror-mixed` at a mean lead of +39.4. The cause is not the runner
+ * and not the engine: on a self-mirrored position a team's own tied options
+ * are mirror images of each other, the search's tie-break is by cell index and
+ * cell index is not reflection-invariant, so the third team commits to ONE
+ * half of the board on turn 1 and harasses that half for sixty turns. Drop it
+ * and the same board reads slot 0 3/0/5 at a mean lead of -2.25 — a coin.
+ * A self-mirrored third party is therefore not a neutral party, and a control
+ * that carries one is not a control.
+ *
+ * What is left over, and cannot be removed, is item RESPAWN: the runner's
+ * top-up draws a uniform (x, y) per meal, so a meal replaced on turn 12 lands
+ * on one side of the axis and not the other. That draw is symmetric in
+ * DISTRIBUTION but not per game, which is why the side test on these boards is
+ * a rate over eight seeds and not a per-game identity.
  */
 
 /** `snakes`, made fair: the sixth meal at (0,5) had no twin at (10,5). */
@@ -2638,8 +2648,6 @@ export const MIRROR_SNAKE_SCENARIO: GameSpec = {
   teams: [
     { id: 'red', units: [{ kind: 'snake', x: 1, y: 1 }, { kind: 'snake', x: 1, y: 9 }] },
     { id: 'blue', units: [{ kind: 'snake', x: 9, y: 1 }, { kind: 'snake', x: 9, y: 9 }] },
-    // On the centre file, so the reflection maps it onto itself unit for unit.
-    { id: 'green', units: [{ kind: 'snake', x: 5, y: 0 }, { kind: 'snake', x: 5, y: 10 }] },
   ],
   food: [
     { x: 3, y: 3 },
@@ -2658,8 +2666,9 @@ export const MIRROR_SNAKE_SCENARIO: GameSpec = {
  * The class exists to put several unit kinds on one board, and the piece the
  * asymmetry finding is about is the queen, so dropping it would test the
  * runner on a board that no longer contains the mechanic in question. Red and
- * blue each get snake + pawn + queen at mirrored cells; green keeps `mixed`'s
- * own snake + knight on the centre file, where it is its own mirror.
+ * blue each get snake + pawn + queen at mirrored cells. `mixed`'s third team
+ * is NOT carried over: see the header — a team on the centre file breaks its
+ * own mirror on turn 1 and then plays one half of the board.
  */
 export const MIRROR_MIXED_SCENARIO: GameSpec = {
   width: 11,
@@ -2679,13 +2688,6 @@ export const MIRROR_MIXED_SCENARIO: GameSpec = {
         { kind: 'snake', x: 9, y: 2 },
         { kind: 'pawn', x: 8, y: 1 },
         { kind: 'queen', x: 10, y: 0 },
-      ],
-    },
-    {
-      id: 'green',
-      units: [
-        { kind: 'snake', x: 5, y: 0 },
-        { kind: 'knight', x: 5, y: 10 },
       ],
     },
   ],
