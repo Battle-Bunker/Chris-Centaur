@@ -85,6 +85,7 @@ import {
   shippedEvaluator,
   type ExactBoardDump,
 } from "./exact-reply";
+import { NO_CLIFF, newCliffTally, readCliff, tallyGroup, type CliffReading } from "./cliff";
 import { footprintOf, planKey, withMoves } from "./plan";
 import { loudReadingOf, type LoudReading } from "./loud";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
@@ -207,6 +208,15 @@ export interface BankResult extends PlanScore {
    * class: there is no held enemy to reply, so there is nothing to enumerate.
    */
   readonly loud: LoudReading | null;
+  // --- THE CLIFF READING (BEHAVIOUR-AUDIT-3.md W3) -------------------------
+  /**
+   * How many of the enemy joint replies this plan already enumerated kill us,
+   * out of how many there were. See `./cliff.ts`: it is a count over leaves
+   * the bank priced anyway, it moves no bound, and only `search/core.ts`'s
+   * secondary order on a UNIFORMLY DEAD floor ever reads it.
+   */
+  readonly cliff: CliffReading;
+  // --- end cliff reading ---------------------------------------------------
 }
 
 export interface BankInput {
@@ -624,6 +634,7 @@ export class BoundBank {
     const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }> = [];
     const ceilingBranches: Branch[] = [];
     const members: MemberReport[] = [];
+    const cliff = newCliffTally();
     let finished = true;
 
     // ---- B0: no lists — one leaf, and the clock may not cut it short ----
@@ -677,6 +688,7 @@ export class BoundBank {
             ? { leaves: [] as Branch[], swept: false }
             : this.sweepLists(view, base, "B3", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
+          tallyGroup(cliff, 3, leaves, swept);
           if (leaves.length > 0) {
             members.push(this.closeGroup("B3", null, leaves, swept, true, floorMembers));
           }
@@ -697,6 +709,7 @@ export class BoundBank {
           const lists = [{ id: enemy, options }];
           const { leaves, swept } = this.sweepLists(view, base, "B1", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
+          tallyGroup(cliff, 1, leaves, swept);
           if (leaves.length === 0) continue;
           members.push(this.closeGroup("B1", enemy, leaves, swept, complete, floorMembers));
           if (!swept) {
@@ -801,6 +814,7 @@ export class BoundBank {
       est,
       narrowings: this.narrowingList,
       loud,
+      cliff: this.canModel ? readCliff(cliff) : NO_CLIFF,
     };
     // THE EXACT-REPLY ORACLE, after the answer is finished and never before.
     // `resolutions` is already fixed above, so the settlements the audit spends

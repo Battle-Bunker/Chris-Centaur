@@ -55,6 +55,7 @@ import {
   withMoves,
   type BankConfig,
   type BankResult,
+  type CliffReading,
 } from "../bounds";
 import {
   contestedUnits,
@@ -189,6 +190,8 @@ interface Rival {
   est: number;
   /** The horizon THIS plan's reading was proved at (06 F-2). */
   horizon: number;
+  /** W3's cliff reading, so the lever view's leader is the ladder's leader. */
+  cliff: CliffReading;
 }
 
 /**
@@ -208,7 +211,74 @@ export interface RankedRow {
   /** The horizon THIS row's reading was proved at (06 F-2). */
   readonly horizon: number;
   readonly plan: JointPlan;
+  /**
+   * W3's cliff reading, when the row carries one. Absent — a row built by a
+   * caller that predates the rung — is the same as `NO_CLIFF`: the rung
+   * declines and the ladder is the one it always was.
+   */
+  readonly cliff?: CliffReading;
 }
+
+/**
+ * CLIFF_DEPTH — THE SECONDARY ORDER ON A UNIFORMLY DEAD FLOOR (W3).
+ *
+ * `docs/design/BEHAVIOUR-AUDIT-3.md` W3, measured in
+ * `docs/design/CLIFF-DEPTH.md`. On a team's LAST unit, 5.12% of its turns
+ * offer nothing but candidates that floor at DEAD — every option some enemy
+ * can contest is the lattice bottom, because the worst case of might-die IS
+ * die and a team of one that loses its unit is gone. The floor then ORDERS
+ * NOTHING, every rung below it is a tie-break that was never meant to
+ * adjudicate a life, and `est` ranks the fatal cell first (the audit's
+ * reproduction: `asym` seed 3, turn 8, green-A, three candidates at
+ * `lo = -Infinity`, played the one that killed it).
+ *
+ *   0  the ladder as it was: floor, est, ceiling, salted tie.
+ *   1  on a floor tied AT DEAD, prefer the candidate that fewer of the
+ *      enemy's ALREADY-ENUMERATED joint replies kill (`bounds/cliff.ts`).
+ *   2  δ = 1, then the weight of the lightest enemy that must commit.
+ *
+ * WHAT IT IS NOT. It is not a graded death penalty — `evaluate/bound.ts`
+ * forbids one ("a large finite death penalty inverts the cliff the moment some
+ * other term outgrows it") and D2's dose sweep already refused a repair that
+ * "unparks the pawn by killing it". No `lo` moves, no bound is weakened, no
+ * member is added: this rung fires strictly BELOW an equal floor, on plans the
+ * bank has already priced, reading leaves it has already paid for.
+ *
+ * WHY IT IS NOT THE ORDERING RULE `docs/design/ORDERING.md` REFUSED. That rule
+ * was a CONSIDERATION order — which candidates a stopped clock gets to price
+ * at all — aimed at agreeing with a 4x budget, and its measured cost was that
+ * it stopped re-optimising the most endangered unit (Finding O-2). This one
+ * changes nothing about what is generated, priced or reached: the same trials
+ * happen in the same sequence at the same cost, and only the ADJUDICATION of
+ * an already-tied floor differs. O-1 ("reaching the deeper search's answer
+ * more often is not the same thing as playing better") does not bear on it
+ * either, because it is argued against deaths directly and never against
+ * agreement with a bigger budget — which is exactly what O-1 asks of a
+ * successor.
+ *
+ * δ = 2 IS NOT BUILT. δ = 1 settled the decisions it was aimed at (see
+ * CLIFF-DEPTH.md §4: the rung fires and separates on the great majority of
+ * uniform-cliff comparisons), and a tie-break for a tie that is already broken
+ * is the scaffold `DECISIONS.md` forbids.
+ */
+export const CLIFF_DEPTH = 1;
+
+/**
+ * The rung itself, in one place because two ladders read it and they must not
+ * disagree about a plan. `+1` — `a` is preferred; `-1` — `b` is; `0` — the
+ * rung DECLINES and the ladder carries on to `est` exactly as before.
+ *
+ * It declines whenever the two counts are not two readings of one quantity: a
+ * rung mismatch, a cut sweep, or a plan whose replies were never enumerated
+ * (`NO_CLIFF`). Declining is the conservative direction — it is today's
+ * behaviour — and it is what keeps a build with `CLIFF_DEPTH = 0` a true null.
+ */
+const cliffOrder = (a: CliffReading | undefined, b: CliffReading | undefined): number => {
+  if (CLIFF_DEPTH < 1 || a === undefined || b === undefined) return 0;
+  if (a.rung === 0 || a.rung !== b.rung) return 0;
+  if (a.killers === b.killers) return 0;
+  return a.killers < b.killers ? 1 : -1;
+};
 
 /**
  * THE ACCEPTANCE ORDER OVER TWO PRICED ROWS: does `a` displace `b`?
@@ -244,6 +314,11 @@ export function ranksAbove(a: RankedRow, b: RankedRow, seed: number): boolean {
   const cmp = compareFloors(a.bounds, b.bounds);
   if (!cmp.comparable) return false;
   if (cmp.order !== 0) return cmp.order > 0;
+  // W3's rung, on a floor tied at the lattice bottom and nowhere else.
+  if (a.bounds.worst === Number.NEGATIVE_INFINITY) {
+    const cliff = cliffOrder(a.cliff, b.cliff);
+    if (cliff !== 0) return cliff > 0;
+  }
   const acrossHorizons = a.horizon !== b.horizon;
   if (!acrossHorizons && a.est !== b.est) return a.est > b.est;
   if (!acrossHorizons && a.bounds.best !== b.bounds.best) return a.bounds.best > b.bounds.best;
@@ -257,6 +332,7 @@ const REFUSED = {
   witness: { accept: false, because: "witness" },
   basis: { accept: false, because: "basis" },
   floor: { accept: false, because: "floor" },
+  cliff: { accept: false, because: "cliff" },
   est: { accept: false, because: "est" },
   hi: { accept: false, because: "hi" },
   tie: { accept: false, because: "tie" },
@@ -540,9 +616,17 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
       hit.bounds = result.bounds;
       hit.est = result.est;
       hit.horizon = Math.max(hit.horizon, horizon);
+      hit.cliff = result.cliff;
       return;
     }
-    s.rivals.set(key, { key, plan: result.plan, bounds: result.bounds, est: result.est, horizon });
+    s.rivals.set(key, {
+      key,
+      plan: result.plan,
+      bounds: result.bounds,
+      est: result.est,
+      horizon,
+      cliff: result.cliff,
+    });
     if (s.rivals.size <= LEVER_ROWS) return;
     let worst: Rival | null = null;
     for (const r of s.rivals.values()) {
@@ -748,6 +832,18 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
     const cmp = compareFloors(trial.bounds, incumbent.bounds);
     if (!cmp.comparable) return REFUSED.basis;
     if (cmp.order !== 0) return cmp.order > 0 ? ACCEPT : REFUSED.floor;
+    // W3's RUNG — THE ONLY ONE THAT SPEAKS WHEN THE FLOOR IS THE LATTICE
+    // BOTTOM. Both plans are DEAD in the worst world, so the floor has said
+    // everything it has to say and every rung below it was built to order
+    // SURVIVABLE plans. See `CLIFF_DEPTH` above for why counting the enemy
+    // replies that kill us is not a graded death penalty, and `cliffOrder`
+    // for the three ways it declines. Inert at `CLIFF_DEPTH = 0` and inert on
+    // every decision with one candidate off the cliff, which is all of them
+    // above one living unit (0.03% at two, 0.00% at three or more).
+    if (trial.bounds.worst === Number.NEGATIVE_INFINITY) {
+      const cliff = cliffOrder(trial.cliff, incumbent.cliff);
+      if (cliff !== 0) return cliff > 0 ? ACCEPT : REFUSED.cliff;
+    }
     // RUNG 4 IS HORIZON-LOCAL (06 F-4, Q-L7).
     //
     // `lo` and `hi` cross a horizon boundary because they are claims about a

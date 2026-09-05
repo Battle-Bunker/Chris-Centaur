@@ -182,7 +182,7 @@ export type ClusterEvent =
  *  reservoir can store a `DominanceCondition`. This must change no decision:
  *  the reason is derived from comparisons the function already performs, in
  *  the order it already performs them. Gated on G2 (03 §2.2). */
-export type VerdictReason = 'witness' | 'basis' | 'floor' | 'est' | 'hi' | 'tie';
+export type VerdictReason = 'witness' | 'basis' | 'floor' | 'cliff' | 'est' | 'hi' | 'tie';
 
 export type Verdict =
   | { readonly accept: true }
@@ -204,6 +204,10 @@ export type DominanceCondition =
   /** The proved floors are equal and the leader won on the channel that never
    *  adjudicates — the most important row in the table. */
   | { readonly kind: 'advisory-only'; readonly estMargin: number }
+  /** BOTH floors are the lattice bottom (W3): every option dies in the worst
+   *  world, so the floor ordered nothing and the leader won on how few of the
+   *  enemy's already-enumerated replies kill it. */
+  | { readonly kind: 'on-the-cliff' }
   | { readonly kind: 'indifferent' };
 
 // -------------------------------------------------------------------- depth

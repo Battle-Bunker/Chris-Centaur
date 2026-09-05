@@ -80,6 +80,12 @@ function dominanceOf(row: Moveset, leader: Moveset, refusal: Refusal | null): Do
       return { kind: 'incomparable-basis', theirs: row.assumptions };
     case 'est':
       return { kind: 'advisory-only', estMargin: leader.est - row.est };
+    case 'cliff':
+      // W3. `lo` is DEAD on both rows, so a margin on it is `Infinity - Infinity`
+      // and a margin on `hi` is not what decided: the leader won because fewer
+      // of the enemy's enumerated replies kill it. The row says which rung
+      // spoke and does not fabricate a number the comparison never produced.
+      return { kind: 'on-the-cliff' };
     case 'tie':
       return { kind: 'indifferent' };
     case 'floor':

@@ -1262,6 +1262,8 @@ var LensView = (() => {
         return `cannot win — dominated by ${round1(dominance.by)}`;
       case "advisory-only":
         return `floors equal — advisory ${round1(dominance.estMargin)}`;
+      case "on-the-cliff":
+        return "every option dies in the worst world — the leader needs more enemy help";
       case "indifferent":
         return "my proof rungs are silent here — your call beats my tie-break";
     }

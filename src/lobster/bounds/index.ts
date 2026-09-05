@@ -55,6 +55,9 @@ export type { ModelledView, ModellingSubstrate, RosterSubstrate } from "./substr
 
 export { WitnessSet, refutedAt, sameWitness, witnessKey, witnessOf, witnessUnits } from "./witness";
 
+export { NO_CLIFF } from "./cliff";
+export type { CliffReading } from "./cliff";
+
 export { loudReadingOf, observeLoud } from "./loud";
 export type { LoudReading, LoudUnitCount } from "./loud";
 

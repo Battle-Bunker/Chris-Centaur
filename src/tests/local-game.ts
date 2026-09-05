@@ -2122,6 +2122,26 @@ export interface GameMetrics {
   pricedDecisions: number;
   fatalDecisions: number;
   avoidablyFatalDecisions: number;
+  // --- THE UNIFORM-CLIFF INSTRUMENT (BEHAVIOUR-AUDIT-3.md W3) ---------------
+  //
+  // W3: on a team's LAST unit every candidate an enemy can contest floors at
+  // DEAD, so the floor ties across the whole option set and orders nothing.
+  // These four read the SAME per-option prices the anytime oracle above reads
+  // — `bestFloor` is the best floor among the options the generator OFFERED —
+  // so they are filled only where the runner is scoring options
+  // (`--score-traces` in `sum` mode, always in single-game mode) and are 0
+  // otherwise, exactly as `fatalStaged` is. They count; they never reach the
+  // decision they are counting.
+  /** Unit-turns where EVERY offered option floors at DEAD. */
+  uniformCliffTurns: number;
+  /** Those of them taken by a team with exactly one living unit. */
+  uniformCliffLastUnit: number;
+  /** Unit-turns whose own team had exactly one living unit — the denominator
+   *  that makes the rate readable on `asym` without dividing by the board. */
+  lastUnitTeamTurns: number;
+  /** Deaths of a unit whose decision that turn was taken on a uniform cliff. */
+  deathsAfterUniformCliff: number;
+  // --- end uniform-cliff instrument ------------------------------------------
   /** The worst `KernelReport.overshootMs` of the game. */
   worstOvershootMs: number;
   /** Every decision's `overshootMs`, for the quantiles the margin is read on. */
@@ -2511,6 +2531,12 @@ export async function runGame(
     teamsOurs: 0,
     teamsTheirs: 0,
     // --- end side split -------------------------------------------------------
+    // --- uniform-cliff instrument (BEHAVIOUR-AUDIT-3.md W3) ------------------
+    uniformCliffTurns: 0,
+    uniformCliffLastUnit: 0,
+    lastUnitTeamTurns: 0,
+    deathsAfterUniformCliff: 0,
+    // --- end uniform-cliff instrument ------------------------------------------
     emptyDecisions: 0,
     unstagedUnits: 0,
     fatalStaged: 0,
@@ -2645,6 +2671,10 @@ export async function runGame(
     if (teams.size <= 1) break;
     const staged = new Map<string, number>();
     const rows: string[] = [];
+    // --- uniform-cliff instrument (W3): the units whose whole offered set
+    // floored at DEAD this turn, read again in the death loop below.
+    const onCliff = new Set<string>();
+    // --- end uniform-cliff instrument -----------------------------------------
     try {
       for (const teamId of [...teams].sort()) {
         const t0 = monotonic();
@@ -2763,6 +2793,13 @@ export async function runGame(
           }
         }
         for (const [id, to] of decision.staged) staged.set(id, to);
+        // --- uniform-cliff instrument (W3): how many units this team still
+        // has. The board does not change until `stepGame` below, so one read
+        // per team decision is the whole turn's answer.
+        const livingOnTeam = (board.snakes ?? []).filter(
+          (sn) => sn.health > 0 && (sn.teamID as string) === teamId
+        ).length;
+        // --- end uniform-cliff instrument -----------------------------------
         for (const tr of decision.traces) {
           const prev = previousCell.get(tr.wireId);
           const lastStage = previousStage.get(tr.wireId);
@@ -2805,6 +2842,16 @@ export async function runGame(
               if (tr.bestFloor > Number.NEGATIVE_INFINITY) metrics.avoidablyFatalStaged++;
             }
           }
+          // --- uniform-cliff instrument (W3). `bestFloor` is the best floor
+          // among the OFFERED options, so `bestFloor === DEAD` says every one
+          // of them dies in the worst world and the floor ordered nothing.
+          if (livingOnTeam === 1) metrics.lastUnitTeamTurns++;
+          if (!Number.isNaN(tr.bestFloor) && tr.bestFloor === Number.NEGATIVE_INFINITY) {
+            metrics.uniformCliffTurns++;
+            if (livingOnTeam === 1) metrics.uniformCliffLastUnit++;
+            onCliff.add(tr.wireId);
+          }
+          // --- end uniform-cliff instrument -----------------------------------
           if (tr.seeded) metrics.seedKept++;
           metrics.unitTurns++;
           // --- the side split, on the one loop that knows whose turn it is ---
@@ -2928,6 +2975,10 @@ export async function runGame(
       // P1: read against the immobility the PREVIOUS turn left, because that
       // is the state this unit took its last decision in.
       if (immobile.has(d.id)) metrics.deathsWhileImmobile++;
+      // --- uniform-cliff instrument (W3): this unit's own decision this turn
+      // had nothing but DEAD to choose between, and it died in it.
+      if (onCliff.has(d.id)) metrics.deathsAfterUniformCliff++;
+      // --- end uniform-cliff instrument -------------------------------------
       // --- the side split: deaths, all causes.
       if (isOurs(teamOf.get(d.id))) metrics.oursDeaths++;
       else metrics.theirsDeaths++;
@@ -3857,6 +3908,12 @@ export interface RunSummary {
     readonly immobileUnitTurns: number;
     readonly deathsWhileImmobile: number;
     // --- end immobility instrument -----------------------------------------
+    // --- uniform-cliff instrument (BEHAVIOUR-AUDIT-3.md W3) ----------------
+    readonly uniformCliffTurns: number;
+    readonly uniformCliffLastUnit: number;
+    readonly lastUnitTeamTurns: number;
+    readonly deathsAfterUniformCliff: number;
+    // --- end uniform-cliff instrument ---------------------------------------
     // --- the side split (docs/design/OPPONENTS.md) -------------------------
     // Ours = the decider team, theirs = every other team pooled. See
     // `GameMetrics` for why these are counters and not a note, and for why
@@ -4034,6 +4091,12 @@ export function summaryOf(
       immobileUnitTurns: metrics.immobileUnitTurns,
       deathsWhileImmobile: metrics.deathsWhileImmobile,
       // --- end immobility instrument -----------------------------------------
+      // --- uniform-cliff instrument (BEHAVIOUR-AUDIT-3.md W3) ----------------
+      uniformCliffTurns: metrics.uniformCliffTurns,
+      uniformCliffLastUnit: metrics.uniformCliffLastUnit,
+      lastUnitTeamTurns: metrics.lastUnitTeamTurns,
+      deathsAfterUniformCliff: metrics.deathsAfterUniformCliff,
+      // --- end uniform-cliff instrument ---------------------------------------
       // --- the side split -----------------------------------------------------
       oursMeals: metrics.oursMeals,
       theirsMeals: metrics.theirsMeals,
@@ -4179,6 +4242,12 @@ async function summarise(
     immobileUnitTurns: 0,
     deathsWhileImmobile: 0,
     // --- end immobility instrument -------------------------------------------
+    // --- uniform-cliff instrument (BEHAVIOUR-AUDIT-3.md W3) -------------------
+    uniformCliffTurns: 0,
+    uniformCliffLastUnit: 0,
+    lastUnitTeamTurns: 0,
+    deathsAfterUniformCliff: 0,
+    // --- end uniform-cliff instrument -------------------------------------------
     // --- the anytime instrument (docs/design/DEADLINE.md) ---------------------
     emptyDecisions: 0,
     unstagedUnits: 0,
