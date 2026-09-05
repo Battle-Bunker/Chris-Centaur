@@ -357,44 +357,6 @@ export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false }
 export const HEALTH_RESERVE_RATIO = 0.5;
 
 /**
- * ── THE CONTEST CERTAINTY KNOB (D1) ────────────────────────────────────────
- *
- * How much of `contest`'s charge is graded by how certain the meeting is,
- * against how much of it stays the flat boolean the weight was seated on:
- *
- *     charge(c) = CONTEST_LOSS × (1 − ε + ε · p_e(c))
- *
- * where `p_e(c)` is the share of the beating enemy's own legal action set that
- * lands on `c`, and 1 on the cell it is already standing on. At `ε = 0` every
- * cell an enemy can be met on is charged the whole loss — today's term, plus
- * the enemy's own cell, which the grammar leaves out of every action set and
- * which the term therefore priced at nothing (`docs/design/BEHAVIOUR-AUDIT.md`
- * D1). At `ε = 1` the charge IS the certainty, which is the shape that was
- * measured and reverted: it divides every non-origin charge by the enemy's
- * action count — 1/3 to 1/5 in practice — and so spends about three quarters
- * of a term seated at `contest: 3` on the boolean reading, with the tempo
- * terms moving in behind it (`mixed` meals 246 → 215, parked 7.2% → 12.3%).
- *
- * So the knob is small ON PURPOSE. It has exactly one job: to break the tie a
- * flat charge creates between the cell an enemy OCCUPIES and the cells it can
- * merely reach, which is the tie that killed three units in the audit's corpus
- * — with a boolean charge all of a pawn's options are charged alike and the
- * tie-break still takes the enemy's square (the audit's reproduction C applied
- * to A). Reproduction A sets the floor: the two safe alternatives sit inside a
- * four-action snake's fan at `p = 1/4`, so the fix moves them by `0.75 ε` in
- * the term's own units and it has to clear the 0.15 that decided the move,
- * i.e. `ε > 0.20`. Everything above that is strength given away for nothing.
- *
- * The value is a MEASURED one, per board class, paired by seed; see the D1
- * status note in the audit for the arms.
- *
- * Range `[0, 1]`, checked at profile construction by `checkWeights` — outside
- * it the charge leaves `[0, 1]` per unit and the term's `[-1, 0]` range, on
- * which the cliff inequality for `contest: 3` rests, is no longer true.
- */
-export const CONTEST_CERTAINTY = 0.25;
-
-/**
  * THE PRODUCTION PROFILE. Territory-carrying, because the deficit against the
  * legacy path was measured to be in the OBJECTIVE and not in the search: a
  * material-only maximin is blind to food more than one move away and to a unit

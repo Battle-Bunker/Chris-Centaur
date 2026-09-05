@@ -351,6 +351,127 @@ on every GAME counter and differs only in the work and loud accounting
 (2 → 0 on `mixed`) and takes `enemyOccupiedEntriesLost` 5 → 1 there, and it
 loses ground on `potions`' `lost` (4 → 6).
 
+#### The ordering ON TOP of the repaired floor: `ε = 0.25`, then `ε = 0.125`
+
+The second attempt's lightened charge — `CONTEST_LOSS × (1 − ε + ε·p)`, the knob
+`CONTEST_CERTAINTY` in `calibration.ts`, the enemy's own turn-start cell the only
+full certainty — measured on top of the repair, against the same `924d91a`
+baseline, same protocol, `scripts/ab-compare.js` per class.
+
+**The bound gates are clean at both doses, which is the whole point of repairing
+the floor first.** The ratchet that refused the second attempt (`contest.lo`
+30 → 34, at every `ε` it was tried at) does not fire at any dose once the floor
+brackets over the cells the arrival could settle on:
+
+| arm | `law-sweep` | `totalLo` | `bounds/exact-reply` |
+|---|---|---|---|
+| A (instrument) | `contest.lo` **30** | 0 | exact |
+| repair, `ε = 0` | `contest.lo` **class absent** | 0 | exact |
+| repair + `ε = 0.125` | `contest.lo` **class absent** | 0 | exact |
+| repair + `ε = 0.25` | `contest.lo` **class absent** | 0 | exact |
+
+`exact-reply` is exact on all four seed-1 arms at every row (`mixed` 804 checks /
+102 912 worlds, `snakes` 1 539 / 196 992, `sparse` 1 187 / 18 992 complete,
+`potions` 849 / 108 672; zero floors above a real reply, zero ceilings below a
+complete reply space). So the bound is no longer what refuses D1. The play is.
+
+#### The arms, per board class, paired by seed
+
+60 turns, `--nodes`, never pooled. `meals/100` is `ab-compare`'s paired mean of
+`rates.mealsPer100`; `parked` is `stationary / unit-turns`.
+
+| board | arm | unit-turns | deaths (by cause) | `edge` | `lost` | entries | meals/100 | parked |
+|---|---|---|---|---|---|---|---|---|
+| `mixed` 1–3 | A | 1258 | 10 — contest 7, edge 2, bodyBlock 1 | 2 | 5 | 29 | 19.564 | 7.2% |
+| | repair | 1242 | **9** — bodyBlock 4, contest 5 | **0** | **1** | 13 | 18.764 (**−4.1%**) | 8.3% |
+| | repair + `ε = 0.125` | 1261 | **7** — contest 7 | **0** | **1** | 14 | 18.927 (**−3.3%**) | 10.3% |
+| | repair + `ε = 0.25` | 1251 | **8** — contest 7, self 1 | **0** | **1** | 19 | 18.454 (**−5.7%**) | 11.5% |
+| `potions` 1–8 | A | 3044 | 26 — contest 24, bodyBlock 1, edge 1 | 1 | 4 | 63 | 19.660 | 10.4% |
+| | repair | 3052 | **24** — contest 20, bodyBlock 2, edge 1, self 1 | 1 | 6 | 53 | 20.251 (+3.0%) | 9.7% |
+| | repair + `ε = 0.125` | 3034 | **27** — contest 22, bodyBlock 2, wall 1, edge 1, self 1 | 1 | **2** | 50 | 20.651 (+5.0%) | 9.8% |
+| | repair + `ε = 0.25` | 3077 | 26 — contest 22, bodyBlock 1, wall 2, self 1 | **0** | 4 | 49 | 21.123 (+7.4%) | 10.6% |
+| `snakes` 1–3 | all four | 967 | 7 — bodyBlock 4, self 3 | 0 | 0 | 1 | 16.190 | 0% |
+| `sparse` 1–3 | all four | 720 | 0 | 0 | 0 | 0 | 7.222 | 0% |
+
+`snakes` and `sparse` are identical on every GAME counter at every arm — the same
+deaths, the same causes, the same meals, the same zero occupied-cell entries on
+`sparse` — exactly as D1's registered prediction said they would be.
+
+**No arm is inside the meals budget on `mixed`, and the two `ε` arms each fail a
+second criterion as well.**
+
+* **`ε = 0.25`** is the best arm this defect has produced on everything the
+  audit aimed at: `mixed` deaths 10 → **8** with `edge` 2 → **0** and `lost`
+  5 → **1**, `potions` `edge` 1 → **0** with deaths flat at 26. It is **out on
+  `mixed` meals at −5.7%**, nearly twice the 3% budget, with the parked share
+  7.2% → 11.5%; and `potions`' `enemyOccupiedEntriesLost` does not move (4 → 4),
+  so "`lost` down on every class" is missed too.
+* **`ε = 0.125`** is the cheapest arm on meals — **−3.3%**, still outside the
+  budget though only just — and it is the best arm on `mixed` deaths (10 → **7**,
+  all `contest`, no `edge`). But `potions` **deaths go UP, 26 → 27**, and its
+  `edge` death survives (1 → 1). Out on two counts, and the first of them is the
+  keep-criterion the first attempt died on.
+* **The repair alone** (`ε = 0`) is out at −4.1%, recorded above.
+
+#### The mechanism: the meals are the FLOOR's cost, and `ε` does not pay them back
+
+The repair charges each of our units at the dearest cell its arrival could settle
+on, and for a mover that set is `traversed ∪ origin`. The measurement that
+justified the set says why it is expensive: over the sweep's 8 637 worlds the
+world's settle cell was outside `traversed` ALONE 1 854 times in 1 956
+relocations — **the commonest contingent world is the one where the move does not
+happen and the unit is still standing where it set out from**. So every staged
+move whose path passes an enemy is now priced at the worst of {where it would
+get to, where it started}, and a hold is priced at one cell. That is the honest
+floor, and it is also a standing tax on ADVANCING, applied across the whole board
+rather than at the reproduction: `mixed`'s parked share rises and its meals fall
+before any ordering change is spent.
+
+`ε` does not buy them back. It moves the two doses in opposite directions
+(−4.1% → −3.3% at 0.125, → −5.7% at 0.25) while `potions` deaths go 24 → 27 → 26,
+which is three seeds and eight seeds of a game counter behaving like noise around
+a cost that is already there. There is no window between the doses to search: the
+tempo loss is not a function of `ε`.
+
+### STATUS — THIRD ATTEMPT REVERTED, on the play and not on the bound
+
+The exact inverse of the second attempt, and the second attempt's diagnosis was
+right about the cause: repairing the floor at `settlesOn` DOES close
+`contest.lo` (30 → 0, `totalLo` 0, `exact-reply` exact), and it does free the
+lightening to be measured at any dose. What the repair costs is tempo, and it
+costs it on its own, before `ε` is spent. `mixed` meals are outside the 3% budget
+at every arm this attempt measured.
+
+**So the state on disk is the instrument state once more**: `src/` is
+byte-identical to `924d91a` — `contest.ts`, `calibration.ts` (the
+`CONTEST_CERTAINTY` knob is gone with it), `evaluate/index.ts`,
+`law-sweep.test.ts` (`contest.lo` pinned back at **30**) and
+`contest-occupied-cell.test.ts`, which goes on characterising the defect at
+today's pricing. The scratch diagnostic `d1diag2.test.ts` is deleted.
+
+Gates at the reverted state: `npx tsc --noEmit -p .` clean, `npx eslint
+"src/**/*.ts"` clean, the five-suite jest gate 18/18 suites and 292/292 tests
+green with `local-game-determinism` passing UNCHANGED (no fixture re-pinned —
+the pinned game plays the same moves it always did), law sweep `totalLo 0` with
+`contest.lo` back at 30, and the sixteen-arm inversion gate
+(`CENTAUR_DEBUG_INVERSION=1`, seeds 1–3 at 30 turns per scenario plus `potions`
+60 turns on seeds 4, 5, 6, 8) prints **no `INVERSION` line on any arm**.
+
+**For a fourth attempt, if there is one.** Two doors are now closed and one is
+still open, and the closed ones cost a branch each:
+
+1. *Lighten the charge on the unrepaired floor* — refused by the `contest.lo`
+   ratchet at every `ε` (second attempt).
+2. *Repair the floor first, then lighten* — bound-clean at every `ε`, refused by
+   `mixed` meals at every `ε` (this attempt). The cost is the origin clause in
+   `settlesOn`, and it is not a tuning: the `kind` filter over the ledger was
+   measured and moves the mean set size 1.605 → 1.603 cells.
+3. *Spend the certainty where the floor does not read it* — the candidate
+   ORDERING, or `momentum`'s idleness charge, which is the 0.167 that actually
+   decided reproduction A. This is the one door D1 has never had a branch
+   through, and after two attempts it is the only one left that does not start
+   by making the bot slower.
+
 
 ---
 

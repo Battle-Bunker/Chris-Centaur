@@ -868,3 +868,38 @@ tenth cannot appear unnoticed.
 Nothing else is owed. The oracle, its classifier, the sixteen-arm gate and the
 law sweep are merged as instruments precisely so that the next attempt is
 argued with numbers rather than with a reading.
+
+**A tenth class was closed at its cause, and the repair still did not ship
+(2026-09-05).** `contest.lo` — 30 worlds where `contest`'s own floor sits above
+its own value — was the ratchet that refused D1's second attempt in
+`docs/design/BEHAVIOUR-AUDIT.md`. Its cause is now named and repaired: the term
+charged each of our units at the charge of the cell the PARTIAL resolution
+settles it on, and a completion world that halts a mover short settles it
+somewhere else, so a contingent quantity was read as a point. Bracketing over
+the cells the arrival could settle on (`contest.ts`, `settlesOn` — the cells the
+unit entered in this timeline union the one it set out from, and nothing at all
+where the engine's own `fates` says it is not contingent) takes the class
+**30 → 0** with `totalLo` still 0, checked before it was believed on the sweep's
+own 240 boards: over 8 637 completion worlds and 1 956 relocations the world's
+settle cell was inside the set every time. `bounds/exact-reply` stays exact on
+all four seed-1 arms, at `ε = 0` and at both doses of D1's ordering change on
+top of it.
+
+**Requirement 1 met, requirement 2 failed, and the class stays pinned at 30.**
+The A/B, per board class and never pooled, is out on `mixed` meals at every arm
+measured — −4.1% for the floor repair alone, −3.3% at `ε = 0.125`, −5.7% at
+`ε = 0.25`, against a 3% budget — with `snakes` and `sparse` identical on every
+game counter and `potions` neutral-to-better on meals throughout. So the repair
+is not merged and the ratchet goes back to 30.
+
+**The reason is worth keeping, because it generalises past `contest`.** Closing
+this class means charging each unit at the WORST cell its arrival could settle
+on, and the measurement says the worst cell is nearly always the one it set out
+from: the commonest contingent world is simply the one where the move does not
+happen (1 854 of the 1 956 relocations were outside `traversed` alone). An
+honest floor over a contingent settle cell is therefore a standing tax on
+ADVANCING — it prices every staged move that passes an enemy at the worse of
+"where it gets to" and "where it started", while a hold stays a point. That is
+the same shape as `b1-sound`'s two closures above: correct-and-looser, paid for
+in games. It is the third measured instance of the pattern and the first where
+the looser floor is loose in a direction with a behavioural name.
