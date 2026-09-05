@@ -882,11 +882,11 @@
             <dt><kbd>Del</kbd></dt>
             <dd><b>Clear every command</b> given to the selected unit &mdash; staged move, goto queue, near target, staged rotation &mdash; reverting it to no human input at all. It then does whatever no input means for it (a snake follows the bot; a piece holds).</dd>
             <dt>Right-click</dt>
-            <dd>Green <b>goto</b> target: the bot is rewarded for approaching it. A weighted vote in the same scoring matrix every heuristic feeds &mdash; never a path override &mdash; so survival can still outvote it. Right-click the lone target again to cancel.</dd>
+            <dd><b>goto</b> target &mdash; a green cell marked with a <b>cross</b>: the bot is rewarded for approaching it. A weighted vote in the same scoring matrix every heuristic feeds &mdash; never a path override &mdash; so survival can still outvote it. Right-click the lone target again to cancel.</dd>
             <dt><kbd>Shift</kbd>+Right-click</dt>
             <dd><b>Cue</b> another goto target onto the queue instead of replacing it; shift-right a queued cell again to remove it. Only the active (first) target steers the bot; the faded path is a prediction.</dd>
             <dt><kbd>Ctrl</kbd>+click</dt>
-            <dd>Blue <b>near</b> target: rewards staying close <em>without</em> arriving &mdash; the bonus peaks one square away. Single target; ctrl-click it again to remove.</dd>
+            <dd><b>near</b> target &mdash; a blue cell marked with a <b>ring</b>: rewards staying close <em>without</em> arriving &mdash; the bonus peaks one square away. Single target; ctrl-click it again to remove.</dd>
           </dl>
         </div>
 
@@ -3984,6 +3984,18 @@
     // queue of more than one cell is numbered in order, so the active target
     // (cells[0], the only one handed to the decision engine) is legible.
     // Uses the same canvas-coordinate convention as drawRouteOverlay (y flipped).
+    //
+    // SHAPE CARRIES THE MEANING; COLOUR ONLY REINFORCES IT (02 §3.2). These two
+    // overlays used to draw the SAME mark — square, border, diagonal cross —
+    // and differ in nothing but hue, so a red-green-blind operator could not
+    // tell "approach this cell" from "stay near this cell". They are two
+    // different standing orders, and the board was giving them one face.
+    //
+    // So the marks now differ in form, and the form is the order: a CROSS is a
+    // destination — X is the spot — and a RING is a radius, which is exactly
+    // what `near` rewards. The rail says the same two things with `◎ goto` and
+    // `◉ near`; the board and the rail speak one language, and the hue is the
+    // second reading of a distinction already made.
     function drawWaypointOverlay(canvas, waypoint, board, cellSize) {
       if (!waypoint || !waypoint.cells || waypoint.cells.length === 0) return;
       const ctx = canvas.getContext('2d');
@@ -4004,14 +4016,20 @@
         ctx.strokeStyle = stroke;
         ctx.lineWidth = Math.max(2, cellSize * 0.07);
         ctx.strokeRect(px + pad, py + pad, cellSize - 2 * pad, cellSize - 2 * pad);
-        // Diagonal cross marker so the target reads clearly even when
-        // overlapping a snake.
+        // The marker, and it names the order rather than only locating it. A
+        // cross for `goto` (X is the destination), a ring for `near` (a radius
+        // is what the reward is about). Both read over a snake's body, which
+        // is why the marker exists at all.
         ctx.beginPath();
-        ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
-        ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
-        ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
-        ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
         ctx.lineWidth = Math.max(1.5, cellSize * 0.05);
+        if (isGreen) {
+          ctx.moveTo(px + cellSize * 0.3, py + cellSize * 0.3);
+          ctx.lineTo(px + cellSize * 0.7, py + cellSize * 0.7);
+          ctx.moveTo(px + cellSize * 0.7, py + cellSize * 0.3);
+          ctx.lineTo(px + cellSize * 0.3, py + cellSize * 0.7);
+        } else {
+          ctx.arc(px + cellSize / 2, py + cellSize / 2, cellSize * 0.2, 0, 2 * Math.PI);
+        }
         ctx.stroke();
         if (showOrder) {
           ctx.globalAlpha = 1;

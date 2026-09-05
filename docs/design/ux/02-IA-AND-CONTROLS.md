@@ -282,18 +282,64 @@ operator who never learns a key.
 
 ### 2.5 Colour-vision safety, density, motion
 
-Every colour is a *second* reading of something already carried by a glyph, a
-border style or a word: `▸` cursor, `◇` foil (plus a dashed rule), `⚠` refused,
-`◦` unplanned, `🔒` fixed, strike-through for stale, `~`/`·` for the grades.
-The tokens are declared once in `:root` and every rail rule reads them.
+`01-RESEARCH.md` #17 asked for an **audit** rather than a restatement of
+`02 §3.2`'s rule, on the ground that the board already claims blue, amber, red,
+grey, green and teal-blue plus arbitrary operator hues, and the lens adds
+violet, teal and orange-red — past any safe qualitative set. So this is the
+audit: every mark the operator decides on, and the shape that carries it if the
+hue is taken away.
+
+**The rail.** Every colour is a *second* reading of something already carried by
+a glyph, a border style or a word: `▸` cursor, `◇` foil (plus a dashed rule),
+`⚠` refused, `◦` unplanned, `🔒` fixed, strike-through for stale, `~`/`·` for
+the grades. The tokens are declared once in `:root` and every rail rule reads
+them. Passes.
+
+**The board**, mark by mark:
+
+| mark | means | shape that carries it | hue alone? |
+|---|---|---|---|
+| lens arrow | the cursor's hypothesis | filled, one weight heavier | no |
+| implied arrow | a member's move that differs from what is staged | hollow — stroked outline, unfilled head | no |
+| foil arrow | the runner-up, where it differs | dashed, plus its own Δ text | no |
+| agreement ring | a member whose implied move *equals* what is staged | a ring around the existing head, and no second arrow | no |
+| cluster tether | who is in the constellation | line-art radiating to a centroid; an excluded unit has no tether | no |
+| clash frame | a contested cell | a solid line on the cell's own edge, outside every other mark | no |
+| hazard | the lattice | a grid of bars filling the cell | no |
+| controlled unit | mine to command | thin dashes on the body outline | no |
+| health | how starved | **bar length**; the three-step ramp is a second reading of it | no |
+| staged arrow | a determination, and whose | chevron for committed, dashed ghost for requested | **the operator is hue only** |
+| ~~goto vs near~~ | two different standing orders | — | ~~**yes**~~ → **fixed** |
+
+Two findings, and only one of them is cheap.
+
+**Fixed here: `goto` and `near` drew the same mark.** Both were a translucent
+square, a thick border and a diagonal cross, differing in nothing but green
+versus blue — so a red-green-blind operator could not tell *approach this cell*
+from *stay near this cell*, which are two different orders to give a unit. The
+form is now the order: a **cross** for `goto`, because X is the destination, and
+a **ring** for `near`, because a radius is what that reward is about. It is the
+distinction `◎ goto` / `◉ near` already makes in the control bar, so the board
+and the rail now say it the same way, and the help pane names the shape
+alongside the colour instead of the colour alone.
+
+**Recorded, not fixed: which operator staged an arrow is hue only.** The
+three-state vocabulary (ghost / solid / chevron) says what stage a write is at,
+and the arrow's position says which unit; *whose* determination it is rides on
+the operator's own colour and nothing else. It matters only in a game with a
+second operator — the case `02 §1.6`'s whole reactive apparatus is built for
+and that no human has yet played — and the fix is not free: a per-operator mark
+has to survive a 20 px cell already carrying an icon, an eye, a letter and a
+body. It belongs with the multi-operator work, not smuggled in here.
 
 **Density** is one number (`--lens-size`, with `--lens-pad`) in three steps —
 compact / default / roomy — applied as a class on the rail and persisted in
 `localStorage`. It is a scale, not a second design.
 
 `prefers-reduced-motion` turns off the clock's transition and the arrival
-pulse. Rail rows, chips, scheme buttons and lane ticks all take a visible
-focus ring.
+pulse; on the lobby chrome it turns off the game card's lift, whose colour
+change says the same thing. Rail rows, chips, scheme buttons, lane ticks, and
+the lobby's cards and nav links all take a visible focus ring.
 
 ---
 
