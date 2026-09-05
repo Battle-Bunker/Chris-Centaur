@@ -798,3 +798,30 @@ per-unit ownership planes (`own` / `planeFor`), the per-team `seen`/`multi`
 sweep, its `hit`/`others` scratch and the held-teammate tie exemption — 84 lines
 of code and three special cases, against one `∩ ¬barrier` and one stamped
 barrier grid.
+
+---
+
+## 10. STATUS — §9.4's two piece clauses re-tested, and both stand
+
+`docs/design/ROOM-PIECES.md` put the two open readings of this design to the
+ENDGAME corpus (`snakes` + `mixed`, seeds 1–6, 60 turns, both sides, vs
+`material-only`) and **neither moves.**
+
+* **"Pieces do not bar" (§9.4) stands, and now the narrower reading is closed
+  too.** The dilation is what saturates and the measurement separates them: a
+  piece barring only THE CELL IT STANDS ON moves `kept` on 1.85% of 186 303
+  `mixed` readings at its most aggressive setting, against 91.3% for the clouds
+  §9.4 refused, which pin `kept ≤ 1` on 29.8%. Built as one knob
+  `pieceBarTurns`, byte-identical at 0, and **reverted**: `snakes` and `sparse`
+  cannot move (no piece), and on `mixed` deaths went 25 → 24 / 23 → 23 while
+  late `self` + `bodyBlock` stayed 2 → 2 / 0 → 0 and `fatalEntrapments`
+  11 → 11 / 7 → 7.
+* **"A piece reads exactly zero, and the divisor is why" (§9.4) is confirmed and
+  SIZED.** Our `mixed` roster is one snake and two pieces, so `ourUnitTerm`
+  spends two thirds of this term's headroom on units silent by construction —
+  an order of magnitude more than the flood question above. It belongs to
+  `bound.ts`, not here.
+* **`need = max(4, L + 2)` is not a saturating cap.** On all 13 451 readings
+  where the term fires, re-flooding at `4 × need` returns the same number: the
+  region is exhausted, never truncated. `BEHAVIOUR-AUDIT-2.md` D5's second
+  clause is refused. See `ROOM-PIECES.md` §2.

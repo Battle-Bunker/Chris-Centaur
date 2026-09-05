@@ -816,6 +816,19 @@ interface Cloud {
  * be: a snake dies of a pocket when its own tail stops feeding it slack, the
  * tail takes `L` turns to clear the body, and `REACH_HORIZON_TURNS` = 4 stops
  * looking one turn after the front is blocked and before the body vacates.
+ *
+ * THE CAP DOES NOT SATURATE THE TERM, AND THAT IS MEASURED — do not re-derive
+ * (`docs/design/ROOM-PIECES.md` §2). BEHAVIOUR-AUDIT-2's D5 reads `need` as a
+ * ceiling a long snake always clears, so that `fear` is 0 until it is too
+ * late. Over 196 731 `lo` readings of our own unheld trail units (`snakes` and
+ * `mixed`, seeds 1-6, 60 turns, vs `material-only`), re-flooding each one at
+ * `4 x need` with the horizon untouched: on ALL of the 13 451 readings where
+ * `kept < need` the two answers are equal, so the cap never once truncated a
+ * region that was still growing — the flood stops because the region is
+ * exhausted. Silence is flat in length (92.2% at `L <= 5`, 93.7% at `L >= 20`
+ * on `snakes`), and where the term is silent the region really is a median
+ * 2.9-4.0 x `need`. A longer horizon is separately refuted at
+ * `docs/design/DEEP-DEATHS.md` §5.5.
  */
 export const needOf = (length: number): number => Math.max(4, length + 2);
 
@@ -935,6 +948,22 @@ function bodyBarriersOf<S extends TerritorySubject>(
  * Where `k` runs past the shells' own horizon the front is simply held at its
  * last one — `earliest` is `NEVER` beyond it — which is the cumulative reading
  * `Shells.extendTo` already takes when a front comes back empty.
+ *
+ * AND THE NARROWER READING — a piece barring ONLY THE CELL IT STANDS ON, never
+ * its dilation — WAS BUILT, MEASURED AND REVERTED (`docs/design/ROOM-PIECES.md`
+ * §3). It does not saturate, which was the open question: as one knob
+ * `pieceBarTurns` in `bodyBarriersOf` it moved `kept` on 0.57% (bar for one
+ * horizon turn) to 1.85% (bar for all of them) of 186 303 `mixed` readings,
+ * against 91.3% for the piece CLOUDS above and `kept <= 1` on 29.8% of them.
+ * So the saturation §9.4 records belongs to the dilation and not to the piece.
+ * But the play does not move: `snakes` and `sparse` are byte-identical (no
+ * piece), and on `mixed` seeds 1-6 at 60 turns vs `material-only` deaths went
+ * 25 → 24 / 23 → 23 (side 0 / side 1) while `self` + `bodyBlock` at turns
+ * 46-60 stayed 2 → 2 and 0 → 0 and `fatalEntrapments` 11 → 11 and 7 → 7. A
+ * change that cannot move the late body deaths it was built for is not a
+ * repair. The larger half of a piece's zero is not here at all — it is
+ * `ourUnitTerm`'s divisor (`bound.ts`), which on `mixed` spends two thirds of
+ * this term's headroom on units that are silent by construction.
  */
 function cloudsOf<S extends TerritorySubject>(
   ws: TerritoryWorkspace,
