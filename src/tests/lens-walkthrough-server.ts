@@ -234,6 +234,13 @@ async function main(): Promise<void> {
   app.get('/game/:id', (_req, res) => {
     res.sendFile('play-game.html', { root: path.join(__dirname, '../web') });
   });
+  // `/history` is a ROUTE in production (`src/index.ts:86`) and the review is
+  // reached at that path — `page-chrome.js` marks the current page by
+  // pathname, so serving the file only at `/history.html` would photograph a
+  // page that thinks it is nowhere.
+  app.get('/history', (_req, res) => {
+    res.sendFile('history.html', { root: path.join(__dirname, '../web') });
+  });
 
   // ── The read side, off the list instead of off Postgres ─────────────────
   // Deliberately answered for ANY game id: `/game/<anything>-replay` is the
@@ -289,9 +296,17 @@ async function main(): Promise<void> {
     // replay that stopped at the turn's last DECISION event would be a
     // different prefix from the one the live client ended on — which is a
     // difference in the harness, not in the product, and would show up as one.
+    // `kind=` is filtered here as production filters it in SQL (an indexed
+    // `(game_id, turn, kind)` column). The review's index pass asks for five
+    // small kinds across a whole game rather than the whole log, and a stub
+    // that ignored the filter would hand it the megabytes the split exists to
+    // avoid — a difference in the harness that reads as a difference in the
+    // product (docs/design/ux/07-REVIEW.md §1.6).
+    const kind = req.query.kind == null ? null : String(req.query.kind);
     const events = log
       .filter((t) => t.turn >= start && t.turn <= end)
-      .flatMap((t) => (captured.get(t.turn) ?? []).map((e) => storedRow(e).payload));
+      .flatMap((t) => (captured.get(t.turn) ?? []).map((e) => storedRow(e).payload))
+      .filter((p) => kind === null || (p as { kind?: string }).kind === kind);
     // `lensStringify`, exactly as `turn_events.payload` is written: `hi: +∞` is
     // the lattice top before anything is proved above the incumbent, and plain
     // `JSON.stringify` flattens it to `null`. Postgres holds the NAMED form and

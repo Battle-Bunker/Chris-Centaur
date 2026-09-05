@@ -265,3 +265,170 @@ select:focus-visible, canvas:focus-visible, [tabindex]:focus-visible,
 .server-state-badge { display: none !important; }
 
 /* ── END UX-SECONDARY ────────────────────────────────────────────────────── */
+
+/* ── UX-REVIEW ─────────────────────────────────────────────────────────────
+ * The post-game review, on /history (docs/design/ux/07-REVIEW.md). One
+ * delimited block at the end of the file, additive only, so the merge with
+ * the other passes over this stylesheet stays a concatenation.
+ *
+ * THE RULE THE STRIP OBEYS: every moment is a GLYPH first and a brightness
+ * second; hue is a third reading of something the shape already said, so the
+ * strip survives any colour vision (01-RESEARCH #17). Nothing here re-orders
+ * or moves under the cursor (P3): a cell's state changes ink and border, and
+ * the status line has a fixed slot.
+ */
+
+.rv[hidden] { display: none !important; }
+.rv { display: block; }
+
+.review-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 4px 0 12px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px;
+}
+.rv-back {
+  font: inherit; font-size: 12px; color: var(--ink-dim); background: #2a2a2a;
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; cursor: pointer;
+}
+.rv-back:hover { background: #343434; color: var(--ink); }
+.rv-verdict { font-size: 17px; font-weight: 600; margin: 0; }
+.rv-verdict .rv-sub { font-size: 12px; font-weight: 400; color: var(--ink-dim); }
+.rv-verdict .rv-sub b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.rv-read { font-size: 11px; color: var(--ink-faint); margin-left: auto; }
+.rv-id { font-size: 11px; color: var(--ink-faint); }
+
+/* ── The strip: one cell per stored turn ─────────────────────────────────── */
+.rv-strip {
+  list-style: none; margin: 0 0 6px; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 2px;
+}
+.rv-cell {
+  width: 18px; height: 24px; padding: 0; cursor: pointer;
+  background: #232323; border: 1px solid #2e2e2e; border-radius: 3px;
+  color: var(--ink-faint); font-size: 12px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.rv-cell:hover { border-color: #666; }
+.rv-cell:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* Read, and nothing fired: a flat dot. Not read in full: dimmer AND dashed,
+ * because "nothing happened" and "nobody looked" are different readings. */
+.rv-none { color: #4a4a4a; }
+.rv-unread { color: #3a3a3a; border-style: dashed; }
+/* Weight is BRIGHTNESS — the channel the periphery actually reads. `w1` is a
+ * hit that did not make the index's cut: quieter than the rest of this game,
+ * which is not the same as nothing. */
+.rv-w1 { filter: brightness(0.45); }
+.rv-w2 { filter: brightness(0.78); }
+.rv-w3 { filter: brightness(1); }
+.rv-w4 { filter: brightness(1.25); }
+.rv-cell.rv-at, .rv-moment.rv-at {
+  border-color: var(--focus); background: #2f3542;
+}
+.rv-stop .rv-glyph { color: var(--stop); }
+.rv-warn .rv-glyph { color: var(--warn); }
+.rv-cool .rv-glyph { color: var(--cool); }
+.rv-ink  .rv-glyph { color: var(--ink); }
+
+.rv-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px;
+  color: var(--ink-faint); margin-bottom: 14px;
+}
+.rv-key { display: inline-flex; align-items: center; gap: 5px; }
+.rv-key .rv-glyph { font-size: 12px; }
+
+/* ── The two columns ─────────────────────────────────────────────────────── */
+.rv-body { display: grid; grid-template-columns: minmax(230px, 300px) 1fr; gap: 16px; }
+@media (max-width: 900px) { .rv-body { grid-template-columns: 1fr; } }
+
+.rv-h {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-dim); margin: 0 0 6px;
+}
+.rv-hint { font-size: 10px; color: var(--ink-faint); letter-spacing: 0; text-transform: none; }
+.rv-list, .rv-marks { list-style: none; margin: 0 0 18px; padding: 0; }
+.rv-moment, .rv-markrow {
+  width: 100%; text-align: left; font: inherit; font-size: 12px; cursor: pointer;
+  background: #232323; border: 1px solid #2e2e2e; border-radius: 4px;
+  color: var(--ink); padding: 5px 8px; margin-bottom: 3px;
+  display: grid; grid-template-columns: 14px 30px 1fr; gap: 2px 6px;
+}
+.rv-moment:hover, .rv-markrow:hover { border-color: #666; background: #282828; }
+.rv-moment:focus-visible, .rv-markrow:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.rv-mturn { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.rv-mhead { color: var(--ink); }
+.rv-mdet { grid-column: 2 / -1; color: var(--ink-faint); font-size: 11px; }
+.rv-markrow { display: block; }
+.rv-empty { font-size: 12px; color: var(--ink-faint); padding: 6px 0; }
+
+/* ── The turn ────────────────────────────────────────────────────────────── */
+.rv-turnbar, .rv-share {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ink-dim); margin-bottom: 8px;
+}
+.rv-turn b { color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.rv-lead { font-variant-numeric: tabular-nums; }
+.rv-turnbar .grow { flex: 1; }
+.rv-btn {
+  font: inherit; font-size: 12px; color: #cfe8d0; background: #333;
+  border: 1px solid #4a4a4a; border-radius: 4px; padding: 3px 9px;
+  text-decoration: none; cursor: pointer;
+}
+.rv-btn:hover { background: #3d3d3d; border-color: #666; }
+.rv-btn.rv-on { border-color: var(--warn); color: var(--warn); }
+.rv-share label { color: var(--ink-faint); }
+.rv-link {
+  flex: 1; min-width: 220px; background: #1e1e1e; border: 1px solid var(--line);
+  border-radius: 4px; color: var(--ink-dim); font-size: 11px; padding: 4px 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* A fixed slot, so a status appearing moves nothing under the cursor. */
+.rv-said { min-width: 11em; color: var(--warn); font-size: 11px; }
+
+/* ── The why panel ───────────────────────────────────────────────────────── */
+.rv-sentence {
+  font-size: 13px; color: var(--ink); background: #232323;
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--cool);
+  border-radius: 4px; padding: 8px 12px; margin-bottom: 10px;
+}
+.rv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.rv-card {
+  background: #202020; border: 1px solid var(--line-soft); border-radius: 6px;
+  padding: 9px 11px; min-width: 0;
+}
+.rv-card h4 {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-dim); margin: 0 0 7px;
+}
+.rv-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.rv-table th, .rv-table td {
+  text-align: left; padding: 3px 6px 3px 0; vertical-align: top;
+  border-bottom: 1px solid #2b2b2b; font-variant-numeric: tabular-nums;
+}
+.rv-table thead th { color: var(--ink-faint); font-weight: 500; }
+.rv-table tbody th { color: var(--ink-dim); font-weight: 500; white-space: nowrap; }
+.rv-table code { color: var(--ink-dim); }
+.rv-focus > td { background: #2a3140; }
+.rv-differs { color: var(--warn); }
+.rv-residual > * { border-top: 1px solid var(--line); color: var(--ink); }
+.rv-unit {
+  font: inherit; font-size: 11.5px; color: var(--cool); background: none;
+  border: none; border-bottom: 1px dashed #47708c; padding: 0; cursor: pointer;
+}
+.rv-unit:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.rv-note { font-size: 11px; color: var(--ink-faint); margin: 5px 0 0; line-height: 1.5; }
+.rv-clause { font-size: 12px; color: var(--warn); margin: 4px 0 6px; }
+.rv-feats { list-style: none; margin: 4px 0 0; padding: 0; font-size: 11px; color: var(--ink-dim); }
+.rv-feats li { padding: 1px 0; }
+.rv-clusters { font-size: 11px; color: var(--ink-faint); margin: 0 0 8px; display: flex;
+  align-items: center; gap: 6px; flex-wrap: wrap; }
+.rv-cbtn {
+  font: inherit; font-size: 11px; color: var(--ink-dim); background: #262626;
+  border: 1px solid var(--line-soft); border-radius: 10px; padding: 1px 9px; cursor: pointer;
+}
+.rv-cbtn:hover { border-color: #666; color: var(--ink); }
+.rv-cbtn.rv-on { border-color: var(--cool); color: var(--cool); }
+.rv-embed { margin-top: 12px; }
+.rv-iframe {
+  width: 100%; height: 620px; border: 1px solid var(--line); border-radius: 6px;
+  background: #1a1a1a;
+}
+/* ── END UX-REVIEW ───────────────────────────────────────────────────────── */
