@@ -266,6 +266,17 @@
        inside an identifier and the column read "red-" / "A→94 · red-" /
        "C→118", which is a unit id nobody can match to the board. */
     .lens-move { white-space: nowrap; }
+    /* WHAT SEPARATES THIS ROW FROM THE ONE BEING READ. The measured case is
+       `red-A→84 · red-C→69` against `red-A→84 · red-C→67` — the whole
+       difference is one cell on one unit, and nothing said so. The mark is a
+       WEIGHT and an underline, not a hue: it has to survive a deuteranope and
+       a screenshot, and the cards already spend violet and teal on rank and
+       foil. `≡ n` counts the units this row agrees with the cursor on. */
+    .lens-move-diff {
+      font-weight: 700; color: #fff;
+      border-bottom: 1px solid currentColor; padding-bottom: 1px;
+    }
+    .lens-move-same { color: #9a9a9a; white-space: nowrap; }
     .lens-focus-line { font-size: 13px; color: #eee; }
     .lens-cluster { float: right; color: #B39DFF; }
     .lens-sub, .lens-provenance { font-size: 11px; color: #888; }
