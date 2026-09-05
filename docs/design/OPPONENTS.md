@@ -310,6 +310,48 @@ so "our extra deaths are contest deaths" is an inference from the side-split
 totals plus the board-wide causes, not a measurement. §6 names the counter that
 would settle it.
 
+### STATUS — THE MECHANISM ABOVE IS REFUTED BY THE TRANSCRIPTS (`glutton-class`)
+
+**Read the games before re-deriving anything from this section.**
+`docs/design/GLUTTON-CLASS.md` §1 reads all nineteen of our deaths in the twelve
+`glutton` games and all nine in the mirror control, at the death turn and back to
+the last turn `contest` said anything at all, with a per-candidate `explainPlan`
+vector against the plan the search chose.
+
+**Not one of the 19 is a unit taking a contested meal.** The staged destination
+held a meal on none of them; the dying unit's hunger scale runs 0.00–0.26, so
+every one is between 74% and 100% of its maximum energy, and there is not one
+starvation death in the 24 games. `food`'s per-option spread at the death turn is
+0.00–0.16 against `contest`'s 0.00–1.00. The `contest < food` licence is
+exercised in ZERO of the extra deaths, and the paragraph above — an inference
+from the board-wide cause counters, as it says — does not survive.
+
+What the deaths ARE: 12 of 19 are `contest-gap.md`'s class B (every offered
+option beaten, the member FLAT across all of them), 4 forced, 1 outranked by a
+search that ranked its own choice 5th of 9, 2 other; and 17 of 19 took a square
+the member read as FREE and were inside a closed fan one ply later. **The
+mirror's nine deaths are the same shape, 9 of 9.** `glutton` opens no new class.
+It produces more of the one `contest-gap.md` §2 already named and already failed
+to close, because it out-eats us five to one at seat 0 and every meeting the
+mirror gives us a capture in it gives the kill.
+
+§5's proposed change is unaffected by this — it is about
+`enemyOccupiedEntriesLost`, not about food — but its stated motive ("squares
+whose arrival-turn verdict was already lost when the move was staged") should be
+read against GLUTTON-CLASS §1.3: at the death turn every offered option is
+already lost on 12 of 19, so a veto there has nothing left to choose between.
+
+§6's gate proposal STANDS and is strengthened: the two seats' death counts on
+this build are 10 (seat 0) and 9 (seat 1), reproduced, and `glutton` on
+`potions` remains the only two-seat-consistent loss. `mixed` (9→10, 4→4) and
+`snakes` (6→5, 4→5) move inside the seed noise, so the class is `potions` alone.
+
+One rule was built against the corrected diagnosis and REFUSED at three doses —
+the contested-meal discount, `GLUTTON-CLASS.md` §2. It closes the seat-1 finding
+outright (our deaths 9 → 2, the mirror's own number) and it is refused because
+mirror deaths rise on `mixed` and `potions` at every dose and the meals bill runs
+to −37%.
+
 **Why the mirror could never have found this.** Against a mirror, both sides hold
 `contest < food` on the same numbers, so both sides decline and take the same
 contested meals and the deaths split evenly (7/7 at seat 0). The relation only
