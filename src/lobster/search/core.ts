@@ -262,6 +262,70 @@ const REFUSED = {
   tie: { accept: false, because: "tie" },
 } as const satisfies Readonly<Record<string, Verdict>>;
 
+/**
+ * THE CONSIDERATION ORDER, WATCHED — one occasion per `better()` comparison.
+ *
+ * The question this exists to answer is ORDER, not value: at a fixed node
+ * budget, does the RANK at which a moveset is reached decide whether it is the
+ * one finally staged? Nothing in this file can answer that from the inside,
+ * because the search keeps only its incumbent — the loser of every comparison
+ * is dropped on the floor and the sequence it was dropped in is gone.
+ *
+ * WHY A MODULE-LEVEL LATCH, and not a `SearchContext` field. `bounds/loud.ts`
+ * settled this shape already, for the same reason: the alternative is threading
+ * a sink through `SearchContext` and `KernelInput` for a counter, which is the
+ * seam a measurement is supposed to avoid buying. `SearchContext.trials` is the
+ * seam a PRODUCT (the lens) paid for and is wired only when a lens is attached;
+ * an ordering study is not a product and must be able to watch the runner's own
+ * arms, lens or no lens.
+ *
+ * WHAT IT COSTS WHEN NOBODY IS WATCHING: one null check per priced trial, in a
+ * function that already performs one. Watching costs a `planKey` per trial —
+ * string work, and NEITHER an evaluator call NOR a `now()` read, so under the
+ * runner's node clock (`nodes x NODE_COST + reads x READ_COST`) an observed run
+ * and an unobserved one are byte-identical in every counter. That is the same
+ * argument `loud.ts` makes and it is why this can be merged on a gate that says
+ * "byte-identical" and mean it.
+ */
+export interface TrialOccasion {
+  /** `voc.planKey` of the plan that was priced — the KERNEL's spelling, so an
+   *  occasion can be matched against a plan the kernel emitted. */
+  readonly planKey: string;
+  /**
+   * What it was compared AGAINST, in the same spelling.
+   *
+   * WITHOUT THIS THE LEADER CANNOT BE RECONSTRUCTED, and the mistake is not a
+   * small one. A perturbed restart ascends against ITS OWN local incumbent
+   * (`improve`'s `local`), so its accepts are accepts against a plan that was
+   * never the decision's answer — counting them as leader changes turns a
+   * handful of real changes into hundreds of imaginary ones. An accept
+   * advances the leader iff it was compared against the leader.
+   */
+  readonly incumbentKey: string;
+  /** `better()` took it: this plan became THAT incumbent at this instant. */
+  readonly accepted: boolean;
+  /** Which rung proposed it — seed, sweep, pair, polish, restart. */
+  readonly rung: MovesetRung;
+}
+
+/** The installed watcher, or null. Null ⇒ this costs one null check. */
+let trialWatcher: ((occasion: TrialOccasion) => void) | null = null;
+
+/**
+ * Watch every priced trial until the returned function is called.
+ *
+ * The previous watcher is restored rather than cleared, exactly as
+ * `observeLoud` does, so a nested measured run cannot silently steal the outer
+ * one's occasions.
+ */
+export function observeTrials(fn: (occasion: TrialOccasion) => void): () => void {
+  const previous = trialWatcher;
+  trialWatcher = fn;
+  return (): void => {
+    trialWatcher = previous;
+  };
+}
+
 export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   const cfg: SearchTuning = { ...DEFAULT_TUNING, ...tuning };
   /** Bounds inversions this core absorbed rather than letting them end a
@@ -622,6 +686,16 @@ export function makeSearchCore(tuning: Partial<SearchTuning> = {}): SearchCore {
   let trials: TrialSink | null = null;
   let rung: MovesetRung = "seed";
   const observe = (trial: BankResult, incumbent: BankResult, verdict: Verdict): void => {
+    // THE ORDERING INSTRUMENT, ahead of the lens's own null check because it
+    // must see the trials of an arm that has no lens attached at all.
+    if (trialWatcher !== null) {
+      trialWatcher({
+        planKey: viewPlanKey(trial.plan),
+        incumbentKey: viewPlanKey(incumbent.plan),
+        accepted: verdict.accept,
+        rung,
+      });
+    }
     if (trials === null) return;
     trials({
       plan: trial.plan,
