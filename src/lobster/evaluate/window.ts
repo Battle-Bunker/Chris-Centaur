@@ -227,22 +227,6 @@ import { perBoard, perBoardPerTeam } from './memo';
  */
 export const PERIL_WEIGHT = 2;
 
-/**
- * HOW MUCH OF THE PERIL IS READ FROM THE PLAN'S OWN ARRIVAL CELL.
- *
- * The one knob of the third attempt (`docs/design/potions.md`, "P3"), and it
- * replaces a single point: `α = 0` is the turn-start reading this term always
- * had, exactly; `α = 1` reads the collector's ground entirely from the cell the
- * plan leaves it on. Nothing between the horizons is reweighted — D4 measured
- * that and it is not to be re-derived — and nothing about the share is reshaped
- * — P2 measured that. What moves is WHERE the ground is read from, which is the
- * only change that gives the peril half a gradient over the collector's own
- * options at all: §P2's finding is that a ground read from the turn-start cell
- * makes the charge a CONSTANT across every plan in which that collector
- * collects, and a constant common to both sides of a comparison cancels.
- */
-export const PLAN_PERIL_SHARE: number = 1;
-
 // ---------------------------------------------------------------------------
 // The window, the edge, and who collects
 // ---------------------------------------------------------------------------
@@ -531,85 +515,12 @@ function* enemyClaims(sub: EngineSubstrate, claims: ReadonlyArray<Claim>, asTeam
 }
 
 /**
- * THE GROUND THE PLAN LEAVES THE COLLECTOR ON, per horizon.
- *
- * `read.ground` is the collector's ground read from the cell it stands on as
- * the turn OPENS — every cell it could reach, over every move it might make,
- * including the ones this plan is declining. That is a superset of the truth
- * and it is memoisable per collector, which is why the term was written that
- * way; §P2 of `docs/design/BEHAVIOUR-AUDIT-2.md` is the measurement of what it
- * costs. Because the reading does not depend on the plan, the peril charge is
- * IDENTICAL on every joint plan in which that collector picks the potion up, so
- * no scaling of it can order those plans against each other — every knob tried
- * so far (D4's horizon weights, P2's concavity) moved a constant.
- *
- * This is the reading conditioned on the plan instead:
- *
- *   k = 1   the ONE cell the plan leaves the collector on. Collection is
- *           destination-only, so that cell is the potion cell, and at the turn
- *           the window opens the collector is standing on it and nowhere else.
- *   k ≥ 2   where it can be k − 1 turns after that — the engine's own claims,
- *           asked of the board with the collector's settled occupancy in place.
- *
- * ONE PARAMETERISATION, NOT A SPECIAL CASE: horizon k reads the collector's
- * reachable set after `k − 1` further turns from its arrival, and `k = 1` is
- * that rule at zero further turns, which is the arrival cell itself. Nothing
- * branches on a board, a kind or a horizon.
- *
- * It costs `W − 1` claim passes per DISTINCT (collector, settled occupancy) —
- * not per node and not per candidate: the arrival cell of a collector is always
- * a potion cell, so the key set is bounded by our roster times the potions
- * standing, and the memo is the marshalled board's like every other here.
- *
- * `claimsAfter` is asked of a board whose ONLY change is the collector's own
- * occupancy, and only that unit's claim is read back from it. The other units
- * stand where the turn opened, so a blocker is read one turn early — an
- * inexactness in the same direction as the whole claim layer's, and a far
- * smaller one than reading the ground from a cell the plan is not taking.
- */
-const PLAN_GROUND = new WeakMap<object, Map<string, ReadonlyArray<ReadonlyArray<CellIndex>>>>();
-
-function planGround(
-  sub: EngineSubstrate,
-  wireId: string,
-  occupancy: ReadonlyArray<number>,
-  window: number
-): ReadonlyArray<ReadonlyArray<CellIndex>> {
-  const cache = perBoard(PLAN_GROUND, sub.marshalled, () => new Map<string, ReadonlyArray<ReadonlyArray<CellIndex>>>());
-  const key = `${wireId}@${occupancy.join(',')}`;
-  const hit = cache.get(key);
-  if (hit !== undefined) return hit;
-  const m = sub.marshalled;
-  const rows: Array<ReadonlyArray<CellIndex>> = new Array<ReadonlyArray<CellIndex>>(window).fill(
-    EMPTY_GROUND
-  );
-  rows[0] = [occupancy[0] as CellIndex];
-  if (window > 1) {
-    const moved = {
-      ...m,
-      units: m.units.map((u) => (u.id === wireId ? { ...u, occupancy: [...occupancy] } : u)),
-    };
-    for (let j = 1; j <= window - 1; j++) {
-      const mine = claimsAfter(moved, j).find((c) => c.id === wireId);
-      if (mine !== undefined) rows[j] = mine.everPossible as ReadonlyArray<CellIndex>;
-    }
-  }
-  cache.set(key, rows);
-  return rows;
-}
-
-/**
  * The share of the collector's own ground, over the whole window, on which some
  * enemy arrival beats it at the tier the pickup leaves it on. The near turns
  * carry the reading: a claim at horizon k grants the enemy k free turns and the
  * collector none, and the measurement says the far horizons saturate. What the
  * saturated tail costs the reading is D4 in the audit, and the geometric
  * alternative to `W − k + 1` is measured and reverted in `potions.md`.
- *
- * WHICH GROUND is `PLAN_PERIL_SHARE`: the plan's own (α = 1, shipped) blended
- * against the turn-start reading (α = 0, the term as it stood). Both are read
- * against the SAME enemy horizons and with the same weights, so the knob moves
- * nothing but the question asked of the collector.
  */
 function perilOf(
   ctx: EvalContext,
@@ -618,49 +529,29 @@ function perilOf(
   after: ReadonlyMap<UnitId, number>,
   window: number
 ): number {
+  // The ground is read from where the collector stands as the turn OPENS, not
+  // from the potion cell the plan sends it to. That is an over-approximation in
+  // the safe direction — a superset of where it can be from the potion — and it
+  // is what keeps the whole peril half memoisable per collector, not per plan.
   const unit = ctx.sub.unitOf(collector.unitId);
   if (unit === undefined) return 0;
   const debuffed = after.get(collector.unitId) ?? collector.tierAtArrival;
-  const held = read.ground.get(collector.unitId);
-  const planned =
-    PLAN_PERIL_SHARE === 0
-      ? null
-      : planGround(ctx.sub, unit.wireId, collector.occupancy, read.horizons.length);
+  const rows = read.ground.get(collector.unitId);
   let num = 0;
   let den = 0;
   for (let k = 1; k <= read.horizons.length; k++) {
+    const cells = rows?.[k - 1];
     const h = read.horizons[k - 1] as ArrivalField;
+    if (cells === undefined || cells.length === 0) continue;
+    let beaten = 0;
+    for (const cell of cells) {
+      if (beatenAt(h, debuffed, unit.weight, cell)) beaten++;
+    }
     const w = window - k + 1;
-    const fromStart = shareBeaten(h, held?.[k - 1], debuffed, unit.weight);
-    const fromPlan = planned === null ? null : shareBeaten(h, planned[k - 1], debuffed, unit.weight);
-    // A horizon neither reading can see is not a zero, it is a horizon with no
-    // evidence: it drops out of the mean rather than diluting it.
-    const share =
-      fromPlan === null
-        ? fromStart
-        : fromStart === null
-          ? fromPlan
-          : (1 - PLAN_PERIL_SHARE) * fromStart + PLAN_PERIL_SHARE * fromPlan;
-    if (share === null) continue;
-    num += w * share;
+    num += (w * beaten) / cells.length;
     den += w;
   }
   return den > 0 ? num / den : 0;
-}
-
-/** The share of `cells` a beating arrival holds, or null where there are none. */
-function shareBeaten(
-  h: ArrivalField,
-  cells: ReadonlyArray<CellIndex> | undefined,
-  tier: number,
-  weight: number
-): number | null {
-  if (cells === undefined || cells.length === 0) return null;
-  let beaten = 0;
-  for (const cell of cells) {
-    if (beatenAt(h, tier, weight, cell)) beaten++;
-  }
-  return beaten / cells.length;
 }
 
 /**
