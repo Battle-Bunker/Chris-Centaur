@@ -18,224 +18,224 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background-color: #1a1a1a;
-      color: #e0e0e0;
+      background-color: var(--ground);
+      color: var(--ink);
       overflow-x: hidden;
-      padding-top: 60px;
+      padding-top: var(--space-60);
     }
     .header {
       position: fixed; top: 0; left: 0; right: 0; height: 60px;
-      background: #2a2a2a; border-bottom: 1px solid #444;
+      background: var(--panel); border-bottom: 1px solid var(--line);
       display: flex; align-items: center; justify-content: space-between;
-      padding: 0 15px; z-index: 1000;
+      padding: 0 var(--space-15); z-index: var(--z-header);
     }
-    .header h1 { font-size: 18px; font-weight: 600; }
-    .header-controls { display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: var(--size-18); font-weight: var(--weight-semi); }
+    .header-controls { display: flex; align-items: center; gap: var(--space-12); }
     .back-btn {
-      background: #444; color: white; border: none;
-      padding: 6px 12px; border-radius: 4px; cursor: pointer;
-      font-size: 14px; text-decoration: none;
+      background: var(--line); color: white; border: none;
+      padding: var(--space-6) var(--space-12); border-radius: var(--radius-4); cursor: pointer;
+      font-size: var(--size-14); text-decoration: none;
     }
-    .back-btn:hover { background: #555; }
+    .back-btn:hover { background: var(--grey-555555); }
     .main-content {
-      padding: 15px; max-width: 1200px; margin: 0 auto;
+      padding: var(--space-15); max-width: 1200px; margin: 0 auto;
     }
     .board-container {
-      background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
+      background: var(--panel); border-radius: var(--radius-8); padding: var(--space-15); margin-bottom: var(--space-15);
     }
     .board-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-12);
     }
-    .turn-info { font-size: 16px; font-weight: 600; }
+    .turn-info { font-size: var(--size-16); font-weight: var(--weight-semi); }
     .timer-display {
-      font-size: 14px; font-weight: 600; padding: 4px 10px;
-      border-radius: 4px; background: #333;
+      font-size: var(--size-14); font-weight: var(--weight-semi); padding: var(--space-4) var(--space-10);
+      border-radius: var(--radius-4); background: var(--grey-333333);
       font-variant-numeric: tabular-nums;
       min-width: 60px; text-align: center;
     }
-    .timer-display.urgent { color: #f44336; background: rgba(244, 67, 54, 0.15); }
-    .timer-display.normal { color: #4CAF50; }
-    .timer-display.idle { color: #a8a8a8; }
+    .timer-display.urgent { color: var(--red-f44336); background: rgba(244, 67, 54, 0.15); }
+    .timer-display.normal { color: var(--go); }
+    .timer-display.idle { color: var(--grey-a8a8a8); }
     .ping-display {
-      font-size: 11px; color: #9a9a9a; text-align: right; margin-top: 2px;
+      font-size: var(--size-11); color: var(--ink-dim); text-align: right; margin-top: var(--space-2);
       font-variant-numeric: tabular-nums;
       min-width: 70px;
     }
     .canvas-wrapper {
       width: 100%; display: flex; justify-content: center;
-      margin-bottom: 12px; position: relative;
+      margin-bottom: var(--space-12); position: relative;
     }
     /* The canvas's CSS box is owned by JS (see the board-size block): the
        renderer sizes the BITMAP for the display and never the element, so a
        stretched box would be the one thing that can blur a sharp board. */
     #gameCanvas {
-      border: 2px solid #888; background: #ffffff;
+      border: 2px solid var(--grey-888888); background: var(--ink-bright);
       display: block; cursor: pointer;
     }
     /* The grip at the board's bottom-right corner. Positioned in JS against
        the canvas's own border box, so it tracks every size the board takes. */
     .board-resize-handle {
       position: absolute; width: 18px; height: 18px;
-      cursor: nwse-resize; z-index: 20; touch-action: none;
+      cursor: nwse-resize; z-index: var(--z-grip); touch-action: none;
       background:
-        linear-gradient(135deg, transparent 52%, #888 52%, #888 62%, transparent 62%,
-                        transparent 72%, #888 72%, #888 82%, transparent 82%);
-      border-bottom-right-radius: 4px;
+        linear-gradient(135deg, transparent 52%, var(--grey-888888) 52%, var(--grey-888888) 62%, transparent 62%,
+                        transparent 72%, var(--grey-888888) 72%, var(--grey-888888) 82%, transparent 82%);
+      border-bottom-right-radius: var(--radius-4);
     }
     .board-resize-handle:hover, .board-resize-handle.dragging {
       background:
-        linear-gradient(135deg, transparent 52%, #4CAF50 52%, #4CAF50 62%, transparent 62%,
-                        transparent 72%, #4CAF50 72%, #4CAF50 82%, transparent 82%);
+        linear-gradient(135deg, transparent 52%, var(--go) 52%, var(--go) 62%, transparent 62%,
+                        transparent 72%, var(--go) 72%, var(--go) 82%, transparent 82%);
     }
     #boardOverlay {
       position: absolute; top: 0; left: 0; pointer-events: none;
-      z-index: 5;
+      z-index: var(--z-board-overlay);
     }
     .cell-button {
       position: absolute; background: transparent; border: none;
-      cursor: pointer; pointer-events: auto; transition: all 0.2s;
+      cursor: pointer; pointer-events: auto; transition: all var(--dur-cell);
     }
     .cell-button:hover { background: rgba(255, 255, 255, 0.1); }
-    .snake-info-container { margin-bottom: 15px; }
+    .snake-info-container { margin-bottom: var(--space-15); }
     .snake-info-list {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px; align-items: start;
+      gap: var(--space-16); align-items: start;
     }
     .snake-info-item {
-      background: #2a2a2a; border-radius: 6px; padding: 8px;
-      display: flex; align-items: center; gap: 8px;
+      background: var(--panel); border-radius: var(--radius-6); padding: var(--space-8);
+      display: flex; align-items: center; gap: var(--space-8);
     }
-    .team-group { margin-bottom: 4px; }
+    .team-group { margin-bottom: var(--space-4); }
     .team-group-header {
-      display: flex; align-items: center; gap: 8px; font-weight: 700;
-      font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
-      margin: 4px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #444;
+      display: flex; align-items: center; gap: var(--space-8); font-weight: var(--weight-bold);
+      font-size: var(--size-13); text-transform: uppercase; letter-spacing: 0.5px;
+      margin: var(--space-4) 0 var(--space-8); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line);
     }
-    .team-group-header.our-team { color: #4CAF50; }
-    .team-group-header.enemy-team { color: #e57373; }
+    .team-group-header.our-team { color: var(--go); }
+    .team-group-header.enemy-team { color: var(--red-e57373); }
     .team-group-swatch {
-      display: inline-block; width: 12px; height: 12px; border-radius: 3px;
-      border: 1px solid #555; flex-shrink: 0;
+      display: inline-block; width: 12px; height: 12px; border-radius: var(--radius-3);
+      border: 1px solid var(--grey-555555); flex-shrink: 0;
     }
     /* The team's human name takes the room it needs and no more; the score is
        the header's headline number and is pinned to the far end so the eye
        finds every team's score in one column. */
     .team-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .team-group-ours {
-      font-weight: 600; font-size: 10px; letter-spacing: 0.04em;
+      font-weight: var(--weight-semi); font-size: var(--size-10); letter-spacing: 0.04em;
       text-transform: none; opacity: 0.92; flex-shrink: 0;
     }
     .team-group-score {
       margin-left: auto; flex-shrink: 0;
-      font-size: 16px; font-weight: 800; letter-spacing: 0; color: #fff;
-      background: rgba(255,255,255,0.08); border-radius: 5px;
-      padding: 1px 8px; font-variant-numeric: tabular-nums;
+      font-size: var(--size-16); font-weight: var(--weight-heavy); letter-spacing: 0; color: var(--ink-bright);
+      background: rgba(255,255,255,0.08); border-radius: var(--radius-5);
+      padding: var(--space-1) var(--space-8); font-variant-numeric: tabular-nums;
     }
-    .team-group .snake-info-item { margin-bottom: 6px; }
-    .snake-info-item.selectable { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
-    .snake-info-item.selectable:hover { background: #333; }
-    .snake-info-item.active-perspective { background: #3a4a5a; outline: 2px solid #4CAF50; }
+    .team-group .snake-info-item { margin-bottom: var(--space-6); }
+    .snake-info-item.selectable { cursor: pointer; transition: background var(--dur-hover), border-color var(--dur-hover); }
+    .snake-info-item.selectable:hover { background: var(--grey-333333); }
+    .snake-info-item.active-perspective { background: var(--blue-3a4a5a); outline: 2px solid var(--go); }
     .snake-color-box {
-      width: 20px; height: 20px; border-radius: 4px;
-      border: 2px solid #444; flex-shrink: 0;
+      width: 20px; height: 20px; border-radius: var(--radius-4);
+      border: 2px solid var(--line); flex-shrink: 0;
     }
     .snake-details { flex: 1; min-width: 0; }
     .snake-name {
-      font-weight: 600; font-size: 13px;
+      font-weight: var(--weight-semi); font-size: var(--size-13);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .snake-stats { font-size: 11px; color: #888; display: flex; gap: 6px; }
+    .snake-stats { font-size: var(--size-11); color: var(--grey-888888); display: flex; gap: var(--space-6); }
     /* Per-row id control: the unit's internal document id on hover, on the
        clipboard on click. Sits at the row's right edge, quiet until pointed at
        so it never competes with the unit's name. */
     .unit-id-copy {
       flex-shrink: 0; align-self: flex-start;
-      background: transparent; border: 1px solid #555; border-radius: 4px;
-      color: #9a9a9a; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-      padding: 2px 5px; cursor: pointer; line-height: 1.2;
-      font-family: inherit; transition: color 0.15s, border-color 0.15s;
+      background: transparent; border: 1px solid var(--grey-555555); border-radius: var(--radius-4);
+      color: var(--ink-dim); font-size: var(--size-10); font-weight: var(--weight-bold); letter-spacing: 0.04em;
+      padding: var(--space-2) var(--space-5); cursor: pointer; line-height: 1.2;
+      font-family: inherit; transition: color var(--dur-hover), border-color var(--dur-hover);
     }
-    .unit-id-copy:hover { color: #ddd; border-color: #888; }
-    .unit-id-copy.copied { color: #4CAF50; border-color: #4CAF50; }
-    .unit-id-copy.copy-failed { color: #e57373; border-color: #e57373; }
+    .unit-id-copy:hover { color: var(--grey-dddddd); border-color: var(--grey-888888); }
+    .unit-id-copy.copied { color: var(--go); border-color: var(--go); }
+    .unit-id-copy.copy-failed { color: var(--red-e57373); border-color: var(--red-e57373); }
     /* Clash inspector: the game server's own account of a collision — reason,
        sub-step, participants and who walked away. */
     #clashInspectPopup {
-      display: none; position: absolute; z-index: 26; max-width: 260px;
-      background: rgba(20,24,28,0.97); color: #eee; border: 1px solid #FFD54F;
-      border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.7);
+      display: none; position: absolute; z-index: var(--z-roster-id); max-width: 260px;
+      background: rgba(20,24,28,0.97); color: var(--grey-eeeeee); border: 1px solid var(--amber-ffd54f);
+      border-radius: var(--radius-6); padding: var(--space-8) var(--space-10); font-size: var(--size-12); line-height: 1.45;
+      box-shadow: var(--shadow-card);
     }
     .clash-panel-title {
-      font-weight: 700; font-size: 12px; color: #FFD54F;
-      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
-      padding-right: 16px;
+      font-weight: var(--weight-bold); font-size: var(--size-12); color: var(--amber-ffd54f);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: var(--space-4);
+      padding-right: var(--space-16);
     }
     .clash-panel-close {
       position: absolute; top: 4px; right: 6px; background: transparent;
-      border: none; color: #888; font-size: 14px; line-height: 1;
-      cursor: pointer; padding: 2px 4px; font-family: inherit;
+      border: none; color: var(--grey-888888); font-size: var(--size-14); line-height: 1;
+      cursor: pointer; padding: var(--space-2) var(--space-4); font-family: inherit;
     }
-    .clash-panel-close:hover { color: #eee; }
-    .clash-event { margin-top: 6px; }
-    .clash-event + .clash-event { border-top: 1px solid #444; padding-top: 6px; }
-    .clash-reason { color: #ddd; }
+    .clash-panel-close:hover { color: var(--grey-eeeeee); }
+    .clash-event { margin-top: var(--space-6); }
+    .clash-event + .clash-event { border-top: 1px solid var(--line); padding-top: var(--space-6); }
+    .clash-reason { color: var(--grey-dddddd); }
     .clash-substep {
-      margin-left: 6px; font-size: 10px; color: #FFD54F;
-      border: 1px solid #6d5b1f; border-radius: 8px; padding: 0 5px;
+      margin-left: var(--space-6); font-size: var(--size-10); color: var(--amber-ffd54f);
+      border: 1px solid var(--amber-6d5b1f); border-radius: var(--radius-8); padding: 0 var(--space-5);
       white-space: nowrap;
     }
-    .clash-participants { list-style: none; margin: 4px 0 0; padding: 0; }
-    .clash-participant { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+    .clash-participants { list-style: none; margin: var(--space-4) 0 0; padding: 0; }
+    .clash-participant { display: flex; align-items: center; gap: var(--space-6); padding: var(--space-1) 0; }
     .clash-swatch {
-      display: inline-block; width: 10px; height: 10px; border-radius: 2px;
-      border: 1px solid #555; flex-shrink: 0;
+      display: inline-block; width: 10px; height: 10px; border-radius: var(--radius-2);
+      border: 1px solid var(--grey-555555); flex-shrink: 0;
     }
     .clash-unit { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .clash-outcome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
-    .clash-outcome.died { color: #e57373; }
-    .clash-outcome.survived { color: #4CAF50; }
+    .clash-outcome { font-size: var(--size-10); text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+    .clash-outcome.died { color: var(--red-e57373); }
+    .clash-outcome.survived { color: var(--go); }
     /* Exhaustion recovered: the unit halted short but ate and lived. */
-    .clash-outcome.recovered { color: #FFB300; }
+    .clash-outcome.recovered { color: var(--amber-ffb300); }
     .selected-snake-panel {
-      background: #2a2a2a; border-radius: 8px; padding: 15px; margin-bottom: 15px;
-      border: 2px solid #555;
+      background: var(--panel); border-radius: var(--radius-8); padding: var(--space-15); margin-bottom: var(--space-15);
+      border: 2px solid var(--grey-555555);
     }
-    .selected-snake-panel.active { border-color: #4CAF50; }
+    .selected-snake-panel.active { border-color: var(--go); }
     .selected-snake-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: var(--space-10); margin-bottom: var(--space-12);
     }
-    .selected-snake-name { font-size: 16px; font-weight: 600; }
+    .selected-snake-name { font-size: var(--size-16); font-weight: var(--weight-semi); }
     .intent-mode-badge {
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.04em; padding: 3px 8px; border-radius: 10px;
-      color: #fff; background: #777;
+      font-size: var(--size-11); font-weight: var(--weight-bold); text-transform: uppercase;
+      letter-spacing: 0.04em; padding: var(--space-3) var(--space-8); border-radius: var(--radius-10);
+      color: var(--ink-bright); background: var(--grey-777777);
     }
-    .intent-mode-badge.mode-heuristic { background: #6b6b6b; }
-    .intent-mode-badge.mode-manual { background: #9c27b0; }
-    .intent-mode-badge.mode-goto { background: #4CAF50; }
-    .intent-mode-badge.mode-near { background: #1565c0; }
+    .intent-mode-badge.mode-heuristic { background: var(--grey-6b6b6b); }
+    .intent-mode-badge.mode-manual { background: var(--pink-9c27b0); }
+    .intent-mode-badge.mode-goto { background: var(--go); }
+    .intent-mode-badge.mode-near { background: var(--blue-1565c0); }
     /* Amber, matching the on-board hold shield. Dark text: amber is too light
        to carry white lettering at 11px. */
-    .intent-mode-badge.mode-hold { background: #ffca28; color: #1b1b1b; }
+    .intent-mode-badge.mode-hold { background: var(--amber-ffca28); color: var(--grey-1b1b1b); }
     .no-selection-msg {
-      text-align: center; padding: 20px; color: #9a9a9a; font-size: 14px;
+      text-align: center; padding: var(--space-20); color: var(--ink-dim); font-size: var(--size-14);
     }
     /* One line of prose under the unit header: what the unit is doing this
        turn and how to steer it. Replaces the old move-button grid, which said
        the same thing with buttons that duplicated the board. */
     .unit-status-line {
-      background: #2a2a2a; border-radius: 8px; padding: 10px 14px;
-      margin-bottom: 15px; color: #aaa; font-size: 12px; line-height: 1.5;
+      background: var(--panel); border-radius: var(--radius-8); padding: var(--space-10) var(--space-14);
+      margin-bottom: var(--space-15); color: var(--grey-aaaaaa); font-size: var(--size-12); line-height: 1.5;
     }
-    .unit-status-line b { color: #ddd; }
+    .unit-status-line b { color: var(--grey-dddddd); }
     /* Keyboard destination selection: brief "unavailable" flash overlaid on
        the selected unit's cell (see flashUnavailable). */
     .keynav-flash {
-      position: absolute; pointer-events: none; z-index: 30;
-      border: 3px solid #ff5252; border-radius: 6px;
-      box-shadow: 0 0 10px rgba(255, 82, 82, 0.7);
-      opacity: 0; transition: opacity 0.25s ease-out;
+      position: absolute; pointer-events: none; z-index: var(--z-panel);
+      border: 3px solid var(--red-ff5252); border-radius: var(--radius-6);
+      box-shadow: var(--shadow-alarm);
+      opacity: 0; transition: opacity var(--dur-slow) ease-out;
     }
     /* ── THE LENS RAIL ────────────────────────────────────────────────────
        Four stacked panels — unit → candidates → movesets → breakdown — plus
@@ -243,34 +243,34 @@
        same thing it means on the board: hypothetical. Nothing in the rail is
        coloured by how good a number is; a colour ramp over scores is what the
        deleted table used instead of saying what it knew. */
-    .lens-rail { display: flex; flex-direction: column; gap: 10px; }
+    .lens-rail { display: flex; flex-direction: column; gap: var(--space-10); }
     .lens-panel {
-      background: #2a2a2a; border-radius: 8px; padding: 10px 12px; overflow-x: auto;
+      background: var(--panel); border-radius: var(--radius-8); padding: var(--space-10) var(--space-12); overflow-x: auto;
     }
     .lens-panel-head {
-      font-size: calc(var(--lens-size) - 1px); font-weight: 700; letter-spacing: .04em;
-      color: #B39DFF; margin-bottom: 6px;
+      font-size: calc(var(--lens-size) - 1px); font-weight: var(--weight-bold); letter-spacing: .04em;
+      color: var(--lens-ink); margin-bottom: var(--space-6);
     }
     /* The legend, under the head that needs one: four tokens on that table
        have no gloss anywhere else, and three of them mean something else in
        the rest of the codebase. Quiet, and always — a reader who has to be
        told what a column means is reading a number they cannot check. */
-    .lens-legend { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; margin: -2px 0 6px; }
-    .lens-list-source { font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9fb8b3; margin: -2px 0 4px; }
+    .lens-legend { font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--ink-dim); margin: -2px 0 6px; }
+    .lens-list-source { font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--teal-9fb8b3); margin: -2px 0 4px; }
     .lens-table { width: 100%; border-collapse: collapse; font-size: var(--lens-size); }
-    .lens-table td { padding: 3px 6px; border-bottom: 1px solid #3a3a3a; color: #ddd; }
-    .lens-row-cursor td { background: rgba(179,157,255,.14); color: #fff; }
+    .lens-table td { padding: var(--space-3) var(--space-6); border-bottom: 1px solid var(--grey-3a3a3a); color: var(--grey-dddddd); }
+    .lens-row-cursor td { background: rgba(179,157,255,.14); color: var(--ink-bright); }
     /* A stale complement is struck through and KEPT: the row was a real
        bracket of a real plan, and its question is what moved. */
-    .lens-row-stale td { text-decoration: line-through; color: #a6a6a6; }
+    .lens-row-stale td { text-decoration: line-through; color: var(--grey-a6a6a6); }
     /* A declared narrowing refuses the floor comparison, so the row is present
        and is not sorted against the others. */
-    .lens-row-unsorted td { color: #a6a6a6; font-style: italic; }
-    .lens-width { color: #a6a6a6; }
+    .lens-row-unsorted td { color: var(--grey-a6a6a6); font-style: italic; }
+    .lens-width { color: var(--grey-a6a6a6); }
     /* The `unless` cell — what each moveset is betting on. Quieter than the
        numbers it qualifies and never wrapped away: it is the one column that
        says what the bot does NOT know. */
-    .lens-unless { color: #9FC6C0; font-size: calc(var(--lens-size) - 1px); }
+    .lens-unless { color: var(--teal-9fc6c0); font-size: calc(var(--lens-size) - 1px); }
     /* One assignment per unit, unbreakable. The cell is a list joined by
        " · ", so it wraps BETWEEN entries; without this the 380px rail broke
        inside an identifier and the column read "red-" / "A→94 · red-" /
@@ -283,45 +283,45 @@
        a screenshot, and the cards already spend violet and teal on rank and
        foil. `≡ n` counts the units this row agrees with the cursor on. */
     .lens-move-diff {
-      font-weight: 700; color: #fff;
-      border-bottom: 1px solid currentColor; padding-bottom: 1px;
+      font-weight: var(--weight-bold); color: var(--ink-bright);
+      border-bottom: 1px solid currentColor; padding-bottom: var(--space-1);
     }
-    .lens-move-same { color: #9a9a9a; white-space: nowrap; }
-    .lens-focus-line { font-size: calc(var(--lens-size) + 1px); color: #eee; }
-    .lens-cluster { float: right; color: #B39DFF; }
-    .lens-sub, .lens-provenance { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; }
-    .lens-provenance { padding: 0 4px; }
-    .lens-fixed-strip { font-size: calc(var(--lens-size) - 1px); color: #a6a6a6; margin-top: 6px; }
-    .lens-fixed { margin-right: 10px; white-space: nowrap; }
-    .lens-foil { font-size: calc(var(--lens-size) - 1px); color: #4DB6AC; margin-top: 6px; }
-    .lens-foil-absent { color: #9db8b3; font-style: italic; }
-    .lens-lock { font-size: 12px; color: #B39DFF; margin-top: 6px; font-weight: 600; }
-    .lens-empty { font-size: var(--lens-size); color: #9a9a9a; padding: 4px 0; }
-    .lens-residual td { border-top: 1px solid #555; color: #B39DFF; }
-    .lens-stale-flag { color: #FF8A65; }
+    .lens-move-same { color: var(--ink-dim); white-space: nowrap; }
+    .lens-focus-line { font-size: calc(var(--lens-size) + 1px); color: var(--grey-eeeeee); }
+    .lens-cluster { float: right; color: var(--lens-ink); }
+    .lens-sub, .lens-provenance { font-size: calc(var(--lens-size) - 1px); color: var(--ink-dim); }
+    .lens-provenance { padding: 0 var(--space-4); }
+    .lens-fixed-strip { font-size: calc(var(--lens-size) - 1px); color: var(--grey-a6a6a6); margin-top: var(--space-6); }
+    .lens-fixed { margin-right: var(--space-10); white-space: nowrap; }
+    .lens-foil { font-size: calc(var(--lens-size) - 1px); color: var(--lens-foil); margin-top: var(--space-6); }
+    .lens-foil-absent { color: var(--teal-9db8b3); font-style: italic; }
+    .lens-lock { font-size: var(--size-12); color: var(--lens-ink); margin-top: var(--space-6); font-weight: var(--weight-semi); }
+    .lens-empty { font-size: var(--lens-size); color: var(--ink-dim); padding: var(--space-4) 0; }
+    .lens-residual td { border-top: 1px solid var(--grey-555555); color: var(--lens-ink); }
+    .lens-stale-flag { color: var(--lens-warn); }
     /* A ranking the reserve stopped is a REFUSAL and reads like one; a list
        that simply filled up is not, and stays in the head's own voice. */
-    .lens-refused { color: #FF8A65; }
-    .lens-trail { color: #B39DFF; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
-    .lens-displaced { color: #FF8A65; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
-    .lens-staged-flag { color: #ababab; font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: 6px; }
+    .lens-refused { color: var(--lens-warn); }
+    .lens-trail { color: var(--lens-ink); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
+    .lens-displaced { color: var(--lens-warn); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
+    .lens-staged-flag { color: var(--grey-ababab); font-size: max(9px, calc(var(--lens-size) - 2px)); margin-left: var(--space-6); }
     /* While a widen is held the whole list is visibly superseded — struck, and
        still there, which is the entire point of the policy. */
-    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: #a6a6a6; }
+    .lens-held .lens-movesets .lens-table td { text-decoration: line-through; color: var(--grey-a6a6a6); }
     /* A HELD WIDEN OVER AN EMPTY LIST IS STILL HELD. The strike-through only
        ever reached the table, and a cluster with no retained rows draws its
        empty state instead — so the one case where the rail says least about
        itself was also the one case where nothing said it was frozen. */
-    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: #a6a6a6; }
+    .lens-held .lens-movesets .lens-empty { text-decoration: line-through; color: var(--grey-a6a6a6); }
     /* The widen banner. It holds an ADDITIVE change behind one gesture and
        never blanks the table under it. */
     .lens-banner {
-      background: rgba(179,157,255,.14); border: 1px solid #B39DFF; border-radius: 6px;
-      padding: 6px 10px; font-size: 12px; color: #ddd; margin-bottom: 8px;
+      background: rgba(179,157,255,.14); border: 1px solid var(--lens-ink); border-radius: var(--radius-6);
+      padding: var(--space-6) var(--space-10); font-size: var(--size-12); color: var(--grey-dddddd); margin-bottom: var(--space-8);
     }
     .lens-banner button {
-      background: #B39DFF; color: #14181e; border: none; border-radius: 4px;
-      padding: 2px 8px; font-weight: 700; cursor: pointer; margin-left: 8px;
+      background: var(--lens-ink); color: var(--slate-14181e); border: none; border-radius: var(--radius-4);
+      padding: var(--space-2) var(--space-8); font-weight: var(--weight-bold); cursor: pointer; margin-left: var(--space-8);
     }
     /* The intra-turn lane: one row per lane, ticks at their own seq. */
     /* The name is a COLUMN, not an overlay. Ticks are placed at `left: X%` of
@@ -331,12 +331,12 @@
        "kernel". The track is the positioned parent now, so 0% is the start of
        the turn rather than the start of the row. */
     .lens-lane {
-      display: flex; align-items: flex-start; gap: 6px;
-      height: 18px; margin: 2px 0;
-      border-bottom: 1px solid #333;
+      display: flex; align-items: flex-start; gap: var(--space-6);
+      height: 18px; margin: var(--space-2) 0;
+      border-bottom: 1px solid var(--grey-333333);
     }
     .lens-lane-name {
-      flex: 0 0 54px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9a9a9a; line-height: 14px;
+      flex: 0 0 54px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--ink-dim); line-height: 14px;
     }
     .lens-lane-track { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
     .lens-tick {
@@ -345,7 +345,7 @@
       font-size: calc(var(--lens-size) - 1px); color: inherit;
     }
     .lens-tick-hollow { opacity: .55; }
-    .lens-lane-foot { font-size: calc(var(--lens-size) - 1px); color: #9a9a9a; margin-top: 4px; }
+    .lens-lane-foot { font-size: calc(var(--lens-size) - 1px); color: var(--ink-dim); margin-top: var(--space-4); }
 
     /* ── THE IA LAYERS (docs/design/ux/02-IA-AND-CONTROLS.md §1.4) ────────
        Five layers, placed by LATENCY BUDGET rather than by importance:
@@ -380,13 +380,13 @@
        measured must not be drawn as if we had. */
     .turn-clock {
       position: relative; height: 10px; margin: 0 auto -2px;
-      background: #141414; border: 1px solid #888; border-bottom: none;
-      border-radius: 3px 3px 0 0; overflow: hidden;
+      background: var(--grey-141414); border: 1px solid var(--grey-888888); border-bottom: none;
+      border-radius: var(--radius-3) var(--radius-3) 0 0; overflow: hidden;
     }
     .turn-clock-fill {
       position: absolute; left: 0; top: 0; bottom: 0;
-      background: linear-gradient(90deg, #5c5c5c, #d8d8d8);
-      transition: width .12s linear;
+      background: linear-gradient(90deg, var(--grey-5c5c5c), var(--grey-d8d8d8));
+      transition: width var(--dur-card) linear;
     }
     /* URGENCY IS NOT A HUE. Crossing 500 ms changed the fill's colour ramp
        and NOTHING ELSE — same height, same border, same shape — so the one
@@ -396,7 +396,7 @@
        this says the deadline is now close enough that a press may not land,
        and it says it in hatching and in weight, which survive a protanope,
        a greyscale screenshot and the corner of an eye. */
-    .turn-clock.urgent { border-color: #ff8a65; height: 12px; }
+    .turn-clock.urgent { border-color: var(--lens-warn); height: 12px; }
     .turn-clock.urgent .turn-clock-fill {
       background:
         repeating-linear-gradient(
@@ -404,10 +404,10 @@
           rgba(0, 0, 0, 0.55) 0 3px,
           rgba(0, 0, 0, 0) 3px 7px
         ),
-        linear-gradient(90deg, #8a3b2a, #ff8a65);
+        linear-gradient(90deg, var(--red-8a3b2a), var(--lens-warn));
     }
-    .turn-clock.idle .turn-clock-fill { background: #3a3a3a; }
-    .turn-clock-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a1a1a; display: none; }
+    .turn-clock.idle .turn-clock-fill { background: var(--grey-3a3a3a); }
+    .turn-clock-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ground); display: none; }
     .turn-clock-mark.on { display: block; }
 
     /* L1 — the stage line and the unfinished-business strip. Top of the rail,
@@ -415,20 +415,20 @@
        about to do" and "is anything of mine unplanned", and both are asked
        every turn whether or not a unit is focused. */
     .lens-stage {
-      background: #22262b; border-left: 3px solid var(--lens-ours);
-      border-radius: 8px; padding: calc(var(--lens-pad) - 1px) 12px;
+      background: var(--slate-22262b); border-left: 3px solid var(--lens-ours);
+      border-radius: var(--radius-8); padding: calc(var(--lens-pad) - 1px) 12px;
     }
     .lens-stage-line {
-      font-size: calc(var(--lens-size) + 3px); line-height: 1.35; color: #fff; font-weight: 600;
+      font-size: calc(var(--lens-size) + 3px); line-height: 1.35; color: var(--ink-bright); font-weight: var(--weight-semi);
     }
-    .lens-stage-none { color: #9a9a9a; font-weight: 400; }
+    .lens-stage-none { color: var(--ink-dim); font-weight: var(--weight-normal); }
     .lens-stage-move { white-space: nowrap; }
-    .lens-stage-why { color: var(--lens-fixed); font-weight: 400; font-size: var(--lens-size); }
+    .lens-stage-why { color: var(--lens-fixed); font-weight: var(--weight-normal); font-size: var(--lens-size); }
     .lens-unplanned { white-space: nowrap; color: var(--lens-open); }
-    .lens-biz { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+    .lens-biz { display: flex; gap: var(--space-6); margin-top: var(--space-6); flex-wrap: wrap; }
     .lens-biz span {
-      font-size: calc(var(--lens-size) - 1px); padding: 1px 7px; border-radius: 9px;
-      border: 1px solid #4a4a4a; color: #aaa; font-variant-numeric: tabular-nums;
+      font-size: calc(var(--lens-size) - 1px); padding: var(--space-1) var(--space-7); border-radius: var(--radius-9);
+      border: 1px solid var(--grey-4a4a4a); color: var(--grey-aaaaaa); font-variant-numeric: tabular-nums;
     }
     .lens-biz .lens-biz-open { border-color: var(--lens-open); color: var(--lens-open); }
 
@@ -445,9 +445,19 @@
     .lens-movesets .lens-table tr {
       display: grid;
       grid-template-columns: 26px minmax(46px, auto) minmax(40px, auto) 26px minmax(0, 1.5fr) minmax(0, 0.85fr);
-      gap: 0 6px; align-items: baseline; border-bottom: 1px solid var(--line);
+      gap: 0 var(--space-6); align-items: baseline;
+      /* THIS RULE HAS NEVER DRAWN. `--line` was declared in `chrome.css`'s
+         :root, and this page does not link `chrome.css` — so `var(--line)`
+         resolved to nothing, the declaration was invalid at computed-value
+         time, and `border-bottom` fell back to its initial `none`. The
+         moveset rows have had no rule between them since they were written,
+         which is why the cell rule above turns its own border off. Linking
+         one sheet of tokens is what makes the line the author asked for
+         finally draw: docs/design/ux/09-DESIGN-TOKENS.md §4, named change 2.
+         It is +1 px per moveset row and nothing else. */
+      border-bottom: 1px solid var(--line);
     }
-    .lens-movesets .lens-table td { border-bottom: none; padding: 2px 2px; }
+    .lens-movesets .lens-table td { border-bottom: none; padding: var(--space-2) var(--space-2); }
     /* The assignment leads the clause on a compact row: `order` moves the
        cells, the transcript's own order is untouched. */
     .lens-movesets .lens-table td:nth-child(5) { order: 6; }
@@ -458,19 +468,19 @@
     }
     .lens-row-lead, .lens-row-foil {
       grid-template-columns: minmax(58px, auto) minmax(46px, auto) minmax(40px, auto) 30px !important;
-      padding: 5px 0 6px; gap: 1px 8px;
+      padding: var(--space-5) 0 var(--space-6); gap: var(--space-1) var(--space-8);
     }
     .lens-row-lead td, .lens-row-foil td {
-      font-size: calc(var(--lens-size) + 1px); padding: 1px 4px;
+      font-size: calc(var(--lens-size) + 1px); padding: var(--space-1) var(--space-4);
     }
     .lens-row-lead td:nth-child(5), .lens-row-foil td:nth-child(5),
     .lens-row-lead td:nth-child(6), .lens-row-foil td:nth-child(6) { grid-column: 1 / -1; }
     .lens-row-lead td:first-child { border-left: 3px solid var(--lens-ink); }
     .lens-row-foil td:first-child { border-left: 3px dashed var(--lens-foil); }
-    .lens-row-foil td { color: #cfe6e3; }
+    .lens-row-foil td { color: var(--teal-cfe6e3); }
     .lens-row-tag {
       display: block; font-size: max(9px, calc(var(--lens-size) - 3px)); letter-spacing: .04em; text-transform: uppercase;
-      color: var(--lens-ink); font-weight: 700;
+      color: var(--lens-ink); font-weight: var(--weight-bold);
     }
     .lens-row-foil .lens-row-tag { color: var(--lens-foil); }
     /* The `unless` clause is a SENTENCE and it takes three lines of a 380 px
@@ -481,236 +491,236 @@
     /* THE BRACKET AS A BAND. One scale for the table; the span is lo…hi, the
        tick is `est`, and an open end draws an arrowhead rather than a bar. */
     .lens-band {
-      position: relative; display: block; height: 6px; margin-top: 3px;
-      background: #1b1b1b; border-radius: 2px; min-width: 54px;
+      position: relative; display: block; height: 6px; margin-top: var(--space-3);
+      background: var(--grey-1b1b1b); border-radius: var(--radius-2); min-width: 54px;
     }
-    .lens-band-span { position: absolute; top: 0; bottom: 0; background: rgba(179,157,255,.55); border-radius: 2px; }
+    .lens-band-span { position: absolute; top: 0; bottom: 0; background: rgba(179,157,255,.55); border-radius: var(--radius-2); }
     .lens-row-foil .lens-band-span { background: rgba(77,182,172,.5); }
     .lens-band-open { border-right: 0; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); }
-    .lens-band-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: #fff; }
+    .lens-band-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--ink-bright); }
     /* Depth as a depth: `h<n>` keeps the number and gains a gauge lit to it. */
-    .lens-depth { display: inline-flex; gap: 1px; margin-left: 3px; vertical-align: middle; }
-    .lens-depth i { width: 4px; height: 6px; background: #333; border-radius: 1px; }
-    .lens-depth i.on { background: #8d8d8d; }
+    .lens-depth { display: inline-flex; gap: var(--space-1); margin-left: var(--space-3); vertical-align: middle; }
+    .lens-depth i { width: 4px; height: 6px; background: var(--grey-333333); border-radius: var(--radius-1); }
+    .lens-depth i.on { background: var(--grey-8d8d8d); }
 
     /* ONE AFFORDANCE LANGUAGE: glyph · verb · key · state, everywhere. */
-    .lens-affs { display: flex; flex-wrap: wrap; gap: 5px; }
+    .lens-affs { display: flex; flex-wrap: wrap; gap: var(--space-5); }
     .lens-aff {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: calc(var(--lens-size) - 1px); border: 1px solid #4a4a4a; border-radius: 4px;
-      padding: 2px 7px; color: #bbb; cursor: default;
+      display: inline-flex; align-items: center; gap: var(--space-5);
+      font-size: calc(var(--lens-size) - 1px); border: 1px solid var(--grey-4a4a4a); border-radius: var(--radius-4);
+      padding: var(--space-2) var(--space-7); color: var(--grey-bbbbbb); cursor: default;
     }
-    .lens-aff kbd { margin-left: 1px; }
+    .lens-aff kbd { margin-left: var(--space-1); }
     .lens-aff-glyph { font-size: calc(var(--lens-size) + 1px); line-height: 1; }
-    .lens-aff-note { color: #a2a2a2; }
-    .lens-aff-primary { border-color: var(--lens-ink); color: #fff; }
-    .lens-aff-undo { border-color: var(--lens-ours); color: #cfe9d1; }
-    .lens-aff-armed { border-color: var(--lens-warn); color: #ffd2c2; background: rgba(255,138,101,.12); }
+    .lens-aff-note { color: var(--grey-a2a2a2); }
+    .lens-aff-primary { border-color: var(--lens-ink); color: var(--ink-bright); }
+    .lens-aff-undo { border-color: var(--lens-ours); color: var(--green-cfe9d1); }
+    .lens-aff-armed { border-color: var(--lens-warn); color: var(--orange-ffd2c2); background: rgba(255,138,101,.12); }
     /* AN OFF CHIP IS STILL A SENTENCE. `opacity: .45` faded the ink onto the
        ground and took every off chip to 2.0–3.5 : 1 — `⛨ hold H pieces only`
        at 2.7, and `pins n of m`, the exact count `§1.2` calls what makes a
        determination checkable, at 2.0. Off is carried by the BORDER and by
        the chip's own words now, and the text stays legible: a control that
        says why it cannot act has to be readable to say it. */
-    .lens-aff-off { color: #9a9a9a; border-color: #333; }
-    .lens-aff-off .lens-aff-note, .lens-aff-off .lens-aff-glyph { color: #9a9a9a; }
+    .lens-aff-off { color: var(--ink-dim); border-color: var(--grey-333333); }
+    .lens-aff-off .lens-aff-note, .lens-aff-off .lens-aff-glyph { color: var(--ink-dim); }
     .lens-aff[data-lens-action] { cursor: pointer; }
-    .lens-aff[data-lens-action]:hover { border-color: #888; }
+    .lens-aff[data-lens-action]:hover { border-color: var(--grey-888888); }
     /* The armed lock's own sentence, in the control bar where the key is. */
-    .lens-arm { font-size: var(--lens-size); color: var(--lens-warn); margin-top: 5px; }
-    .lens-undo-note { font-size: var(--lens-size); color: #cfe9d1; margin-top: 5px; }
+    .lens-arm { font-size: var(--lens-size); color: var(--lens-warn); margin-top: var(--space-5); }
+    .lens-undo-note { font-size: var(--lens-size); color: var(--green-cfe9d1); margin-top: var(--space-5); }
 
     /* The cheat sheet, at rest, in the rail — because Ctrl+/ is a modal and a
        modal costs the board. */
-    .lens-cheat { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; }
-    .lens-cheat-item { display: inline-flex; align-items: center; gap: 3px; }
-    .lens-scheme { display: flex; gap: 4px; align-items: center; font-size: max(9px, calc(var(--lens-size) - 2px)); color: #9e9e9e; margin-top: 6px; }
+    .lens-cheat { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-10); font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--grey-9e9e9e); }
+    .lens-cheat-item { display: inline-flex; align-items: center; gap: var(--space-3); }
+    .lens-scheme { display: flex; gap: var(--space-4); align-items: center; font-size: max(9px, calc(var(--lens-size) - 2px)); color: var(--grey-9e9e9e); margin-top: var(--space-6); }
     .lens-scheme button {
-      background: #2f2f2f; border: 1px solid #4a4a4a; color: #bbb; border-radius: 3px;
-      font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: inherit;
+      background: var(--grey-2f2f2f); border: 1px solid var(--grey-4a4a4a); color: var(--grey-bbbbbb); border-radius: var(--radius-3);
+      font-size: var(--size-10); padding: var(--space-1) var(--space-6); cursor: pointer; font-family: inherit;
     }
-    .lens-scheme button.on { border-color: var(--lens-ink); color: #fff; }
+    .lens-scheme button.on { border-color: var(--lens-ink); color: var(--ink-bright); }
     /* A visible focus ring, on everything the keyboard can land on. */
     .lens-rail [data-lens-moveset]:focus-visible,
     .lens-rail [data-lens-candidate]:focus-visible,
     .lens-aff:focus-visible, .lens-scheme button:focus-visible, .lens-tick:focus-visible {
-      outline: 2px solid #fff; outline-offset: 1px;
+      outline: var(--focus-ring-width) solid var(--ink-bright); outline-offset: var(--focus-ring-offset-tight);
     }
     @media (prefers-reduced-motion: reduce) {
       .turn-clock-fill { transition: none; }
       .lens-arrival-pulse { animation: none !important; }
     }
     .stats-table tr:last-child td { border-bottom: none; }
-    .stats-table .total-row { font-weight: 600; background: #333; }
+    .stats-table .total-row { font-weight: var(--weight-semi); background: var(--grey-333333); }
     .connection-status {
       position: fixed; bottom: 10px; right: 10px;
-      padding: 6px 12px; border-radius: 4px; font-size: 12px;
-      z-index: 1000;
+      padding: var(--space-6) var(--space-12); border-radius: var(--radius-4); font-size: var(--size-12);
+      z-index: var(--z-header);
     }
-    .connection-status.connected { background: #1b5e20; color: #a5d6a7; }
-    .connection-status.disconnected { background: #b71c1c; color: #ef9a9a; }
-    .connection-status.connecting { background: #e65100; color: #ffcc80; }
+    .connection-status.connected { background: var(--green-1b5e20); color: var(--green-a5d6a7); }
+    .connection-status.disconnected { background: var(--red-b71c1c); color: var(--red-ef9a9a); }
+    .connection-status.connecting { background: var(--orange-e65100); color: var(--amber-ffcc80); }
     .waiting-overlay {
-      text-align: center; padding: 40px; color: #666;
+      text-align: center; padding: var(--space-40); color: var(--grey-666666);
     }
-    .waiting-overlay h2 { margin-bottom: 10px; }
+    .waiting-overlay h2 { margin-bottom: var(--space-10); }
     .connected-users {
-      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+      display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap;
     }
     .user-dot {
-      width: 12px; height: 12px; border-radius: 50%;
-      border: 1px solid #666;
+      width: 12px; height: 12px; border-radius: var(--radius-round);
+      border: 1px solid var(--grey-666666);
     }
     .user-dot.you {
       width: 24px; height: 24px;
-      border: 2px solid #fff;
+      border: 2px solid var(--ink-bright);
       cursor: pointer;
-      margin-left: 4px;
+      margin-left: var(--space-4);
     }
     .login-gate-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.85); z-index: 3000;
+      background: rgba(0,0,0,0.85); z-index: var(--z-login);
       justify-content: center; align-items: center;
     }
     .login-gate-overlay.active { display: flex; }
     .login-gate {
-      background: #2a2a2a; border: 1px solid #666; border-radius: 8px;
-      padding: 28px; width: 90%; max-width: 380px; text-align: center;
+      background: var(--panel); border: 1px solid var(--grey-666666); border-radius: var(--radius-8);
+      padding: var(--space-28); width: 90%; max-width: 380px; text-align: center;
     }
-    .login-gate h3 { margin-bottom: 8px; }
-    .login-gate p { margin-bottom: 16px; color: #aaa; font-size: 14px; }
+    .login-gate h3 { margin-bottom: var(--space-8); }
+    .login-gate p { margin-bottom: var(--space-16); color: var(--grey-aaaaaa); font-size: var(--size-14); }
     .login-gate input {
-      width: 100%; padding: 10px 12px; border-radius: 6px;
-      border: 1px solid #555; background: #1e1e1e; color: #eee;
-      font-size: 15px; margin-bottom: 8px;
+      width: 100%; padding: var(--space-10) var(--space-12); border-radius: var(--radius-6);
+      border: 1px solid var(--grey-555555); background: var(--grey-1e1e1e); color: var(--grey-eeeeee);
+      font-size: var(--size-15); margin-bottom: var(--space-8);
     }
-    .login-gate input:focus { outline: none; border-color: #4CAF50; }
+    .login-gate input:focus { outline: none; border-color: var(--go); }
     .login-gate-error {
-      color: #ef9a9a; font-size: 13px; min-height: 18px; margin-bottom: 10px;
+      color: var(--red-ef9a9a); font-size: var(--size-13); min-height: 18px; margin-bottom: var(--space-10);
     }
     .login-gate button {
-      width: 100%; padding: 11px; border: none; border-radius: 6px;
-      background: #4CAF50; color: #fff; font-size: 15px; font-weight: 600;
+      width: 100%; padding: var(--space-11); border: none; border-radius: var(--radius-6);
+      background: var(--go); color: var(--ink-bright); font-size: var(--size-15); font-weight: var(--weight-semi);
       cursor: pointer;
     }
     .login-gate button:disabled { opacity: 0.4; cursor: not-allowed; }
     .confirm-dialog-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.6); z-index: 2000;
+      background: rgba(0,0,0,0.6); z-index: var(--z-modal);
       justify-content: center; align-items: center;
     }
     .confirm-dialog-overlay.active { display: flex; }
     .confirm-dialog {
-      background: #2a2a2a; border: 1px solid #666; border-radius: 8px;
-      padding: 24px; max-width: 400px; text-align: center;
+      background: var(--panel); border: 1px solid var(--grey-666666); border-radius: var(--radius-8);
+      padding: var(--space-24); max-width: 400px; text-align: center;
     }
-    .confirm-dialog h3 { margin-bottom: 12px; }
-    .confirm-dialog p { margin-bottom: 16px; color: #aaa; }
-    .confirm-dialog-buttons { display: flex; gap: 12px; justify-content: center; }
+    .confirm-dialog h3 { margin-bottom: var(--space-12); }
+    .confirm-dialog p { margin-bottom: var(--space-16); color: var(--grey-aaaaaa); }
+    .confirm-dialog-buttons { display: flex; gap: var(--space-12); justify-content: center; }
     .confirm-dialog-buttons button {
-      padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer;
-      font-size: 14px;
+      padding: var(--space-8) var(--space-20); border-radius: var(--radius-4); border: none; cursor: pointer;
+      font-size: var(--size-14);
     }
-    .confirm-btn { background: #4CAF50; color: white; }
-    .cancel-btn { background: #444; color: #ccc; }
+    .confirm-btn { background: var(--go); color: white; }
+    .cancel-btn { background: var(--line); color: var(--grey-cccccc); }
     /* Board-adjacent controls: the display toggles that belong to the board
        itself, plus the affordance that opens the shortcuts pane. */
     .board-tools {
-      display: inline-flex; align-items: center; gap: 8px;
-      margin-right: 4px;
+      display: inline-flex; align-items: center; gap: var(--space-8);
+      margin-right: var(--space-4);
     }
     .board-toggle {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 3px 8px; border-radius: 4px;
-      background: #2a2a2a; border: 1px solid #555;
-      color: #ddd; font-size: 11px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: var(--space-5);
+      padding: var(--space-3) var(--space-8); border-radius: var(--radius-4);
+      background: var(--panel); border: 1px solid var(--grey-555555);
+      color: var(--grey-dddddd); font-size: var(--size-11); font-weight: var(--weight-semi);
       cursor: pointer; user-select: none; white-space: nowrap;
     }
-    .board-toggle:hover { border-color: #777; }
-    .board-toggle input { cursor: pointer; accent-color: #4CAF50; margin: 0; }
+    .board-toggle:hover { border-color: var(--grey-777777); }
+    .board-toggle input { cursor: pointer; accent-color: var(--go); margin: 0; }
     .shortcuts-hint {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 3px 9px; border-radius: 4px;
-      background: rgba(76,175,80,0.14); border: 1px solid #4CAF50;
-      color: #a5d6a7; font-family: ui-monospace, monospace;
-      font-size: 11px; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; gap: var(--space-4);
+      padding: var(--space-3) var(--space-9); border-radius: var(--radius-4);
+      background: rgba(76,175,80,0.14); border: 1px solid var(--go);
+      color: var(--green-a5d6a7); font-family: ui-monospace, monospace;
+      font-size: var(--size-11); font-weight: var(--weight-bold); cursor: pointer;
       user-select: none; white-space: nowrap;
     }
-    .shortcuts-hint:hover { background: rgba(76,175,80,0.28); color: #fff; }
+    .shortcuts-hint:hover { background: rgba(76,175,80,0.28); color: var(--ink-bright); }
 
     /* ── Keyboard shortcuts pane (Ctrl+/) ────────────────────────────────── */
     .shortcuts-overlay {
-      position: fixed; inset: 0; z-index: 2000;
+      position: fixed; inset: 0; z-index: var(--z-modal);
       display: none; align-items: center; justify-content: center;
-      background: rgba(8, 10, 12, 0.72); padding: 24px;
+      background: rgba(8, 10, 12, 0.72); padding: var(--space-24);
       backdrop-filter: blur(2px);
     }
     .shortcuts-overlay.open { display: flex; }
     .shortcuts-pane {
       width: min(1080px, 100%); max-height: 86vh; overflow-y: auto;
-      background: #1e1f22; border: 1px solid #4CAF50; border-radius: 10px;
-      box-shadow: 0 18px 50px rgba(0,0,0,0.65);
-      padding: 18px 22px 22px;
+      background: var(--slate-1e1f22); border: 1px solid var(--go); border-radius: var(--radius-10);
+      box-shadow: var(--shadow-sheet);
+      padding: var(--space-18) var(--space-22) var(--space-22);
     }
     .shortcuts-pane-header {
       display: flex; align-items: baseline; justify-content: space-between;
-      gap: 12px; margin-bottom: 4px;
+      gap: var(--space-12); margin-bottom: var(--space-4);
     }
-    .shortcuts-pane-header h2 { font-size: 17px; font-weight: 700; color: #4CAF50; }
-    .shortcuts-pane-header .dismiss { font-size: 11px; color: #888; }
+    .shortcuts-pane-header h2 { font-size: var(--size-17); font-weight: var(--weight-bold); color: var(--go); }
+    .shortcuts-pane-header .dismiss { font-size: var(--size-11); color: var(--grey-888888); }
     /* Multi-column so the groups PACK (a grid would leave a row as tall as its
        tallest group); column-width keeps it responsive down to one column. */
-    .shortcuts-columns { columns: 280px 3; column-gap: 26px; margin-top: 12px; }
-    .shortcuts-group { break-inside: avoid; margin-bottom: 14px; }
+    .shortcuts-columns { columns: 280px 3; column-gap: var(--space-26); margin-top: var(--space-12); }
+    .shortcuts-group { break-inside: avoid; margin-bottom: var(--space-14); }
     .shortcuts-group h3 {
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.08em; color: #81c784;
-      border-bottom: 1px solid #3a3d41; padding-bottom: 4px; margin-bottom: 6px;
+      font-size: var(--size-11); font-weight: var(--weight-bold); text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--lens-ours);
+      border-bottom: 1px solid var(--slate-3a3d41); padding-bottom: var(--space-4); margin-bottom: var(--space-6);
     }
-    .shortcuts-group dl { display: grid; grid-template-columns: minmax(52px, 36%) 1fr; gap: 5px 10px; }
+    .shortcuts-group dl { display: grid; grid-template-columns: minmax(52px, 36%) 1fr; gap: var(--space-5) var(--space-10); }
     .shortcuts-group dt {
-      text-align: right; font-size: 12px; color: #9e9e9e; line-height: 1.5;
+      text-align: right; font-size: var(--size-12); color: var(--grey-9e9e9e); line-height: 1.5;
     }
-    .shortcuts-group dd { font-size: 12px; color: #bdbdbd; line-height: 1.4; }
-    .shortcuts-group dd b { color: #e0e0e0; font-weight: 600; }
+    .shortcuts-group dd { font-size: var(--size-12); color: var(--grey-bdbdbd); line-height: 1.4; }
+    .shortcuts-group dd b { color: var(--ink); font-weight: var(--weight-semi); }
     kbd {
-      display: inline-block; padding: 1px 5px; border-radius: 3px;
-      background: #33373b; border: 1px solid #55595e; border-bottom-width: 2px;
-      font-family: ui-monospace, monospace; font-size: 10px; color: #fff;
+      display: inline-block; padding: var(--space-1) var(--space-5); border-radius: var(--radius-3);
+      background: var(--slate-33373b); border: 1px solid var(--slate-55595e); border-bottom-width: 2px;
+      font-family: ui-monospace, monospace; font-size: var(--size-10); color: var(--ink-bright);
       white-space: nowrap;
     }
     .shortcuts-note {
-      margin-top: 6px; padding-top: 10px; border-top: 1px solid #3a3d41;
-      font-size: 11px; color: #888; line-height: 1.5;
+      margin-top: var(--space-6); padding-top: var(--space-10); border-top: 1px solid var(--slate-3a3d41);
+      font-size: var(--size-11); color: var(--grey-888888); line-height: 1.5;
     }
     .turn-controls {
-      background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 15px;
+      background: var(--panel); border-radius: var(--radius-8); padding: var(--space-12) var(--space-15); margin-bottom: var(--space-15);
     }
-    .turn-controls-row { display: flex; align-items: center; gap: 12px; }
+    .turn-controls-row { display: flex; align-items: center; gap: var(--space-12); }
     .turn-slider { flex: 1; cursor: pointer; }
     .view-mode-badge {
-      font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 12px;
+      font-size: var(--size-12); font-weight: var(--weight-bold); padding: var(--space-4) var(--space-10); border-radius: var(--radius-12);
       white-space: nowrap; letter-spacing: 0.03em;
     }
-    .view-mode-badge.live { background: rgba(76,175,80,0.18); color: #81c784; }
-    .view-mode-badge.historic { background: rgba(255,152,0,0.18); color: #ffb74d; }
+    .view-mode-badge.live { background: rgba(76,175,80,0.18); color: var(--lens-ours); }
+    .view-mode-badge.historic { background: rgba(255,152,0,0.18); color: var(--lens-open); }
     .turn-nav-row {
-      display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px;
+      display: flex; align-items: center; justify-content: center; gap: var(--space-10); margin-top: var(--space-10);
     }
     .turn-nav-btn {
-      background: #2e7d32; color: #fff; border: none; padding: 6px 12px; min-width: 40px;
-      border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; line-height: 1.2;
+      background: var(--green-2e7d32); color: var(--ink-bright); border: none; padding: var(--space-6) var(--space-12); min-width: 40px;
+      border-radius: var(--radius-4); font-size: var(--size-14); font-weight: var(--weight-semi); cursor: pointer; line-height: 1.2;
     }
-    .turn-nav-btn:hover:not(:disabled) { background: #388e3c; }
-    .turn-nav-btn:disabled { background: #333; color: #666; cursor: default; }
+    .turn-nav-btn:hover:not(:disabled) { background: var(--green-388e3c); }
+    .turn-nav-btn:disabled { background: var(--grey-333333); color: var(--grey-666666); cursor: default; }
     .turn-nav-counter {
-      font-size: 13px; font-weight: 700; color: #ddd; min-width: 84px; text-align: center;
+      font-size: var(--size-13); font-weight: var(--weight-bold); color: var(--grey-dddddd); min-width: 84px; text-align: center;
       font-variant-numeric: tabular-nums;
     }
-    .turn-controls-info { margin-top: 6px; font-size: 12px; color: #9a9a9a; min-height: 14px; }
+    .turn-controls-info { margin-top: var(--space-6); font-size: var(--size-12); color: var(--ink-dim); min-height: 14px; }
     @media (min-width: 768px) {
-      .main-content { padding: 20px; }
-      .board-container { display: flex; gap: 20px; }
+      .main-content { padding: var(--space-20); }
+      .board-container { display: flex; gap: var(--space-20); }
       /* min-width:0 keeps a board dragged wider than its column from pushing
          the column out — which is also what makes the column's width an
          honest maximum to clamp the board against. */
@@ -733,7 +743,7 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr) 380px;
         grid-template-areas: "banner banner" "board rail" "roster rail";
-        gap: 0 20px;
+        gap: 0 var(--space-20);
         align-items: start;
       }
       #gameOverBanner { grid-area: banner; }

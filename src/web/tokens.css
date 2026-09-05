@@ -205,7 +205,7 @@
   --wash-black-25:      rgba(0,0,0,0.25);
   --wash-black-40:      rgba(0, 0, 0, 0.4);
   --wash-black-45:      rgba(0, 0, 0, 0.45);
-  --wash-black-50:      rgba(0,0,0,.5);
+  --wash-black-50:      rgba(0, 0, 0, 0.5);
   --wash-black-55:      rgba(0,0,0,0.55);
   --wash-black-60:      rgba(0,0,0,0.6);
   --wash-black-65:      rgba(0,0,0,0.65);
@@ -562,6 +562,7 @@
   --shadow-toast:  0 2px 10px var(--wash-black-60);
   --shadow-card:   0 2px 12px var(--wash-black-70);
   --shadow-hairline: 0 0 0 1px var(--wash-black-60);
+  --shadow-alarm:  0 0 10px var(--wash-red-70);   /* the one shadow that is a signal */
 
   /* SPACING. The 2 px grid the surface is actually written on. */
   --space-1:   1px;
@@ -583,6 +584,9 @@
   --space-20:  20px;
   --space-22:  22px;
   --space-24:  24px;
+  --space-26:  26px;
+  --space-28:  28px;
+  --space-40:  40px;
   --space-60:  60px;
 
   /* TYPE. Two stacks and a size ladder. The rail does NOT use the ladder —
