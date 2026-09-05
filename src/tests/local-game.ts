@@ -3254,13 +3254,192 @@ export const SPARSE_LEAN_SCENARIO: GameSpec = {
   foodEnergy: 20,
 };
 
+// --- side symmetry (docs/design/SIDE-ASYMMETRY.md) -------------------------
+/**
+ * THE HAND-SYMMETRIC BOARDS — one per class, and why they had to be new.
+ *
+ * The five scenarios above were written to exercise MECHANICS, not to be fair.
+ * `mixed` and `potions` give red snake + pawn + knight and blue snake + queen
+ * + pawn: our profile playing blue beats a `material-only` field 16/16 and the
+ * same profile playing red wins 1/16 (`docs/design/ENDGAME.md` §2.1). `snakes`
+ * and `sparse` have mirror-image ROSTERS but food that is not mirrored — the
+ * sixth meal of `snakes` sits at (0,5), on red's wall with no twin at (10,5),
+ * and `sparse`'s second meal at (3,9) has no twin at (9,9).
+ *
+ * So a side-0-only measurement cannot tell a bot's deficit from the board's,
+ * and the five old boards cannot be repaired: every A/B record in
+ * `docs/design/ab/` depends on their side-0 play being byte-identical. These
+ * are the controls instead. Each is symmetric under the LEFT-RIGHT REFLECTION
+ * `x -> width-1-x`, which is the one board symmetry this runner's own
+ * construction survives:
+ *
+ *  - `makeUnit` lays a snake's body along `-y` in ABSOLUTE coordinates, so a
+ *    180-degree rotation would flip every tail and a reflection in x does not.
+ *  - `makeUnit` faces a unit at the centre and projects onto one orthogonal
+ *    with `|ax| >= |ay|`. Reflection negates `ax` and leaves `ay`, so the tie
+ *    falls the same way on both sides and the orientations are mirrored too.
+ *
+ * TWO TEAMS, AND A THIRD WOULD RUIN IT — measured, not assumed. The first cut
+ * of these boards kept the baseline classes' third team on the centre file,
+ * where the reflection maps it onto itself, and they were still won by slot 1
+ * 8/8 on `mirror-mixed` at a mean lead of +39.4. The cause is not the runner
+ * and not the engine: on a self-mirrored position a team's own tied options
+ * are mirror images of each other, the search's tie-break is by cell index and
+ * cell index is not reflection-invariant, so the third team commits to ONE
+ * half of the board on turn 1 and harasses that half for sixty turns. Drop it
+ * and the same board reads slot 0 3/0/5 at a mean lead of -2.25 — a coin.
+ * A self-mirrored third party is therefore not a neutral party, and a control
+ * that carries one is not a control.
+ *
+ * What is left over, and cannot be removed, is item RESPAWN: the runner's
+ * top-up draws a uniform (x, y) per meal, so a meal replaced on turn 12 lands
+ * on one side of the axis and not the other. That draw is symmetric in
+ * DISTRIBUTION but not per game, which is why the side test on these boards is
+ * a rate over eight seeds and not a per-game identity.
+ */
+
+/** `snakes`, made fair: the sixth meal at (0,5) had no twin at (10,5). */
+export const MIRROR_SNAKE_SCENARIO: GameSpec = {
+  width: 11,
+  height: 11,
+  teams: [
+    { id: 'red', units: [{ kind: 'snake', x: 1, y: 1 }, { kind: 'snake', x: 1, y: 9 }] },
+    { id: 'blue', units: [{ kind: 'snake', x: 9, y: 1 }, { kind: 'snake', x: 9, y: 9 }] },
+  ],
+  food: [
+    { x: 3, y: 3 },
+    { x: 7, y: 3 },
+    { x: 3, y: 7 },
+    { x: 7, y: 7 },
+    { x: 5, y: 5 },
+  ],
+  foodTarget: 5,
+  maxTurns: 100,
+};
+
+/**
+ * `mixed`, made fair — and the queen is on BOTH rosters rather than neither.
+ *
+ * The class exists to put several unit kinds on one board, and the piece the
+ * asymmetry finding is about is the queen, so dropping it would test the
+ * runner on a board that no longer contains the mechanic in question. Red and
+ * blue each get snake + pawn + queen at mirrored cells. `mixed`'s third team
+ * is NOT carried over: see the header — a team on the centre file breaks its
+ * own mirror on turn 1 and then plays one half of the board.
+ */
+export const MIRROR_MIXED_SCENARIO: GameSpec = {
+  width: 11,
+  height: 11,
+  teams: [
+    {
+      id: 'red',
+      units: [
+        { kind: 'snake', x: 1, y: 2 },
+        { kind: 'pawn', x: 2, y: 1 },
+        { kind: 'queen', x: 0, y: 0 },
+      ],
+    },
+    {
+      id: 'blue',
+      units: [
+        { kind: 'snake', x: 9, y: 2 },
+        { kind: 'pawn', x: 8, y: 1 },
+        { kind: 'queen', x: 10, y: 0 },
+      ],
+    },
+  ],
+  food: [
+    { x: 3, y: 3 },
+    { x: 7, y: 3 },
+    { x: 3, y: 7 },
+    { x: 7, y: 7 },
+    { x: 5, y: 5 },
+  ],
+  foodTarget: 5,
+  maxTurns: 100,
+};
+
+/** `sparse`, made fair: the second meal at (3,9) had no twin at (9,9). */
+export const MIRROR_SPARSE_SCENARIO: GameSpec = {
+  width: 13,
+  height: 13,
+  teams: [
+    { id: 'red', units: [{ kind: 'snake', x: 1, y: 1 }, { kind: 'snake', x: 1, y: 11 }] },
+    { id: 'blue', units: [{ kind: 'snake', x: 11, y: 1 }, { kind: 'snake', x: 11, y: 11 }] },
+  ],
+  food: [
+    { x: 3, y: 6 },
+    { x: 9, y: 6 },
+  ],
+  foodTarget: 2,
+  maxTurns: 100,
+};
+
+/** `potions`, made fair — `mirror-mixed`'s roster with the potion rules live. */
+export const MIRROR_POTION_SCENARIO: GameSpec = {
+  ...MIRROR_MIXED_SCENARIO,
+  potions: [
+    { x: 5, y: 2 },
+    { x: 2, y: 5 },
+    { x: 8, y: 5 },
+    { x: 5, y: 8 },
+  ],
+  potionTarget: 4,
+  potionRespawnTurns: 3,
+  potionWindowTurns: DEFAULT_POTION_WINDOW_TURNS,
+};
+
+/** `sparse-lean`, made fair: `mirror-sparse` with a meal worth half a tank. */
+export const MIRROR_SPARSE_LEAN_SCENARIO: GameSpec = {
+  ...MIRROR_SPARSE_SCENARIO,
+  foodEnergy: 20,
+};
+// --- end side symmetry ------------------------------------------------------
+
 export const SCENARIOS: Record<string, GameSpec> = {
   snakes: SNAKE_SCENARIO,
   mixed: MIXED_SCENARIO,
   sparse: SPARSE_SCENARIO,
   potions: POTION_SCENARIO,
   'sparse-lean': SPARSE_LEAN_SCENARIO,
+  // --- side symmetry (docs/design/SIDE-ASYMMETRY.md) ------------------------
+  // The hand-symmetric control per class. They are additions and never
+  // replacements: the five names above keep the specs every A/B record in
+  // `docs/design/ab/` was taken against, byte for byte.
+  'mirror-snakes': MIRROR_SNAKE_SCENARIO,
+  'mirror-mixed': MIRROR_MIXED_SCENARIO,
+  'mirror-sparse': MIRROR_SPARSE_SCENARIO,
+  'mirror-potions': MIRROR_POTION_SCENARIO,
+  'mirror-sparse-lean': MIRROR_SPARSE_LEAN_SCENARIO,
+  // --- end side symmetry ----------------------------------------------------
 };
+
+// --- side symmetry (docs/design/SIDE-ASYMMETRY.md) --------------------------
+/**
+ * THE BASELINE CORPUS — what `all` has always meant, and still does.
+ *
+ * `scenariosNamed` used to expand `all` to `Object.keys(SCENARIOS)`, so adding
+ * a scenario to the table would have silently changed what every standing
+ * `sum all` invocation measures. The five names are pinned here instead: `all`
+ * is these, `mirrors` is the hand-symmetric controls, and `everything` is both.
+ */
+export const BASELINE_SCENARIOS: ReadonlyArray<string> = [
+  'snakes',
+  'mixed',
+  'sparse',
+  'potions',
+  'sparse-lean',
+];
+
+/** The hand-symmetric control per baseline class, in the same order. */
+export const MIRROR_SCENARIOS: ReadonlyArray<string> = [
+  'mirror-snakes',
+  'mirror-mixed',
+  'mirror-sparse',
+  'mirror-potions',
+  'mirror-sparse-lean',
+];
+// --- end side symmetry ------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // THE JSON SUMMARY — one object per run, for a machine to diff
@@ -3940,6 +4119,9 @@ const HELP = `local-game — watch the bot play, or count what it did.
       list, or "all".
 
 Scenarios: ${Object.keys(SCENARIOS).join(', ')}.
+  Groups: "all" = the five baseline classes (${BASELINE_SCENARIOS.join(', ')}) —
+  pinned, so adding a scenario never changes what a standing sum measures;
+  "mirrors" = the hand-symmetric control per class; "everything" = both.
 
 Flags
   --nodes[=N]    THE DETERMINISTIC MODE. Budget each decision by N work units of
@@ -4018,6 +4200,15 @@ Flags
                  a swapped run's label. The JSON summary carries \`side\` when
                  it is not 0, so a swapped run is a different experiment and
                  never pairs against an unswapped one.
+  --side=both    BOTH COLOURS, reported separately — the standing rule
+                 (docs/design/SIDE-ASYMMETRY.md). Plays every (scenario, seed)
+                 from slot 0 and again from slot 1 and writes a summary for
+                 each; \`ab-compare.js\` never pools them, because red-plays-us
+                 and blue-plays-us are two experiments over one asymmetric
+                 board. \`--side=0,1\` is the same thing spelt out. USE THIS FOR
+                 EVERY A/B AND EVERY AUDIT: the baseline rosters are not fair
+                 (mixed/potions hand blue the queen), so a side-0-only number
+                 cannot tell the bot's deficit from the board's.
   --decider=N    AN ALIAS FOR --side=N, and only an alias. It is the name the
                  opponent bench and \`scripts/round-robin.sh\` were written
                  against; it sets the same slot, writes the same \`side\` field
@@ -4075,6 +4266,12 @@ interface Flags {
   /** `--score-traces`: price every option in the multi-seed `sum` mode too, so
    *  the anytime oracle (`RunSummary.anytime`) has something to read. Slow. */
   readonly scoreTraces: boolean;
+  // --- side symmetry (SIDE-ASYMMETRY.md): EVERY SLOT THIS INVOCATION PLAYS.
+  // `--side=N` (or `--decider=N`) is `[N]` and `--side=both` is `[0, 1]`;
+  // `side` above stays the first of them, so every reader that predates the
+  // rule still works. ------------------------------------------------------
+  readonly sides: ReadonlyArray<number>;
+  // --- end side symmetry ----------------------------------------------------
   readonly positional: string[];
 }
 
@@ -4101,6 +4298,11 @@ function parseFlags(argv: readonly string[]): Flags {
     }
     return n;
   };
+  // --- side symmetry (SIDE-ASYMMETRY.md): the slots this invocation plays,
+  // and whether `both` asked for them. ------------------------------------
+  let sides: number[] = [0];
+  let both = false;
+  // --- end side symmetry ------------------------------------------------------
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
       positional.push(arg);
@@ -4152,17 +4354,39 @@ function parseFlags(argv: readonly string[]): Flags {
       // is refused rather than resolved by argument order.
       case 'side':
       case 'decider': {
-        const n = value === null ? Number.NaN : Number(value);
-        if (!Number.isInteger(n) || n < 0) {
-          throw new Error(`${arg.split('=')[0]} requires a roster slot, e.g. --side=1`);
+        // --- side symmetry (SIDE-ASYMMETRY.md): `both` is the standing rule's
+        // shorthand — play every (scenario, seed) from slot 0 AND slot 1 and
+        // write a summary for each. A comma list (`--side=0,1`) is the same
+        // thing spelt out; a bare number is what it always was, under either
+        // spelling. Mixing `both` with a slot is the same disagreement the
+        // alias check below refuses, and is refused the same way. ----------
+        if (value === 'both') {
+          if (side !== 0) {
+            throw new Error(
+              `--side and --decider disagree (${side} vs both) — ` +
+                '`--decider` is an alias for `--side`, so pass one or the other'
+            );
+          }
+          sides = [0, 1];
+          both = true;
+          break;
         }
-        if (side !== 0 && side !== n) {
+        const parts = (value ?? '').split(',').filter((x) => x !== '');
+        const ns = parts.map(Number);
+        if (ns.length === 0 || ns.some((n) => !Number.isInteger(n) || n < 0)) {
           throw new Error(
-            `--side and --decider disagree (${side} vs ${n}) — ` +
+            `${arg.split('=')[0]} requires a roster slot, e.g. --side=1 or --side=both`
+          );
+        }
+        const first = ns[0] as number;
+        if (both || (side !== 0 && side !== first)) {
+          throw new Error(
+            `--side and --decider disagree (${both ? 'both' : side} vs ${first}) — ` +
               '`--decider` is an alias for `--side`, so pass one or the other'
           );
         }
-        side = n;
+        sides = ns;
+        side = first;
         break;
       }
       // --- end outcome instrument -------------------------------------------
@@ -4222,6 +4446,7 @@ function parseFlags(argv: readonly string[]): Flags {
     deadlineMs,
     adversity: { late, jitter, slow },
     scoreTraces,
+    sides,
     positional,
   };
 }
@@ -4236,7 +4461,19 @@ const withFoodEnergy = (spec: GameSpec, foodEnergy: number | null): GameSpec =>
   foodEnergy === null ? spec : { ...spec, foodEnergy };
 
 function scenariosNamed(which: string, foodEnergy: number | null = null): Array<[string, GameSpec]> {
-  const names = which === 'all' ? Object.keys(SCENARIOS) : which.split(',');
+  // --- side symmetry (SIDE-ASYMMETRY.md): `all` is PINNED to the five
+  // baseline classes, so adding a scenario to `SCENARIOS` cannot change what a
+  // standing `sum all` measures. `mirrors` is the hand-symmetric controls and
+  // `everything` is both. ---------------------------------------------------
+  const names =
+    which === 'all'
+      ? [...BASELINE_SCENARIOS]
+      : which === 'mirrors'
+        ? [...MIRROR_SCENARIOS]
+        : which === 'everything'
+          ? [...BASELINE_SCENARIOS, ...MIRROR_SCENARIOS]
+          : which.split(',');
+  // --- end side symmetry ----------------------------------------------------
   return names.map((name): [string, GameSpec] => {
     const spec = SCENARIOS[name];
     if (spec === undefined) throw new Error(`unknown scenario ${name}`);
@@ -4296,25 +4533,31 @@ async function main(): Promise<void> {
     const budget: DecisionBudget = budgetFrom(flags, { kind: 'ms', ms: Number(argv[4] ?? 100) });
     const probeRows: string[] = [];
     for (const [name, spec] of scenariosNamed(argv[1] ?? 'snakes', flags.foodEnergy)) {
-      await summarise(name, spec, turns, seeds, budget, {
-        label: flags.label,
-        json: emitJson,
-        say,
-        opponent,
-        ...(flags.probe === null
-          ? {}
-          : {
-              probe: {
-                scales: flags.probeScales,
-                row: (row: ProbeRow): void => {
-                probeRows.push(JSON.stringify(row));
-              },
-              },
-            }),
-        side: flags.side,
-        adversity: flags.adversity,
-        scoreTraces: flags.scoreTraces,
-      });
+      // --- side symmetry (SIDE-ASYMMETRY.md): one pass per slot. With the
+      // default `[0]` this is the single pass it always was, in the same
+      // order, writing the same summaries. ---------------------------------
+      for (const slot of flags.sides) {
+        await summarise(name, spec, turns, seeds, budget, {
+          label: flags.label,
+          json: emitJson,
+          say,
+          opponent,
+          ...(flags.probe === null
+            ? {}
+            : {
+                probe: {
+                  scales: flags.probeScales,
+                  row: (row: ProbeRow): void => {
+                    probeRows.push(JSON.stringify(row));
+                  },
+                },
+              }),
+          side: slot,
+          adversity: flags.adversity,
+          scoreTraces: flags.scoreTraces,
+        });
+      }
+      // --- end side symmetry --------------------------------------------------
     }
     if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
     finish();
@@ -4329,90 +4572,96 @@ async function main(): Promise<void> {
   const named = SCENARIOS[which];
   if (named === undefined) throw new Error(`unknown scenario ${which}`);
   const spec = withFoodEnergy(named, flags.foodEnergy);
-  const result = await runGame(
-    {
-      ...spec,
-      maxTurns: turns,
-      seed,
-      ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
-    },
-    {
-      onTurn: say,
-      opponent,
-      adversity: flags.adversity,
-      ...(flags.probe === null
-        ? {}
-        : {
-            probe: {
-              scenario: which,
-              scales: flags.probeScales,
-              row: (row: ProbeRow): void => {
-                probeRows.push(JSON.stringify(row));
+  // --- side symmetry (SIDE-ASYMMETRY.md): one game per slot. With the
+  // default `[0]` this is the single game it always was, byte for byte.
+  for (const slot of flags.sides) {
+    if (flags.sides.length > 1) say(`=== side=${slot} ===`);
+    const result = await runGame(
+      {
+        ...spec,
+        maxTurns: turns,
+        seed,
+        ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
+      },
+      {
+        onTurn: say,
+        opponent,
+        adversity: flags.adversity,
+        ...(flags.probe === null
+          ? {}
+          : {
+              probe: {
+                scenario: which,
+                scales: flags.probeScales,
+                row: (row: ProbeRow): void => {
+                  probeRows.push(JSON.stringify(row));
+                },
               },
-            },
-          }),
-      side: flags.side,
-    }
-  );
-  if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
-  emitJson?.(
-    JSON.stringify(
-      summaryOf(
-        result.metrics,
-        {
-          label: flags.label,
-          scenario: which,
-          seed,
-          turnsRequested: turns,
-          opponent: opponent?.name,
-          foodEnergy: spec.foodEnergy,
-          side: flags.side,
-        },
-        budget
+            }),
+        side: slot,
+      }
+    );
+    if (flags.probe !== null) writeFileSync(flags.probe, `${probeRows.join('\n')}\n`);
+    emitJson?.(
+      JSON.stringify(
+        summaryOf(
+          result.metrics,
+          {
+            label: flags.label,
+            scenario: which,
+            seed,
+            turnsRequested: turns,
+            opponent: opponent?.name,
+            foodEnergy: spec.foodEnergy,
+            side: slot,
+          },
+          budget
+        )
       )
-    )
-  );
-  if (opponent !== undefined) {
+    );
+    if (opponent !== undefined) {
+      say(
+        `opponent: ${opponent.name} (team ${slot}, ` +
+          `"${spec.teams[slot]?.id}", keeps the default profile)`
+      );
+    }
+    // --- outcome instrument (ENDGAME): the result, before the process counters.
+    if (result.metrics.outcome !== null) {
+      const o = result.metrics.outcome;
+      say(
+        `--- outcome --- ${o.team} ${o.result.toUpperCase()} by ${o.kind} at turn ${o.endTurn}: ` +
+          `winners=[${o.winners.join(', ')}] weights=${JSON.stringify(o.weightByTeam)} ` +
+          `lead=${o.lead} sharePar=${o.sharePar.toFixed(3)}`
+      );
+      say(
+        `    lead trajectory: ${o.trajectory.map((t) => `T${t.turn}=${t.lead}`).join(' ')}`
+      );
+    }
+    // --- end outcome instrument -------------------------------------------------
+    say('--- metrics ---');
+    say(JSON.stringify(result.metrics, null, 2));
+    const perHundred =
+      result.metrics.unitTurns === 0
+        ? 0
+        : (100 * result.metrics.foodEaten) / result.metrics.unitTurns;
+    say(`food per 100 unit-turns: ${perHundred.toFixed(2)}`);
+    const pct = (n: number, d: number): string => (d === 0 ? '0.0' : ((100 * n) / d).toFixed(1));
+    say(`reversal rate: ${pct(result.metrics.reversals, result.metrics.unitTurns)}%`);
+    say(`  unjustified: ${pct(result.metrics.unjustifiedReversals, result.metrics.unitTurns)}%`);
+    say(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
+    say(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
+    say(`longest park:  ${result.metrics.longestPark} turns`);
     say(
-      `opponent: ${opponent.name} (team ${flags.side}, ` +
-        `"${spec.teams[flags.side]?.id}", keeps the default profile)`
+      `immobile:      ${pct(result.metrics.immobileUnitTurns, result.metrics.unitTurns)}% ` +
+        `(${result.metrics.immobileUnitTurns} unit-turns, ` +
+        `${result.metrics.deathsWhileImmobile} died there)`
+    );
+    say(
+      `enemy-cell entries: ${result.metrics.enemyOccupiedEntries} ` +
+        `(lost ${result.metrics.enemyOccupiedEntriesLost})`
     );
   }
-  // --- outcome instrument (ENDGAME): the result, before the process counters.
-  if (result.metrics.outcome !== null) {
-    const o = result.metrics.outcome;
-    say(
-      `--- outcome --- ${o.team} ${o.result.toUpperCase()} by ${o.kind} at turn ${o.endTurn}: ` +
-        `winners=[${o.winners.join(', ')}] weights=${JSON.stringify(o.weightByTeam)} ` +
-        `lead=${o.lead} sharePar=${o.sharePar.toFixed(3)}`
-    );
-    say(
-      `    lead trajectory: ${o.trajectory.map((t) => `T${t.turn}=${t.lead}`).join(' ')}`
-    );
-  }
-  // --- end outcome instrument -------------------------------------------------
-  say('--- metrics ---');
-  say(JSON.stringify(result.metrics, null, 2));
-  const perHundred =
-    result.metrics.unitTurns === 0
-      ? 0
-      : (100 * result.metrics.foodEaten) / result.metrics.unitTurns;
-  say(`food per 100 unit-turns: ${perHundred.toFixed(2)}`);
-  const pct = (n: number, d: number): string => (d === 0 ? '0.0' : ((100 * n) / d).toFixed(1));
-  say(`reversal rate: ${pct(result.metrics.reversals, result.metrics.unitTurns)}%`);
-  say(`  unjustified: ${pct(result.metrics.unjustifiedReversals, result.metrics.unitTurns)}%`);
-  say(`dither rate:   ${pct(result.metrics.dithers, result.metrics.unitTurns)}%`);
-  say(`stationary:    ${pct(result.metrics.stationary, result.metrics.unitTurns)}%`);
-  say(`longest park:  ${result.metrics.longestPark} turns`);
-  say(
-    `immobile:      ${pct(result.metrics.immobileUnitTurns, result.metrics.unitTurns)}% ` +
-      `(${result.metrics.immobileUnitTurns} unit-turns, ` +
-      `${result.metrics.deathsWhileImmobile} died there)`
-  );
-  say(
-    `enemy-cell entries: ${result.metrics.enemyOccupiedEntries} ` +
-      `(lost ${result.metrics.enemyOccupiedEntriesLost})`
-  );
+  // --- end side symmetry --------------------------------------------------
   finish();
 }
 

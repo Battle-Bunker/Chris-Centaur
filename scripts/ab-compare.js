@@ -31,6 +31,19 @@
  *     same board at the same seed for the same turn count on the same budget.
  *     Anything unmatched is reported, never silently dropped or averaged in.
  *
+ *  3. EVERY ARM RUNS BOTH COLOURS, AND THEY ARE REPORTED SEPARATELY
+ *     (`docs/design/SIDE-ASYMMETRY.md`). The baseline rosters are not fair:
+ *     `mixed` and `potions` give red snake + pawn + knight and blue snake +
+ *     queen + pawn, and in MIRROR self-play — the identical profile on both
+ *     teams, no bot difference possible — blue wins 8/8 with a mean lead of
+ *     +29 and red wins 0/8 at -35. `snakes` and `sparse` have mirror-image
+ *     rosters but food that is not mirrored. So a side-0-only number cannot
+ *     tell the bot's deficit from the board's, and a repair tuned on it is
+ *     tuned against a handicap. Runs are keyed on `side` (they are never
+ *     pooled), and the coverage block below NAMES every arm that ran only
+ *     one. Take both with `--side=both`; `--require-both-sides` turns the
+ *     warning into a non-zero exit for a gate that must not pass without it.
+ *
  * The paired mean is reported with a SIGN TEST (exact two-sided binomial over
  * the seeds whose delta is nonzero) rather than a t-test: five seeds of a game
  * counter are not normal, and the question being asked is "did this move the
@@ -178,7 +191,7 @@ function main() {
   if (args.length !== 2 || flags.help) {
     process.stdout.write(
       'usage: node scripts/ab-compare.js <before.jsonl|dir> <after.jsonl|dir> ' +
-        '[--metrics=a,b,c] [--all-metrics]\n'
+        '[--metrics=a,b,c] [--all-metrics] [--require-both-sides]\n'
     );
     process.exit(args.length === 2 ? 0 : 1);
   }
@@ -205,6 +218,44 @@ function main() {
     );
   }
   if (modes.size > 1) process.stdout.write('!! WARNING: the two arms used different budget modes.\n\n');
+
+  // --- side symmetry (docs/design/SIDE-ASYMMETRY.md): THE BOTH-COLOURS RULE.
+  // An arm is a (scenario, opponent, foodEnergy); the slot is NOT part of it,
+  // it is the colour that arm was played from. An arm played from one slot
+  // only is a measurement of the board's handicap as much as of the build, and
+  // this says so by name rather than leaving it to be noticed.
+  const sidesSeen = new Map();
+  for (const r of [...before, ...after]) {
+    const arm = `${r.scenario} / opponent=${opponentOf(r)} / foodEnergy=${foodEnergyOf(r)}`;
+    if (!sidesSeen.has(arm)) sidesSeen.set(arm, new Set());
+    sidesSeen.get(arm).add(sideOf(r));
+  }
+  const oneSided = [...sidesSeen.entries()]
+    .filter(([, slots]) => slots.size < 2)
+    .map(([arm, slots]) => `${arm}  (side ${[...slots].join(',')} only)`)
+    .sort();
+  if (oneSided.length > 0) {
+    process.stdout.write(
+      '!! ONE-COLOUR ARMS — the rosters are not fair, so these read as much as\n' +
+        '!! the board as the build (docs/design/SIDE-ASYMMETRY.md). Re-run with\n' +
+        '!! --side=both:\n' +
+        oneSided.map((a) => `!!   ${a}\n`).join('') +
+        '\n'
+    );
+    if (flags['require-both-sides']) {
+      process.stderr.write(
+        'ab-compare: --require-both-sides and ' +
+          `${oneSided.length} arm(s) ran one colour only\n`
+      );
+      process.exit(2);
+    }
+  } else {
+    process.stdout.write(
+      `both colours present on all ${sidesSeen.size} arm(s) ` +
+        '(docs/design/SIDE-ASYMMETRY.md)\n\n'
+    );
+  }
+  // --- end side symmetry ------------------------------------------------------
 
   const byKeyA = new Map(before.map((r) => [keyOf(r), r]));
   const byKeyB = new Map(after.map((r) => [keyOf(r), r]));

@@ -73,6 +73,21 @@ not indexed here. `docs/design/drives/` does not exist in this worktree;
   `calibration.ts` is unchanged; a global re-weighting cannot fix a
   decision that needs a term local to the entry turn.
 
+- `docs/design/SIDE-ASYMMETRY.md` — **corpus rule**. The measurement corpus is
+  not fair: in MIRROR self-play (the identical profile on both teams, so no bot
+  difference is possible) slot 0 wins the five baseline classes 12/40 and slot 1
+  wins 26/40, and on `mixed`/`potions` — where blue's roster carries the queen —
+  slot 0 wins **0 of 16** at mean leads of −35 and −29. Swap the two teams' unit
+  lists and the result swaps with them. **It is the ROSTER, not the runner and
+  not the engine**: decisions are reflection-equivariant, and on hand-symmetric
+  controls the slots split 0.463/0.537 over forty games. The old boards are NOT
+  repaired (the whole A/B corpus is bound to their side-0 play); instead
+  **every A/B and every audit runs both colours and reports them separately**
+  (`--side=both`, `ab-compare.js --require-both-sides`), and there is one
+  hand-symmetric control per class. No taken decision flips — the mirror
+  corpora are provably slot-invariant — but every "ours" count in the
+  `material-only` arms is a side-0 reading.
+
 ## Behaviour audits and rules
 
 - `docs/design/BEHAVIOUR-AUDIT.md` — **record**. First audit (23 games). D1
