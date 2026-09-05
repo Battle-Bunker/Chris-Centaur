@@ -62,6 +62,7 @@ var LensView = (() => {
     reviveEvents: () => reviveEvents,
     rowTrails: () => rowTrails,
     rowsFor: () => rowsFor,
+    stageSummary: () => stageSummary,
     stagedCellOf: () => stagedCellOf,
     widenAutoAcceptMs: () => widenAutoAcceptMs
   });
@@ -1114,6 +1115,7 @@ var LensView = (() => {
         list.truncated
       )
     ];
+    const foil = selected === null ? null : foilRow(frame, cursor, selected);
     for (const row of rows) {
       const cell = depthCell(row, row.key === leader?.key ? loud : null);
       const priced = row.unpriced !== true;
@@ -1146,7 +1148,14 @@ var LensView = (() => {
           row.complement,
           row.key === selected?.key,
           row.staged,
-          trail
+          trail,
+          // WHICH ROW IS THE RUNNER-UP, and the row's own estimate. Both are
+          // appended rather than woven in, so every existing reader keeps its
+          // indices: the rail marks the foil row at full size beside rank 1, and
+          // draws the bracket as a BAND with `est` as its marked point rather
+          // than as `-51.6 ⌈93.0⌉` text that one reader in three inverts.
+          row.key === foil?.key,
+          priced ? row.est : null
         )
       );
     }
@@ -1162,7 +1171,6 @@ var LensView = (() => {
       );
     }
     if (selected !== null) {
-      const foil = foilRow(frame, cursor, selected);
       ops.push(
         foil === null ? call("panel.foil", null, null, noFoilReason(list), null) : call(
           "panel.foil",
@@ -1298,11 +1306,45 @@ var LensView = (() => {
     }
     return ops;
   }
+  function stageSummary(frame) {
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    const push = (unit, clusterId, fixity, by) => {
+      if (seen.has(unit)) return;
+      seen.add(unit);
+      const row = frame.units.find((u) => u.unit === unit);
+      const staged = stagedCellOf(frame, unit);
+      const planned = staged !== null || clusterId === null ? null : rankOne(frame.movesets[reservoirListKey(clusterId)] ?? [])?.moves.find(
+        (m) => m.unit === unit
+      )?.to ?? null;
+      out.push({
+        unit,
+        letter: row?.letter || unit,
+        to: staged !== null ? staged : planned,
+        source: staged !== null ? "staged" : planned !== null ? "plan" : "none",
+        fixity,
+        by
+      });
+    };
+    for (const cluster of frame.partition) {
+      for (const member of cluster.members) push(member, cluster.id, "free", null);
+      for (const bound of cluster.boundedBy) {
+        push(
+          bound.unit,
+          cluster.id,
+          FIXITY_VERB[bound.why] ?? bound.why,
+          authorOf(frame, bound.unit, bound.by)
+        );
+      }
+    }
+    return out;
+  }
   function renderFrame(frame, cursor = initialCursor(), trails = []) {
     const selected = selectedRow(frame, cursor);
     const ops = [call("frame", frame.at.turn, frame.at.seq, frame.at.tMono)];
     ops.push(...boardOps(frame, cursor, selected));
     ops.push(call("panel.advice", frame.advice.length));
+    ops.push(call("panel.stage", stageSummary(frame)));
     if (cursor.unit !== null) {
       const row = frame.units.find((u) => u.unit === cursor.unit);
       const cluster = clusterOf(frame, cursor.unit);

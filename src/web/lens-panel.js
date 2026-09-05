@@ -58,6 +58,57 @@ const LensPanel = (() => {
   }
 
   /**
+   * A BRACKET AS A BAND, not as two numbers. Roughly one reader in three
+   * inverts an interval printed as text even with a correct key beside it, and
+   * `-51.6 ⌈93.0⌉` asks them to do the subtraction as well. The band is drawn
+   * on one scale shared by every row of the table, so "wider" and "further
+   * right" mean the same thing on every row of it:
+   *
+   *   · the SPAN is `lo … hi` — the proved floor to the unproved ceiling;
+   *   · the TICK is `est`, the estimate, which never adjudicates and is drawn
+   *     as a mark inside the span rather than as a third number beside it;
+   *   · an open end (`hi = +∞`) draws an ARROWHEAD, never a bar: nothing is
+   *     proved above, which is a reading and not a big number.
+   *
+   * The numbers stay in the cell beside it. The band is the fast read; the
+   * text is the checkable one, and Law A wants both.
+   */
+  function bandHTML(lo, width, est, scale) {
+    if (typeof lo !== 'number' || Number.isNaN(lo) || !scale || scale.span <= 0) return '';
+    const hi = typeof width === 'number' && Number.isFinite(width) ? lo + width : Infinity;
+    const pct = (v) => Math.max(0, Math.min(100, ((v - scale.lo) / scale.span) * 100));
+    const left = pct(lo);
+    const open = !Number.isFinite(hi);
+    const right = open ? 100 : pct(hi);
+    const tick =
+      typeof est === 'number' && Number.isFinite(est)
+        ? `<i class="lens-band-tick" style="left:${pct(est).toFixed(1)}%"></i>`
+        : '';
+    return (
+      `<span class="lens-band" role="img" aria-label="floor ${num(lo, 1)} to ${open ? 'open' : num(hi, 1)}">` +
+      `<i class="lens-band-span${open ? ' lens-band-open' : ''}" ` +
+      `style="left:${left.toFixed(1)}%;width:${Math.max(1.5, right - left).toFixed(1)}%"></i>${tick}</span>`
+    );
+  }
+
+  /** One scale for the whole table: the widest finite reading in it. */
+  function bandScale(rows) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const row of rows) {
+      const args = ARGS(row);
+      const a = args[2];
+      const w = args[3];
+      if (typeof a !== 'number' || Number.isNaN(a)) continue;
+      lo = Math.min(lo, a);
+      hi = Math.max(hi, a + (typeof w === 'number' && Number.isFinite(w) ? w : 0));
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+    const pad = Math.max(0.5, (hi - lo) * 0.08);
+    return { lo: lo - pad, span: hi - lo + pad * 2 };
+  }
+
+  /**
    * The board's ink, in the renderer's own vocabulary. Every mark here came
    * out of the transcript, so what the board draws and what the rail says are
    * the same statement — they cannot drift, because there is only one of them.
@@ -151,7 +202,18 @@ const LensPanel = (() => {
     // look ahead every row reads `h1 ·`, and that is the honest display.
     const marks = (cell.marks || []).join('');
     const delta = cell.delta == null ? '' : ` ${cell.delta > 0 ? '+' : ''}${num(cell.delta, 1)}`;
-    return `${escapeHTML(cell.label)} ${escapeHTML(marks)}${escapeHTML(delta)}`;
+    // DEPTH IS A DEPTH, so it is also drawn as one: `h<n>` keeps the number
+    // (it is what a reader checks) and gains a three-segment gauge beside it,
+    // lit to the horizon this row was proved at. On a build where nothing
+    // deepens every row reads `h1` with one segment lit — which is the honest
+    // picture of a bot that does not look ahead, drawn rather than omitted.
+    const ply = parseInt(String(cell.label || '').replace(/^h/, ''), 10);
+    const gauge = Number.isFinite(ply)
+      ? `<span class="lens-depth" title="proved at horizon ${ply}">${[1, 2, 3]
+          .map((n) => `<i class="${n <= ply ? 'on' : ''}"></i>`)
+          .join('')}</span>`
+      : '';
+    return `${escapeHTML(cell.label)}${gauge} ${escapeHTML(marks)}${escapeHTML(delta)}`;
   }
 
   /** `▲was #1`, and the displaced badge on a row the cursor had to fall to. */
@@ -185,7 +247,7 @@ const LensPanel = (() => {
       const short = !truncated
         ? ''
         : truncated.why === 'reserve-spent'
-          ? ` · <span class="lens-refused">${escapeHTML(truncated.detail)}</span>`
+          ? ` · <span class="lens-refused">⚠ ${escapeHTML(truncated.detail)}</span>`
           : ` · ${escapeHTML(truncated.detail)}`;
       return `conditional list — the rows a lock here would stage${
         retained ? ` · ${escapeHTML(retained)} retained for the cluster` : ''
@@ -207,6 +269,7 @@ const LensPanel = (() => {
 
     const rowCalls = allOf(transcript, 'panel.movesets.row');
     const rowCount = rowCalls.length;
+    const scale = bandScale(rowCalls);
     const rows = rowCalls
       .map((call) => {
         const [
@@ -222,11 +285,21 @@ const LensPanel = (() => {
           selected,
           staged,
           trail,
+          isFoil,
+          est,
         ] = ARGS(call);
         // A stale complement is a row whose QUESTION changed while its answer
         // stayed sound: struck through, kept, never dropped.
+        // THE TWO ROWS THAT MATTER ARE DRAWN AT FULL SIZE, and the rest are
+        // one line each. Rank 1 is what will happen and the foil is what it
+        // nearly did — the contrastive pair is what actually moves a human's
+        // decision, and drawing rank 1 exactly like rank 5 spends the reader's
+        // whole 500 ms budget telling them the two are equally important.
+        // Everything below them is still a keypress away, never hidden.
         const cls = [
           selected ? 'lens-row-cursor' : '',
+          selected ? 'lens-row-lead' : '',
+          isFoil ? 'lens-row-foil' : '',
           complement === 'stale' ? 'lens-row-stale' : '',
           cell && cell.sorted === false ? 'lens-row-unsorted' : '',
         ]
@@ -237,14 +310,20 @@ const LensPanel = (() => {
         // handlers here and no hover behaviour at all, because T4 says hover
         // never commits the cursor.
         return (
-          `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}">` +
-          `<td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
+          `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}" tabindex="-1">` +
+          // NOTHING IS ENCODED BY HUE ALONE. The cursor row carries `▸`, the
+          // foil carries `◇` and a dashed rule of its own, and both say what
+          // they are in words — the tint underneath them is reinforcement, and
+          // a deuteranope reading this table loses nothing.
+          `<td>${selected ? '▸' : isFoil ? '◇' : ''}${escapeHTML(rank)}` +
+          `${selected ? '<span class="lens-row-tag">would be staged</span>' : ''}` +
+          `${isFoil ? '<span class="lens-row-tag">foil</span>' : ''}</td>` +
           // A ROW WITH NO PRICE DRAWS NO BRACKET EITHER: `⌈—⌉` is a width of
           // nothing. The assignment is the row's content and the numbers say
           // they are absent (Law A, F7).
           `<td>${num(aggregate, 1)}${
             width == null ? '' : ` <span class="lens-width">⌈${num(width, 1)}⌉</span>`
-          }</td>` +
+          }${bandHTML(aggregate, width, est, scale)}</td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
           // THE `unless` CELL — what this moveset is betting on, per row. It is
@@ -274,8 +353,8 @@ const LensPanel = (() => {
     const foil = !foilCall
       ? ''
       : foilArgs[0] == null
-        ? `<div class="lens-foil lens-foil-absent">${escapeHTML(foilArgs[2])}</div>`
-        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])}${
+        ? `<div class="lens-foil lens-foil-absent">◇ ${escapeHTML(foilArgs[2])}</div>`
+        : `<div class="lens-foil">◇ foil #${escapeHTML(foilArgs[0])}${
             foilArgs[1] == null ? '' : ` · margin ${num(foilArgs[1], 1)}`
           } · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
@@ -408,6 +487,98 @@ const LensPanel = (() => {
     );
   }
 
+  // ------------------------------------------------------- the glance layer
+
+  /**
+   * THE STAGE LINE — what the bot is about to do, in one sentence, readable in
+   * under a second, at the top of the rail whether or not a unit is focused.
+   *
+   * It is the question every turn asks and the one the shipped surface
+   * answered nowhere: an operator had to read the board's arrows one unit at a
+   * time to assemble it. `panel.stage` carries the units this decision is
+   * about with what is staged for each, so the sentence is a read of the frame
+   * and says the same thing in replay.
+   *
+   * `live` is the page's own staged map, which knows two things the frame does
+   * not — a REQUESTED move that has not confirmed, and a COMMITTED one — and
+   * is preferred per unit where it has an answer. Where neither knows, the
+   * unit is drawn as unplanned rather than omitted: the count of units with no
+   * plan is the whole point of the strip under it.
+   */
+  function stageHTML(transcript, live) {
+    const call = firstOf(transcript, 'panel.stage');
+    const rows = (ARGS(call)[0] || []).map((row) => {
+      const own = (live && live[row.unit]) || null;
+      return {
+        ...row,
+        to: own && own.to != null ? own.to : row.to,
+        source: own && own.to != null ? 'staged' : row.source,
+        state: own ? own.state : null,
+      };
+    });
+    if (rows.length === 0) {
+      return `<div class="lens-stage-line lens-stage-none">nothing is staged yet</div>`;
+    }
+    // FOUR STATES, FOUR MARKS, NO HUE. `»` committed and frozen, `⋯` requested
+    // and not yet confirmed, `~` the bot's current plan rather than a written
+    // move, and nothing at all for a confirmed staged move — which is the
+    // common case and therefore the quiet one.
+    const word = (row) => {
+      if (row.to == null) return `<span class="lens-unplanned">${escapeHTML(row.letter)} ◦ no plan</span>`;
+      const mark =
+        row.state === 'committed'
+          ? '»'
+          : row.state === 'requested'
+            ? '⋯'
+            : row.source === 'plan'
+              ? '~'
+              : '';
+      return (
+        `<span class="lens-stage-move">${escapeHTML(row.letter)} →&nbsp;${escapeHTML(row.to)}${mark}` +
+        `${row.fixity && row.fixity !== 'free' ? ` <span class="lens-stage-why">${escapeHTML(row.fixity)}</span>` : ''}` +
+        `</span>`
+      );
+    };
+    const staged = rows.filter((r) => r.to != null && r.source === 'staged').length;
+    const planned = rows.filter((r) => r.to != null && r.source !== 'staged').length;
+    const fixed = rows.filter((r) => r.fixity && r.fixity !== 'free').length;
+    const unplanned = rows.filter((r) => r.to == null).length;
+    // THE UNFINISHED-BUSINESS STRIP. One segment per state, each with its own
+    // glyph, counting ONLY what the page can know: there is no `fatal` segment
+    // until a fatal consent exists this turn, because a count that cannot be
+    // taken must not be printed as zero.
+    const strip =
+      `<span>${rows.length} unit${rows.length === 1 ? '' : 's'}</span>` +
+      (staged > 0 ? `<span>● ${staged} staged</span>` : '') +
+      (planned > 0 ? `<span>~ ${planned} planned</span>` : '') +
+      (unplanned > 0 ? `<span class="lens-biz-open">◦ ${unplanned} no plan</span>` : '') +
+      (fixed > 0 ? `<span>🔒 ${fixed} fixed</span>` : '');
+    return (
+      `<div class="lens-stage-line">Bot stages ${rows.map(word).join(' · ')}</div>` +
+      `<div class="lens-biz">${strip}</div>`
+    );
+  }
+
+  /**
+   * ONE AFFORDANCE LANGUAGE. Pin, lock, hold, goto, near, release, widen and
+   * clear were six vocabularies in five places — a padlock on the board, a
+   * word in the focus line, a count inside a label, a colour on an arrow, and
+   * three of them only in the help pane. Every one of them is now this chip:
+   * GLYPH · VERB · KEY · STATE, in one row, in one place, in the same order.
+   * The glyph is the constant; the state is the only thing that changes.
+   */
+  function chipHTML(chip) {
+    const cls = ['lens-aff', chip.tone ? `lens-aff-${chip.tone}` : '', chip.off ? 'lens-aff-off' : '']
+      .filter(Boolean)
+      .join(' ');
+    return (
+      `<span class="${cls}"${chip.action ? ` data-lens-action="${escapeHTML(chip.action)}"` : ''}>` +
+      `<span class="lens-aff-glyph">${escapeHTML(chip.glyph)}</span>${escapeHTML(chip.label)}` +
+      `${chip.key ? `<kbd>${escapeHTML(chip.key)}</kbd>` : ''}` +
+      `${chip.note ? `<span class="lens-aff-note">${escapeHTML(chip.note)}</span>` : ''}</span>`
+    );
+  }
+
   /** The four panels, in the order the cursor descends them. */
   function railHTML(transcript) {
     return (
@@ -503,34 +674,172 @@ const LensPanel = (() => {
    * on their candidate needs one pin — theirs. The gesture is not re-taught;
    * it is re-explained.
    */
-  const KEYMAP = [
-    { key: '[', action: 'moveset.prev', help: 'previous moveset in the conditional list' },
-    { key: ']', action: 'moveset.next', help: 'next moveset in the conditional list' },
-    { key: 'f', action: 'foil', help: 'the contrastive runner-up — tap latches, hold peeks' },
-    { key: 'b', action: 'drill', help: 'the breakdown drill on the highlighted member' },
-    { key: 'b', shift: true, action: 'drill.all', help: 'expand every member’s terms' },
-    { key: ',', action: 'timeline.prev', help: 'step the turn timeline back one event' },
-    { key: '.', action: 'timeline.next', help: 'step the turn timeline on one event' },
-    { key: ',', shift: true, action: 'timeline.prevEmission', help: 'previous kernel emission' },
-    { key: '.', shift: true, action: 'timeline.nextEmission', help: 'next kernel emission' },
-    { key: 'home', action: 'timeline.start', help: 'timeline to the board’s arrival' },
-    { key: 'end', action: 'timeline.head', help: 'timeline to the head' },
-    { key: 'n', action: 'now', help: 'return to now (the live head)' },
-    { key: 'u', action: 'release', help: 'release this unit’s pin, leaving goto/near' },
-    { key: ' ', shift: true, action: 'lock.moveset', help: 'lock the whole moveset — pin every member' },
+  const HELP = {
+    'moveset.prev': 'previous moveset in the conditional list',
+    'moveset.next': 'next moveset in the conditional list',
+    foil: 'the contrastive runner-up — tap latches, hold peeks',
+    drill: 'the breakdown drill on the highlighted member',
+    'drill.all': 'expand every member’s terms',
+    'timeline.prev': 'step the turn timeline back one event',
+    'timeline.next': 'step the turn timeline on one event',
+    'timeline.prevEmission': 'previous kernel emission',
+    'timeline.nextEmission': 'next kernel emission',
+    'timeline.start': 'timeline to the board’s arrival',
+    'timeline.head': 'timeline to the head',
+    now: 'return to now (the live head)',
+    release: 'undo — release the pin your last determination wrote, leaving goto/near',
+    'lock.moveset': 'lock the whole moveset — pin every member',
+  };
+
+  /**
+   * THREE SCHEMES OVER ONE ACTION SET.
+   *
+   * The action set is the lens's vocabulary and never changes; only which key
+   * carries it does. Which one an operator wants is a hand posture, not a
+   * preference about the product:
+   *
+   *  · `bracket` — the shipped schema, unchanged, and still the default. Every
+   *    binding in it is exactly what it was, so nothing an operator has
+   *    already learned is re-taught.
+   *  · `vim` — `j`/`k` walk the list, `g`/`G` are the ends, `u` is undo. For
+   *    the reader whose hands already do this.
+   *  · `lefthand` — every key reachable by the left hand alone, for the
+   *    operator who keeps the right on the mouse: the board is a pointing
+   *    surface and the rail is a keyboard one, and they are used at once.
+   *
+   * The constraint all three obey: NO CHORD IN THE HOT PATH (one unmodified
+   * press per action), and no collision with the shipped move schema — Tab,
+   * Esc, the arrow pad, WASD, 1–9, Space, H, Del, Enter, Ctrl+Enter, Ctrl+/
+   * and Alt keep exactly the meanings they have, in every scheme.
+   */
+  const SCHEME_KEYS = {
+    bracket: {
+      'moveset.prev': '[', 'moveset.next': ']',
+      foil: 'f', drill: 'b', 'drill.all': 'B',
+      'timeline.prev': ',', 'timeline.next': '.',
+      'timeline.prevEmission': '<', 'timeline.nextEmission': '>',
+      now: 'n', release: 'u',
+    },
+    vim: {
+      'moveset.prev': 'k', 'moveset.next': 'j',
+      foil: 'x', drill: 'i', 'drill.all': 'I',
+      'timeline.prev': ',', 'timeline.next': '.',
+      'timeline.prevEmission': '<', 'timeline.nextEmission': '>',
+      'timeline.start': 'g', 'timeline.head': 'G',
+      now: 'n', release: 'u',
+    },
+    lefthand: {
+      'moveset.prev': 'q', 'moveset.next': 'e',
+      foil: 'r', drill: 't', 'drill.all': 'T',
+      'timeline.prev': 'z', 'timeline.next': 'c',
+      'timeline.prevEmission': 'Z', 'timeline.nextEmission': 'C',
+      'timeline.start': 'g', 'timeline.head': 'v',
+      now: 'f', release: 'x',
+    },
+  };
+
+  const SCHEME_LABELS = {
+    bracket: 'bracket (default)',
+    vim: 'vim',
+    lefthand: 'left hand',
+  };
+
+  /** Home/End and Shift+Space are the same in every scheme: two of them are
+   *  the keyboard's own names for the ends of a timeline, and the third is the
+   *  one gesture that is DELIBERATELY the hardest on the surface (§3.4). */
+  const COMMON = [
+    { key: 'home', action: 'timeline.start' },
+    { key: 'end', action: 'timeline.head' },
+    { key: ' ', shift: true, action: 'lock.moveset' },
   ];
 
+  /** A scheme's bindings, as the table the shortcuts pane and the cheat strip
+   *  both render — there is one list, so they cannot disagree. */
+  function keymapFor(name) {
+    const keys = SCHEME_KEYS[name] || SCHEME_KEYS.bracket;
+    const out = [];
+    for (const [action, key] of Object.entries(keys)) {
+      const shift = key.length === 1 && key !== key.toLowerCase() ? true : key === '<' || key === '>';
+      const bare = key === '<' ? ',' : key === '>' ? '.' : key.toLowerCase();
+      out.push({ key: bare, shift, action, help: HELP[action], display: key });
+    }
+    for (const c of COMMON) {
+      // Deduped by KEY, not by action: `Home` and `End` stay bound in every
+      // scheme even where the scheme has its own `g`/`G` for the same two
+      // places, because they are the keyboard's own names for them.
+      if (out.some((b) => b.key === c.key && !!b.shift === !!c.shift)) continue;
+      out.push({
+        ...c,
+        help: HELP[c.action],
+        display: c.action === 'lock.moveset' ? 'Shift+Space' : c.key === 'home' ? 'Home' : 'End',
+      });
+    }
+    return out;
+  }
+
+  /** The shipped schema, still the default and still exactly what it was. */
+  const KEYMAP = keymapFor('bracket');
+
+  let activeSchemeName = 'bracket';
+  const schemeNames = () => Object.keys(SCHEME_KEYS);
+  const schemeLabel = (name) => SCHEME_LABELS[name] || name;
+  const activeScheme = () => activeSchemeName;
+  function setScheme(name) {
+    activeSchemeName = SCHEME_KEYS[name] ? name : 'bracket';
+    return activeSchemeName;
+  }
+
   /** null when the press is not the lens's business, which is most presses. */
-  function keyBinding(event) {
+  function keyBinding(event, scheme) {
     if (!event || event.ctrlKey || event.metaKey || event.altKey) return null;
     const key = String(event.key || '').toLowerCase();
     const shift = !!event.shiftKey;
-    return KEYMAP.find((b) => b.key === key && !!b.shift === shift) || null;
+    const map = scheme === undefined ? keymapFor(activeSchemeName) : keymapFor(scheme);
+    return map.find((b) => b.key === key && !!b.shift === shift) || null;
+  }
+
+  /**
+   * THE CHEAT SHEET, ON SCREEN AND AT REST. `Ctrl+/` is a complete reference
+   * and it is a page-covering modal — which on a 500 ms clock costs the
+   * operator the board and therefore the turn. The eight keys that are
+   * actually in the hot path live in the rail as one quiet line, rendered from
+   * the same table the modal renders, so switching scheme rewrites both.
+   */
+  const CHEAT = [
+    ['moveset.prev', 'moveset.next', 'rank'],
+    ['foil', null, 'foil'],
+    ['drill', null, 'breakdown'],
+    ['timeline.prev', 'timeline.next', 'timeline'],
+    ['now', null, 'now'],
+    ['release', null, 'undo'],
+  ];
+  function cheatSheetHTML(scheme) {
+    const map = keymapFor(scheme || activeSchemeName);
+    const keyOf = (action) => (map.find((b) => b.action === action) || {}).display || '';
+    const cells = CHEAT.map(([a, b, label]) => {
+      const keys = [keyOf(a), b ? keyOf(b) : null].filter(Boolean);
+      return `<span class="lens-cheat-item">${keys
+        .map((k) => `<kbd>${escapeHTML(k)}</kbd>`)
+        .join('')}${escapeHTML(label)}</span>`;
+    }).join('');
+    return (
+      `<div class="lens-cheat">${cells}` +
+      `<span class="lens-cheat-item"><kbd>Space</kbd>lock</span>` +
+      `<span class="lens-cheat-item"><kbd>Ctrl+/</kbd>all</span></div>`
+    );
   }
 
   return {
     inkFromTranscript,
     railHTML,
+    stageHTML,
+    chipHTML,
+    cheatSheetHTML,
+    keymapFor,
+    schemeNames,
+    schemeLabel,
+    activeScheme,
+    setScheme,
     bannerHTML,
     narrowNoteHTML,
     focusHTML,

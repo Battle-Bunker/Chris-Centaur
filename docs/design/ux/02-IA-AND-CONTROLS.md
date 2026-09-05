@@ -194,4 +194,252 @@ four-column table crammed into 380 px. §2 is A, built.
 
 ## 2. What was built
 
-*(§2, §3 and §4 land with the implementation.)*
+Mockup A, in `src/web/play-game.html`, `src/web/lens-panel.js` and
+`src/lens/view/index.ts`. Layer by layer, with the file that holds it.
+
+### 2.1 L0 — the clock as a shape on the board's edge
+
+`#turnClock` is a 10 px bar welded to the top of the canvas, sized in JS to the
+canvas's own box so it tracks every size the resize grip can drag. It depletes
+left-to-right, brightens through a light ramp, and goes to the warn ramp under
+500 ms; the digits in the header keep their place as the checkable read. The
+turn's budget is re-learned each turn as the longest remaining time seen, since
+`gameTimeout` is a server fact the page is never told.
+
+The **last-safe-press notch** is drawn from `window.__lensLastSafePressMs` and
+is absent while nothing sets it. The shape is ours; the number is
+`ux-latency`'s, and a flight time we have not measured is not drawn as though
+we had. `<div id="latency-mount">` in the header is the only other thing this
+page reserves for them.
+
+### 2.2 L1 — the stage line and the unfinished-business strip
+
+`panel.stage` (`src/lens/view/index.ts::stageSummary`) carries one entry per
+unit this decision is about — every cluster's members plus the constants it is
+conditioning on — with what is staged for each. It is on the **transcript**, so
+a replayed turn says the same sentence off the log as off the wire.
+
+Two sources, and the line says which: a staged move is a fact about the turn;
+where nothing is staged yet, what the bot is *about to do* is the rank-1
+moveset's assignment for that unit — the incumbent the board already draws in
+violet. What it is explicitly not allowed to be is "the unit's first legal
+candidate", which is a guess wearing a plan's clothes. Four marks, no hue:
+`»` committed, `⋯` requested and not yet confirmed, `~` planned but not staged,
+nothing at all for a confirmed staged move.
+
+The strip beneath it counts only what the page can know —
+`3 units · ● 2 staged · ~ 1 planned · ◦ 1 no plan · 🔒 1 fixed` — and a segment
+that would be zero is absent rather than printed. There is deliberately **no
+`fatal` segment**: fatality is knowable only for a move the server has been
+asked to stage, so a `0 fatal` would be a count nobody took.
+
+The panel lives *outside* `#selectionUI`: both questions are asked every turn
+whether or not a unit is focused, and the shipped rail's answer with nothing
+selected was *"Click one, or Tab."*
+
+### 2.3 L2 — two full-size rows, and a bracket that is a band
+
+Every moveset row is now a grid, and the template is what differs between the
+rows that are read and the rows that are walked past. Rank 1 (`▸ WOULD BE
+STAGED`, solid violet rule) and the runner-up (`◇ FOIL`, dashed teal rule) are
+cards: a header line of rank · bracket · depth · Δ, the assignment full width,
+the clause under it. Ranks 3+ are one line each, assignment first, everything
+ellipsised. Six columns in 380 px is what made the shipped table wrap inside a
+unit id (10 §3 F6); the two rows an operator actually reads get the width.
+
+The **foil is no longer behind a key**: `panel.movesets.row` carries `isFoil`,
+so the runner-up is drawn at full size beside rank 1 without asking, and `F`
+keeps its job of putting it on the *board*.
+
+A bracket draws as a **band**: the span is `lo…hi` on one scale shared by every
+row of the table, the tick is `est` (the channel that never adjudicates, drawn
+as a mark rather than a third number), and an unproved ceiling draws an
+arrowhead — open, not big. The numbers stay in the cell beside it: the band is
+the fast read and the text is the checkable one. Depth keeps `h<n>` and gains a
+three-segment gauge lit to the horizon proved, so a build where nothing deepens
+draws its own flatness.
+
+### 2.4 One affordance language
+
+`#lensControls`, rendered from `LensPanel.chipHTML`, is one row of chips in one
+grammar — **glyph · verb · key · state** — for every control the focused unit
+has:
+
+| | | |
+|---|---|---|
+| `⦿ lock` | `Space` | `pins 1 of 3` — the exact count, before the press |
+| `↺ undo` | `U` | how many steps are on the stack, and what the next one takes back |
+| `⛨ hold` | `H` | `pieces only` where a snake cannot hold |
+| `◎ goto` | right-click | lit while a green target stands |
+| `◉ near` | ctrl-click | lit while a blue target stands |
+| `✕ clear` | `Del` | always |
+
+Pin, lock, hold, goto, near and release were six vocabularies in five places —
+a padlock on the board, a word in the focus line, a count inside a label, and
+three of them only in the help pane. The glyph is the constant, the state is
+the only thing that changes, and the chips are clickable for the mouse-first
+operator who never learns a key.
+
+### 2.5 Colour-vision safety, density, motion
+
+Every colour is a *second* reading of something already carried by a glyph, a
+border style or a word: `▸` cursor, `◇` foil (plus a dashed rule), `⚠` refused,
+`◦` unplanned, `🔒` fixed, strike-through for stale, `~`/`·` for the grades.
+The tokens are declared once in `:root` and every rail rule reads them.
+
+**Density** is one number (`--lens-size`, with `--lens-pad`) in three steps —
+compact / default / roomy — applied as a class on the rail and persisted in
+`localStorage`. It is a scale, not a second design.
+
+`prefers-reduced-motion` turns off the clock's transition and the arrival
+pulse. Rail rows, chips, scheme buttons and lane ticks all take a visible
+focus ring.
+
+---
+
+## 3. The controls
+
+### 3.1 One action set, three schemes
+
+The action set is the lens's vocabulary and never changes; only which key
+carries it does, because which key an operator wants is a hand posture rather
+than an opinion about the product. All three obey the same two constraints:
+**no chord in the hot path**, and **no collision with the shipped move
+schema** — Tab, Esc, the arrow pad, WASD, 1–9, Space, H, Del, Enter,
+Ctrl+Enter, Ctrl+/ and Alt keep exactly the meanings they have, in every
+scheme. `Home`/`End` and `Shift+Space` are common to all three.
+
+| action | `bracket` (default) | `vim` | `left hand` |
+|---|---|---|---|
+| previous / next moveset | `[` `]` | `k` `j` | `q` `e` |
+| foil | `F` | `x` | `r` |
+| breakdown drill | `B` | `i` | `t` |
+| drill every member | `Shift+B` | `Shift+I` | `Shift+T` |
+| timeline step | `,` `.` | `,` `.` | `z` `c` |
+| emission jump | `Shift+,` `Shift+.` | `Shift+,` `Shift+.` | `Shift+Z` `Shift+C` |
+| turn start / head | `Home` `End` | `g` `G` | `g` `v` |
+| back to now | `N` | `n` | `f` |
+| undo / release | `U` | `u` | `x` |
+| lock the whole moveset | `Shift+Space` | `Shift+Space` | `Shift+Space` |
+
+`bracket` is the shipped schema, unchanged binding for binding, and remains the
+default: nothing an operator has already learned is re-taught. `vim` is for the
+reader whose hands already do `j`/`k`/`g`/`G`/`u`. `left hand` is for the
+operator who keeps the right hand on the mouse — the board is a pointing
+surface and the rail is a keyboard one, and both are used at once.
+
+The scheme is chosen in the rail (or in `Ctrl+/`) and persisted in
+`localStorage` under `lensKeyScheme`. **A persisted preference is not a
+feature flag**: it changes which key carries an action, and nothing about what
+the product does or which code path runs.
+
+### 3.2 The cheat sheet, at rest
+
+`Ctrl+/` remains the complete reference — and it is a page-covering modal,
+which on a half-second clock costs the operator the board and therefore the
+turn. The eight keys in the hot path are therefore in the rail as one quiet
+10 px line, and both it and the modal render from the **same keymap table**
+(`LensPanel.keymapFor`), so they cannot disagree and switching scheme rewrites
+both. The modal's own key legends are `data-lens-key` slots filled from that
+table for the same reason.
+
+### 3.3 The mouse-first path
+
+Every keyed action has a pointer path: the roster row and the board select a
+unit, the rail's candidate rows and moveset rows are click targets (T3/T6),
+the lane's ticks scrub, the control chips fire their action, and the widen
+banner's `[Show]` accepts. Hover remains inert everywhere — T4's rule is that
+the board and the rail are places to look until something is pressed.
+
+One thing that was broken is now fixed here: **the rail's candidate click and
+the board's candidate click were two different selections.** The rail moved the
+lens cursor and the board moved the page's, so an operator who picked a
+candidate in the rail and pressed `Space` staged nothing. Both now go through
+`selectMove`, which moves both, so `Space` stages what the rail is showing —
+the display contract, at the one keypress it is actually about.
+
+### 3.4 Confirm versus undo, stated
+
+**Undo for everything reversible; a dialog only for what cannot be taken
+back.** A confirmation on a reversible action is a wasted interaction, and on a
+500 ms clock it is a lost turn.
+
+* **Undo, taken at once, remembered on a stack.** Staging a move, toggling a
+  hold and a lock's pins each push an entry with its own sentence; `U` pops it
+  and says what it took back (`undone — lock — 3 pins (red-A, red-B, red-C)`).
+  The undo chip stands beside the lock chip and names the next thing it would
+  undo, so the reversal is as visible as the commitment. Undo does **not**
+  cross a turn boundary: every entry names a command for a board that has
+  since resolved, and the stack is cleared with the turn.
+* **The one confirm is the affordance itself.** A lock whose pin set is just
+  the focused unit is what `Space` has always done and fires on the first
+  press. A lock that pins *more* than that changes what the bot stages for
+  units the operator never looked at and spends A4 authority a peer can see, so
+  it **arms**: the chip re-reads `lock — press again`, names the count and the
+  key that will fire it, `Esc` cancels, and the arm expires on its own after
+  four seconds — an armed gesture that waits forever is a trap the operator
+  walks into on the next press. No modal, no new screen region, one extra
+  keystroke, and the undo is still there afterwards.
+* **Dialogs are kept for the irreversible**: `Submit All`, certain-death
+  consent, and taking a unit over from another operator. Those are correct as
+  they stand and are untouched.
+
+This is the reconciliation of `02 §1.4`'s one-shot confirm with
+`01-RESEARCH.md`'s change 7: the count makes a *modal* redundant, not the
+confirmation.
+
+### 3.5 What the bot is about to do, in under a second
+
+The stage line is one sentence at the top of the rail in the largest type in
+it, in a box that never moves — `Bot stages A → 84 · C → 69~ · B holds`. It is
+readable without a saccade to the board, it survives having no unit focused,
+and it is the same sentence in replay.
+
+---
+
+## 4. Evidence
+
+### 4.1 Gates
+
+`npx tsc --noEmit -p .`, `npx eslint "src/**/*.ts"`, `npm run build:lens`, and
+`npx jest "src/tests/lens-" "src/lobster/__tests__/lens-"
+src/tests/local-game-determinism.test.ts` — all green. `lens-determinism` and
+`lens-replay-parity` are the two that matter most here: **the lens still moves
+no decision**, and live and replay are still one fold.
+
+### 4.2 The operator drill
+
+`scripts/lens-walkthrough.js` gained a scripted **pin → lock → widen → undo**,
+driven from the keyboard as an operator would, with every step asserted rather
+than only photographed — a failed assertion fails the run:
+
+| step | asserted | shot |
+|---|---|---|
+| pin | the undo affordance arrives *with* the determination, and the stage line names a plan for every unit | `d1-pin`, `d1-pin-controls` |
+| lock | a multi-unit lock **arms** before it fires and says how many it would pin | `d2-lock-armed`, `d2-lock-armed-controls` |
+| lock | the second press commits it and the undo remembers the pins | `d3-locked`, `d3-locked-controls` |
+| widen | the banner holds the wider cluster behind one gesture and flags the rail below it stale | `d4-widen`, `d4-widen-controls` |
+| undo | the determination is taken back in one unmodified key, and named | `d5-undone`, `d5-undone-controls` |
+
+The walk also carries the glance layer in `report.json` now — the stage line,
+the control bar and the key strip as text — because a screenshot cannot be
+grepped and the stage line is the sentence the whole IA is built around.
+
+Two operational notes the next reader will need. **One run per server**:
+operator names are unique per game and the walk enrols one, so a second run
+against the same process enters under a different name, and a different name
+does not own the units — which puts a takeover dialog between the walk and
+everything it came to photograph. And `scripts/ux-walk-server.js` launches the
+harness under a command line that does not carry the harness's filename,
+because several worktrees on one machine run this server and a neighbour's
+`pkill -f lens-walkthrough-server` kills every other one mid-run — which looks
+exactly like a server crash and is not one.
+
+### 4.3 What is implemented versus mocked
+
+Implemented: everything in §2 and §3. Mocked and **not** built: mockup B's
+watch/intervene mode toggle and mockup C's full-width deck (both rejected in
+§1.6), the cluster control groups on `Ctrl+1..9` (`01` change 11), emission
+coalescing (`ux-latency`'s cadence to own), and the staleness ladder's
+thresholds (`ux-latency` owns the numbers; this page draws the notch and the
+mount for them).
