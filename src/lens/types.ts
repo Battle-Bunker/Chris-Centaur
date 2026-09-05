@@ -361,6 +361,16 @@ export interface Moveset {
   /** `planTieKey` — an indifferent order, reproducibly. */
   readonly tie: number;
   readonly staged: boolean;
+  /**
+   * TRUE where the row is an ASSIGNMENT WITH NO PRICE. `conform` returns a
+   * plan, not a bound, so a conditional ranking's rows carry the moves a lock
+   * would stage and no number at all — and a panel that drew `0.0` for them
+   * would be printing a number nobody computed, which is the exact failure
+   * this surface exists to prevent (Law A). The numeric columns draw `—`
+   * instead, the reading F7 reserved for a number that is genuinely not
+   * there. Absent ⇒ the row carries the reading its fields say it does.
+   */
+  readonly unpriced?: true;
 
   /** Null until the barrier. */
   readonly dominance: DominanceCondition | null;

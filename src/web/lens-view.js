@@ -1115,6 +1115,7 @@ var LensView = (() => {
     ];
     for (const row of rows) {
       const cell = depthCell(row, row.key === leader?.key ? loud : null);
+      const priced = row.unpriced !== true;
       const trail = trails.find((t) => t.moveset === row.key) ?? null;
       ops.push(
         call(
@@ -1131,10 +1132,10 @@ var LensView = (() => {
           // channels on one row with nothing saying which was which — and `est`
           // is the channel that never adjudicates. It keeps its own voice in the
           // `unless` cell, where `advisory-only` prices it and names it.
-          row.lo,
-          bracketWidth(row),
+          priced ? row.lo : null,
+          priced ? bracketWidth(row) : null,
           cell,
-          leader === null ? 0 : Number((row.lo - leader.lo).toFixed(2)),
+          leader === null || !priced || leader.unpriced === true ? null : Number((row.lo - leader.lo).toFixed(2)),
           // THE `unless` CELL. Drawn on every row, leader included, and never
           // omitted: a row with no clause and a row that leads on the proved
           // floor are two different states and only "always draw it" tells them
@@ -1165,7 +1166,11 @@ var LensView = (() => {
         foil === null ? call("panel.foil", null, null, noFoilReason(list), null) : call(
           "panel.foil",
           foil.rank,
-          Number((selected.lo - foil.lo).toFixed(2)),
+          // A MARGIN BETWEEN TWO UNPRICED ROWS IS NOT A NUMBER. The
+          // conditional ranking's rows are assignments, so the line names
+          // the runner-up and why it lost and draws `—` where a margin
+          // would be, rather than a difference of two zeros.
+          selected.unpriced === true || foil.unpriced === true ? null : Number((selected.lo - foil.lo).toFixed(2)),
           whyItLost(selected, foil),
           depthCell(foil).label
         )

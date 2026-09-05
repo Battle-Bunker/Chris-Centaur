@@ -321,6 +321,77 @@ describe('the rail says what the design says it must', () => {
   });
 
   /**
+   * 10 §4 O1, the CAUSE. A conditional ranking that stopped short and a
+   * cluster with nothing else in it are the same table on screen unless the
+   * head says which one this is — and the two stops are not the same
+   * sentence: the reserve running out is the typed refusal a request past it
+   * would have got, and a full list is not a refusal at all.
+   */
+  test('the head names where the ranking stopped, and only the reserve reads as a refusal', () => {
+    const rows: ReadonlyArray<Moveset> = [
+      { ...moveset({ key: 'k1', rank: 1, units: [C, Q], staged: true }), unpriced: true },
+    ];
+    const spent = frame({
+      movesets: { [`0|${C}|10`]: rows },
+      movesetTruncation: {
+        [`0|${C}|10`]: {
+          why: 'reserve-spent',
+          notRanked: 7,
+          detail: '7 more assignments of the rest of the cluster went unranked: the inspection reserve is spent',
+        },
+      },
+    });
+    const refused = LensPanel.movesetsHTML(renderFrame(spent, FOCUSED(spent)));
+    expect(refused).toContain('the inspection reserve is spent');
+    expect(refused).toContain('lens-refused');
+    // And the foil line carries the same cause, because the runner-up is
+    // exactly what the reserve took away.
+    expect(refused).toContain('no runner-up');
+
+    const full = frame({
+      movesets: { [`0|${C}|10`]: rows },
+      movesetTruncation: {
+        [`0|${C}|10`]: {
+          why: 'row-cap',
+          notRanked: 2,
+          detail: '2 more assignments of the rest of the cluster are not drawn: a list holds 5',
+        },
+      },
+    });
+    const capped = LensPanel.movesetsHTML(renderFrame(full, FOCUSED(full)));
+    expect(capped).toContain('a list holds 5');
+    expect(capped).not.toContain('lens-refused');
+  });
+
+  /**
+   * LAW A, ON THE CONDITIONAL LIST. `conform` returns a plan, not a price, so
+   * a conditional ranking's rows are ASSIGNMENTS. Drawing `0.0 ⌈0.0⌉` for
+   * them prints a reading nobody took — and a foil margin between two of them
+   * is a difference of two numbers that do not exist.
+   */
+  test('an unpriced row draws no number, no bracket and no margin', () => {
+    const rows: ReadonlyArray<Moveset> = [
+      { ...moveset({ key: 'u1', rank: 1, units: [C, Q], staged: true }), unpriced: true },
+      {
+        ...moveset({ key: 'u2', rank: 2, units: [C, Q] }),
+        moves: [
+          { unit: C, to: 10, path: [10] },
+          { unit: Q, to: 14, path: [14] },
+        ],
+        unpriced: true,
+      },
+    ];
+    const f = frame({ movesets: { [`0|${C}|10`]: rows } });
+    const html = LensPanel.movesetsHTML(renderFrame(f, FOCUSED(f)));
+    // The legend still glosses `⌈w⌉`; no ROW draws one.
+    expect(html).not.toContain('lens-width');
+    expect(html).toContain('foil #2');
+    expect(html).not.toContain('margin');
+    // The assignment IS the row's content, and it is still drawn.
+    expect(html).toContain(`${C}→10`);
+  });
+
+  /**
    * 10 §4 O3. §3.5 says the panel-side foil is ALWAYS visible; it was drawn
    * only where the list held a rank 2, which by O1 is the uncommon case — so
    * the highest-value cheap signal on the surface was silently absent in the

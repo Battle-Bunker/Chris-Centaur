@@ -445,6 +445,10 @@ function rowOf(
     at: 0,
     tie: 0,
     staged: head,
+    // `conform` returns a plan, not a price. The row's content is its
+    // ASSIGNMENT, and inventing a number for it would be the one thing this
+    // whole surface exists to prevent.
+    unpriced: true,
     dominance: head ? { kind: 'leader' } : null,
     depth: HORIZON_1,
   };

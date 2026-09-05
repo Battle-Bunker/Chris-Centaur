@@ -239,7 +239,12 @@ const LensPanel = (() => {
         return (
           `<tr class="${cls}" data-lens-moveset="${escapeHTML(key)}">` +
           `<td>${selected ? '▸' : ''}${escapeHTML(rank)}</td>` +
-          `<td>${num(aggregate, 1)} <span class="lens-width">⌈${num(width, 1)}⌉</span></td>` +
+          // A ROW WITH NO PRICE DRAWS NO BRACKET EITHER: `⌈—⌉` is a width of
+          // nothing. The assignment is the row's content and the numbers say
+          // they are absent (Law A, F7).
+          `<td>${num(aggregate, 1)}${
+            width == null ? '' : ` <span class="lens-width">⌈${num(width, 1)}⌉</span>`
+          }</td>` +
           `<td>${depthHTML(cell)}</td>` +
           `<td>${delta === 0 ? '—' : num(delta, 1)}</td>` +
           // THE `unless` CELL — what this moveset is betting on, per row. It is
@@ -270,7 +275,9 @@ const LensPanel = (() => {
       ? ''
       : foilArgs[0] == null
         ? `<div class="lens-foil lens-foil-absent">${escapeHTML(foilArgs[2])}</div>`
-        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])} · margin ${num(foilArgs[1], 1)} · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
+        : `<div class="lens-foil">foil #${escapeHTML(foilArgs[0])}${
+            foilArgs[1] == null ? '' : ` · margin ${num(foilArgs[1], 1)}`
+          } · ${escapeHTML(foilArgs[2])} · at ${escapeHTML(foilArgs[3])}</div>`;
 
     const lock = firstOf(transcript, 'affordance.lock');
     return (

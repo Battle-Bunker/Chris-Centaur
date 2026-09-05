@@ -190,6 +190,36 @@ async function diffPngs(page, a, b) {
   );
 }
 
+
+/**
+ * T3 — CLICK THE CANDIDATE THE KERNEL ANSWERED A CONDITIONAL FOR.
+ *
+ * The inspection reserve answers ONE conditional per decision (07 §5), so
+ * exactly one of a focused unit's candidates has a ranked list behind it and
+ * the others say, in the head, that nobody asked. A walk that only ever lands
+ * on the incumbent therefore photographs the fallback every time and never the
+ * thing the lens is FOR. This clicks the candidate the log says was answered,
+ * which is also T3's own cursor source — listed since 02 §1.3, closed at O5
+ * with a test rather than a picture — so the click path finally has one.
+ */
+async function selectAnsweredCandidate(page, unit) {
+  const lock = await page.evaluate(() => {
+    const events = typeof lensEvents === 'undefined' ? [] : lensEvents;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      const locks = e && e.kind === 'conditional' && e.payload ? e.payload.locks : null;
+      if (locks && locks[0]) return locks[0];
+    }
+    return null;
+  });
+  if (!lock || (unit && lock.unit !== unit)) return { lock, clicked: false };
+  const cell = await page.$(`.lens-candidates [data-lens-candidate="${lock.to}"]`);
+  if (!cell) return { lock, clicked: false };
+  await cell.click();
+  await sleep(WAIT);
+  return { lock, clicked: true };
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
@@ -228,13 +258,22 @@ async function main() {
   await shot(page, '03b-rail', 'the rail at CANDIDATE', '.lens-rail');
   await shot(page, '03c-board', 'the board at CANDIDATE — chips, tethers, the violet arrow', '#gameCanvas');
 
+  at = 'live/candidate';
+  report.notes.conditional = await selectAnsweredCandidate(page, 'red-A');
+  await shot(
+    page,
+    '03d-conditional',
+    'T3 — the candidate the reserve answered: the CONDITIONAL RANKING, the rows a lock here would stage',
+    '.lens-rail'
+  );
+
   at = 'live/hover-moveset';
   const rows = await page.$$('.lens-movesets .lens-table tr');
   if (rows.length > 1) {
     await rows[1].hover();
     await sleep(500);
   }
-  await shot(page, '04-hover-moveset', 'pointer over moveset rank 2 — T4 says the cursor must not move', '.lens-rail');
+  await shot(page, '04-hover-moveset', 'pointer over moveset rank 2 — T4 says the cursor must not move, so this is byte-identical to 03d', '.lens-rail');
 
   at = 'live/moveset-walk';
   await page.keyboard.press(']');
