@@ -1670,21 +1670,73 @@
     // 12 px pill in the page header 700 px from where the eye is. The digits
     // stay (they are the checkable read); the bar is the one an operator gets
     // without a saccade. `startTurnTimer` drives it on the same 50 ms tick.
+    //
+    // THE CANVAS'S WIDTH IS OBSERVED, NOT ASKED FOR (14-PERF-3 §2.1).
+    // `updateTurnClock` opened by reading `canvas.offsetWidth`, on every one
+    // of the twenty ticks a second `startTurnTimer` fires — and that same tick
+    // writes `pingEl.textContent` two statements earlier, so the read is a
+    // FORCED SYNCHRONOUS LAYOUT of the whole page, twenty times a second, for
+    // the life of the session. It is exactly the "20.4 idle layouts a second
+    // that belong to neither module" `08-LONG-SESSION.md` §2.1 named and could
+    // not remove, and round 3's sampler puts `get offsetWidth` above every
+    // `innerHTML` on this page at 4x CPU.
+    //
+    // A ResizeObserver callback runs AFTER layout, so `offsetWidth` read
+    // inside it costs nothing and — this is the point — it is the SAME NUMBER
+    // the tick used to compute, so not one pixel of the strip moves. One
+    // observer, re-targeted rather than re-created, because the soak gate is
+    // entitled to assume this page installs nothing per turn. Where there is
+    // no ResizeObserver the old read stands: a clock that does not track the
+    // board is worse than a layout.
+    /** A write that changes nothing still dirties style: `textContent` and
+     *  `className` assignments invalidate the node whether or not the string
+     *  moved, and the 50 ms tick below writes four of them. Only the ones that
+     *  actually changed are written. Same characters on screen, a third fewer
+     *  style recalculations (14-PERF-3 §2.1). */
+    function setText(el, value) {
+      if (el && el.textContent !== value) el.textContent = value;
+    }
+    function setClassName(el, value) {
+      if (el && el.className !== value) el.className = value;
+    }
+
+    let turnClockCanvasWidth = null;
+    let turnClockCanvasSeen = null;
+    let turnClockResizeObserver = null;
+    function watchTurnClockWidth(canvas) {
+      if (!canvas || canvas === turnClockCanvasSeen) return;
+      if (typeof ResizeObserver === 'undefined') return;
+      if (turnClockResizeObserver === null) {
+        turnClockResizeObserver = new ResizeObserver(() => {
+          if (turnClockCanvasSeen) turnClockCanvasWidth = turnClockCanvasSeen.offsetWidth;
+        });
+      } else {
+        turnClockResizeObserver.disconnect();
+      }
+      turnClockCanvasSeen = canvas;
+      turnClockCanvasWidth = canvas.offsetWidth;
+      turnClockResizeObserver.observe(canvas);
+    }
+
     function updateTurnClock(remaining, budget) {
       const clock = document.getElementById('turnClock');
       const fill = document.getElementById('turnClockFill');
       const mark = document.getElementById('turnClockMark');
       if (!clock || !fill) return;
       const canvas = document.getElementById('gameCanvas');
-      if (canvas && canvas.offsetWidth) clock.style.width = `${canvas.offsetWidth}px`;
+      watchTurnClockWidth(canvas);
+      const canvasWidth = canvas === turnClockCanvasSeen && turnClockCanvasWidth !== null
+        ? turnClockCanvasWidth
+        : (canvas ? canvas.offsetWidth : 0);
+      if (canvasWidth) clock.style.width = `${canvasWidth}px`;
       if (remaining == null || !budget) {
-        clock.className = 'turn-clock idle';
+        setClassName(clock, 'turn-clock idle');
         fill.style.width = '100%';
         if (mark) mark.classList.remove('on');
         return;
       }
       const left = Math.max(0, Math.min(1, remaining / budget));
-      clock.className = `turn-clock${remaining < 500 ? ' urgent' : ''}`;
+      setClassName(clock, `turn-clock${remaining < 500 ? ' urgent' : ''}`);
       fill.style.width = `${(left * 100).toFixed(1)}%`;
       // THE LAST SAFE PRESS is a fact about the network, and the network is
       // another module's. The shape is drawn here and the number comes from
@@ -4532,14 +4584,14 @@
             const sign = skewMs >= 0 ? '+' : '\u2212';
             text += ` \u00b7 clock ${sign}${(Math.abs(skewMs) / 1000).toFixed(1)}s`;
           }
-          pingEl.textContent = text;
+          setText(pingEl, text);
         } else {
-          pingEl.textContent = 'Ping: --';
+          setText(pingEl, 'Ping: --');
         }
 
         if (!turnExpiryTime || moveSubmitted) {
-          timerEl.className = 'timer-display idle';
-          timerEl.textContent = moveSubmitted ? 'Committed' : '--';
+          setClassName(timerEl, 'timer-display idle');
+          setText(timerEl, moveSubmitted ? 'Committed' : '--');
           updateTurnClock(null, null);
           return;
         }
@@ -4551,7 +4603,7 @@
         // the server's clock regardless of local skew.
         const remaining = Math.max(0, turnExpiryTime - serverNow());
         const seconds = (remaining / 1000).toFixed(1);
-        timerEl.textContent = `${seconds}s`;
+        setText(timerEl, `${seconds}s`);
         // The same number, in the channel the periphery can read: a bar on the
         // board's own edge, against the SERVER's budget — so a page that
         // attached mid-turn draws the fraction that is actually left instead
@@ -4561,14 +4613,14 @@
         updateTurnClock(remaining, budget);
 
         if (remaining < 500) {
-          timerEl.className = 'timer-display urgent';
+          setClassName(timerEl, 'timer-display urgent');
         } else {
-          timerEl.className = 'timer-display normal';
+          setClassName(timerEl, 'timer-display normal');
         }
 
         if (remaining <= 0) {
-          timerEl.textContent = 'Time!';
-          timerEl.className = 'timer-display urgent';
+          setText(timerEl, 'Time!');
+          setClassName(timerEl, 'timer-display urgent');
         }
       }, 50);
     }

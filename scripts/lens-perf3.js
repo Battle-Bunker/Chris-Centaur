@@ -59,6 +59,7 @@ const arg = (name, fallback) => {
 const PORT = parseInt(arg('port', '5341'), 10);
 const TURNS = parseInt(arg('turns', '8'), 10);
 const PRESSES = parseInt(arg('presses', '40'), 10);
+const MOVES = parseInt(arg('moves', '200'), 10);
 const THROTTLE = parseFloat(arg('throttle', '1'));
 const MODE = arg('mode', 'turns');
 const ABLATE = arg('ablate', '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -481,6 +482,27 @@ async function runTurns() {
     return { presses: out, events: L.events.splice(0) };
   });
 
+  // ── THE HOVER BURST ─────────────────────────────────────────────────────
+  //
+  // Every pointer move on this page is seen by TWO document-level capture
+  // listeners before it reaches anything that wanted it, and a hover is the
+  // one gesture an operator makes continuously. `ScriptDuration` over a burst
+  // of real moves is the whole cost of a hover — the page's own handler plus
+  // whatever the input layer does in front of it — and it is the only reading
+  // that catches a listener whose work happens on a move nobody is pressing.
+  const moveBefore = await readMetrics(cdp);
+  const box = await page.evaluate(() => {
+    const c = document.getElementById('gameCanvas');
+    const r = c.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
+  const mt0 = Date.now();
+  for (let i = 0; i < MOVES; i++) {
+    await page.mouse.move(box.x + box.w * (0.1 + 0.8 * ((i % 20) / 20)), box.y + box.h * (0.2 + 0.6 * (((i * 7) % 20) / 20)));
+  }
+  const moveAfter = await readMetrics(cdp);
+  const moveSecs = (Date.now() - mt0) / 1000;
+
   if (THROTTLE > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
 
   // Self time per function from the sampler, so a long task with 1 ms of our
@@ -584,6 +606,15 @@ async function runTurns() {
       byTurn: longPerTurn,
     },
     input: { chip: inputOf(chipPresses), board: inputOf(boardPresses) },
+    hoverBurst: {
+      moves: MOVES,
+      seconds: +moveSecs.toFixed(2),
+      scriptMs: +((moveAfter.ScriptDuration - moveBefore.ScriptDuration) * 1000).toFixed(1),
+      layouts: moveAfter.LayoutCount - moveBefore.LayoutCount,
+      recalcs: moveAfter.RecalcStyleCount - moveBefore.RecalcStyleCount,
+      taskMs: +((moveAfter.TaskDuration - moveBefore.TaskDuration) * 1000).toFixed(1),
+      scriptUsPerMove: +(((moveAfter.ScriptDuration - moveBefore.ScriptDuration) * 1e6) / MOVES).toFixed(1),
+    },
     dom: { railNodes: raw.railNodes, controlNodes: raw.controlNodes, nodes: raw.nodes },
     cpu: { totalMs: cpuTotalMs, top: cpuTop },
   };
