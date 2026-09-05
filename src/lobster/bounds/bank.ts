@@ -636,7 +636,14 @@ export class BoundBank {
     let loud: LoudReading | null = null;
 
     if (this.canModel) {
-      const gated = this.gate(plan, b0.bounds.ledger);
+      // `base`, NOT `plan`: the footprint the gate tests has to carry every
+      // staged path this decision has fixed, and the reference actions are
+      // staged paths we have fixed by declaration rather than commanded. Asked
+      // about `plan` alone, a held unit entangled ONLY with a fixed teammate
+      // was never enumerated — sound (it stays held at a sound bound) and a
+      // real loss of B1/B3 coverage in exactly the multi-seat case reference
+      // actions exist for. See REVIEW-1 F3.
+      const gated = this.gate(base, b0.bounds.ledger);
 
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;

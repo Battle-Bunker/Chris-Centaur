@@ -157,6 +157,47 @@ probe board. Our own A is priced there as a held unit too. The assertion, when
 Direction is as the finding says — both endpoints widen — so the pins do not
 move and this stays a finding.
 
+**BANK-F23 verdict: CONFIRMED, the fix MEASURED AND DECLINED.** The finding
+stands exactly as written — a B1/B3 view reads its peril on a board we ARE on,
+because `withModelled` REPLACES the modelled set and `viewFor` names the enemy
+alone, so our own units are held on the probe board and the peril of the other
+enemies carries what our units could do to them, in every plan alike.
+
+The repair was built and measured. It was one narrowing, in the peril probe
+rather than in `viewFor`: take the FAMILY's modelled set — the team this
+decision commands — off the board alongside the view's own, so a view reads
+peril on a board we are not on and the parent's answer is unchanged. It is
+sound for the reason the parent already relies on: what our movers do to a
+held unit is read per settlement off their own traversal
+(`material.ts::reachedByMovers`) and unioned with this.
+
+The price, per board class and never pooled
+(`docs/design/ab/2026-09-05-bank-f23-vs-0be83a4.md`, 60 turns in the
+deterministic node mode): `snakes` and `sparse` byte-identical; `potions`
+deaths `−0.022`/100 over eight seeds; `mixed` deaths `+0.248`/100 over six
+seeds — 3 seeds up, 1 down, 2 byte-identical, ALL of it `deaths.contest`
+(`+1.0`/game, 3 up and none down) — against meals `+1.575`/100. That is the
+finding's own prediction arriving: an over-broad peril made every reachable
+enemy possibly-gone in every plan alike, and giving the capture its edge back
+buys meals and pays for them in contests.
+
+**Why it was declined.** The OLD reading is safe in direction — both endpoints
+widen, as the finding itself says, and the sixteen-arm oracle agrees
+(`gate:exact` 16/16 and no `INVERSION` line, before and after). So this is a
+TIGHTENING, not a soundness repair, and the standing rule
+(`docs/design/decision-lens/08-DEPTH-VERDICT.md` §7.1) is that a change must be
+neutral or better on every board class. On `mixed` it is not. The same rule
+declined `b1-sound` for the same shape of trade
+(`docs/design/ab/2026-09-04-b1-sound-vs-57fd2da.md`), and the conservative
+reading wins again here.
+
+**What a future attempt has to show.** An A/B that is neutral or better on
+every board class at the same seeds and budget — `mixed` deaths in particular,
+which is where the contest deaths land — or a world some arm of the
+exact-reply oracle can point at where the flattening actually costs the floor
+rather than merely blurring it. Absent either, the flattening stays: it is
+visible here, it is safe, and it is cheaper than the deaths the repair buys.
+
 ### F3 — the entanglement gate reads the plan, not the plan plus references
 
 `src/lobster/bounds/bank.ts:561` (`price` calls `this.gate(plan, …)`, not
@@ -196,6 +237,16 @@ geometric arm is the one that is wrong; the ledger arm happened to cover it
 each time. So this is a latent gap in coverage, not an observed one — which is
 consistent with the finding's own reading that missing a unit only loosens a
 floor.
+
+**BANK-F23 verdict: FIXED, and FREE.** `price` gates on `base`. Pinned in
+`src/lobster/bounds/bank.test.ts` on review-2's board, through a forwarding
+Proxy that watches the footprint the gate is actually handed — the geometric
+arm, which is the arm that was wrong; the members assertion beside it reads the
+same before and after, which is the masking recorded above. Built alone on top
+of `0be83a4` it is byte-identical on `mixed` at seeds 1–3: every reference
+action the runner declares is `NO_ORDER_MOVE`, whose candidate carries an empty
+path and so adds nothing to the footprint. The coverage it restores is the
+multi-seat one, which no local scenario runs.
 
 ### F4 — `continuationDirection` dereferences an absent orientation
 
