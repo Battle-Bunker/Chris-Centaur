@@ -205,10 +205,19 @@ deaths is the same cause on both colours (`mixed`: contest only; `snakes`: self
 only), our share of the board's deaths stays a small minority (22% → 27%), and
 the audit's actual claim — "the bot beats `material-only`, and only a fifth of
 the deaths are ours" — is true on both. What is not portable is any *count*: 23
-board-wide deaths is a side-0 number and the other colour sees 15, because on
-side 1 our roster carries the queen and the games are shorter and one-sided.
-Nothing that was taken on these arms is reversed; every one of them is now a
-number with a colour attached to it.
+board-wide deaths is a side-0 number and the other colour sees 15, on 167 more
+unit-turns, because on side 1 our roster carries the queen and fewer units die
+anywhere on the board. Nothing that was taken on these arms is reversed; every
+one of them is now a number with a colour attached to it.
+
+One claim is narrowed rather than confirmed. `BEHAVIOUR-AUDIT-2.md`'s P1 rests
+on parked PAWN deaths in `mixed` vs `material-only` — "3 of 4 are ours" — and
+our pawn is a different pawn on each colour (red's at (2,1), blue's at
+(10,10)). All our deaths are `contest` on both colours, so the class is not
+absent on side 1, but this document did not re-classify them by shape and
+does not claim P1's ratio holds there. P1 was **refused** anyway
+(`DECISIONS.md`, 2026-09-05), so nothing rests on it; anyone re-opening it
+owes the side-1 classification first.
 
 ### 3.2 What this does NOT license
 
