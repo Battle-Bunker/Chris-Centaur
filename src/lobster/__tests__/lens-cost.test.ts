@@ -60,15 +60,25 @@ const SEED = 1;
  *  own slot changes what a plan on a board with HELD units is worth, the search
  *  visits different plans, and the counters move with them. `snake` is
  *  byte-identical again — no held enemy, no sibling, nothing to answer
- *  differently — which is exactly the evidence this file exists to keep. */
+ *  differently — which is exactly the evidence this file exists to keep.
+ *
+ *  AND ALL FOUR, once more, and again not for the lens: `buildBoard` now STATES
+ *  the turn cap (`docs/design/ENDGAME.md` §4.1 part (A), `TERMINAL-SOUND.md`),
+ *  so this fixture's six-turn game is a six-turn game to the bot as well as to
+ *  the loop. `model/terminal@1` fires on the last board of it for the first
+ *  time in this repo's history, the fold's ends there are lattice elements
+ *  rather than the interior number, and the search visits different plans. The
+ *  evidence that this is the cap and NOT the boundary repair beside it: with
+ *  the same repaired evaluator and the cap statement removed, all four counters
+ *  are the previous recording to the digit. */
 const RECORDED = {
   snake: {
-    550: { nodes: 6932, reads: 297514, slices: 6430, decisions: 18 },
-    1100: { nodes: 13639, reads: 615890, slices: 13137, decisions: 18 },
+    550: { nodes: 7229, reads: 267990, slices: 6835, decisions: 18 },
+    1100: { nodes: 14304, reads: 549700, slices: 13910, decisions: 18 },
   },
   mixed: {
-    550: { nodes: 7101, reads: 247886, slices: 1479, decisions: 18 },
-    1100: { nodes: 11396, reads: 769166, slices: 3201, decisions: 18 },
+    550: { nodes: 7268, reads: 221648, slices: 1364, decisions: 18 },
+    1100: { nodes: 11136, reads: 796740, slices: 3601, decisions: 18 },
   },
 } as const;
 

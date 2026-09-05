@@ -107,18 +107,81 @@ export const clampEst = (e: number, lo: number, hi: number): number => {
 };
 
 /**
- * Replace the ends with lattice elements, ORDERED, never added.
+ * WHAT A TERMINAL MEMBER SAYS ABOUT ONE READING, and the silence that is not a
+ * number.
+ *
+ * A member that reads the boundary answers per READING — the worst-case world
+ * and the best-case one — and each answer is either the lattice element that
+ * world is WORTH (`DEAD`, `WIN`) or nothing at all. `null` is the nothing, and
+ * it is a distinct value rather than a sentinel number because DEAD and "no
+ * floor to state" are both `-Infinity`: collapsing them is exactly how a
+ * silence becomes a claim.
+ *
+ * `lo` is the worst reading's value and `hi` the best reading's, and a member
+ * MUST hand them over already ordered (`lo <= hi` where both speak). That is
+ * not a convenience: the two are a floor and a ceiling over the same set of
+ * completion worlds, so an unordered pair is a member that has contradicted
+ * itself, and no reordering here can turn it back into a bound — see
+ * `docs/design/TERMINAL-SOUND.md` for what `Math.min`/`Math.max` did instead.
+ */
+export interface TerminalClamp {
+  /** The worst reading's terminal value, or null where it has none to state. */
+  readonly lo: number | null;
+  /** The best reading's terminal value, or null where it has none to state. */
+  readonly hi: number | null;
+}
+
+/** A member with nothing to say about either end. */
+export const NO_CLAMP: TerminalClamp = { lo: null, hi: null };
+
+/**
+ * MEET the terminal readings of two independent members of the SAME board.
+ *
+ * Per side: a member that is silent yields to one that speaks, and where both
+ * speak the result CONTAINS both claims — the lower floor, the higher ceiling.
+ * That direction is the load-bearing one. Two sound members of the same board
+ * cannot disagree (elimination and the turn cap both read the same
+ * adjudication, and a team that is gone is not the sole winner of anything), so
+ * a disagreement is a defect somewhere, and the only combination that cannot
+ * MANUFACTURE a bound out of one is the widening one. Narrowing on a
+ * disagreement is how a ceiling ends up standing in for a floor.
+ */
+export const meetClamps = (a: TerminalClamp, b: TerminalClamp): TerminalClamp => ({
+  lo: a.lo === null ? b.lo : b.lo === null ? a.lo : Math.min(a.lo, b.lo),
+  hi: a.hi === null ? b.hi : b.hi === null ? a.hi : Math.max(a.hi, b.hi),
+});
+
+/**
+ * Replace the ends the terminal members SPOKE FOR with their lattice elements,
+ * ORDERED, never added, and never crossed.
  *
  * The ordering is the rules' own: a team whose last unit dies has lost,
  * WHATEVER happened to anyone else. Scoring the two terminal outcomes
  * additively makes them cancel, and a mutual annihilation then reads as a wash
  * — which is how an evaluator ends up trading its own last unit for the
- * opponent's. So the caller passes the two verdicts already ordered, and this
- * function only refuses to let an inverted interval out.
+ * opponent's.
+ *
+ * A REPLACEMENT AND NOT AN INTERSECTION WITH `total`, because the interior fold
+ * is defined only in the interior: on a board that has ENDED its number is not
+ * a bound on anything, so meeting with it would keep a floor no world stands
+ * under. A side the clamp is SILENT on is the other case, and there the
+ * interior endpoint is all there is — that is the meet, and it is why `lo` can
+ * only ever be a lattice element or the interior FLOOR, and `hi` a lattice
+ * element or the interior CEILING. An interior ceiling can no longer reach the
+ * floor by any path through this function.
+ *
+ * An inverted pair throws. It is a member contradicting itself about the same
+ * world set, the fatal bug class the bank exists to catch, and there is no
+ * repair for it here that is not a guess.
  */
-export const clampTo = (total: Bound, lo: number, hi: number): Bound => {
+export const clampTo = (total: Bound, clamp: TerminalClamp): Bound => {
+  const lo = clamp.lo ?? total.lo;
+  const hi = clamp.hi ?? total.hi;
   if (hi < lo) {
-    throw new Error(`terminal clamps inverted the interval: [${lo}, ${hi}]`);
+    throw new Error(
+      `terminal clamps inverted the interval: [${lo}, ${hi}] ` +
+        `(clamp [${String(clamp.lo)}, ${String(clamp.hi)}], interior [${total.lo}, ${total.hi}])`
+    );
   }
   return bound(lo, clampEst(total.est, lo, hi), hi);
 };

@@ -186,6 +186,10 @@ interface Counts {
   classes: Record<string, number>;
   totalLo: number;
   totalHi: number;
+  /** Boards the TURN CAP actually spoke on, and worlds compared there — the
+   *  boundary pass's own anti-vacuity. */
+  capBoards: number;
+  capWorlds: number;
 }
 
 function planFor(sub: EngineSubstrate, c: LawCase): JointPlan {
@@ -205,8 +209,67 @@ function planFor(sub: EngineSubstrate, c: LawCase): JointPlan {
 }
 
 /**
+ * THE SAME BOARD, PLAYED TO A LIMIT IT HAS REACHED — the `terminal` class.
+ *
+ * `model/terminal@1` reads the cap off the board, and a generated board states
+ * none: it gets the engine's default of 100, the arrival turn is 41, and the
+ * member returns at its first line on every board in this file. The whole
+ * BOUNDARY was therefore outside the sweep, which is the same hole
+ * `docs/design/ENDGAME.md` §1 found in the runner. Restating the board at
+ * `maxTurns: TURN + 1` puts the arrival turn ON the count, which is the only
+ * board the member has anything to say about.
+ *
+ * The class is on the TOTAL and not on a `parts` entry because the clamp is not
+ * a feature: it replaces the fold's ends in `finish` and never appears in
+ * `parts`. So it is booked DIFFERENTIALLY — a world is counted only where the
+ * uncapped bracket COVERED it and the capped one does not — because a total
+ * that was already outside its worlds before the cap spoke is the interior
+ * fold's defect (`totalHi`, pinned at 9, board 164), and re-booking it here
+ * would pin the boundary at another term's number. What is left is exactly what
+ * the boundary member itself put outside the worlds, and that is pinned at 0.
+ */
+const atTheCount = (board: Board): Board => ({ ...board, maxTurns: TURN + 1 }) as Board;
+
+function sweepAtTheCount(
+  c: LawCase,
+  counts: Counts,
+  cap: number,
+  plainPlan: { lo: number; hi: number },
+  plainWorlds: ReadonlyArray<{ lo: number; hi: number }>,
+): void {
+  const board = atTheCount(c.board);
+  const sub = makeSubstrate({ board, turn: c.turn, asTeam: c.asTeam, modeled: c.stages });
+  try {
+    const asTeam = sub.teamNumber(c.asTeam);
+    const partial = defaultEvaluator.evaluatePlan(sub, planFor(sub, c), asTeam);
+    // A board the cap says nothing about proves nothing about the cap.
+    if (!partial.terminal.loClamped && !partial.terminal.hiClamped) return;
+    counts.capBoards++;
+    let i = -1;
+    for (const world of worldsOf(sub, { ...c, board }, cap)) {
+      i++;
+      const before = plainWorlds[i];
+      if (before === undefined) continue;
+      const v = defaultEvaluator.evaluatePlan(sub, world.plan, asTeam);
+      counts.capWorlds++;
+      const coveredLo = before.lo === plainPlan.lo || before.lo >= plainPlan.lo - EPS;
+      const coveredHi = before.hi === plainPlan.hi || before.hi <= plainPlan.hi + EPS;
+      if (coveredLo && v.bound.lo !== partial.bound.lo && v.bound.lo < partial.bound.lo - EPS) {
+        counts.classes['terminal.lo'] = (counts.classes['terminal.lo'] ?? 0) + 1;
+      }
+      if (coveredHi && v.bound.hi !== partial.bound.hi && v.bound.hi > partial.bound.hi + EPS) {
+        counts.classes['terminal.hi'] = (counts.classes['terminal.hi'] ?? 0) + 1;
+      }
+    }
+  } finally {
+    sub.release();
+  }
+}
+
+/**
  * ONE BOARD. The partial reading once, every world once, and the per-feature
- * comparison in both directions.
+ * comparison in both directions — then the same board again at the count, for
+ * the one member the first pass cannot reach.
  *
  * A world is a POINT by construction — nothing is held in it — so its `lo` and
  * `hi` are the same number and the two comparisons are the two halves of "the
@@ -219,9 +282,13 @@ function sweep(c: LawCase, counts: Counts, cap: number): void {
     const asTeam = sub.teamNumber(c.asTeam);
     const partial = defaultEvaluator.evaluatePlan(sub, planFor(sub, c), asTeam);
     counts.boards++;
+    // Kept so the boundary pass can tell what the cap put outside the worlds
+    // from what was already outside them before it spoke.
+    const plainWorlds: Array<{ lo: number; hi: number }> = [];
     for (const world of worldsOf(sub, c, cap)) {
       const v = defaultEvaluator.evaluatePlan(sub, world.plan, asTeam);
       counts.worlds++;
+      plainWorlds.push({ lo: v.bound.lo, hi: v.bound.hi });
       if (v.bound.lo < partial.bound.lo - EPS) counts.totalLo++;
       if (v.bound.hi > partial.bound.hi + EPS) counts.totalHi++;
       for (const key of Object.keys(partial.parts)) {
@@ -239,6 +306,7 @@ function sweep(c: LawCase, counts: Counts, cap: number): void {
         }
       }
     }
+    sweepAtTheCount(c, counts, cap, { lo: partial.bound.lo, hi: partial.bound.hi }, plainWorlds);
   } finally {
     sub.release();
   }
@@ -255,7 +323,15 @@ const SHAPES: ReadonlyArray<{ perSide: number; size: number; food: number; potio
 
 /** The sweep, as a function so a script can run it at a different width. */
 export function lawSweep(boards: number, cap = 96): Counts {
-  const counts: Counts = { boards: 0, worlds: 0, classes: {}, totalLo: 0, totalHi: 0 };
+  const counts: Counts = {
+    boards: 0,
+    worlds: 0,
+    classes: {},
+    totalLo: 0,
+    totalHi: 0,
+    capBoards: 0,
+    capWorlds: 0,
+  };
   for (let seed = 1; counts.boards < boards && seed <= boards * 6; seed++) {
     const shape = SHAPES[seed % SHAPES.length] as (typeof SHAPES)[number];
     const board = boardAt(seed, shape.size, shape.perSide, shape.food, shape.potions);
@@ -339,6 +415,18 @@ const RATCHET: Readonly<Record<string, number>> = {
   // `hi` is untouched and `room.hi` never had a violation. See §3 of
   // `docs/design/RATCHET-2.md`.
   'room.lo': 0,
+  // CLOSED, and pinned at zero because a BOUNDARY member has no slack it is
+  // allowed: `model/terminal@1` read `best` as "us in `possibleWinners` ⇒ a
+  // draw", which is not a ceiling at all — `us` in `possibleWinners` is exactly
+  // the statement that some world has us winning, and a world we win ALONE is
+  // worth WIN. The same bracket then let `worst` say `win` beside that `draw`,
+  // and `finish`'s `Math.min`/`Math.max` reordered the pair into
+  // `[interiorCeiling, +Infinity]` — 5,195 inversions over the twelve 30-turn
+  // gate arms once the runner stated its cap. Both corners are derived from the
+  // bound requirement now and the swap is gone. See
+  // `docs/design/TERMINAL-SOUND.md`.
+  'terminal.lo': 0,
+  'terminal.hi': 0,
 };
 /** R1 on the TOTAL, which is the property the bank's floor rests on. */
 const TOTAL_LO_RATCHET = 0;
@@ -351,6 +439,7 @@ describe('R1 holds TERM BY TERM over boards nobody chose', () => {
     const counts = lawSweep(240);
     console.log(
       `  [law-sweep] boards=${counts.boards} worlds=${counts.worlds} ` +
+        `capBoards=${counts.capBoards} capWorlds=${counts.capWorlds} ` +
         `totalLo=${counts.totalLo} totalHi=${counts.totalHi} ` +
         `classes=${JSON.stringify(counts.classes)}`,
     );
@@ -358,6 +447,11 @@ describe('R1 holds TERM BY TERM over boards nobody chose', () => {
     // worlds have to be a product rather than a singleton.
     expect(counts.boards).toBeGreaterThanOrEqual(200);
     expect(counts.worlds).toBeGreaterThan(counts.boards * 2);
+    // And the boundary pass has to have REACHED the boundary: a `terminal`
+    // class of zero taken over boards the cap never spoke on is a pin on
+    // nothing.
+    expect(counts.capBoards).toBeGreaterThan(20);
+    expect(counts.capWorlds).toBeGreaterThan(counts.capBoards * 2);
     // No class this table has never seen, and no class above its own pin.
     const over = Object.entries(counts.classes)
       .filter(([key, n]) => n > (RATCHET[key] ?? 0))

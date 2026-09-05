@@ -54,15 +54,13 @@ import type { EvalContext } from './features';
  * pair of extremes. This member reads that bracket; it does not rebuild one.
  *
  * `certain` is the settlement's own reduction when every world agrees, kept as
- * is. When worlds disagree, `possibleWinners`/`certainWinners` are read only
- * while `possibleKinds` names turn-limit as the ONLY reachable ending here — the
- * one case in which those two sets are not also carrying an elimination
- * branch's winners, which is `terminalVerdicts`'s to read, not this member's.
- * `certainWinners.includes(us)` is `us`'s own worst-board win-or-tie, exactly —
- * the bracket's per-team floor-vs-rivals'-ceiling test worked out algebraically
- * to the same corner `viewOf` used to build by hand — and its dual,
- * `possibleWinners.includes(us)`, is the best-board's. See `capFrom` for the
- * one further step (win vs. tie) the exposed sets can, and cannot, still prove.
+ * is — one adjudication, one verdict, both corners. When worlds disagree the
+ * two winner sets answer instead, and they answer as BOUNDS: the worst corner
+ * is a floor under every completion world's terminal value and the best corner
+ * a ceiling over it, which is a stronger demand than "what does each set
+ * suggest" and is where this member was wrong for its whole life. See the two
+ * corners in `capVerdicts` for the derivation and `docs/design/TERMINAL-SOUND.md`
+ * for the inversion it cost.
  *
  * ── WHAT IT DOES NOT CLAIM ─────────────────────────────────────────────────
  *
@@ -185,39 +183,60 @@ export function capVerdicts(ctx: EvalContext): {
   if (!ended(bracket.possibleKinds)) return NO_CAP;
 
   // THE TWO CORNERS, off the bracket's own per-team stakes rather than a
-  // second adjudication. `certainWinners` is, per team, "wins or ties at its
-  // own floor against every rival's ceiling" — which is `us`'s WORST-board
-  // question exactly, because a team in `certainWinners` bounds EVERY rival's
-  // ceiling at or under its own floor, and only a rival reaching that floor
-  // can still appear anywhere in the winners sets. So once `us` is in
-  // `certainWinners`, a SECOND team surfacing in `possibleWinners` can only be
-  // one that reaches exactly `us`'s floor — a tie, not a separate win — which
-  // makes `possibleWinners = { us }` alone the proof of a WORST-board sole win.
+  // second adjudication — and BOTH of them bounds, which is the whole of
+  // `docs/design/TERMINAL-SOUND.md`.
   //
-  // `possibleWinners` is the dual for the BEST board (`us` at its own ceiling,
-  // every rival at its own floor), but the matching proof does not carry over:
-  // a third team's unrelated, unbounded ceiling can knock it out of
-  // `certainWinners` while it still ties `us` at the BEST board's floor, so
-  // this bracket cannot certify a sole win there from these two sets alone.
-  // BOARD (2 teams, both fully modelled — no held units at all, so `certain`
-  // is not null and this branch is never reached for it; the shape is the
-  // same with a lone held claim on either side): us weightMin=5, weightMax=10;
-  // them weightMin=1, weightMax=5, at the turn limit. `us` is a certain winner
-  // (floor 5 ≥ their ceiling 5) and the BEST board ties at 5-vs-5 — a draw —
-  // yet `possibleWinners` still contains `them` (their ceiling 5 ≥ our floor
-  // 5), so `possibleWinners.length === 1` correctly withholds 'win'. Nothing
-  // symmetric protects the reverse: a hidden third team's ceiling can make
-  // `certainWinners.length === 1` true on a BEST-board tie. So `best` never
-  // reports 'win' from this branch — a known, provably weaker reading than a
-  // per-team floor/ceiling table would give, accepted rather than restated by
-  // hand, because 'draw' and 'none' clamp identically in `finish` and the gap
-  // costs nothing this repo's boards have been seen to reach at the cap.
+  // A CORNER IS A BOUND, NOT A GUESS AT THE VERDICT. `worst` is a FLOOR over
+  // every completion world the settlement admits and `best` a CEILING over the
+  // same set, so with the world value being WIN where we win alone, DEAD where
+  // we neither win nor tie, and the interior fold's own number for a tie, the
+  // two must satisfy `worst <= best` in the lattice DEAD < interior < WIN. The
+  // reading below is derived from that requirement rather than from what each
+  // winners list happens to suggest, and `finish` may then clamp with the pair
+  // AS GIVEN — the `Math.min`/`Math.max` that used to reorder it is what turned
+  // an interior ceiling into a floor.
+  //
+  // THE FLOOR.
+  //   * `us` ∉ `certainWinners` ⇒ some world does not have us winning or
+  //     tying ⇒ DEAD, whatever KIND of ending that world was.
+  //   * `us` ∈ `certainWinners` and `possibleWinners = { us }` ⇒ no other team
+  //     wins in ANY world, and we win in every one ⇒ every world is our sole
+  //     win ⇒ WIN. (`certainWinners ⊆ possibleWinners` per branch, so the
+  //     length test IS "`possibleWinners` is exactly us".)
+  //   * otherwise we win or tie everywhere, and a tie is worth the interior
+  //     fold's own number, which is already a floor — 'draw', no clamp.
+  //
+  // THE CEILING, and the corner that was WRONG. It used to read "`us` ∈
+  // `possibleWinners` ⇒ a draw", which is not a ceiling at all: `us` ∈
+  // `possibleWinners` is precisely the statement that some world has us
+  // winning, and a world we win ALONE is worth WIN — above any finite interior
+  // ceiling. So the honest reading is the other way round:
+  //   * `us` ∉ `possibleWinners` ⇒ NO world has us winning or tying ⇒ DEAD is
+  //     a sound ceiling as well as a sound floor.
+  //   * a RIVAL in `certainWinners` ⇒ that team wins in every world ⇒ we are
+  //     never alone in the winners ⇒ no world is worth WIN ⇒ the interior
+  //     ceiling stands ('draw').
+  //   * otherwise some world may be a sole win for us, and the only ceiling
+  //     this bracket proves is WIN. That is weak — it is no ceiling at all —
+  //     and it is the price of a sound one; it is paid on the LAST board of a
+  //     game and nowhere else.
+  //
+  // The pair is ordered by construction: 'win' as a floor forces
+  // `possibleWinners = { us }`, which admits no rival to `certainWinners` and
+  // so forces 'win' as the ceiling too; and 'loss' as a ceiling forces `us`
+  // out of `possibleWinners` and hence out of `certainWinners`, which forces
+  // 'loss' as the floor. The two middles meet in 'draw'.
+  const rivalAlwaysWins = bracket.certainWinners.some((team) => team !== us);
   const worst: TerminalCap = !bracket.certainWinners.includes(us)
     ? 'loss'
     : bracket.possibleWinners.length === 1
       ? 'win'
       : 'draw';
-  const best: TerminalCap = bracket.possibleWinners.includes(us) ? 'draw' : 'loss';
+  const best: TerminalCap = !bracket.possibleWinners.includes(us)
+    ? 'loss'
+    : rivalAlwaysWins
+      ? 'draw'
+      : 'win';
   return { worst, best };
 }
 

@@ -39,7 +39,7 @@ import type {
 } from '../contracts';
 import { EngineSubstrate } from '../substrate';
 import type { Substrate } from '../contracts';
-import { DEAD, WIN, clampEst, clampTo, fold } from './bound';
+import { DEAD, WIN, clampEst, clampTo, fold, meetClamps, type TerminalClamp } from './bound';
 import type { Evaluation, Feature, Weights } from './bound';
 import {
   DEFAULT_PROFILE,
@@ -340,30 +340,38 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
   // and replacing the interior value with either is the wash error again.
   const cap = capVerdicts(ctx);
 
-  const lo = worst.subjectGone
-    ? DEAD
-    : worst.othersGone
-      ? WIN
-      : cap.worst === 'loss'
-        ? DEAD
-        : cap.worst === 'win'
-          ? WIN
-          : evaluation.total.lo;
-  const hi = best.subjectGone
-    ? DEAD
-    : best.othersGone
-      ? WIN
-      : cap.best === 'loss'
-        ? DEAD
-        : cap.best === 'win'
-          ? WIN
-          : evaluation.total.hi;
+  // EACH MEMBER STATES ITS OWN TWO ENDS, and a `null` is a silence rather than
+  // a number: DEAD and "nothing to say about the floor" are both -Infinity, so
+  // the two have to be different values or the silence becomes a claim.
+  const elimination: TerminalClamp = {
+    lo: worst.subjectGone ? DEAD : worst.othersGone ? WIN : null,
+    hi: best.subjectGone ? DEAD : best.othersGone ? WIN : null,
+  };
+  const capClamp: TerminalClamp = {
+    lo: cap.worst === 'loss' ? DEAD : cap.worst === 'win' ? WIN : null,
+    hi: cap.best === 'loss' ? DEAD : cap.best === 'win' ? WIN : null,
+  };
 
   // Elimination in the BEST world implies elimination in the worst (our
   // best-world alive set contains our worst-world one), and a clean sweep in
-  // the worst world implies one in the best. So the clamps can only ever
-  // tighten an interval, never invert it — asserted rather than assumed.
-  const clamped = clampTo(evaluation.total, Math.min(lo, hi), Math.max(lo, hi));
+  // the worst world implies one in the best; each member's own pair is ordered
+  // by its own proof. So the MEET of the two is ordered, and `clampTo` is
+  // handed the pair AS GIVEN.
+  //
+  // WHAT USED TO BE HERE, AND WHY IT WAS THE BUG. The pair went through
+  // `Math.min(lo, hi)` / `Math.max(lo, hi)` under a comment asserting the
+  // clamps "can only ever tighten an interval, never invert it". That is true
+  // of the elimination corners, whose worlds are ordered by inclusion, and it
+  // was FALSE of the cap corners, which are read off two winner sets that are
+  // not — `cap.worst === 'win'` (a WIN floor) could stand beside `cap.best ===
+  // 'draw'` (no ceiling clamp at all, so `hi` stayed the INTERIOR ceiling), and
+  // `Math.min` then handed the interior ceiling over as the floor. The plan
+  // came back as `[interiorCeiling, +Infinity]`, a complete floor above another
+  // rung's sound ceiling: 5,195 inversions over the twelve 30-turn gate arms
+  // once the runner stated its cap. The cap's corners are ordered now
+  // (`terminal.ts`), and the swap that hid the disorder is gone with them.
+  const clamp = meetClamps(elimination, capClamp);
+  const clamped = clampTo(evaluation.total, clamp);
 
   const basis = ctx.engineMaterial.assumptions;
   return {
@@ -380,10 +388,7 @@ export function finish(ctx: EvalContext, evaluation: Evaluation): PlanEvaluation
       clamped.lo === clamped.hi,
     basis,
     ledgerSize: ctx.resolution.ledger.length,
-    terminal: {
-      loClamped: worst.subjectGone || worst.othersGone || cap.worst === 'loss' || cap.worst === 'win',
-      hiClamped: best.subjectGone || best.othersGone || cap.best === 'loss' || cap.best === 'win',
-    },
+    terminal: { loClamped: clamp.lo !== null, hiClamped: clamp.hi !== null },
   };
 }
 
