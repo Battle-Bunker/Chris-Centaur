@@ -30,6 +30,9 @@ const arg = (name, fallback) => {
 
 const PORT = parseInt(arg('port', '5055'), 10);
 const OUT = path.resolve(arg('out', 'docs/design/decision-lens/walkthrough'));
+/** The review drill photographs a different surface for a different document,
+ *  so its pictures live beside that document (docs/design/ux/07-REVIEW.md). */
+const REVIEW_OUT = path.resolve(arg('review-out', 'docs/design/ux/review'));
 const BASE = `http://127.0.0.1:${PORT}`;
 const GAME = arg('game', 'lens-walk');
 const WAIT = parseInt(arg('wait', '2000'), 10);
@@ -77,8 +80,8 @@ function railText(page) {
   }));
 }
 
-async function shot(page, name, note, selector) {
-  const file = path.join(OUT, `${name}.png`);
+async function shot(page, name, note, selector, dir) {
+  const file = path.join(dir || OUT, `${name}.png`);
   const target = selector ? await page.$(selector) : page;
   if (!target) {
     report.shots.push({ name, note, missing: selector });
@@ -1052,6 +1055,172 @@ async function main() {
     updateTurnClock(null, null);
   });
 
+  // ── THE REVIEW DRILL ────────────────────────────────────────────────────
+  //
+  // The other end of the product: not the operator inside a turn but the owner
+  // after the game, on /history (docs/design/ux/07-REVIEW.md). Every step is
+  // asserted, and one of them is asserted against a SECOND, INDEPENDENT
+  // computation — the drill diffs the stored boards itself and requires the
+  // strip to mark exactly the turns a unit disappeared on. A strip that agrees
+  // with the page that produced it proves nothing.
+  at = 'review';
+  fs.mkdirSync(REVIEW_OUT, { recursive: true });
+  const review = [];
+  const rvCheck = (name, ok, saw) => {
+    review.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} review/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  // A GAME WITH KNOWN DEATHS. The walk above has already played a dozen turns;
+  // this plays on until the boards show a unit gone, because "the expected
+  // count" is only a test where the expectation is not zero.
+  at = 'review/record';
+  const deathTurns = async () => {
+    const timeline = await (await fetch(`${BASE}/api/games/${GAME}/turns`)).json();
+    const turns = (timeline.turns || []).slice().sort((a, b) => a.turn - b.turn);
+    const out = [];
+    for (let i = 1; i < turns.length; i++) {
+      const live = (row) => new Set(((row.game_state.board || {}).snakes || [])
+        .filter((s) => s.health > 0 && (s.body || []).length > 0).map((s) => s.id));
+      const before = live(turns[i - 1]);
+      const after = live(turns[i]);
+      const gone = [...before].filter((id) => !after.has(id));
+      if (gone.length > 0) out.push({ turn: turns[i - 1].turn, gone });
+    }
+    return { turns, deaths: out };
+  };
+  let deaths = await deathTurns();
+  for (let i = 0; i < 24 && deaths.deaths.length === 0; i++) {
+    await step();
+    deaths = await deathTurns();
+  }
+  rvCheck('a game with a known death was recorded', deaths.deaths.length > 0, {
+    turns: deaths.turns.length,
+    deaths: deaths.deaths.map((d) => `${d.turn}:${d.gone.join('+')}`),
+  });
+
+  at = 'review/open';
+  await page.goto(`${BASE}/history`, { waitUntil: 'domcontentloaded' });
+  await sleep(WAIT);
+  const reviewRows = await page.$$('.open-review');
+  rvCheck('/history offers a review on every row', reviewRows.length > 0, { rows: reviewRows.length });
+  await page.click('.open-review');
+  // The index pass, then the bounded deep pass over the turns it flagged.
+  await sleep(WAIT * 3);
+
+  at = 'review/strip';
+  const strip = await page.evaluate(() => ({
+    cells: [...document.querySelectorAll('.rv-cell')].map((c) => ({
+      turn: Number(c.dataset.turn),
+      glyph: c.textContent.trim(),
+      label: c.getAttribute('aria-label'),
+    })),
+    verdict: (document.getElementById('rvVerdict') || {}).innerText || '',
+    read: (document.getElementById('rvRead') || {}).innerText || '',
+  }));
+  rvCheck('the strip has one cell per stored turn', strip.cells.length === deaths.turns.length, {
+    cells: strip.cells.length, turns: deaths.turns.length,
+  });
+  // THE EXPECTED COUNT, against the drill's own diff of the boards.
+  const wantDeath = deaths.deaths.map((d) => d.turn).sort((a, b) => a - b);
+  const sawDeath = strip.cells.filter((c) => c.glyph === '▼' || c.glyph === '△')
+    .map((c) => c.turn).sort((a, b) => a - b);
+  rvCheck('the strip marks a death on exactly the turns a unit disappeared',
+    JSON.stringify(sawDeath) === JSON.stringify(wantDeath), { want: wantDeath, saw: sawDeath });
+  rvCheck('the headline says where the game was decided',
+    /DECIDED AT TURN\s+\d+/i.test(strip.verdict), { verdict: strip.verdict });
+  rvCheck('the strip says how much of the game it read in full',
+    /\d+ of \d+ turns read in full/.test(strip.read), { read: strip.read });
+  await shot(page, 'r1-strip', 'the moments strip and its legend — shape first, brightness for weight', '.rv-stripwrap', REVIEW_OUT);
+  await shot(page, 'r2-index', 'the index of moments, ranked and cut', '.rv-side', REVIEW_OUT);
+
+  at = 'review/keys';
+  const whereAmI = () => page.evaluate(() => ({
+    turn: (document.getElementById('rvTurn') || {}).innerText || '',
+    at: [...document.querySelectorAll('.rv-moment')].findIndex((m) => m.classList.contains('rv-at')),
+    link: (document.getElementById('rvLink') || {}).value || '',
+  }));
+  const rvBefore = await whereAmI();
+  await page.keyboard.press('j');
+  await sleep(900);
+  const afterJ = await whereAmI();
+  await page.keyboard.press('k');
+  await sleep(900);
+  const afterK = await whereAmI();
+  rvCheck('j walks to the next moment and k walks back',
+    afterJ.at !== rvBefore.at && afterK.at === rvBefore.at,
+    { before: rvBefore.at, afterJ: afterJ.at, afterK: afterK.at });
+  await page.keyboard.press('l');
+  await sleep(900);
+  const afterL = await whereAmI();
+  rvCheck('l steps one turn, moment or not', afterL.turn !== afterK.turn,
+    { before: afterK.turn, after: afterL.turn });
+
+  at = 'review/moment';
+  // Open the heaviest moment the index kept and read the why panel there.
+  await page.click('.rv-moment');
+  await sleep(WAIT * 2);
+  const why = await page.evaluate(() => {
+    const key = (document.querySelector('#rvWhy .rv-note code') || {}).textContent || '';
+    const units = [...document.querySelectorAll('#rvWhy .rv-unit')].map((u) => u.textContent);
+    return {
+      text: (document.getElementById('rvWhy') || {}).innerText || '',
+      key,
+      units,
+    };
+  });
+  rvCheck('the why panel names the chosen moveset',
+    why.key.length > 0 && why.text.indexOf(why.key) >= 0, { key: why.key });
+  rvCheck('and its top member, by name', why.units.length > 0 && why.text.indexOf(why.units[0]) >= 0,
+    { members: why.units.slice(0, 4) });
+  rvCheck('and the bracket it was priced at, with the channel that adjudicates',
+    /adjudicates on/.test(why.text) && /bracket/.test(why.text), {});
+  rvCheck('and the joint residual, drawn whatever it is',
+    /joint residual/.test(why.text), {});
+  rvCheck('and what the leader is betting against, as a foil or as its absence',
+    /THE FOIL|the foil/i.test(why.text), {});
+  await shot(page, 'r3-why', 'the why panel at a moment — the chosen moveset, its number, the breakdown, the runner-up, the foil and the threats', '.rv-main', REVIEW_OUT);
+  await shot(page, 'r4-review', 'the whole review: strip, index and the turn', '.rv', REVIEW_OUT);
+
+  at = 'review/bookmark';
+  const linkBefore = (await whereAmI()).link;
+  await page.keyboard.press('b');
+  await sleep(600);
+  const marked = await page.$$eval('.rv-markrow', (e) => e.map((x) => x.innerText));
+  rvCheck('b bookmarks the turn under the cursor', marked.length > 0, { marks: marked });
+  await shot(page, 'r5-mark', 'the index and the bookmark it just took', '.rv-side', REVIEW_OUT);
+  await shot(page, 'r6-link', 'the turn as a copyable link, beside the two ways into the lens', '.rv-turnbar', REVIEW_OUT);
+  await shot(page, 'r7-share', 'the export: this turn, as a link anyone can paste', '.rv-share', REVIEW_OUT);
+
+  // AND IT SURVIVES A RELOAD, which is the only thing persisting it is for —
+  // and the link goes back to the same turn, which is the only thing the deep
+  // link is for.
+  at = 'review/reload';
+  // Away and back, so the fragment-only navigation is a real load and the
+  // bookmark is read from storage rather than from the page still holding it.
+  await page.goto('about:blank');
+  await page.goto(linkBefore, { waitUntil: 'domcontentloaded' });
+  await sleep(WAIT * 3);
+  const rvAfter = await page.evaluate(() => ({
+    turn: (document.getElementById('rvTurn') || {}).innerText || '',
+    marks: [...document.querySelectorAll('.rv-markrow')].map((x) => x.innerText),
+    open: !(document.getElementById('reviewPanel') || {}).hidden,
+  }));
+  const wantedTurn = (/[#&]turn=(\d+)/.exec(linkBefore) || [])[1] || null;
+  rvCheck('the pasted link reopens the review at the same turn',
+    rvAfter.open && wantedTurn !== null &&
+      new RegExp(`turn\\s+${wantedTurn}\\b`).test(rvAfter.turn),
+    { want: wantedTurn, turn: rvAfter.turn, link: linkBefore });
+  rvCheck('and the bookmark is still there after the reload',
+    rvAfter.marks.length === marked.length && rvAfter.marks.length > 0,
+    { before: marked, after: rvAfter.marks });
+  report.notes.review = review;
+
+  fs.writeFileSync(path.join(REVIEW_OUT, 'report.json'), JSON.stringify({
+    game: GAME, turns: deaths.turns.length, deaths: deaths.deaths, drill: review,
+    shots: report.shots.filter((s) => /^r\d/.test(s.name)),
+  }, null, 2));
+
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'report.json')}`);
   await browser.close();
@@ -1064,6 +1233,7 @@ async function main() {
     ...(report.notes.drill || []).map((d) => ({ ...d, drill: 'operator' })),
     ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
+    ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
   ].filter((d) => !d.ok);
   if (failed.length > 0) {
     console.error(`\ndrill FAILED: ${failed.map((f) => `${f.drill}/${f.step}`).join('; ')}`);
