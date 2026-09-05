@@ -399,3 +399,159 @@ refusing a boolean by re-weighting the shares, at any λ.
 3. **Do not re-derive the horizon weights alone.** They are measured now, at
    `λ ∈ {1/4}` against `3, 2, 1`, on eight seeds and 39 → 63 pickups. Another λ
    moves the level in the same direction as this one did.
+
+---
+
+# P2: the peril reads a SHARE of the collector's ground, so a wide collector dilutes itself
+
+`docs/design/BEHAVIOUR-AUDIT-2.md` §P2. `perilOf` divides beaten cells by the
+collector's OWN ground at each horizon, so three beaten cells read 0.375 against
+a knight's eight-cell ground and 0.12 against a queen's twenty-five — the wider
+the collector, the cheaper identical danger looks, yet it will stand on exactly
+one cell and which one is not its choice alone.
+
+## The baseline this section is measured against
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, reproduced on this branch at
+`33c2b23` before the change — identical on every counter to the audit's own
+reading:
+
+| pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths | unit-turns | meals/100 |
+|---|---|---|---|---|---|---|---|
+| 35 | 15 (42.9%) | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 | 3124 | 19.43 |
+
+The reproduction the audit names is on this arm to the digit: `potions` seed 4,
+turn 36, red-C plays the potion cell `(0,7)` at `-342.34` over `(4,5)` at
+`-342.30` — a margin of **0.04** — and the trace prints
+`[red-C hp97 enemyTier+0 caught@1 EXPOSED]`.
+
+`mixed`, `snakes` and `sparse`, seeds 1–3 at 30 turns, are the potion-free
+control: `collectorsOf` gates the whole member, so every arm below must leave
+them byte-identical.
+
+## The rule that was built
+
+One knob, exactly as §P2 specifies it: `PERIL_CONCAVITY = γ` shaping the
+per-horizon share before it is weighed —
+
+    num += w * (beaten / cells.length) ** γ
+
+— with `γ = 1` the term it replaces and nothing else in the member touched: the
+same claim passes, the same ground, the same `beatenAt`, the same horizon
+weights `W − k + 1`. Unlike D4 it redistributes nothing between horizons, so
+`share^γ ≥ share` makes it a price RISE on every pickup and never a cut.
+
+The reproduction is `potions` seed 4, turn 36, red-C, and it is now a fixture
+(`src/lobster/__tests__/tier-window.test.ts`), taken off the runner at the turn
+the decision opened on. red-C's own three horizons there are
+
+    k=1   3 of 9 cells beaten   (0.333)
+    k=2  34 of 34               (1.000)
+    k=3  73 of 73               (1.000)
+
+— the same saturation D4 found on seed 6, on a different board. Under `3, 2, 1`
+that reads `peril = 2/3`. At `γ = 1/2` it reads 0.789 and at `γ = 1/3` 0.847, so
+the collector's charge in fold units (`potion` 2 × `PERIL_WEIGHT` 2 ÷ three
+living red units) rises by **0.163** and **0.240** — four and six times the 0.04
+margin the audit measured the rule against.
+
+## What was measured, and why it was reverted
+
+`potions`, 60 turns, seeds 1–8, `--nodes`, paired by seed
+(`scripts/ab-compare.js`, per board class, never pooled). Both γ the audit named:
+
+| arm | pickups | profitable | reckless | profitable AND safe | deathsWhileDebuffed | deaths | unit-turns |
+|---|---|---|---|---|---|---|---|
+| BEFORE (`γ = 1`) | 35 | 15 | 25 (**71.4%**) | 7 (**20.0%**) | 0 | 21 | 3124 |
+| `γ = 1/2` | 31 | 11 | 22 (**71.0%**) | 6 (**19.4%**) | 0 | 22 | 3137 |
+| `γ = 1/3` | 24 | 12 | 16 (**66.7%**) | 5 (**20.8%**) | **2** | **30** | 2955 |
+
+The pre-registered prediction was reckless **71.4% → ≤50%**, profitable-and-safe
+**20.0% → ≥25%**, pickups **≥20**, `deathsWhileDebuffed` **0**, `potions` deaths
+**not above 21**, and the potion-free classes byte-identical. Scored honestly:
+
+* **reckless share down — NO.** 71.4% → 71.0% at `γ = 1/2`, and 66.7% at
+  `γ = 1/3`; the target was 50%. The share barely moves at either γ.
+* **profitable-and-safe up — NO.** 20.0% → 19.4% → 20.8%; the target was 25%.
+* **pickups ≥ 20 — yes**, 35 → 31 → 24. Not a collapse, but the count is the
+  ONLY thing that moved: the composition is flat while the total falls a third.
+* **`deathsWhileDebuffed` 0 — yes at `γ = 1/2`, NO at `γ = 1/3`** (two, seeds 5
+  and 6).
+* **deaths not up — marginal at `γ = 1/2`** (21 → 22), **NO at `γ = 1/3`**:
+  30 deaths, up on 7 of the 8 seeds (sign test p = 0.070), and two of them are
+  `edge` deaths — the class D1's floor repair had cleared to zero across the
+  whole corpus. That arm is a regression, not a null result.
+* **potion-free classes byte-identical — YES**, at both γ. `mixed`, `snakes`
+  and `sparse`, seeds 1–3 at 30 turns, are identical run summaries (modulo the
+  `--label` string) and identical transcripts (modulo decision timings) in both
+  arms; `collectorsOf` gates the whole member exactly as the audit says.
+* **Bound soundness — CLEAN.** Sixteen arms under `CENTAUR_DEBUG_INVERSION=1`
+  print no INVERSION line at all. The rule is sound; it is simply not the repair.
+
+**Reverted.** The knob is backed out and the file ships the plain share it always
+had; `git` shows a zero diff against `33c2b23` for `window.ts`, `calibration.ts`
+and `index.ts`, and all eight `potions` summaries come back byte-identical to the
+baseline above.
+
+## Why it fails, which is the part worth keeping
+
+**1. The charge is common to both sides of the comparison, so it cannot re-sort
+it.** This is the finding, and it is not a level argument. `perilOf` reads the
+ground from where the collector STANDS as the turn opens, not from the cell the
+plan sends it to — deliberately, and the comment above it says why: that is what
+keeps the peril half memoisable per collector rather than per plan. The
+consequence nobody had drawn is that the peril charge is then IDENTICAL on every
+joint plan in which that collector picks the potion up. Raising it adds the same
+constant to both of red-C's top candidates, and a constant common to both sides
+of a comparison cancels. The transcript is unambiguous — every red candidate at
+turn 36 moves by the same −0.16 and the decision does not change:
+
+    γ=1    (4,5)=-342.30  (0,7)=-342.34  (1,4)=-342.99   played (0,7)
+    γ=1/2  (4,5)=-342.47  (0,7)=-342.50  (1,4)=-342.99   played (0,7)
+
+`(1,4)` is the one candidate whose best joint plan collects nothing, and it alone
+does not move. **So the 0.04 the audit sized the rule against is the wrong
+margin.** It is the gap between two lines that BOTH collect; the gap the knob
+actually has to close is the 0.65 out to `(1,4)`, sixteen times larger, and
+`γ = 1/2` is worth 0.163 of it. On three of the eight seeds (5, 6, 7) not one
+move changed anywhere in sixty turns at `γ = 1/2`, though every printed score
+shifted — which is that cancellation, measured.
+
+**2. `γ < 1` does not widen the reading; it moves the level, which is D4 with
+the sign flipped.** `s^γ` maps [0, 1] onto [0, 1], so the peril's range over a
+saturated tail is `[0.5, 1]` at EVERY γ — the concave map buys no range at all.
+Over seed 4's own 42 distinct horizon-1 grounds the shares run [0, 0.571] with a
+median of 0.226, so at `γ = 1/2` the level shift at the median (0.125) is larger
+than the extra spread opened at the observed ceiling (0.092). D4 cut the level
+and admitted 24 marginal pickups; this raises it and refuses 4 or 11 of them.
+Neither re-sorts, and the counters say so in the same shape: the reckless share
+moves 71.4% → 71.0% → 66.7% while the count falls 35 → 31 → 24. **The pickups a
+level change moves are the marginal ones by TOTAL score, and total score is not
+sorted by recklessness** — so refusing them subtracts reckless and
+profitable-and-safe pickups in roughly the proportion they already stood in.
+`potions.md` D4's own first prescription — "separate the level from the shape,
+hold the mean cost of the corpus fixed" — is the thing this rule did not do, in
+the one direction that had not been tried.
+
+**3. `reckless` and `peril` still disagree about what danger is,** and §P2 says
+so itself: no γ can make a term that charges SHARES refuse what a BOOLEAN on one
+beatable cell counts. That remains the standing bound on this whole line of
+repair.
+
+## What the next attempt should do differently
+
+1. **Make the peril per-PLAN, or stop trying to steer with it.** Finding 1 is
+   structural, not a calibration: while the ground is read from the turn-start
+   cell, every scaling of the peril is a constant across the collector's own
+   options and can only ever move the pickup lines as a bloc against a
+   non-pickup line. Reading the ground from the plan's destination is the
+   change that would give the term a gradient over the collector's own moves —
+   §1 item 3 above already names it as unmeasured, and it costs a claim pass per
+   candidate destination. That price is now the question, and it is the only one
+   worth asking next.
+2. **Do not sweep γ again.** It is measured, at 1/2 and 1/3, on eight seeds and
+   35 → 31 → 24 pickups. Both arms move the level and neither moves the
+   composition, and `γ = 1/3` costs nine deaths and brings `edge` deaths back.
+3. **A floor term on `beaten_1 > 0` is still untried,** and it is the one shape
+   that is not a scaling of the existing share — so it is the one shape finding 1
+   does not already refute. It is a cliff and wants the bounds bank's opinion.
