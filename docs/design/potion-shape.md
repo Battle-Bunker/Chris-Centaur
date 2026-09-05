@@ -276,3 +276,25 @@ the one horizon that separates, and takes its gradient from a per-plan count
 rather than a per-plan share. If that is built, build it with the counter fixed
 first and with the seed count raised — otherwise it will be the fourth arm in a
 row whose result is "the composition is flat while the count moves".
+
+---
+
+## Status: the fifth arm
+
+**Baseline reproduced.** `potions`, 60 turns, seeds 1–8, `--nodes`, on this
+branch before a line changed — identical on every counter to §0's table and to
+P2's and P3's:
+
+| pickups | profitable | reckless | profitable AND safe | arrivalBeaten | ground1 | deathsWhileDebuffed | deaths | unit-turns |
+|---|---|---|---|---|---|---|---|---|
+| 35 | 15 (42.9%) | 25 (**71.4%**) | 7 (**20.0%**) | 5 | 71/316 | 0 | 21 | 3124 |
+
+Both reproductions print at the turn the doc names, to the digit:
+
+    seed 4 T 36 red-C knight hp98 (2,6)->(0,7)
+        top3: (4,5)=-342.30 (0,7)=-342.34 (1,4)=-342.99
+    seed 6 T 39 red-C knight hp91 (3,7)->(5,8)
+        top3: (5,8)=-403.05 (2,5)=-403.08 (1,6)=-403.39
+
+`mixed`, `snakes`, `sparse`, `sparse-lean`, 60 turns seeds 1–3, are the
+potion-free control.
