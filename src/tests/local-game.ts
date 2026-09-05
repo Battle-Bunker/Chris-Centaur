@@ -46,6 +46,14 @@ import type { LensSink } from '../lens/types';
 // ablation, and `MATERIAL_ONLY_PROFILE`), and `parseBotSpec` is what already
 // runs a stored binding through `checkWeights` before a live game plays it.
 import { BUILTIN_BOTS, parseBotSpec } from '../config/bot-binding';
+import type { BotSpec } from '../config/bot-identity';
+// THE OPPONENT BENCH — four more weight tables and one policy, defined in one
+// module with a rationale each (`./opponents.ts`). They are unioned into the
+// production catalog at `OPPONENT_CATALOG` below and validated through the
+// same `parseBotSpec` seam; they are deliberately NOT members of
+// `BUILTIN_BOTS`, which is the set a stored binding may point a live game at.
+import { OPPONENT_BOTS, RANDOM_LEGAL } from './opponents';
+import type { OpponentPolicy } from './opponents';
 
 // ---------------------------------------------------------------------------
 // Board construction
@@ -1540,6 +1548,58 @@ export interface GameMetrics {
    */
   deathsWhileImmobile: number;
   // --- end immobility instrument -------------------------------------------
+  // --- THE SIDE SPLIT (docs/design/OPPONENTS.md) ---------------------------
+  //
+  // WHY EVERY COUNTER ABOVE IS BOARD-WIDE AND THESE ARE NOT. On a mirror run
+  // both sides play the same profile, so a board-wide count is that profile's
+  // own play read two or three times over and the split would be noise. On a
+  // NON-MIRROR run it is two different players added together, and the sum
+  // moves when either one changes: `docs/design/WEIGHT-SWEEP.md` had to report
+  // "12 board-wide, 4 ours" by hand for exactly this reason, because an arm
+  // that stops killing enemies lowers the board-wide count while getting
+  // worse. So the split is a counter rather than a note.
+  //
+  // "OURS" IS THE DECIDER TEAM — `spec.teams[opts.deciderIndex ?? 0]`, the
+  // team that keeps `opts.evaluate`, whatever colour that is. "THEIRS" is
+  // every other team POOLED, which on the three-team boards is two teams: a
+  // raw ours-vs-theirs weight comparison there is one team against two and
+  // means nothing on its own. `teamsOurs`/`teamsTheirs` ride along so a reader
+  // can normalise, and the honest statistic on those boards is our SHARE of
+  // the weight at the cap against the mirror's own share.
+  //
+  // On a mirror run these are still filled in, and they are then a partition
+  // of the board-wide counters rather than a comparison.
+  /** Meals eaten by the decider team, and by everyone else. */
+  oursMeals: number;
+  theirsMeals: number;
+  /** Deaths of a decider-team unit, and of everyone else's, all causes. */
+  oursDeaths: number;
+  theirsDeaths: number;
+  /** Unit-turns, split the same way — the denominator for a per-side rate. */
+  oursUnitTurns: number;
+  theirsUnitTurns: number;
+  /** Unit-turns where the chosen move was the generator's first offer. */
+  oursSeedKept: number;
+  theirsSeedKept: number;
+  /**
+   * WEIGHT AT THE CAP — the total occupancy of the units still standing when
+   * the turn limit stopped the game, per side. Until the runner has a
+   * win/draw/loss counter this is the outcome proxy: material is the thing the
+   * game is won with and the only term `DEFAULT_WEIGHTS` denominates the cliff
+   * in, so who is holding more of it at the cap is the closest reading of "who
+   * was ahead" that the transcript carries. `oursWeight / (ours + theirs)` is
+   * the form to compare across arms, because it is invariant to how many
+   * meals the board happened to serve.
+   */
+  oursWeight: number;
+  theirsWeight: number;
+  /** Living units at the cap, per side. Zero on one side is an elimination. */
+  oursSurvivors: number;
+  theirsSurvivors: number;
+  /** How many teams each side is. `theirsTeams` is 1 or 2 on these boards. */
+  teamsOurs: number;
+  teamsTheirs: number;
+  // --- end side split -------------------------------------------------------
   /** Health of every living unit at the end. */
   endHealth: number[];
   /** Wall time of the slowest single team decision, ms. NOT reproducible. */
@@ -1574,26 +1634,136 @@ export interface GameResult {
 export interface Opponent {
   readonly name: string;
   readonly evaluate: Evaluator;
+  /**
+   * A POLICY INSTEAD OF AN EVALUATOR, and it applies to the OPPONENT'S teams
+   * and nowhere else. Absent — every entry but `random-legal` — the opponent
+   * is a weight table played through the same search the default plays, and
+   * `evaluate` is the whole of it.
+   *
+   * Present, `runGame` routes every non-decider team through
+   * `randomLegalDecision` and makes no evaluator call for them at all. It is a
+   * switch in the opponent's decision path only: the decider's branch is the
+   * one it always was, and a run with no `opponent` never reaches this field.
+   * See `./opponents.ts`'s `RANDOM_LEGAL` for why a weight table cannot
+   * express it.
+   */
+  readonly policy?: OpponentPolicy;
 }
+
+/**
+ * EVERY NAME `--opponent` ACCEPTS — the production catalog plus the bench.
+ *
+ * Two sources, kept separate at their definition sites and unioned only here.
+ * `BUILTIN_BOTS` is the set a STORED BINDING may name, i.e. the set a live
+ * game can be made to play; `OPPONENT_BOTS` is the set that exists to be
+ * played AGAINST in this runner and must never become bindable by typing a
+ * name into `config_store`. Unioning them at the point of use gets the bench
+ * one lookup and one validation without widening what production accepts.
+ */
+export const OPPONENT_CATALOG: Readonly<Record<string, BotSpec>> = {
+  ...BUILTIN_BOTS,
+  ...OPPONENT_BOTS,
+};
 
 /**
  * `--opponent=<profile>` → an `Opponent`, resolved and validated through the
  * SAME seam production binds a bot with. `parseBotSpec` against
- * `BUILTIN_BOTS` is exactly what `BotRegistry` runs a stored `bot.*` binding
- * through before a live game plays it — a catalog member by name is the
- * string-literal branch of that function — so a name this accepts is a name
- * production would too, and the refusal message is the one that already
- * lists what exists. There is no second catalog and no second check: an
- * unknown name (a `greedy-food` or a `cautious` nobody has built) is refused
- * here exactly as it would be as a stored binding, naming the catalog that
- * DOES exist rather than inventing an entry for one that doesn't.
+ * `OPPONENT_CATALOG` is exactly what `BotRegistry` runs a stored `bot.*`
+ * binding through before a live game plays it — a catalog member by name is
+ * the string-literal branch of that function, and it ends in `checkWeights` —
+ * so a bench table this accepts is a table production would accept too, and
+ * the refusal message is the one that already lists what exists. There is no
+ * second check: an unknown name is refused here exactly as it would be as a
+ * stored binding, naming the catalog that DOES exist rather than inventing an
+ * entry for one that doesn't.
+ *
+ * `random-legal` is the ONE name resolved before the catalog, and it has to
+ * be: it is not a profile, it makes no evaluator call, and there is no weight
+ * table that would produce it (`./opponents.ts`, `RANDOM_LEGAL`). It still
+ * carries an `evaluate` — the shipped default — so the field is never
+ * `undefined` for a caller that reads it; nothing consults it, because
+ * `runGame` branches on `policy` first.
  */
 export function resolveOpponent(name: string): Opponent {
-  const parsed = parseBotSpec(name, BUILTIN_BOTS);
+  if (name === RANDOM_LEGAL) {
+    return { name, evaluate: defaultEvaluator, policy: RANDOM_LEGAL };
+  }
+  const parsed = parseBotSpec(name, OPPONENT_CATALOG);
   if ('error' in parsed) {
     throw new Error(`--opponent=${name}: ${parsed.error}`);
   }
   return { name, evaluate: new BoundEvaluator(parsed.spec.profile) };
+}
+
+/**
+ * THE FLOOR OF COMPETENCE, one team, one turn: each living unit draws
+ * uniformly from its OWN legal action set and stages the destination.
+ *
+ * Asked of the grammar, exactly as `immobileAt` asks it — `legalTargets` is
+ * masked by the perimeter, by the board's occupancy and by the pawn-target set
+ * the way the engine masks them, so this player is legal by construction and a
+ * grammar change moves it with the rules. No substrate, no generator, no
+ * evaluator and no kernel: a random opponent that ran the search would be
+ * measuring the search.
+ *
+ * The traces it returns carry no `top` — there is no scoring to report — and
+ * `seeded: false`, because "the generator's first offer" is not a fact about a
+ * draw that never asked the generator. The unit-turn, park, dither and
+ * reversal counters all still see these units, which is what keeps the
+ * per-side split below comparable across arms.
+ *
+ * `rng` is the caller's POLICY generator and never the game's: drawing from
+ * the game's `rng` would move the food and potion respawn schedule, so a
+ * `random-legal` game would differ from every other arm in two ways at once.
+ */
+export function randomLegalDecision(
+  board: Board,
+  turn: number,
+  teamId: string,
+  rng: () => number
+): TeamDecision {
+  const m = marshalBoard(board, turn);
+  const shape: BoardShape = {
+    boardWidth: m.config.boardWidth,
+    boardHeight: m.config.boardHeight,
+    walls: m.config.walls,
+    hazards: m.config.hazards,
+    occupancy: m.units.map((u) => ({ id: u.id, cells: u.occupancy })),
+    food: m.config.food,
+  };
+  const w = board.width + 2;
+  const h = board.height + 2;
+  const ours = new Set(
+    (board.snakes ?? [])
+      .filter((s) => s.teamID === teamId && s.health > 0 && s.body.length > 0)
+      .map((s) => s.id)
+  );
+  const staged = new Map<string, number>();
+  const traces: UnitTrace[] = [];
+  for (const u of m.units) {
+    if (!ours.has(u.id)) continue;
+    const targets = legalTargets(
+      { type: u.type, occupancy: u.occupancy, orientation: u.orientation },
+      shape
+    );
+    const from = u.occupancy[0] as number;
+    // A unit the grammar offers nothing at all stages its own cell, which is
+    // what the engine's own default action does with an unstaged unit.
+    const to = targets.length === 0 ? from : (targets[Math.floor(rng() * targets.length)] as number);
+    staged.set(u.id, to);
+    traces.push({
+      wireId: u.id,
+      letter: u.id.split('-')[1] ?? '?',
+      kind: String(u.type ?? 'snake'),
+      health: u.energy,
+      from: toApiCoord(from, w, h),
+      to: toApiCoord(to, w, h),
+      top: [],
+      seeded: false,
+      reversed: false,
+    });
+  }
+  return { staged, traces, horizon: 0, nodes: 0, slices: 0, reads: 0, loud: emptyLoudHistogram() };
 }
 
 export async function runGame(
@@ -1618,6 +1788,26 @@ export async function runGame(
      * team's copy of the shipped evaluator folds against.
      */
     opponent?: Opponent;
+    /**
+     * THE COLOUR SWAP — which seat the default plays.
+     *
+     * An index into `spec.teams`, and ZERO is the default and the state every
+     * previous measurement was taken in: team 0 keeps `opts.evaluate` and the
+     * opponent takes the rest. Set it to 1 and the default plays the SECOND
+     * team instead, with the opponent on team 0 and (on the three-team boards)
+     * on team 2 as well.
+     *
+     * It exists because a matchup measured from one seat is not a matchup.
+     * These scenarios are not symmetric: `mixed` gives red a snake, a pawn and
+     * a knight and blue a snake, a queen and a pawn, the food is not placed
+     * symmetrically, and the turn loop iterates teams in ALPHABETICAL order so
+     * `blue` decides before `green` decides before `red` at every turn. A
+     * result that only holds when the default is red is a fact about red.
+     *
+     * Out of range is refused rather than clamped: a silent fallback to team 0
+     * would report a swapped run's numbers under a swapped run's label.
+     */
+    deciderIndex?: number;
   } = {}
 ): Promise<GameResult> {
   const rng = mulberry32(spec.seed ?? 1);
@@ -1680,6 +1870,22 @@ export async function runGame(
     immobileUnitTurns: 0,
     deathsWhileImmobile: 0,
     // --- end immobility instrument -----------------------------------------
+    // --- side split (docs/design/OPPONENTS.md) -------------------------------
+    oursMeals: 0,
+    theirsMeals: 0,
+    oursDeaths: 0,
+    theirsDeaths: 0,
+    oursUnitTurns: 0,
+    theirsUnitTurns: 0,
+    oursSeedKept: 0,
+    theirsSeedKept: 0,
+    oursWeight: 0,
+    theirsWeight: 0,
+    oursSurvivors: 0,
+    theirsSurvivors: 0,
+    teamsOurs: 0,
+    teamsTheirs: 0,
+    // --- end side split -------------------------------------------------------
     endHealth: [],
     worstDecisionMs: 0,
     nodes: 0,
@@ -1723,11 +1929,29 @@ export async function runGame(
   let immobile = new Set<string>();
   // --- end immobility instrument -------------------------------------------
   const key = (c: Coord): string => `${c.x},${c.y}`;
-  // TEAM 0, per the scenario's OWN roster (`spec.teams[0]`) — a fact about the
-  // board, fixed for the whole game, and independent of the alphabetical
-  // order the turn loop below iterates teams in. This is "the deciding team"
-  // `opts.opponent` never touches.
-  const deciderTeamId = spec.teams[0]?.id;
+  // THE DECIDING TEAM, per the scenario's OWN roster (`spec.teams[i]`) — a
+  // fact about the board, fixed for the whole game, and independent of the
+  // alphabetical order the turn loop below iterates teams in. This is the team
+  // `opts.opponent` never touches. The index is 0 unless the caller swapped
+  // colours (`opts.deciderIndex`), and at 0 every line below is what it was.
+  const deciderIndex = opts.deciderIndex ?? 0;
+  if (deciderIndex < 0 || deciderIndex >= spec.teams.length) {
+    throw new Error(
+      `deciderIndex ${deciderIndex} is outside this scenario's roster of ` +
+        `${spec.teams.length} teams (${spec.teams.map((t) => t.id).join(', ')})`
+    );
+  }
+  const deciderTeamId = spec.teams[deciderIndex]?.id;
+  const isOurs = (teamId: string | undefined): boolean => teamId === deciderTeamId;
+  metrics.teamsOurs = 1;
+  metrics.teamsTheirs = Math.max(0, spec.teams.length - 1);
+  // The policy opponent's own generator, seeded from the spec's seed and kept
+  // OFF the game's `rng`: the game's stream drives food and potion respawn, and
+  // a draw taken from it would give a `random-legal` arm a different food
+  // schedule from every other arm on the same seed. Constructed only when the
+  // policy is actually in play, so a run without it touches nothing.
+  const policyRng =
+    opts.opponent?.policy === undefined ? null : mulberry32((spec.seed ?? 1) ^ 0x5f37_59df);
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     const teams = new Set(
@@ -1743,19 +1967,26 @@ export async function runGame(
         // always did. Present: only team 0 does — every other team plays the
         // opponent's evaluator instead, so the mirror is broken deliberately
         // rather than by accident.
-        const evaluateForTeam =
-          opts.opponent !== undefined && teamId !== deciderTeamId
-            ? opts.opponent.evaluate
-            : (opts.evaluate ?? defaultEvaluator);
-        const decision = await decideTeam(
-          board,
-          turn,
-          teamId,
-          budget,
-          evaluateForTeam,
-          opts.scores ?? true,
-          opts.lensFor?.(turn, teamId)
-        );
+        const theirs = opts.opponent !== undefined && !isOurs(teamId);
+        const evaluateForTeam = theirs
+          ? (opts.opponent as Opponent).evaluate
+          : (opts.evaluate ?? defaultEvaluator);
+        // THE POLICY BRANCH, and it is reachable only for a team that is not
+        // the decider's: `theirs` is false for the decider by construction and
+        // false for every team on a run with no opponent, so the default's
+        // decision path is the one it has always been.
+        const decision =
+          theirs && policyRng !== null
+            ? randomLegalDecision(board, turn, teamId, policyRng)
+            : await decideTeam(
+                board,
+                turn,
+                teamId,
+                budget,
+                evaluateForTeam,
+                opts.scores ?? true,
+                opts.lensFor?.(turn, teamId)
+              );
         metrics.worstDecisionMs = Math.max(metrics.worstDecisionMs, monotonic() - t0);
         metrics.nodes += decision.nodes;
         metrics.slices += decision.slices;
@@ -1799,6 +2030,15 @@ export async function runGame(
           previousStage.set(tr.wireId, key(tr.to));
           if (tr.seeded) metrics.seedKept++;
           metrics.unitTurns++;
+          // --- the side split, on the one loop that knows whose turn it is ---
+          if (isOurs(teamId)) {
+            metrics.oursUnitTurns++;
+            if (tr.seeded) metrics.oursSeedKept++;
+          } else {
+            metrics.theirsUnitTurns++;
+            if (tr.seeded) metrics.theirsSeedKept++;
+          }
+          // --- end side split -------------------------------------------------
           const opts3 = tr.top
             .map(
               (c) =>
@@ -1845,6 +2085,14 @@ export async function runGame(
     metrics.foodEaten += outcome.ate.length;
     metrics.grownMeals += outcome.grown.length;
     metrics.potionPickups += outcome.potionsTaken;
+    // --- the side split: meals, off `teamOf`, which was built above from the
+    // board this turn was decided on and therefore still holds the units that
+    // died in it.
+    for (const id of outcome.ate) {
+      if (isOurs(teamOf.get(id))) metrics.oursMeals++;
+      else metrics.theirsMeals++;
+    }
+    // --- end side split ------------------------------------------------------
     // Score the windows already open BEFORE opening this turn's: a buff is
     // stamped at the end of the turn it is collected on and decides nothing
     // during it, so a clash on the pickup turn is not the pickup's doing.
@@ -1903,6 +2151,10 @@ export async function runGame(
       // P1: read against the immobility the PREVIOUS turn left, because that
       // is the state this unit took its last decision in.
       if (immobile.has(d.id)) metrics.deathsWhileImmobile++;
+      // --- the side split: deaths, all causes.
+      if (isOurs(teamOf.get(d.id))) metrics.oursDeaths++;
+      else metrics.theirsDeaths++;
+      // --- end side split ----------------------------------------------------
     }
     board = outcome.board;
     metrics.turns = turn;
@@ -1986,6 +2238,22 @@ export async function runGame(
   }
 
   metrics.endHealth = (board.snakes ?? []).map((s) => s.health);
+  // --- THE OUTCOME PROXY: weight at the cap, per side ----------------------
+  // `stepGame` drops a dead unit from `board.snakes` entirely and rewrites the
+  // survivors' `length` from settlement's own occupancy, so this is the rules'
+  // weight and not a re-derivation of it — the same number `substrate.ts`
+  // reads a unit's material off. The health filter is belt and braces.
+  for (const s of board.snakes ?? []) {
+    if (s.health <= 0) continue;
+    if (isOurs(s.teamID as string)) {
+      metrics.oursWeight += s.length;
+      metrics.oursSurvivors++;
+    } else {
+      metrics.theirsWeight += s.length;
+      metrics.theirsSurvivors++;
+    }
+  }
+  // --- end outcome proxy ---------------------------------------------------
   return { metrics, log, finalBoard: board };
 }
 
@@ -2188,6 +2456,16 @@ export interface RunSummary {
    */
   readonly opponent?: string;
   /**
+   * WHICH SEAT THE DEFAULT PLAYED — the index into the scenario's own roster.
+   * ABSENT for seat 0, which is every run taken before the colour swap existed
+   * and is what keeps such a run's JSON byte-identical to a build that never
+   * heard of it. Present (1, 2, …) the default was the second or third team
+   * and the opponent held the rest, so a summary carrying it is a DIFFERENT
+   * experiment on the same board and seed and is never subtracted against one
+   * that does not — the same rule `opponent` is paired under.
+   */
+  readonly decider?: number;
+  /**
    * WHAT A MEAL WAS WORTH, when the board said. Absent means the engine's
    * `DEFAULT_FOOD_ENERGY`, which is what every scenario but `sparse-lean` runs,
    * so a summary from before this field existed is byte-identical to one taken
@@ -2242,6 +2520,26 @@ export interface RunSummary {
     readonly immobileUnitTurns: number;
     readonly deathsWhileImmobile: number;
     // --- end immobility instrument -----------------------------------------
+    // --- the side split (docs/design/OPPONENTS.md) -------------------------
+    // Ours = the decider team, theirs = every other team pooled. See
+    // `GameMetrics` for why these are counters and not a note, and for why
+    // `oursWeight / (oursWeight + theirsWeight)` rather than a raw difference
+    // is the form to read on a three-team board.
+    readonly oursMeals: number;
+    readonly theirsMeals: number;
+    readonly oursDeaths: number;
+    readonly theirsDeaths: number;
+    readonly oursUnitTurns: number;
+    readonly theirsUnitTurns: number;
+    readonly oursSeedKept: number;
+    readonly theirsSeedKept: number;
+    readonly oursWeight: number;
+    readonly theirsWeight: number;
+    readonly oursSurvivors: number;
+    readonly theirsSurvivors: number;
+    readonly teamsOurs: number;
+    readonly teamsTheirs: number;
+    // --- end side split -----------------------------------------------------
     readonly survivors: number;
     readonly healthTotal: number;
   };
@@ -2279,6 +2577,9 @@ export function summaryOf(
      *  `RunSummary.opponent`. Threaded through rather than re-derived: an
      *  `Evaluator` exposes nothing a name could be read back off. */
     opponent?: string;
+    /** The seat the default played, or absent for seat 0 — see
+     *  `RunSummary.decider`. Threaded through like `opponent` is. */
+    decider?: number;
     /** The spec's `foodEnergy`, or absent where it stated none. */
     foodEnergy?: number;
   },
@@ -2297,6 +2598,10 @@ export function summaryOf(
     // never set, which is what keeps a mirror run's JSON byte-identical to a
     // build that never heard of `--opponent`.
     opponent: where.opponent,
+    // Absent for seat 0 — the same `JSON.stringify` drop, for the same reason:
+    // an unswapped run's summary is byte-identical to one from a build that
+    // never heard of the swap.
+    decider: where.decider === undefined || where.decider === 0 ? undefined : where.decider,
     // Absent when the spec states none, exactly as `opponent` is.
     foodEnergy: where.foodEnergy,
     mode: budget.kind,
@@ -2344,6 +2649,22 @@ export function summaryOf(
       immobileUnitTurns: metrics.immobileUnitTurns,
       deathsWhileImmobile: metrics.deathsWhileImmobile,
       // --- end immobility instrument -----------------------------------------
+      // --- the side split -----------------------------------------------------
+      oursMeals: metrics.oursMeals,
+      theirsMeals: metrics.theirsMeals,
+      oursDeaths: metrics.oursDeaths,
+      theirsDeaths: metrics.theirsDeaths,
+      oursUnitTurns: metrics.oursUnitTurns,
+      theirsUnitTurns: metrics.theirsUnitTurns,
+      oursSeedKept: metrics.oursSeedKept,
+      theirsSeedKept: metrics.theirsSeedKept,
+      oursWeight: metrics.oursWeight,
+      theirsWeight: metrics.theirsWeight,
+      oursSurvivors: metrics.oursSurvivors,
+      theirsSurvivors: metrics.theirsSurvivors,
+      teamsOurs: metrics.teamsOurs,
+      teamsTheirs: metrics.teamsTheirs,
+      // --- end side split -------------------------------------------------------
       survivors: metrics.endHealth.length,
       healthTotal: metrics.endHealth.reduce((a, b) => a + b, 0),
     },
@@ -2404,6 +2725,8 @@ async function summarise(
     say: (line: string) => void;
     /** Absent: every team mirrors the default profile, as always. */
     opponent?: Opponent;
+    /** Which seat the default plays. 0, and absent, are the same run. */
+    deciderIndex?: number;
   }
 ): Promise<void> {
   const totals: Record<string, number> = {
@@ -2441,6 +2764,20 @@ async function summarise(
     immobileUnitTurns: 0,
     deathsWhileImmobile: 0,
     // --- end immobility instrument -------------------------------------------
+    // --- side split (docs/design/OPPONENTS.md) --------------------------------
+    oursMeals: 0,
+    theirsMeals: 0,
+    oursDeaths: 0,
+    theirsDeaths: 0,
+    oursUnitTurns: 0,
+    theirsUnitTurns: 0,
+    oursSeedKept: 0,
+    theirsSeedKept: 0,
+    oursWeight: 0,
+    theirsWeight: 0,
+    oursSurvivors: 0,
+    theirsSurvivors: 0,
+    // --- end side split ---------------------------------------------------------
   };
   const causes: Record<string, number> = {};
   const loud = emptyLoudHistogram();
@@ -2457,7 +2794,7 @@ async function summarise(
         seed,
         ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
       },
-      { scores: false, opponent: out.opponent }
+      { scores: false, opponent: out.opponent, deciderIndex: out.deciderIndex }
     );
     for (const k of Object.keys(totals)) {
       totals[k] = (totals[k] as number) + ((r.metrics as unknown as Record<string, number>)[k] ?? 0);
@@ -2477,6 +2814,7 @@ async function summarise(
             seed,
             turnsRequested: turns,
             opponent: out.opponent?.name,
+            decider: out.deciderIndex,
             foodEnergy: spec.foodEnergy,
           },
           budget
@@ -2488,7 +2826,8 @@ async function summarise(
   const ut = totals.unitTurns as number;
   const per = (n: number): string => (ut === 0 ? '0.00' : ((100 * n) / ut).toFixed(2));
   out.say(
-    `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''} seeds=${seeds} ` +
+    `${scenario}${out.opponent ? ` opponent=${out.opponent.name}` : ''}` +
+      `${out.deciderIndex ? ` decider=${out.deciderIndex}` : ''} seeds=${seeds} ` +
       `unitTurns=${ut} food/100=${per(totals.foodEaten as number)} ` +
       `reversal%=${per(totals.reversals as number)} dither%=${per(totals.dithers as number)} ` +
       `stationary%=${per(totals.stationary as number)} longestPark=${longestPark} ` +
@@ -2543,6 +2882,30 @@ async function summarise(
       `deathsWhileImmobile=${totals.deathsWhileImmobile}`
   );
   // --- end immobility instrument -------------------------------------------
+  // --- THE SIDE SPLIT, on its own line (docs/design/OPPONENTS.md). Always
+  // printed, mirror runs included, where it is a partition of the board-wide
+  // counters rather than a comparison. `share` is our weight at the cap over
+  // the board's total weight at the cap, which is the form that survives a
+  // three-team board; the mirror's own share is the baseline it is read
+  // against, not 0.5.
+  {
+    const ourW = totals.oursWeight as number;
+    const theirW = totals.theirsWeight as number;
+    const ourUt = totals.oursUnitTurns as number;
+    const theirUt = totals.theirsUnitTurns as number;
+    const rate = (n: number, d: number): string => (d === 0 ? 'n/a' : ((100 * n) / d).toFixed(2));
+    out.say(
+      `${scenario} SIDES: deaths ours=${totals.oursDeaths} theirs=${totals.theirsDeaths} ` +
+        `| meals ours=${totals.oursMeals} theirs=${totals.theirsMeals} ` +
+        `| seedKept% ours=${rate(totals.oursSeedKept as number, ourUt)} ` +
+        `theirs=${rate(totals.theirsSeedKept as number, theirUt)} ` +
+        `| unitTurns ours=${ourUt} theirs=${theirUt} ` +
+        `| weight@cap ours=${ourW} theirs=${theirW} ` +
+        `share=${ourW + theirW === 0 ? 'n/a' : (ourW / (ourW + theirW)).toFixed(3)} ` +
+        `| survivors@cap ours=${totals.oursSurvivors} theirs=${totals.theirsSurvivors}`
+    );
+  }
+  // --- end side split ---------------------------------------------------------
   // THE LOUD PRODUCT, on its own line and only where there was one to measure.
   // `open` is the subset that matters: B3 declined there, so the bracket is
   // open and a ceiling ply would have something to remove.
@@ -2587,17 +2950,30 @@ Flags
                  FILE. Two builds' files are what scripts/ab-compare.js diffs.
                  Human output moves to stderr when this writes to stdout.
   --label=NAME   Names the arm inside the JSON (default: "local").
-  --opponent=NAME  STRATEGY DIVERSITY. Team 0 — the first team in the
-                 scenario's own roster — keeps the default profile; every
-                 other team plays NAME instead of mirroring it. NAME is a
-                 member of the bot-binding catalog (src/config/bot-binding.ts,
-                 BUILTIN_BOTS): ${Object.keys(BUILTIN_BOTS).sort().join(', ')}.
-                 No others exist yet — a "greedy-food" or "cautious" profile
-                 is not one of them, and this flag refuses anything not in
-                 that list by name rather than inventing a second catalog.
+  --opponent=NAME  STRATEGY DIVERSITY. The DECIDING team — team 0 of the
+                 scenario's own roster, or --decider=N — keeps the default
+                 profile; every other team plays NAME instead of mirroring it.
+                 NAME is a member of the production bot catalog
+                 (src/config/bot-binding.ts, BUILTIN_BOTS) or of the opponent
+                 bench (src/tests/opponents.ts): ${Object.keys(OPPONENT_CATALOG).sort().join(', ')},
+                 ${RANDOM_LEGAL}. The bench entries are NOT bindable in
+                 production — they exist to be played against — and
+                 \`${RANDOM_LEGAL}\` is a policy rather than a weight table:
+                 it draws uniformly from each unit's legal action set and
+                 makes no evaluator call, which is the floor of competence
+                 every other arm should be read against. Anything not in that
+                 list is refused by name rather than silently defaulted.
                  Absent: every team mirrors the default profile, exactly as
                  before this flag existed. The JSON summary then carries
                  \`opponent\` with NAME; a mirror run carries no such field.
+  --decider=N    THE COLOUR SWAP — which seat the default plays, as an index
+                 into the scenario's own roster (default 0). A matchup measured
+                 from one seat is not a matchup: these boards are not
+                 symmetric in roster, in food placement or in the alphabetical
+                 order the turn loop decides teams in. The JSON summary carries
+                 \`decider\` when N is nonzero and no such field at N = 0, so a
+                 swapped run is a different experiment and never pairs against
+                 an unswapped one.
   --food-energy=N  WHAT ONE MEAL IS WORTH (\`GameSetup.foodEnergy\`). Absent: the
                  scenario's own value, which for every scenario but
                  \`sparse-lean\` is nothing at all, so the engine reads
@@ -2619,6 +2995,9 @@ interface Flags {
   readonly json: string | boolean;
   readonly label: string;
   readonly opponent: string | null;
+  /** `--decider=N`, the seat the default plays. 0 is every run taken before
+   *  the flag existed. */
+  readonly decider: number;
   /** `--food-energy=N`, or null for "whatever the scenario says", which for
    *  every scenario but `sparse-lean` is nothing at all and therefore the
    *  engine's own `DEFAULT_FOOD_ENERGY`. */
@@ -2632,6 +3011,7 @@ function parseFlags(argv: readonly string[]): Flags {
   let json: string | boolean = false;
   let label = 'local';
   let opponent: string | null = null;
+  let decider = 0;
   let foodEnergy: number | null = null;
   for (const arg of argv) {
     if (!arg.startsWith('--')) {
@@ -2657,6 +3037,14 @@ function parseFlags(argv: readonly string[]): Flags {
         }
         opponent = value;
         break;
+      case 'decider': {
+        const n = value === null ? Number.NaN : Number(value);
+        if (!Number.isInteger(n) || n < 0) {
+          throw new Error('--decider requires a non-negative roster index, e.g. --decider=1');
+        }
+        decider = n;
+        break;
+      }
       case 'food-energy': {
         const n = value === null ? Number.NaN : Number(value);
         if (!Number.isFinite(n) || n <= 0) {
@@ -2673,7 +3061,7 @@ function parseFlags(argv: readonly string[]): Flags {
         throw new Error(`unknown flag ${arg}`);
     }
   }
-  return { nodes, json, label, opponent, foodEnergy, positional };
+  return { nodes, json, label, opponent, decider, foodEnergy, positional };
 }
 
 /**
@@ -2732,6 +3120,7 @@ async function main(): Promise<void> {
         json: emitJson,
         say,
         opponent,
+        deciderIndex: flags.decider,
       });
     }
     finish();
@@ -2755,7 +3144,7 @@ async function main(): Promise<void> {
       seed,
       ...(budget.kind === 'ms' ? { budgetMs: budget.ms } : { nodeBudget: budget.nodes }),
     },
-    { onTurn: say, opponent }
+    { onTurn: say, opponent, deciderIndex: flags.decider }
   );
   emitJson?.(
     JSON.stringify(
@@ -2767,6 +3156,7 @@ async function main(): Promise<void> {
           seed,
           turnsRequested: turns,
           opponent: opponent?.name,
+          decider: flags.decider,
           foodEnergy: spec.foodEnergy,
         },
         budget
@@ -2774,7 +3164,10 @@ async function main(): Promise<void> {
     )
   );
   if (opponent !== undefined) {
-    say(`opponent: ${opponent.name} (team 0, "${spec.teams[0]?.id}", keeps the default profile)`);
+    say(
+      `opponent: ${opponent.name} (team ${flags.decider}, ` +
+        `"${spec.teams[flags.decider]?.id}", keeps the default profile)`
+    );
   }
   say('--- metrics ---');
   say(JSON.stringify(result.metrics, null, 2));
