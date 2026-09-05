@@ -1,0 +1,2293 @@
+{
+  "suites": {
+    "heuristic": [
+      {
+        "id": "stage-order",
+        "before": [
+          "A",
+          "B",
+          "C"
+        ],
+        "afterPinSameTurn": [
+          "A",
+          "B",
+          "C"
+        ],
+        "afterPinNextTurn": [
+          "A",
+          "B",
+          "C"
+        ],
+        "stableWithinTurn": true,
+        "stableAcrossTurn": true
+      },
+      {
+        "id": "movesets-measured",
+        "rowCount": 1,
+        "rows": [
+          {
+            "cls": "lens-row-cursor lens-row-lead",
+            "rank": "▸1 WOULD BE STAGED",
+            "assignment": "red-A→109 · red-B→131 · red-C→106 staged",
+            "assignmentClippedPx": 0,
+            "unless": "the evaluator residue, blue-A resolve against us · 72.8 at stake",
+            "unlessClippedPx": 0,
+            "band": true,
+            "bandWidthPct": "86.2%",
+            "delta": "—",
+            "heightPx": 99,
+            "fontPx": 13
+          }
+        ],
+        "lockLine": null,
+        "lockChip": "⦿ lock Space pins 3 of 3",
+        "legendTop": 530.046875,
+        "leadTop": 414.046875
+      },
+      {
+        "id": "lock-chip-states",
+        "withRows": {
+          "text": "⦿ lock Space pins 3 of 3",
+          "cls": "lens-aff lens-aff-primary",
+          "opacity": "1",
+          "borderColor": "rgb(179, 157, 255)"
+        },
+        "noRows": {
+          "text": "⦿ lock Space pins 3 of 3",
+          "cls": "lens-aff lens-aff-primary",
+          "opacity": "1",
+          "borderColor": "rgb(179, 157, 255)"
+        }
+      },
+      {
+        "id": "space-precondition",
+        "afterAutoAdvance": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 109,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "pressedOnAutoAdvance": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": null,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 109,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "railClickTarget": "95",
+        "afterRailClick": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": "up",
+          "cursorUnit": "red-A",
+          "cursorCandidate": 109,
+          "undoDepth": 0,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "pressedAfterRailClick": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": "up",
+          "cursorUnit": "red-A",
+          "cursorCandidate": 95,
+          "undoDepth": 1,
+          "lockChip": "⦿ lock Space pins 3 of 3"
+        },
+        "silentOnAutoAdvance": true,
+        "silentAfterRailClick": false
+      },
+      {
+        "id": "rail-click-arms-space",
+        "synthetic": {
+          "built": true,
+          "cells": [
+            95,
+            109,
+            121
+          ],
+          "keys": [
+            "up",
+            "down",
+            "left"
+          ]
+        },
+        "afterClick": {
+          "skipped": false,
+          "target": 121,
+          "userSelectedMove": "left",
+          "selectedMove": "left"
+        },
+        "armsSpace": true
+      },
+      {
+        "id": "clock-photographable",
+        "frozeThePageTick": true,
+        "shots": [
+          {
+            "shot": "h04-clock-full",
+            "cls": "turn-clock",
+            "fillWidth": "93.3%"
+          },
+          {
+            "shot": "h05-clock-half",
+            "cls": "turn-clock",
+            "fillWidth": "46.7%"
+          },
+          {
+            "shot": "h06-clock-urgent",
+            "cls": "turn-clock urgent",
+            "fillWidth": "25.3%"
+          }
+        ],
+        "distinctStates": 3
+      },
+      {
+        "id": "clock-urgency-channel",
+        "normal": {
+          "cls": "turn-clock",
+          "fill": "linear-gradient(90deg, rgb(92, 92, 92), rgb(216, 216, 216))",
+          "width": "46.7%",
+          "height": "10px",
+          "border": "rgb(136, 136, 136)"
+        },
+        "urgent": {
+          "cls": "turn-clock urgent",
+          "fill": "repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0px, rgba(0, 0, 0, 0.55) 3px, rgba(0, 0, 0, 0) 3px, rgba(0, 0, 0, 0) 7px), linear-gradient(90deg, rgb(138, 59, 42), rgb(255, 138, 101))",
+          "width": "25.3%",
+          "height": "12px",
+          "border": "rgb(255, 138, 101)"
+        },
+        "differsOnlyInHue": false
+      },
+      {
+        "id": "clock-safe-mark",
+        "markOn": true,
+        "markLeft": "17.3%",
+        "fillWidth": "46.7%"
+      },
+      {
+        "id": "fatal-dialog",
+        "text": "⚠ Certain Death Moving UP is certain death for this snake. Without confirmation, the bot's move commits instead at the deadline. Press Enter to confirm the fatal move, or click outside to cancel. Confirm (Enter) Cancel",
+        "role": "alertdialog",
+        "ariaModal": "true",
+        "focusAfterOpen": "BUTTON#confirmFatalMoveBtn",
+        "coversBoard": true
+      },
+      {
+        "id": "shortcuts-modal",
+        "present": true,
+        "coversBoardPct": 100,
+        "role": "dialog"
+      },
+      {
+        "id": "rail-extent",
+        "viewportH": 950,
+        "panelH": 926,
+        "panelScrollH": 1253,
+        "railScrollH": 697,
+        "scrolls": true,
+        "controlsBelowFold": false
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "S1",
+        "task": "a unit has no plan for this turn — seen, then pinned to a chosen move",
+        "firstRelevantPaintMs": 74.8,
+        "note": "from board-update to the L1 strip carrying the count",
+        "alarmDrawn": false,
+        "strip": [
+          "3 units",
+          "● 1 staged",
+          "~ 2 planned",
+          "🔒 1 fixed"
+        ],
+        "stage": "Bot stages A → up pinned · B → 131~ · C → 94~",
+        "interventionMs": 11289,
+        "pinAckPaintMs": 8,
+        "keystrokes": 1,
+        "clicks": 2,
+        "rowsInList": 5,
+        "gateBeforePress": {
+          "selectedSnakeId": "red-A",
+          "userSelectedMove": "up",
+          "moveSubmitted": false,
+          "cursorUnit": "red-A",
+          "cursorCandidate": 84
+        },
+        "gateAfterPress": {
+          "userSelectedMove": "up",
+          "undoDepth": 1,
+          "notice": "↺ u undoes: stage UP on red-A"
+        },
+        "controlsAfter": "⦿ lock Space pins 2 of 2 ↺ undo u 1 ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del ↺ u undoes: stage UP on red-A"
+      },
+      {
+        "id": "S1b",
+        "task": "the server refuses a certain-death move — the consent dialog",
+        "firstRelevantPaintMs": 4.6,
+        "keystrokes": 1,
+        "clicks": 0,
+        "note": "Enter confirms, Escape cancels — a dialog kept on purpose for the irreversible"
+      },
+      {
+        "id": "S2",
+        "task": "the top two candidates differ only in one unit — how fast can the operator tell why",
+        "firstRelevantPaintMs": 0,
+        "note": "the foil is drawn at full size without being asked for — the card costs no keypress (was `F` before the IA work)",
+        "boardLatchMs": 706,
+        "rowsInList": 5,
+        "keystrokes": 0,
+        "keystrokesToBoard": 1,
+        "clicks": 0,
+        "lead": [
+          "red-A→84",
+          "red-C→69"
+        ],
+        "foil": [
+          "red-A→84",
+          "red-C→67"
+        ],
+        "leadDelta": "—",
+        "foilDelta": "—",
+        "leadUnless": "leads on the proved floor",
+        "foilUnless": "unsealed — the barrier has not run",
+        "differing": [
+          false,
+          true
+        ],
+        "differingCount": 1,
+        "differingMarked": true,
+        "foilLine": "◇ foil #2 · #2 unsealed — the barrier has not run · at h1"
+      },
+      {
+        "id": "S3",
+        "task": "undo a lock, after a peer has widened the cluster underneath it",
+        "lockMs": 1833,
+        "lockArmPaintMs": 19.3,
+        "sameTurnUndoMs": 859,
+        "sameTurnUndoPaintMs": 18.5,
+        "sameTurnUndo": {
+          "controls": "⦿ lock Space pins 1 of 2 ↺ undo u 1 ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del ↺ u undoes: stage UP on red-A",
+          "notice": "↺ u undoes: stage UP on red-A"
+        },
+        "stackBeforeWiden": "⦿ lock Space pins 1 of 2 ↺ undo u 2 ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del ↺ u undoes: lock — 2 pins (red-A, red-C)",
+        "stackAfterOneTurn": "⦿ lock Space no candidate ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+        "stackAfterWiden": "⦿ lock Space no candidate ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+        "widenBanner": "⚑ Timer released red-A — cluster is now 2 units. auto 6sShow\nthe rail below is stale @ seq 22",
+        "undoMs": 982,
+        "undoAckPaintMs": 25.4,
+        "keystrokes": 4,
+        "clicks": 2,
+        "after": {
+          "controls": "⦿ lock Space pins 2 of 2 ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear Del",
+          "notice": null,
+          "stage": "Bot stages A → left · B → 145~ · C → 69"
+        }
+      },
+      {
+        "id": "S4",
+        "task": "switch key scheme mid-turn",
+        "firstRelevantPaintMs": 40.2,
+        "totalMs": 533,
+        "keystrokes": 0,
+        "clicks": 1,
+        "drives": false,
+        "rowsInList": 0,
+        "driveVacuous": true,
+        "cursorBefore": "0>97:97",
+        "cursorAfter": "0>97:97",
+        "driveMs": 686,
+        "reachable": {
+          "tabbable": true,
+          "hasKeyBinding": false
+        },
+        "stripBefore": "[ ] rank f foil b breakdown , . timeline n now u undo Space lock Ctrl+/ all keys bracket (default) vim left hand · densi",
+        "stripAfter": "k j rank x foil i breakdown , . timeline n now u undo Space lock Ctrl+/ all keys bracket (default) vim left hand · densi"
+      }
+    ],
+    "a11y": {
+      "contrast": {
+        "pairs": 97,
+        "failing": 9,
+        "worst": [
+          {
+            "text": "→",
+            "selector": "button#navNextBtn.turn-nav-btn",
+            "color": "rgb(102, 102, 102)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 2.2,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "▶|",
+            "selector": "button#navEndBtn.turn-nav-btn",
+            "color": "rgb(102, 102, 102)",
+            "px": 14,
+            "weight": 600,
+            "ratio": 2.2,
+            "need": 4.5,
+            "pass": false,
+            "count": 4
+          },
+          {
+            "text": "game",
+            "selector": "span.lat-num",
+            "color": "rgb(109, 109, 109)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2.77,
+            "need": 4.5,
+            "pass": false,
+            "count": 7
+          },
+          {
+            "text": "+0ms",
+            "selector": "span.lat-v",
+            "color": "rgb(109, 109, 109)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2.77,
+            "need": 4.5,
+            "pass": false,
+            "count": 7
+          },
+          {
+            "text": "A11y",
+            "selector": "span",
+            "color": "rgb(10, 126, 58)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 2.77,
+            "need": 4.5,
+            "pass": false,
+            "count": 3
+          },
+          {
+            "text": "6",
+            "selector": "span",
+            "color": "rgb(136, 136, 136)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.05,
+            "need": 4.5,
+            "pass": false,
+            "count": 48
+          },
+          {
+            "text": "rtt",
+            "selector": "span.lat-num",
+            "color": "rgb(224, 104, 90)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.3,
+            "need": 4.5,
+            "pass": false,
+            "count": 9
+          },
+          {
+            "text": "209ms",
+            "selector": "span.lat-v",
+            "color": "rgb(224, 104, 90)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.3,
+            "need": 4.5,
+            "pass": false,
+            "count": 9
+          },
+          {
+            "text": "Timer",
+            "selector": "span",
+            "color": "rgb(255, 77, 109)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.47,
+            "need": 4.5,
+            "pass": false,
+            "count": 5
+          },
+          {
+            "text": "pins 2 of 2",
+            "selector": "span.lens-aff-note",
+            "color": "rgb(162, 162, 162)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.56,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "✗ select red-A 15ms — another operator holds it",
+            "selector": "span.lat-cmd",
+            "color": "rgb(224, 104, 90)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 4.65,
+            "need": 4.5,
+            "pass": true,
+            "count": 8
+          },
+          {
+            "text": "Connected",
+            "selector": "div#connectionStatus.connection-status.connected",
+            "color": "rgb(165, 214, 167)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 4.79,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "staged",
+            "selector": "span.lens-staged-flag",
+            "color": "rgb(171, 171, 171)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 4.81,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "would be staged",
+            "selector": "span.lens-row-tag",
+            "color": "rgb(179, 157, 255)",
+            "px": 9,
+            "weight": 700,
+            "ratio": 4.83,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "local walkthrough",
+            "selector": "span.fb-detail",
+            "color": "rgb(255, 255, 255)",
+            "px": 14,
+            "weight": 400,
+            "ratio": 5.08,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "Ping: 147ms · clock −0.0s",
+            "selector": "div#pingDisplay.ping-display",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "Following the live game · drag the slider to review earlier ",
+            "selector": "div#turnControlsInfo.turn-controls-info",
+            "color": "rgb(154, 154, 154)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 4
+          },
+          {
+            "text": "ID",
+            "selector": "button.unit-id-copy",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 700,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 24
+          },
+          {
+            "text": "Click on one of your snakes to select and control it",
+            "selector": "div#noSelectionMsg.no-selection-msg",
+            "color": "rgb(154, 154, 154)",
+            "px": 14,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 1
+          },
+          {
+            "text": "free · 2 of 2 free",
+            "selector": "div.lens-sub",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "≡ 1",
+            "selector": "span.lens-move-same",
+            "color": "rgb(154, 154, 154)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 9
+          },
+          {
+            "text": "⌈w⌉ bracket width · h<n> horizon proved at · Q loud replies ",
+            "selector": "div.lens-legend",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "[B] to price this row",
+            "selector": "div.lens-empty",
+            "color": "rgb(154, 154, 154)",
+            "px": 12,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "lobster-local · walkthrough/mixed · eval:7f5b86c4 · e26 · 1q",
+            "selector": "div.lens-provenance",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "undo",
+            "selector": "span.lens-aff.lens-aff-undo.lens-aff-off",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          },
+          {
+            "text": "↺",
+            "selector": "span.lens-aff-glyph",
+            "color": "rgb(154, 154, 154)",
+            "px": 13,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 12
+          },
+          {
+            "text": "nothing yet",
+            "selector": "span.lens-aff-note",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 6
+          },
+          {
+            "text": "hold",
+            "selector": "span.lens-aff.lens-aff-off",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 9
+          },
+          {
+            "text": "anchor",
+            "selector": "span.lens-lane-name",
+            "color": "rgb(154, 154, 154)",
+            "px": 10,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 15
+          },
+          {
+            "text": "seq 32 · 33 / 33 · LIVE · seq 32 · observed · walkthrough/mi",
+            "selector": "div.lens-lane-foot",
+            "color": "rgb(154, 154, 154)",
+            "px": 11,
+            "weight": 400,
+            "ratio": 5.1,
+            "need": 4.5,
+            "pass": true,
+            "count": 3
+          }
+        ]
+      },
+      "focusableInDom": 59,
+      "tabOrder": {
+        "stops": 58,
+        "withoutVisibleRing": [
+          {
+            "at": 116,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 117,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 118,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate selected",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 119,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          }
+        ],
+        "list": [
+          {
+            "at": 21,
+            "tag": "button",
+            "id": null,
+            "cls": "al-btn",
+            "text": "ALERTS",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 71,
+            "tag": "button",
+            "id": "shortcutsHintBtn",
+            "cls": "shortcuts-hint",
+            "text": "Help: Ctrl + /",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 73,
+            "tag": "button",
+            "id": "submitAllBtn",
+            "cls": "",
+            "text": "Submit All",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 74,
+            "tag": "button",
+            "id": "suicideBtn",
+            "cls": "",
+            "text": "Suicide All",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 102,
+            "tag": "input",
+            "id": "playTurnSlider",
+            "cls": "turn-slider",
+            "text": "19",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 104,
+            "tag": "button",
+            "id": "navStartBtn",
+            "cls": "turn-nav-btn",
+            "text": "|◀",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 105,
+            "tag": "button",
+            "id": "navPrevBtn",
+            "cls": "turn-nav-btn",
+            "text": "←",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 116,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 117,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 118,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate selected",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 119,
+            "tag": "button",
+            "id": null,
+            "cls": "cell-button candidate",
+            "text": "",
+            "outlineWidth": "0px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 151,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 168,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 185,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 210,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 226,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 251,
+            "tag": "button",
+            "id": null,
+            "cls": "unit-id-copy",
+            "text": "ID",
+            "outlineWidth": "1px",
+            "outlineStyle": "auto",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 392,
+            "tag": "span",
+            "id": null,
+            "cls": "lens-aff lens-aff-primary",
+            "text": "⦿ lock Space pins 2 of 2",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 410,
+            "tag": "span",
+            "id": null,
+            "cls": "lens-aff",
+            "text": "✕ clear Del",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 434,
+            "tag": "button",
+            "id": null,
+            "cls": "on",
+            "text": "bracket (default)",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 435,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "vim",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 436,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "left hand",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 437,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "compact",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 438,
+            "tag": "button",
+            "id": null,
+            "cls": "on",
+            "text": "default",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 439,
+            "tag": "button",
+            "id": null,
+            "cls": "",
+            "text": "roomy",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 444,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 445,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 449,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 450,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 451,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 452,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 453,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 454,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 455,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 456,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 457,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 458,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 459,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 460,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 461,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 462,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 463,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 464,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 465,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 466,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 467,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 468,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 469,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 470,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 471,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 472,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 476,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 477,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 478,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 479,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "●",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 483,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 484,
+            "tag": "button",
+            "id": null,
+            "cls": "lens-tick lens-tick-solid",
+            "text": "▲",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          },
+          {
+            "at": 491,
+            "tag": "button",
+            "id": null,
+            "cls": "tour-link",
+            "text": "? tour",
+            "outlineWidth": "2px",
+            "outlineStyle": "solid",
+            "boxShadow": null,
+            "visible": true,
+            "inViewport": true
+          }
+        ]
+      },
+      "railReachable": {
+        "chips": [
+          {
+            "text": "⦿ lock Space pins 2 of 2",
+            "focusable": true,
+            "role": "button"
+          },
+          {
+            "text": "↺ undo u nothing yet",
+            "focusable": false,
+            "role": null
+          },
+          {
+            "text": "✕ clear Del",
+            "focusable": true,
+            "role": "button"
+          }
+        ],
+        "schemeButtons": [
+          {
+            "text": "bracket (default)",
+            "focusable": true
+          },
+          {
+            "text": "vim",
+            "focusable": true
+          },
+          {
+            "text": "left hand",
+            "focusable": true
+          },
+          {
+            "text": "compact",
+            "focusable": true
+          },
+          {
+            "text": "default",
+            "focusable": true
+          },
+          {
+            "text": "roomy",
+            "focusable": true
+          },
+          {
+            "text": "bracket (default)",
+            "focusable": true
+          },
+          {
+            "text": "vim",
+            "focusable": true
+          },
+          {
+            "text": "left hand",
+            "focusable": true
+          },
+          {
+            "text": "compact",
+            "focusable": true
+          },
+          {
+            "text": "default",
+            "focusable": true
+          },
+          {
+            "text": "roomy",
+            "focusable": true
+          }
+        ],
+        "movesetRows": [
+          {
+            "key": "0>96:96|2>59:59",
+            "tabIndex": -1
+          },
+          {
+            "key": "0>96:96|2>75:75",
+            "tabIndex": -1
+          },
+          {
+            "key": "0>96:96|2>101:101",
+            "tabIndex": -1
+          },
+          {
+            "key": "0>96:96|2>86:",
+            "tabIndex": -1
+          },
+          {
+            "key": "0>96:96|2>61:61",
+            "tabIndex": -1
+          }
+        ],
+        "candidateRows": [
+          {
+            "cell": "84",
+            "tabIndex": -1
+          },
+          {
+            "cell": "96",
+            "tabIndex": -1
+          },
+          {
+            "cell": "98",
+            "tabIndex": -1
+          }
+        ],
+        "laneTicks": [
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          },
+          {
+            "tabIndex": 0
+          }
+        ]
+      },
+      "keyboardActivation": {
+        "tested": true,
+        "target": "vim",
+        "focusable": true,
+        "schemeBefore": null,
+        "schemeAfter": "vim",
+        "activated": true
+      },
+      "reducedMotion": [
+        {
+          "label": "the clock fill (L0)",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        },
+        {
+          "label": "lobby game card",
+          "present": false
+        },
+        {
+          "label": "lobby nav link",
+          "present": false
+        },
+        {
+          "label": "the connection pill",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        },
+        {
+          "label": "the server badge",
+          "present": false
+        },
+        {
+          "label": "the widen banner",
+          "present": false
+        },
+        {
+          "label": "the header countdown",
+          "present": true,
+          "transition": "0s",
+          "animation": "none 0s"
+        }
+      ],
+      "reducedMotionCanvas": {
+        "queryMatches": true,
+        "rendererConsults": false
+      }
+    },
+    "density": [
+      {
+        "viewport": "1280x720",
+        "density": "compact",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 939,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 18,
+        "tenPxOrLess": 95,
+        "textNodes": 126,
+        "lensSize": "11px",
+        "lensPad": "6px",
+        "sizeHistogram": {
+          "9": 18,
+          "10": 77,
+          "11": 10,
+          "12": 16,
+          "14": 4,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1280x720",
+        "density": "default",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 981,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 1,
+        "tenPxOrLess": 47,
+        "textNodes": 126,
+        "lensSize": "12px",
+        "lensPad": "10px",
+        "sizeHistogram": {
+          "9": 1,
+          "10": 46,
+          "11": 49,
+          "12": 10,
+          "13": 15,
+          "14": 1,
+          "15": 3,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1280x720",
+        "density": "roomy",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 1044,
+        "railVisibleH": 692,
+        "railScrolls": true,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 10,
+        "underTenPx": 0,
+        "tenPxOrLess": 30,
+        "textNodes": 126,
+        "lensSize": "13px",
+        "lensPad": "13px",
+        "sizeHistogram": {
+          "10": 30,
+          "11": 18,
+          "12": 49,
+          "13": 9,
+          "14": 16,
+          "16": 4
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "compact",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 805,
+        "railVisibleH": 805,
+        "railScrolls": false,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 9,
+        "underTenPx": 14,
+        "tenPxOrLess": 85,
+        "textNodes": 111,
+        "lensSize": "11px",
+        "lensPad": "6px",
+        "sizeHistogram": {
+          "9": 14,
+          "10": 71,
+          "11": 11,
+          "12": 10,
+          "14": 4,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "default",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 830,
+        "railVisibleH": 830,
+        "railScrolls": false,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 10,
+        "underTenPx": 0,
+        "tenPxOrLess": 43,
+        "textNodes": 111,
+        "lensSize": "12px",
+        "lensPad": "10px",
+        "sizeHistogram": {
+          "10": 43,
+          "11": 43,
+          "12": 11,
+          "13": 9,
+          "14": 1,
+          "15": 3,
+          "16": 1
+        }
+      },
+      {
+        "viewport": "1920x1080",
+        "density": "roomy",
+        "pageOverflowPx": 0,
+        "boardPx": 550,
+        "railPx": 380,
+        "railScrollH": 908,
+        "railVisibleH": 908,
+        "railScrolls": false,
+        "controlsBelowFold": false,
+        "stageBelowFold": false,
+        "movesetsClippedPx": 0,
+        "minFontPx": 10,
+        "underTenPx": 0,
+        "tenPxOrLess": 29,
+        "textNodes": 111,
+        "lensSize": "13px",
+        "lensPad": "13px",
+        "sizeHistogram": {
+          "10": 29,
+          "11": 15,
+          "12": 43,
+          "13": 10,
+          "14": 10,
+          "16": 4
+        }
+      }
+    ],
+    "newSurfaces": [
+      {
+        "id": "S5",
+        "task": "the tour on the first run of a browser profile",
+        "firstRelevantPaintMs": 4971,
+        "note": "from navigation to the first tour card on screen — nobody asked for it",
+        "openedOverLoginGate": false,
+        "operator": "Tourist",
+        "loginMs": 4965,
+        "firstRunGiveUpMs": 20000,
+        "openedBeforeGiveUp": true,
+        "steps": 4,
+        "firstCard": "THE TURN CLOCK The bar welded to the board’s top edge is the time left in this turn — it shortens and brightens as the deadline comes, and t",
+        "keysToLeave": 1,
+        "keysToFinish": 4,
+        "leftOnEscMs": 4496,
+        "closedOnEsc": true,
+        "rememberedOnEsc": true,
+        "reopensAfterReload": false,
+        "movedAboveL2": false,
+        "layoutBefore": {
+          "scrollY": 0,
+          "clock": [
+            275,
+            251,
+            550,
+            10
+          ],
+          "board": [
+            275,
+            259,
+            550,
+            550
+          ],
+          "stage": [
+            982,
+            106,
+            319,
+            20
+          ],
+          "biz": null,
+          "controls": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "rail": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "layoutAfter": {
+          "scrollY": 0,
+          "clock": [
+            275,
+            251,
+            550,
+            10
+          ],
+          "board": [
+            275,
+            259,
+            550,
+            550
+          ],
+          "stage": [
+            982,
+            106,
+            319,
+            20
+          ],
+          "biz": null,
+          "controls": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "rail": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "S6",
+        "task": "an alert fires while the operator is reading the breakdown",
+        "firstRelevantPaintMs": 3,
+        "note": "from the refusal arriving to the ring being up on the board’s edge",
+        "keystrokes": 0,
+        "clicks": 0,
+        "breakdownPresent": true,
+        "breakdownChars": 437,
+        "breakdownPriced": true,
+        "cursorOn": {
+          "rows": 5,
+          "tries": 1
+        },
+        "breakdownMoved": false,
+        "breakdownScrolled": false,
+        "breakdownTextChanged": false,
+        "focusMoved": false,
+        "focusAt": "BODY",
+        "movedAboveL2": false,
+        "movedAfterTheCamera": true,
+        "movedWithNoAlert": false,
+        "whatMovedIdle": [],
+        "whatMoved": [],
+        "repeats": [
+          {
+            "movedIdle": false,
+            "movedOnRaise": false,
+            "scrollDelta": 0
+          },
+          {
+            "movedIdle": false,
+            "movedOnRaise": false,
+            "scrollDelta": 0
+          },
+          {
+            "movedIdle": false,
+            "movedOnRaise": false,
+            "scrollDelta": 0
+          },
+          {
+            "movedIdle": false,
+            "movedOnRaise": false,
+            "scrollDelta": 0
+          }
+        ],
+        "movedOnRaiseRate": "0/4",
+        "movedIdleRate": "0/4",
+        "ring": {
+          "pointerEvents": "none",
+          "position": "fixed",
+          "overlapsBreakdown": false,
+          "say": "lock refused — eval-breakdown-probe"
+        },
+        "liveRegion": "lock refused — eval-breakdown-probe"
+      },
+      {
+        "id": "S7",
+        "task": "the wire drops to DEGRADED while a multi-unit lock is armed",
+        "degradedMs": 684,
+        "ladderReached": "STALE",
+        "keystrokes": 2,
+        "clicks": 2,
+        "lockReach": {
+          "pins": 3,
+          "of": 3
+        },
+        "lockChipSeen": "⦿ lock Space pins 3 of 3 ↺ undo u nothing yet ⛨ hold H pieces only ◎ goto right-click ◉ ne",
+        "armedBefore": true,
+        "armedSurvived": true,
+        "armText": "⦿ lock — press again Shift+Space pins 3 of 3 ↺ undo u nothing yet ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-cl",
+        "underLoadText": "⦿ lock — press again Shift+Space pins 3 of 3 ↺ undo u nothing yet ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-cl",
+        "afterText": "⦿ lock Space pins 1 of 1 ↺ undo u cleared — new turn ⛨ hold H pieces only ◎ goto right-click ◉ near ctrl-click ✕ clear D",
+        "commitMs": 1247,
+        "movedAboveL2": false,
+        "layoutBefore": {
+          "scrollY": 15,
+          "clock": [
+            275,
+            266,
+            550,
+            10
+          ],
+          "board": [
+            275,
+            274,
+            550,
+            550
+          ],
+          "stage": [
+            982,
+            91,
+            319,
+            20
+          ],
+          "biz": [
+            982,
+            117,
+            319,
+            16
+          ],
+          "controls": [
+            967,
+            733,
+            346,
+            158
+          ],
+          "rail": [
+            967,
+            285,
+            346,
+            448
+          ]
+        },
+        "layoutAfter": {
+          "scrollY": 15,
+          "clock": [
+            275,
+            266,
+            550,
+            10
+          ],
+          "board": [
+            275,
+            274,
+            550,
+            550
+          ],
+          "stage": [
+            982,
+            91,
+            319,
+            20
+          ],
+          "biz": [
+            982,
+            117,
+            319,
+            16
+          ],
+          "controls": [
+            967,
+            733,
+            346,
+            158
+          ],
+          "rail": [
+            967,
+            285,
+            346,
+            448
+          ]
+        },
+        "commandChips": [
+          "✗ select red-A 13ms — another operator holds it",
+          "✗ ask red-A 5ms — no decision is inspectable on this game right…",
+          "⟳ lock 3 pins 1144ms"
+        ]
+      },
+      {
+        "id": "S8",
+        "task": "a finished game, judged: from /history to a turn that decided it",
+        "listMs": 2293,
+        "firstRelevantPaintMs": 1119,
+        "note": "from the click on a /history row to the first cell of the strip on screen",
+        "verdictMs": 1121,
+        "clicks": 1,
+        "keystrokes": 1,
+        "keysToDecidingTurn": 1,
+        "verdict": "· UNFINISHED · 105 TURNS · FINAL LEAD +18 · DECIDED AT TURN 20 (THE BIGGEST SINGLE SWING IN THE LEAD)",
+        "readInFull": "40 of 105 turns read in full — the rest are indexed from the boards only",
+        "momentsIndexed": 73,
+        "turns": 105,
+        "jumpMs": 746,
+        "jumped": true
+      },
+      {
+        "id": "S9",
+        "task": "the moments strip: what one glance at a whole game costs",
+        "cells": 105,
+        "distinctGlyphs": [
+          "○",
+          "●",
+          "△",
+          "▼",
+          "◇",
+          "■"
+        ],
+        "marked": 105,
+        "quiet": 0,
+        "weights": {
+          "rv-w1": 87,
+          "rv-w3": 17,
+          "rv-w4": 1
+        },
+        "keptOnTheStrip": 18,
+        "belowTheCut": 87,
+        "everyCellLabelled": true,
+        "element": "BUTTON",
+        "smallestTargetPx": 20,
+        "pitchPx": 22,
+        "meets24px": false,
+        "meetsSpacingException": false,
+        "reordersUnderCursor": false,
+        "movesUnderCursor": false
+      }
+    ]
+  },
+  "shots": [
+    {
+      "name": "h01-idle",
+      "note": "live head, no unit focused — L1 alone",
+      "bytes": 114870
+    },
+    {
+      "name": "h01b-stage",
+      "note": "the stage line and the strip, with nothing focused",
+      "bytes": 8522
+    },
+    {
+      "name": "h02-stage-after-pin",
+      "note": "the stage line after one pin — the same units, in what order?",
+      "bytes": 8570
+    },
+    {
+      "name": "h03-rail",
+      "note": "the whole rail at CANDIDATE with a conditional answered",
+      "bytes": 46096
+    },
+    {
+      "name": "h03b-cards",
+      "note": "L2 — rank 1 and the foil as cards",
+      "bytes": 28532
+    },
+    {
+      "name": "h03c-controls",
+      "note": "the control bar",
+      "bytes": 10129
+    },
+    {
+      "name": "h03d-lock-zero",
+      "note": "the lock chip where it would pin nothing",
+      "bytes": 10129
+    },
+    {
+      "name": "h03e-after-space",
+      "note": "the bar after a `Space` that did nothing",
+      "bytes": 11778
+    },
+    {
+      "name": "h04-clock-full",
+      "note": "L0 at arrival — the bar full",
+      "bytes": 499
+    },
+    {
+      "name": "h05-clock-half",
+      "note": "L0 halfway through the turn",
+      "bytes": 517
+    },
+    {
+      "name": "h06-clock-urgent",
+      "note": "L0 under 500 ms — the urgent ramp",
+      "bytes": 2100
+    },
+    {
+      "name": "h07-clock-safe-mark",
+      "note": "L0 with a last-safe-press notch set",
+      "bytes": 610
+    },
+    {
+      "name": "h08-fatal-dialog",
+      "note": "the certain-death consent — a dialog kept on purpose (§3.4)",
+      "bytes": 215442
+    },
+    {
+      "name": "h09-shortcuts-modal",
+      "note": "Ctrl+/ — the full reference, and the board it costs",
+      "bytes": 256252
+    },
+    {
+      "name": "h10-lane",
+      "note": "the intra-turn lane at the head",
+      "bytes": 7451
+    },
+    {
+      "name": "h11-keys",
+      "note": "the cheat strip, the scheme picker and the density picker",
+      "bytes": 9962
+    },
+    {
+      "name": "s1-pinned",
+      "note": "S1 — the unit pinned, and what the bar says about undoing it",
+      "bytes": 87884
+    },
+    {
+      "name": "s2-foil-latched",
+      "note": "S2 — the foil on the board, where the difference is spatial",
+      "bytes": 81109
+    },
+    {
+      "name": "s2-cards",
+      "note": "S2 — the two cards the operator has to diff by eye",
+      "bytes": 34097
+    },
+    {
+      "name": "s3-locked",
+      "note": "S3 — the lock committed",
+      "bytes": 12193
+    },
+    {
+      "name": "s3-undo-same-turn",
+      "note": "S3a — the lock undone inside its own turn",
+      "bytes": 11669
+    },
+    {
+      "name": "s3-widen",
+      "note": "S3 — a peer widened the cluster while the lock stood",
+      "bytes": 28022
+    },
+    {
+      "name": "s3-undone",
+      "note": "S3 — the lock undone after the widen",
+      "bytes": 85135
+    },
+    {
+      "name": "s4-vim",
+      "note": "S4 — the strip after the scheme switch",
+      "bytes": 9878
+    },
+    {
+      "name": "a01-normal-board",
+      "note": "the board, normal vision",
+      "bytes": 83904
+    },
+    {
+      "name": "a02-normal-cards",
+      "note": "the cards, normal vision",
+      "bytes": 38330
+    },
+    {
+      "name": "a03-protanopia-board",
+      "note": "the board under protanopia",
+      "bytes": 82773
+    },
+    {
+      "name": "a04-protanopia-cards",
+      "note": "rank 1 and the foil under protanopia",
+      "bytes": 32152
+    },
+    {
+      "name": "a05-protanopia-controls",
+      "note": "the control bar under protanopia",
+      "bytes": 7841
+    },
+    {
+      "name": "a06-protanopia-clock-urgent",
+      "note": "the clock's urgent ramp under protanopia",
+      "bytes": 2032
+    },
+    {
+      "name": "a03-deuteranopia-board",
+      "note": "the board under deuteranopia",
+      "bytes": 81412
+    },
+    {
+      "name": "a04-deuteranopia-cards",
+      "note": "rank 1 and the foil under deuteranopia",
+      "bytes": 32497
+    },
+    {
+      "name": "a05-deuteranopia-controls",
+      "note": "the control bar under deuteranopia",
+      "bytes": 7893
+    },
+    {
+      "name": "a06-deuteranopia-clock-urgent",
+      "note": "the clock's urgent ramp under deuteranopia",
+      "bytes": 1771
+    },
+    {
+      "name": "a07-focus-chip",
+      "note": "the focus ring on a control chip, if it takes focus",
+      "bytes": 9752
+    },
+    {
+      "name": "a08-focus-scheme",
+      "note": "the focus ring on the scheme picker",
+      "bytes": 10335
+    },
+    {
+      "name": "a09-reduced-motion",
+      "note": "the rail under prefers-reduced-motion",
+      "bytes": 214172
+    },
+    {
+      "name": "d-1280x720-rail-compact",
+      "note": "1280×720, the rail at compact density",
+      "bytes": 51618
+    },
+    {
+      "name": "d-1280x720-default",
+      "note": "1280×720, density default",
+      "bytes": 166881
+    },
+    {
+      "name": "d-1280x720-rail-default",
+      "note": "1280×720, the rail at default density",
+      "bytes": 55149
+    },
+    {
+      "name": "d-1280x720-rail-roomy",
+      "note": "1280×720, the rail at roomy density",
+      "bytes": 57659
+    },
+    {
+      "name": "d-1920x1080-rail-compact",
+      "note": "1920×1080, the rail at compact density",
+      "bytes": 64688
+    },
+    {
+      "name": "d-1920x1080-default",
+      "note": "1920×1080, density default",
+      "bytes": 227623
+    },
+    {
+      "name": "d-1920x1080-rail-default",
+      "note": "1920×1080, the rail at default density",
+      "bytes": 68586
+    },
+    {
+      "name": "d-1920x1080-rail-roomy",
+      "note": "1920×1080, the rail at roomy density",
+      "bytes": 74532
+    },
+    {
+      "name": "s5-tour-first-run",
+      "note": "S5 — the tour, opening itself on a profile that has never seen it",
+      "bytes": 109044
+    },
+    {
+      "name": "s6-alert-in-breakdown",
+      "note": "S6 — a refusal raised while the reader is inside the breakdown",
+      "bytes": 76016
+    },
+    {
+      "name": "s7-degraded-armed",
+      "note": "S7 — the ladder at DEGRADED with a lock still armed under it",
+      "bytes": 46096
+    },
+    {
+      "name": "s8-review",
+      "note": "S8 — a finished game, opened: the strip, the index and the why panel",
+      "bytes": 220884
+    },
+    {
+      "name": "s9-strip",
+      "note": "S9 — the moments strip: one cell per stored turn, glyph first",
+      "bytes": 10440
+    }
+  ],
+  "ranAt": "2026-09-05T22:06:18.571Z",
+  "ranSuites": "newSurfaces",
+  "ports": {
+    "heuristic": 5260,
+    "scenarios": 5260,
+    "a11y": 5260,
+    "density": 5260,
+    "newSurfaces": 5261
+  },
+  "takeovers": 1
+}

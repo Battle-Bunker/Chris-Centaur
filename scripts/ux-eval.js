@@ -165,6 +165,37 @@ async function selectAnsweredCandidate(page, unit) {
   return lock;
 }
 
+/**
+ * PLAY TURNS UNTIL THE CURSOR IS ON A RANKED LIST WITH A RUNNER-UP ON IT.
+ *
+ * The inspection reserve answers ONE conditional per decision, picks the unit
+ * itself, and some of its answers are one row long — so a scenario that
+ * insists on a particular unit measures nothing on every turn the search
+ * chose otherwise, and a contrastive scenario measured on a list with no
+ * rank 2 measures nothing at all. This walks to the state instead of assuming
+ * it, and returns the row count it settled on so a `0` reads as "never
+ * reached" rather than as a finding about the interface.
+ */
+async function walkToAnsweredList(page, tries = 10) {
+  for (let i = 0; i < tries; i++) {
+    // A drill starts from a clean slate: an armed gesture left over from an
+    // earlier step is cancelled before anything is measured, exactly as
+    // `lens-walkthrough.js`'s own operator drill does.
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    await focusUnit(page, 0);
+    await selectAnsweredCandidate(page, 'red-A');
+    await sleep(500);
+    const rows = await page.evaluate(
+      () => document.querySelectorAll('.lens-movesets .lens-table tr[data-lens-moveset]').length
+    );
+    if (rows > 1) return rows;
+    await step();
+    await sleep(WAIT);
+  }
+  return 0;
+}
+
 // ═══════════════════════════════════════════════════ contrast, in the page
 
 /**
@@ -602,6 +633,25 @@ async function heuristic(context) {
   // instant and `startTurnTimer` paints the idle bar forever. The clock is the
   // whole of L0 and going unphotographed is not the same as working, so it is
   // driven here through the page's own updater at three points on the ramp.
+  //
+  // AND THE PAGE'S OWN TICK HAS TO BE STOPPED FIRST, which the first pass of
+  // this evaluation did not do. `startTurnTimer` runs a 50 ms interval whose
+  // first branch is `if (!turnExpiryTime || moveSubmitted) updateTurnClock(
+  // null, null)` — the idle repaint. An injected state therefore survives at
+  // most one tick, and every L0 photograph `05-EVALUATION.md` cites was taken
+  // 250 ms later: six 550×11 images of a uniform `#2a2a2a` track, the same
+  // bytes at `full`, at `urgent` and with the notch set. The computed-style
+  // probe below is synchronous inside one `evaluate` and was always honest;
+  // the pictures were not. `turnTimerInterval` is cleared here so the camera
+  // sees the state the caption names, and the fill is read back after the
+  // shot so a blank bar fails loudly instead of being filed as evidence.
+  const clockFrozen = await page.evaluate(() => {
+    if (typeof turnTimerInterval === 'undefined' || turnTimerInterval === null) return false;
+    clearInterval(turnTimerInterval);
+    turnTimerInterval = null;
+    return true;
+  });
+  const clockShots = [];
   for (const [name, remaining, budget, note] of [
     ['h04-clock-full', 1400, 1500, 'L0 at arrival — the bar full'],
     ['h05-clock-half', 700, 1500, 'L0 halfway through the turn'],
@@ -610,7 +660,22 @@ async function heuristic(context) {
     await page.evaluate(([r, b]) => updateTurnClock(r, b), [remaining, budget]);
     await sleep(250);
     await shot(page, name, note, '#turnClock');
+    clockShots.push({
+      shot: name,
+      ...(await page.evaluate(() => ({
+        cls: document.getElementById('turnClock').className,
+        fillWidth: document.getElementById('turnClockFill').style.width,
+      }))),
+    });
   }
+  found.push({
+    id: 'clock-photographable',
+    frozeThePageTick: clockFrozen,
+    shots: clockShots,
+    // The idle repaint is `turn-clock idle` at 100%; three states that all
+    // read that are three photographs of nothing.
+    distinctStates: new Set(clockShots.map((s) => `${s.cls}|${s.fillWidth}`)).size,
+  });
   found.push({
     id: 'clock-urgency-channel',
     ...(await page.evaluate(() => {
@@ -646,9 +711,21 @@ async function heuristic(context) {
   });
   await sleep(200);
   await shot(page, 'h07-clock-safe-mark', 'L0 with a last-safe-press notch set', '#turnClock');
+  found.push({
+    id: 'clock-safe-mark',
+    ...(await page.evaluate(() => {
+      const mark = document.getElementById('turnClockMark');
+      return {
+        markOn: mark.classList.contains('on'),
+        markLeft: mark.style.left,
+        fillWidth: document.getElementById('turnClockFill').style.width,
+      };
+    })),
+  });
   await page.evaluate(() => {
     delete window.__lensLastSafePressMs;
     updateTurnClock(null, null);
+    startTurnTimer();
   });
 
   // ── the fatal-consent dialog, the one irreversible gesture ──────────────
@@ -830,29 +907,7 @@ async function scenarios(context) {
     }
   };
 
-  /** Play turns until the answered candidate carries a ranked list with a
-   *  runner-up on it. The inspection reserve answers ONE conditional per
-   *  decision and some of its answers are one row long; a contrastive
-   *  scenario measured on a list with no rank 2 measures nothing. */
-  const withFoil = async (tries = 6) => {
-    for (let i = 0; i < tries; i++) {
-      // A drill starts from a clean slate: an armed gesture left over from an
-      // earlier step is cancelled before anything is measured, exactly as
-      // `lens-walkthrough.js`'s own operator drill does.
-      await page.keyboard.press('Escape');
-      await sleep(300);
-      await focusUnit(page, 0);
-      await selectAnsweredCandidate(page, 'red-A');
-      await sleep(500);
-      const rows = await page.evaluate(
-        () => document.querySelectorAll('.lens-movesets .lens-table tr[data-lens-moveset]').length
-      );
-      if (rows > 1) return rows;
-      await step();
-      await sleep(WAIT);
-    }
-    return 0;
-  };
+  const withFoil = (tries = 10) => walkToAnsweredList(page, tries);
 
   const results = [];
 
@@ -1142,7 +1197,11 @@ async function scenarios(context) {
     // consults is the failure a picture cannot show.
     const rowOf = () =>
       page.evaluate(() => document.querySelector('.lens-movesets .lens-row-cursor')?.getAttribute('data-lens-moveset') ?? null);
-    await selectAnsweredCandidate(page, 'red-A');
+    // A LIST OF ONE CANNOT BE STEPPED, so `drives: false` over one row is a
+    // measurement of the harness's decision and not of the keymap. The walk
+    // to a list with a runner-up on it is the same one S2 makes, and the row
+    // count rides in the record so the reading is checkable either way.
+    const rowsForDrive = await withFoil();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('k');
       await sleep(100);
@@ -1169,6 +1228,10 @@ async function scenarios(context) {
       keystrokes: 0,
       clicks: 1,
       drives: rowBefore !== rowAfter,
+      rowsInList: rowsForDrive,
+      driveVacuous: rowsForDrive < 2,
+      cursorBefore: rowBefore,
+      cursorAfter: rowAfter,
       driveMs: Date.now() - tKey,
       reachable,
       stripBefore: before.slice(0, 120),
@@ -1230,8 +1293,17 @@ async function a11y(browser) {
     await shot(page, `a03-${kind}-board`, `the board under ${kind}`, '#gameCanvas');
     await shot(page, `a04-${kind}-cards`, `rank 1 and the foil under ${kind}`, '.lens-movesets');
     await shot(page, `a05-${kind}-controls`, `the control bar under ${kind}`, '#lensControls');
-    await page.evaluate(() => updateTurnClock(380, 1500));
-    await sleep(200);
+    // Same freeze as the heuristic suite: the page's own 50 ms tick repaints
+    // the idle bar over anything injected, so a CVD rendering of "the urgent
+    // ramp" taken without it is a CVD rendering of the empty track.
+    await page.evaluate(() => {
+      if (typeof turnTimerInterval !== 'undefined' && turnTimerInterval !== null) {
+        clearInterval(turnTimerInterval);
+        turnTimerInterval = null;
+      }
+      updateTurnClock(380, 1500);
+    });
+    await sleep(150);
     await shot(page, `a06-${kind}-clock-urgent`, `the clock's urgent ramp under ${kind}`, '#turnClock');
     await page.evaluate(() => updateTurnClock(null, null));
   }
@@ -1528,6 +1600,597 @@ async function density(browser) {
   out.suites.density = found;
 }
 
+
+/**
+ * SUITE 5 — THE SURFACES THAT LANDED AFTER `05-EVALUATION.md`.
+ *
+ * Five tasks over the four modules that did not exist when the first
+ * evaluation ran — the tour (`ux-manual`), the alert channel (`06-ALERTS.md`),
+ * the latency ladder under a determination (`03-LATENCY.md`) and the review
+ * (`07-REVIEW.md`) — asked the same way §2 asks its four: with a stopwatch on
+ * the operator's own input, an interaction count beside it, and, wherever the
+ * claim is that something did NOT happen, a geometry read on both sides of
+ * the event rather than an assurance.
+ *
+ * Each takes its own context, because three of them are about state a browser
+ * profile carries: the tour's first run is a property of an EMPTY
+ * `localStorage`, and the review's bookmarks and the alerts' preferences are
+ * the same class of thing.
+ */
+async function newSurfaces(browser) {
+  console.log('\n── new surfaces ──');
+  const results = [];
+
+  /** Every box above L2, in one read. `02 §1.4` rule 1 — "nothing above L2 may
+   *  move" — is a geometry claim, so it is checked as one: the same elements,
+   *  the same numbers, before and after whatever is being blamed. */
+  const layout = (page) =>
+    page.evaluate(() => {
+      const of = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      };
+      return {
+        // Viewport coordinates move when the window scrolls AND when the flow
+        // above them reflows; the two are different findings, so the scroll
+        // offset rides along and the reading is not left ambiguous.
+        scrollY: Math.round(window.scrollY),
+        clock: of('#turnClock'),
+        board: of('#gameCanvas'),
+        stage: of('.lens-stage-line'),
+        biz: of('.lens-biz'),
+        controls: of('#lensControls'),
+        rail: of('.lens-rail'),
+      };
+    });
+
+  // ── S5 — the tour, on the first run of a profile ────────────────────────
+  //
+  // It opens itself, once, on a browser that has never seen it. That is the
+  // one state no drill photographs — `lens-walkthrough.js` opens it with the
+  // `?`+`T` chord over a profile that has already been through the walk — and
+  // it is the first thing every new operator meets. Three questions: when
+  // does it arrive relative to the page being usable, what does it cost to
+  // get out of, and does anything move when it opens.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    const t0 = Date.now();
+    // THE LOGIN GATE IS PART OF THE FIRST RUN. `tour.js::offerFirstRun` polls
+    // twice a second for `#gameCanvas` and `#lensStage`, and BOTH ARE 0×0
+    // WHILE `#loginGate.active` IS UP — so the whole of the wait for a name
+    // is spent inside a poll that gives up after 40 tries (20 s) and never
+    // tries again on that load. An operator who types their name slowly, or
+    // who arrives at a page that takes twenty seconds to reach a board, gets
+    // no tour on the run the tour exists for. That horizon is recorded here
+    // beside the ordinary reading, which is what an operator who logs in at
+    // once actually sees.
+    const gateAt = Date.now();
+    const who = await enter(page, GAME, 'Tourist');
+    const loginMs = Date.now() - gateAt;
+    let openedAt = null;
+    let gateAtOpen = null;
+    for (let i = 0; i < 80 && openedAt === null; i++) {
+      const st = await page.evaluate(() => ({
+        open: !!document.querySelector('.tour-card'),
+        gate: !!document.querySelector('#loginGate.active'),
+      }));
+      if (st.open) {
+        openedAt = Date.now() - t0;
+        gateAtOpen = st.gate;
+        break;
+      }
+      await sleep(250);
+    }
+    const beforeOpen = await layout(page);
+    const first = await page.evaluate(() => ({
+      card: (document.querySelector('.tour-card') || {}).innerText || null,
+      step: window.Tour ? window.Tour.stepId() : null,
+      steps: window.Tour ? (window.Tour.shown() || []).length : null,
+      done: (() => { try { return localStorage.getItem('lensTourDone'); } catch (e) { return null; } })(),
+    }));
+    await shot(page, 's5-tour-first-run', 'S5 — the tour, opening itself on a profile that has never seen it');
+    // THE COST OF LEAVING. `Esc` is one key and it counts as having been seen
+    // (`tour.js::close(false)` writes the completion either way), so the
+    // operator pays it once. Finishing it properly is one `Enter` per region.
+    const tEsc = Date.now();
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    const afterEsc = await page.evaluate(() => ({
+      open: !!document.querySelector('.tour-card'),
+      done: (() => { try { return localStorage.getItem('lensTourDone'); } catch (e) { return null; } })(),
+    }));
+    const afterOpen = await layout(page);
+    // AND IT DOES NOT COME BACK. The whole point of the key.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await sleep(4000);
+    const afterReload = await page.evaluate(() => !!document.querySelector('.tour-card'));
+    results.push({
+      id: 'S5',
+      task: 'the tour on the first run of a browser profile',
+      firstRelevantPaintMs: openedAt,
+      note: 'from navigation to the first tour card on screen — nobody asked for it',
+      openedOverLoginGate: gateAtOpen,
+      operator: who,
+      loginMs,
+      // `tour.js` polls 40 times at 500 ms and then stops for that load.
+      firstRunGiveUpMs: 20000,
+      openedBeforeGiveUp: openedAt !== null && openedAt < 20000,
+      steps: first.steps,
+      firstCard: (first.card || '').replace(/\s+/g, ' ').slice(0, 140),
+      keysToLeave: 1,
+      keysToFinish: first.steps,
+      leftOnEscMs: Date.now() - tEsc,
+      closedOnEsc: afterEsc.open === false,
+      rememberedOnEsc: afterEsc.done !== null,
+      reopensAfterReload: afterReload,
+      // `02 §1.4` rule 1, as geometry.
+      movedAboveL2: JSON.stringify(beforeOpen) !== JSON.stringify(afterOpen),
+      layoutBefore: beforeOpen,
+      layoutAfter: afterOpen,
+    });
+    await ctx.close();
+  }
+
+  // ── S6 — an alert fires while the operator is inside the breakdown ──────
+  //
+  // `06 §8` rejects "a modal, a toast, or anything that takes focus" and says
+  // the channel "never focuses, never scrolls". The reader it must not
+  // disturb is the breakdown: the deepest, longest thing on the surface and
+  // the one an operator is inside when they are least able to be moved. So
+  // the assertion is not that the ring appeared — it is that the breakdown
+  // did not move, did not scroll, did not lose focus and did not change a
+  // character while it did.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    await enter(page, GAME, 'Breakdown');
+    await step();
+    await sleep(WAIT);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    // A BREAKDOWN THAT SAYS `[B] to price this row` IS THE EMPTY STATE, and an
+    // alert that did not disturb it has disturbed nothing. The drill walks
+    // turns until `B` puts a priced panel on screen.
+    let bdChars = 0;
+    let bdSaw = null;
+    for (let i = 0; i < 6 && bdChars < 80; i++) {
+      bdSaw = { rows: await walkToAnsweredList(page), tries: i + 1 };
+      // `B` drills the row UNDER THE CURSOR, and selecting a candidate leaves
+      // the cursor on the candidate. One step down the moveset list and back
+      // is what puts it on a row — the same two presses `lens-walkthrough.js`
+      // makes before its own breakdown shot.
+      await page.keyboard.press(']');
+      await sleep(400);
+      await page.keyboard.press('[');
+      await sleep(400);
+      await page.keyboard.press('b');
+      await sleep(WAIT);
+      bdChars = await page.evaluate(() => {
+        const el = document.querySelector('.lens-breakdown');
+        return el ? (el.innerText || '').trim().length : 0;
+      });
+      if (bdChars < 80) {
+        await step();
+        await sleep(WAIT);
+      }
+    }
+    const readBreakdown = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.lens-breakdown');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const rail = document.querySelector('.lens-rail');
+        return {
+          box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
+          text: (el.innerText || '').replace(/\s+/g, ' '),
+          railScrollTop: rail ? rail.scrollTop : null,
+          active: document.activeElement
+            ? `${document.activeElement.tagName}${document.activeElement.id ? '#' + document.activeElement.id : ''}`
+            : null,
+        };
+      });
+    const before = await readBreakdown();
+    // A CONTROL, over the same interval, with nothing raised. The rail
+    // re-renders on every emission and the kernel emits seven to ten times a
+    // turn, so a box that moved between two reads a second apart has not
+    // thereby been moved by the alert. Without this the measurement blames
+    // the channel for the page's own churn.
+    const layoutIdleA = await layout(page);
+    await sleep(1200);
+    const layoutIdleB = await layout(page);
+    const layoutBefore = await layout(page);
+    // The refusal the server itself sends, handed to the module's own input
+    // port in the shape `websocket-server.ts` answers a bad lock with — the
+    // same envelope `scripts/alerts-drill.js` uses, so this measures the
+    // page's response and not a second implementation of the event.
+    const t0 = Date.now();
+    await page.evaluate(() =>
+      window.Alerts.observe({
+        kind: 'in',
+        at: Date.now(),
+        type: 'lens-lock',
+        msg: { type: 'lens-lock', ok: false, refusal: 'not-yours', detail: 'eval-breakdown-probe' },
+      })
+    );
+    let ringMs = null;
+    for (let i = 0; i < 40 && ringMs === null; i++) {
+      const on = await page.evaluate(() => {
+        const r = document.querySelector('.al-pulse');
+        return !!(r && r.classList.contains('on'));
+      });
+      if (on) ringMs = Date.now() - t0;
+      else await sleep(25);
+    }
+    const during = await readBreakdown();
+    // BEFORE THE CAMERA. Playwright's element screenshot scrolls its target
+    // into view, so a layout read taken after `shot()` is a reading of the
+    // instrument: the first pass of this scenario recorded 42 px of scroll
+    // and 87 px of reflow that were the camera's and not the channel's. The
+    // comparison that answers `06 §8` is this one — taken between the raise
+    // and any picture of it.
+    const layoutDuring = await layout(page);
+    const ring = await page.evaluate(() => {
+      const r = document.querySelector('.al-pulse');
+      const bd = document.querySelector('.lens-breakdown');
+      if (!r || !bd) return null;
+      const a = r.getBoundingClientRect();
+      const b = bd.getBoundingClientRect();
+      const cs = getComputedStyle(r);
+      return {
+        pointerEvents: cs.pointerEvents,
+        position: cs.position,
+        overlapsBreakdown: !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom),
+        say: (document.querySelector('#alerts-mount .al-say') || {}).textContent || null,
+      };
+    });
+    await shot(page, 's6-alert-in-breakdown', 'S6 — a refusal raised while the reader is inside the breakdown', '.lens-rail');
+    const layoutAfter = await layout(page);
+    // ONCE IS AN ANECDOTE. The raise is repeated, each time with an idle
+    // interval of the same length in front of it as a control, so "the page
+    // moved when the alert fired" is a rate and not a story. Each probe
+    // carries its own key so the cooldown treats it as a new condition.
+    const repeats = [];
+    for (let i = 0; i < 4; i++) {
+      const idleA = await layout(page);
+      await sleep(900);
+      const idleB = await layout(page);
+      const pre = await layout(page);
+      await page.evaluate((n) =>
+        window.Alerts.observe({
+          kind: 'in',
+          at: Date.now(),
+          type: 'lens-lock',
+          msg: { type: 'lens-lock', ok: false, refusal: 'not-yours', detail: `eval-repeat-${n}` },
+        }), i);
+      await sleep(60);
+      const post = await layout(page);
+      repeats.push({
+        movedIdle: JSON.stringify(idleA) !== JSON.stringify(idleB),
+        movedOnRaise: JSON.stringify(pre) !== JSON.stringify(post),
+        scrollDelta: post.scrollY - pre.scrollY,
+      });
+    }
+    results.push({
+      id: 'S6',
+      task: 'an alert fires while the operator is reading the breakdown',
+      firstRelevantPaintMs: ringMs,
+      note: 'from the refusal arriving to the ring being up on the board’s edge',
+      keystrokes: 0,
+      clicks: 0,
+      // A `false` on a panel that was never open is not a reading.
+      breakdownPresent: before !== null,
+      breakdownChars: before ? before.text.length : 0,
+      breakdownPriced: bdChars >= 80,
+      cursorOn: bdSaw,
+      breakdownMoved: JSON.stringify(before && before.box) !== JSON.stringify(during && during.box),
+      breakdownScrolled: (before && before.railScrollTop) !== (during && during.railScrollTop),
+      breakdownTextChanged: (before && before.text) !== (during && during.text),
+      focusMoved: (before && before.active) !== (during && during.active),
+      focusAt: during && during.active,
+      movedAboveL2: JSON.stringify(layoutBefore) !== JSON.stringify(layoutDuring),
+      movedAfterTheCamera: JSON.stringify(layoutDuring) !== JSON.stringify(layoutAfter),
+      // The same reading over an interval nothing was raised in.
+      movedWithNoAlert: JSON.stringify(layoutIdleA) !== JSON.stringify(layoutIdleB),
+      whatMovedIdle: Object.keys(layoutIdleA).filter(
+        (k) => JSON.stringify(layoutIdleA[k]) !== JSON.stringify(layoutIdleB[k])
+      ),
+      // A boolean here is not a finding; the box that changed is.
+      whatMoved: Object.keys(layoutBefore).filter(
+        (k) => JSON.stringify(layoutBefore[k]) !== JSON.stringify(layoutDuring[k])
+      ).map((k) => ({ region: k, before: layoutBefore[k], after: layoutDuring[k] })),
+      repeats,
+      movedOnRaiseRate: `${repeats.filter((r) => r.movedOnRaise).length}/${repeats.length}`,
+      movedIdleRate: `${repeats.filter((r) => r.movedIdle).length}/${repeats.length}`,
+      ring,
+      liveRegion: ring && ring.say,
+    });
+    await ctx.close();
+  }
+
+  // ── S7 — the ladder drops to DEGRADED with a lock half-taken ────────────
+  //
+  // The arm-then-press of `02 §3.4` is the one gesture on the surface that
+  // has a middle. `03-LATENCY.md` draws a banner and a chip strip when the
+  // wire goes bad, and `06` raises an alert on the same event. The question
+  // is whether the operator who is mid-determination when all that lands
+  // still has their arm, still has their place, and still gets told whether
+  // the press they finally made arrived.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    await enter(page, GAME, 'Ladder');
+    await step();
+    await sleep(WAIT);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    // THE WIDE LOCK IS THE ONE WITH A MIDDLE. `Shift+Space` over a pin set
+    // wider than the focused unit is the set `02 §3.4` makes ARM rather than
+    // fire, and therefore the only gesture the wire can interrupt. How wide
+    // the cluster is on any given turn is the kernel's business, so the walk
+    // plays on until the chip itself says the set is wider than one — a lock
+    // measured at `pins 1 of 1` has no middle to be interrupted in.
+    let reach = null;
+    let reachChip = null;
+    for (let i = 0; i < 12 && !(reach && reach.of > 1); i++) {
+      await page.keyboard.press('Escape');
+      await sleep(250);
+      await focusUnit(page, 0);
+      await sleep(400);
+      const readReach = async () =>
+        page.evaluate(() => {
+          const text = (document.getElementById('lensControls') || {}).innerText || '';
+          const m = /pins\s+(\d+)\s+of\s+(\d+)/.exec(text);
+          return { reach: m ? { pins: Number(m[1]), of: Number(m[2]) } : null, chip: text.replace(/\s+/g, ' ').slice(0, 90) };
+        });
+      let r = await readReach();
+      // The count is drawn only where it is true (`05` P-2), so a chip that
+      // does not carry one is a cursor with nothing under it: put the
+      // answered candidate there and read again before stepping the turn.
+      // The count is drawn only where it is true (`05` P-2), so a chip with
+      // no count is a cursor with nothing under it: put the answered
+      // candidate there and read again before spending a turn.
+      if (!r.reach) {
+        await selectAnsweredCandidate(page, 'red-A');
+        await sleep(400);
+        r = await readReach();
+      }
+      reach = r.reach;
+      reachChip = r.chip;
+      if (reach && reach.of > 1) break;
+      await step();
+      await sleep(WAIT);
+    }
+    const controls = () =>
+      page.evaluate(() => ({
+        text: (document.getElementById('lensControls') || {}).innerText || '',
+        armed: !!document.querySelector('.lens-aff-armed'),
+        ladder: window.LatencyView ? window.LatencyView.read().state : null,
+      }));
+    // ARM THE MULTI-UNIT LOCK. `Space` alone stages the candidate under the
+    // cursor — `05` P-2 settled that — so the gesture with a middle to be
+    // interrupted is `Shift+Space`, the moveset lock of `02 §3.4`, which
+    // re-reads the chip rather than firing when its pin set is wider than
+    // the focused unit.
+    await page.keyboard.press('Shift+Space');
+    await sleep(600);
+    const armed = await controls();
+    const layoutBefore = await layout(page);
+    // Now break the wire under it. `/dev/wire` is the harness's runtime
+    // setter; the socket the page already holds keeps working across it.
+    const t0 = Date.now();
+    await fetch(`${BASE}/dev/wire`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ latency: 900, jitter: 60 }),
+    });
+    let degradedMs = null;
+    let sawState = null;
+    for (let i = 0; i < 60 && degradedMs === null; i++) {
+      await step().catch(() => {});
+      const st = await page.evaluate(() => (window.LatencyView ? window.LatencyView.read().state : null));
+      sawState = st;
+      if (st === 'DEGRADED' || st === 'STALE') degradedMs = Date.now() - t0;
+      else await sleep(150);
+    }
+    const underLoad = await controls();
+    const layoutAfter = await layout(page);
+    await shot(page, 's7-degraded-armed', 'S7 — the ladder at DEGRADED with a lock still armed under it', '.lens-rail');
+    // The second press, on a wire that now costs something. What matters is
+    // that the operator is TOLD what became of it — `03 §3.4`'s whole point:
+    // a gesture that was on screen and is now not is a silent rollback.
+    const t1 = Date.now();
+    await page.keyboard.press('Shift+Space');
+    await sleep(1200);
+    const after = await controls();
+    const chip = await page.evaluate(() => {
+      const chips = [...document.querySelectorAll('.lat-cmd')].map((c) => c.innerText.replace(/\s+/g, ' '));
+      return { chips, overlay: !!document.querySelector('.lat-overlay') };
+    });
+    await fetch(`${BASE}/dev/wire`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    results.push({
+      id: 'S7',
+      task: 'the wire drops to DEGRADED while a multi-unit lock is armed',
+      degradedMs,
+      ladderReached: sawState,
+      keystrokes: 2,
+      clicks: 2,
+      lockReach: reach,
+      lockChipSeen: reachChip,
+      armedBefore: armed.armed,
+      armedSurvived: underLoad.armed,
+      armText: armed.text.replace(/\s+/g, ' ').slice(0, 120),
+      underLoadText: underLoad.text.replace(/\s+/g, ' ').slice(0, 120),
+      afterText: after.text.replace(/\s+/g, ' ').slice(0, 120),
+      commitMs: Date.now() - t1,
+      // `03 §3.3`: the ladder's strip is an overlay out of flow, so a page
+      // that goes bad must not also jump.
+      movedAboveL2: JSON.stringify(layoutBefore) !== JSON.stringify(layoutAfter),
+      layoutBefore,
+      layoutAfter,
+      commandChips: chip.chips.slice(-6),
+    });
+    await ctx.close();
+  }
+
+  // ── S8 and S9 — the review, and the strip it opens on ───────────────────
+  //
+  // The journey `07 §1.1` names: open a finished game, see at once where it
+  // was decided, jump there. Today's baseline for it is the one the document
+  // measures against — a typed turn number over a 118-turn scrub — so what is
+  // timed here is what the strip replaced it with.
+  {
+    // A game with something in it to find. The strip's own rules are
+    // categorical about deaths, so the index has a fact to be right about.
+    // A LONG GAME, because the strip's whole claim is about a game nobody
+    // wants to scrub. `07 §1.1` prices the journey against 118 turns; a
+    // fifteen-turn game would flatter the index and would not exercise the
+    // `clamp(4, turns/6, 24)` cut at all.
+    await fetch(`${BASE}/dev/steps?n=100`, { method: 'POST' }).catch(() => {});
+    await sleep(2500);
+    const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+    const page = await ctx.newPage();
+    const t0 = Date.now();
+    await page.goto(`${BASE}/history`, { waitUntil: 'domcontentloaded' });
+    await sleep(WAIT);
+    const rows = await page.$$('.open-review');
+    const tOpen = Date.now();
+    if (rows[0]) await rows[0].click();
+    // The index pass first, the bounded deep pass behind it.
+    let stripMs = null;
+    for (let i = 0; i < 80 && stripMs === null; i++) {
+      const cells = await page.evaluate(() => document.querySelectorAll('.rv-cell').length);
+      if (cells > 0) stripMs = Date.now() - tOpen;
+      else await sleep(100);
+    }
+    let verdictMs = null;
+    for (let i = 0; i < 80 && verdictMs === null; i++) {
+      const v = await page.evaluate(() => (document.getElementById('rvVerdict') || {}).innerText || '');
+      if (/DECIDED AT TURN\s+\d+/i.test(v)) verdictMs = Date.now() - tOpen;
+      else await sleep(100);
+    }
+    await sleep(WAIT * 2);
+    const strip = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll('.rv-cell')];
+      const box = (el) => {
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      };
+      return {
+        cells: cells.length,
+        order: cells.map((c) => Number(c.dataset.turn)),
+        boxes: cells.map(box),
+        glyphs: cells.map((c) => c.textContent.trim()),
+        labelled: cells.filter((c) => (c.getAttribute('aria-label') || '').length > 0).length,
+        // BRIGHTNESS IS THE CUT. `07 §1.2` keeps every hit on the strip and
+        // uses `rv-w1` for the ones the ranking did not keep, so "marked" is
+        // not the reading — "kept" is, and the two are only separable by the
+        // class the cell was given.
+        weights: cells.reduce((acc, c) => {
+          const w = [...c.classList].find((k) => /^rv-(w[1-4]|none|unread)$/.test(k)) || 'rv-plain';
+          acc[w] = (acc[w] || 0) + 1;
+          return acc;
+        }, {}),
+        smallestTargetPx: Math.min(...cells.map((c) => {
+          const r = c.getBoundingClientRect();
+          return Math.min(r.width, r.height);
+        })),
+        // WCAG 2.5.8's spacing exception: an undersized target passes if a
+        // 24 px circle centred on it meets no other target's circle. On a
+        // row of cells that is the horizontal pitch, so it is measured
+        // rather than argued.
+        pitchPx: cells.length > 1
+          ? Math.round(cells[1].getBoundingClientRect().x - cells[0].getBoundingClientRect().x)
+          : null,
+        moments: document.querySelectorAll('.rv-moment').length,
+        verdict: (document.getElementById('rvVerdict') || {}).innerText || '',
+        read: (document.getElementById('rvRead') || {}).innerText || '',
+        tag: document.querySelector('.rv-cell') ? document.querySelector('.rv-cell').tagName : null,
+      };
+    });
+    await shot(page, 's8-review', 'S8 — a finished game, opened: the strip, the index and the why panel');
+    await shot(page, 's9-strip', 'S9 — the moments strip: one cell per stored turn, glyph first', '.rv-stripwrap');
+    // JUMPING. `j` is one moment; the baseline it replaces is a typed turn
+    // number, so what is counted is presses to the deciding turn.
+    const at = () =>
+      page.evaluate(() => ({
+        turn: (document.getElementById('rvTurn') || {}).innerText || '',
+        idx: [...document.querySelectorAll('.rv-moment')].findIndex((m) => m.classList.contains('rv-at')),
+      }));
+    const startedAt = await at();
+    const tJ = Date.now();
+    await page.keyboard.press('j');
+    await sleep(700);
+    const afterJ = await at();
+    const jumpMs = Date.now() - tJ;
+    // P3, ON THE ONE SURFACE THAT IS A LIST OF EVERY TURN AT ONCE: walking it
+    // may not re-order it and may not move a cell under the cursor.
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('j');
+      await sleep(250);
+    }
+    const afterWalk = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll('.rv-cell')];
+      const box = (el) => {
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      };
+      return { order: cells.map((c) => Number(c.dataset.turn)), boxes: cells.map(box) };
+    });
+    results.push({
+      id: 'S8',
+      task: 'a finished game, judged: from /history to a turn that decided it',
+      listMs: tOpen - t0,
+      firstRelevantPaintMs: stripMs,
+      note: 'from the click on a /history row to the first cell of the strip on screen',
+      verdictMs,
+      clicks: 1,
+      keystrokes: 1,
+      keysToDecidingTurn: 1,
+      verdict: strip.verdict.replace(/\s+/g, ' ').slice(0, 120),
+      readInFull: strip.read.replace(/\s+/g, ' ').slice(0, 80),
+      momentsIndexed: strip.moments,
+      turns: strip.cells,
+      jumpMs,
+      jumped: afterJ.idx !== startedAt.idx,
+    });
+    results.push({
+      id: 'S9',
+      task: 'the moments strip: what one glance at a whole game costs',
+      cells: strip.cells,
+      distinctGlyphs: [...new Set(strip.glyphs)],
+      marked: strip.glyphs.filter((g) => g !== '·').length,
+      quiet: strip.glyphs.filter((g) => g === '·').length,
+      weights: strip.weights,
+      keptOnTheStrip: Object.entries(strip.weights)
+        .filter(([k]) => /^rv-w[2-4]$/.test(k))
+        .reduce((n, [, v]) => n + v, 0),
+      belowTheCut: strip.weights['rv-w1'] || 0,
+      everyCellLabelled: strip.labelled === strip.cells,
+      // `04` F4's finding was a canvas nobody could reach with a key.
+      element: strip.tag,
+      smallestTargetPx: strip.smallestTargetPx,
+      pitchPx: strip.pitchPx,
+      // WCAG 2.5.8 (AA, 2.2) wants 24 px, OR undersized targets spaced so a
+      // 24 px circle on each meets no other's.
+      meets24px: strip.smallestTargetPx >= 24,
+      meetsSpacingException: strip.pitchPx !== null && strip.pitchPx >= 24,
+      reordersUnderCursor: JSON.stringify(strip.order) !== JSON.stringify(afterWalk.order),
+      movesUnderCursor: JSON.stringify(strip.boxes) !== JSON.stringify(afterWalk.boxes),
+    });
+    await ctx.close();
+  }
+
+  out.suites.newSurfaces = results;
+  for (const r of results) console.log(`  · ${r.id} — ${r.task}`);
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
@@ -1542,10 +2205,45 @@ async function main() {
   await context.close();
   if (want('a11y')) await a11y(browser);
   if (want('density')) await density(browser);
+  if (want('newSurfaces')) await newSurfaces(browser);
 
-  fs.writeFileSync(path.join(OUT, 'eval-report.json'), JSON.stringify(out, null, 2));
+  // ONE REPORT, WHETHER OR NOT THE SUITES RAN IN ONE PROCESS. The four
+  // original suites and the fifth take about eleven minutes together, which
+  // is longer than some runners allow, so `--suite=` is a real way to run
+  // this — and a run that silently replaced the other four suites' findings
+  // with an empty object would be the worst kind of evidence. A partial run
+  // merges into whatever is already beside it and says which suites it
+  // wrote; a full run replaces everything it produced.
+  const reportPath = path.join(OUT, 'eval-report.json');
+  let merged = out;
+  if (SUITE !== 'all' && fs.existsSync(reportPath)) {
+    try {
+      const prior = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+      const keep = (prior.shots || []).filter(
+        (p) => !out.shots.some((n) => n.name === p.name)
+      );
+      merged = {
+        ...prior,
+        ...out,
+        suites: { ...(prior.suites || {}), ...out.suites },
+        shots: [...keep, ...out.shots],
+      };
+    } catch (_e) {
+      /* an unreadable prior report is not a reason to lose this run */
+    }
+  }
+  merged.ranAt = new Date().toISOString();
+  merged.ranSuites = SUITE;
+  // WHICH SERVER EACH SUITE WAS TAKEN AGAINST. `newSurfaces` needs a game
+  // that is BOTH young (S7's cluster has to be wider than one unit for the
+  // lock to have a middle) and old (S9's strip is a claim about a game
+  // nobody wants to scrub, and it plays 100 turns to get one), so it takes a
+  // fresh harness of its own the way `scripts/alerts-drill.js` takes one per
+  // scene. Running it behind the other four ages the game past both.
+  merged.ports = { ...(merged.ports || {}), [SUITE]: PORT };
+  fs.writeFileSync(reportPath, JSON.stringify(merged, null, 2));
   console.log(`\nreport → ${path.join(OUT, 'eval-report.json')}`);
-  const over = out.shots.filter((s) => s.bytes > 300000);
+  const over = merged.shots.filter((s) => s.bytes > 300000);
   if (over.length) console.error(`OVER BUDGET: ${over.map((s) => s.name).join(', ')}`);
   await browser.close();
 }
