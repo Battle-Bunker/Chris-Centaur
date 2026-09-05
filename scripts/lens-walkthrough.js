@@ -859,7 +859,9 @@ async function main() {
       all: window.Tour ? window.Tour.steps() : null,
       card: (document.querySelector('.tour-card') || {}).innerText || null,
       link: !!document.querySelector('[data-tour-open]'),
-      done: (() => { try { return localStorage.getItem('lensTourDone'); } catch (e) { return null; } })(),
+      // The completion is a PREFERENCE now (12 §4), read through the store
+      // rather than off a key of the tour's own.
+      done: window.Prefs ? window.Prefs.get('tour.doneVersion') : null,
     }));
 
   await page.keyboard.press('Escape');
@@ -976,7 +978,7 @@ async function main() {
       seq: [before.seq, after.seq],
     }
   );
-  tourCheck('it closes on the last Enter and remembers it', closed.open === false && closed.done !== null, {
+  tourCheck('it closes on the last Enter and remembers it', closed.open === false && closed.done === '1', {
     open: closed.open, done: closed.done,
   });
 

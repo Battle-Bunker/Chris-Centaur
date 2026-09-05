@@ -468,6 +468,10 @@
 }
 .lat-num[data-grade="warn"] { color: var(--lat-num-warn); }
 .lat-num[data-grade="bad"] { color: var(--lat-num-bad); }
+/* THE FOUR NUMBERS ARE OPTIONAL AND THE STATE WORD IS NOT (12 §2.3, the
+   wire.numbers preference): an operator who steers by the dot and the clock
+   can put the digits away, and what a glance has to answer stays on screen. */
+.lat[data-nums="off"] .lat-nums { display: none; }
 /* The overlay: out of flow, so nothing below it moves when it appears. */
 .lat-over {
   position: absolute; top: 29px; right: 0; width: var(--lat-over-w); z-index: var(--z-lat-over);
@@ -558,6 +562,7 @@
       '<div class="lat-over"><div class="lat-banner"></div><div class="lat-cmds"></div></div>' +
       '</div>';
     root = mount.querySelector('.lat');
+    applyNumbersPref();
     el.fill = mount.querySelector('.lat-clock-fill');
     el.safe = mount.querySelector('.lat-clock-safe');
     el.state = mount.querySelector('.lat-state');
@@ -567,6 +572,14 @@
     el.banner = mount.querySelector('.lat-banner');
     el.cmds = mount.querySelector('.lat-cmds');
     return true;
+  }
+
+  /** THE ONE PREFERENCE THIS SURFACE HAS (docs/design/ux/12-PREFERENCES.md
+   *  §2.3). A page with no store shows the numbers, which is what shipped. */
+  function applyNumbersPref() {
+    if (!root) return;
+    const P = global.Prefs && typeof global.Prefs.get === 'function' ? global.Prefs : null;
+    root.setAttribute('data-nums', !P || P.get('wire.numbers') !== false ? 'on' : 'off');
   }
 
   /** Write only what changed. Nothing here reads geometry — the whole surface
@@ -867,6 +880,11 @@
     }
     if (pinger === null) pinger = global.setInterval(sendPing, PING_INTERVAL_MS);
     ensureMount();
+    if (global.Prefs && typeof global.Prefs.subscribe === 'function') {
+      global.Prefs.subscribe((ids) => {
+        if (ids.indexOf('wire.numbers') >= 0) applyNumbersPref();
+      });
+    }
     installPanelWriteGuard(['lensRail', 'lensLane']);
     draw();
     return true;
