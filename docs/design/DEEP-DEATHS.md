@@ -297,3 +297,29 @@ per-feature breakdowns; `rung/`, `rung2/` the same with a lens on both arms;
 `room/` the `room` term on the played plan for all 2 160 `(turn, team)`
 evaluations; `rule/` the refuted headroom sweep. **Nothing in `src/` is changed
 by this document.**
+
+---
+
+## 10. STATUS — the rule implemented and measured (`survival-degree`)
+
+### 10.1 The baseline, at both budgets
+
+The `budget` worker's 96 outcome recordings reproduce BYTE FOR BYTE at this
+head — `mixed` seed 1 at 1× and `potions` seed 3 at 4× re-run here match on
+every game counter, on `deathsByCause`, and on `work` (`nodes`, `reads`,
+`slices`, `worstDecisionNodes`) — so they are reused as the baseline rather
+than re-run, and only `sparse-lean` (which that study did not carry) was
+recorded fresh.
+
+| class | budget | deaths | self-inflicted | meals | meals/100 | causes |
+|---|---|--:|--:|--:|--:|---|
+| `mixed` 1–6 | 1× | **14** | 3 | 446 | 18.108 | contest 11, bodyBlock 2, self 1 |
+| | 4× | **16** | 7 | 460 | 20.149 | contest 9, bodyBlock 4, edge 1, self 1, wall 1 |
+| `potions` 1–6 | 1× | **14** | 2 | 462 | 19.115 | contest 12, bodyBlock 2 |
+| | 4× | **22** | 9 | 476 | 21.278 | contest 13, bodyBlock 4, edge 3, self 2 |
+| `snakes` 1–3 | 1× / 4× | 7 / 7 | 7 / 7 | 157 / 157 | 16.236 | bodyBlock 4, self 3 (identical) |
+| `sparse` 1–3 | 1× / 4× | 0 / 0 | 0 | 52 / 52 | 7.222 | — (identical) |
+| `sparse-lean` 1–3 | 1× / 4× | 0 / 0 | 0 | 45 / 45 | 6.250 | — (identical) |
+
+§1's table is reproduced exactly, which is what licenses the falsifier in §7 to
+be read against these numbers.
