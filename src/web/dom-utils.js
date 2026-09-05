@@ -83,6 +83,21 @@
     return Math.floor(ms / 86400000) + 'd ago';
   }
 
+  // The other half of gameUrl(): the page that RECEIVES `/game/<id>#turn=<n>`
+  // has to honour it. replay-deeplink.js does that, and it is attached from
+  // here — on the viewer only, once — rather than from a <script> tag in
+  // play-game.html, whose chrome belongs to another workstream this cycle.
+  // When that chrome next changes hands, this loader becomes one <script>
+  // line there and this block goes away.
+  function attachReplayDeepLink() {
+    if (typeof document === 'undefined') return;
+    if (!/^\/game\/[^/]+/.test(global.location.pathname)) return;
+    if (global.ReplayDeepLink || document.querySelector('script[src="/replay-deeplink.js"]')) return;
+    const s = document.createElement('script');
+    s.src = '/replay-deeplink.js';
+    document.head.appendChild(s);
+  }
+
   const api = { escapeHtml, fmtTime, fmtDur, fmtAgo, openGame, gameUrl, safeColor };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
@@ -95,5 +110,6 @@
     global.openGame = openGame;
     global.gameUrl = gameUrl;
     global.safeColor = safeColor;
+    attachReplayDeepLink();
   }
 })(typeof window !== 'undefined' ? window : globalThis);

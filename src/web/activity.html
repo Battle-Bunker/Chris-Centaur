@@ -55,7 +55,16 @@
       background: var(--panel-2); border: 1px solid var(--line);
       border-radius: 8px; position: relative;
     }
-    #chart { display: block; width: 100%; height: 300px; cursor: grab; touch-action: none; }
+    /* The chart is the page; it takes the room the page has. It was a fixed
+       260 px band in a 900 px viewport with ~45 % of the screen left empty
+       (04-SECONDARY-SCREENS F4), and every band and marker was drawn smaller
+       than it needed to be. Bounded at both ends so it stays a timeline on a
+       laptop and does not become a wall on a monitor; `window.resize` already
+       redraws. */
+    #chart {
+      display: block; width: 100%; cursor: grab; touch-action: none;
+      height: clamp(300px, calc(100vh - 340px), 620px);
+    }
     #chart.dragging { cursor: grabbing; }
     #chart:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 8px; }
     /* Fixed, not absolute-inside-an-overflow-hidden-box: the old tooltip was
@@ -374,6 +383,20 @@
       ctx.textBaseline = 'alphabetic';
     }
 
+    /**
+     * The one place the chart's vertical geometry is decided, so the drawing
+     * and the hit-testing cannot drift apart. The band FILLS the canvas
+     * rather than sitting as a fixed 168 px strip inside it — the chart is
+     * sized to the viewport now, and a fixed band would only have added empty
+     * canvas beneath it (04-SECONDARY-SCREENS F4). The top 92 px belong to the
+     * legend and the marker stems; the bottom 24 to the time axis.
+     */
+    function bandGeom(h) {
+      const axisY = h - 24;
+      const top = 92;
+      return { top, height: Math.max(120, axisY - top - 10), axisY };
+    }
+
     function draw() {
       resizeCanvas();
       const rect = canvas.getBoundingClientRect();
@@ -381,8 +404,7 @@
       ctx.clearRect(0, 0, w, h);
       markerHits = [];
 
-      const bandTop = 92, bandH = 168;
-      const axisY = h - 24;
+      const { top: bandTop, height: bandH, axisY } = bandGeom(h);
 
       // Grid / time axis
       const stepMs = niceTickStep(viewEnd - viewStart, Math.max(3, Math.floor(w / 140)));
@@ -591,7 +613,8 @@
     }
 
     function segmentAt(ts, my) {
-      if (my < 92 || my > 260) return null;
+      const g = bandGeom(canvas.getBoundingClientRect().height);
+      if (my < g.top || my > g.top + g.height) return null;
       for (const p of periods) {
         if (!p.endKnown && p.deadUntil != null && ts > p.end && ts <= p.deadUntil) {
           return { deadGap: true, start: p.end, end: p.deadUntil, period: p };

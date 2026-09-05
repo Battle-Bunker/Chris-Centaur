@@ -76,10 +76,6 @@
     let reconnectTimer = null;
 
     function setStatus(phase, event) {
-      // Optional: the lobby renders its connection state as a header chip
-      // (page-chrome.js, fed by idle-watcher through ServerStatusBadge) and
-      // has no pill of its own, so it passes no element.
-      if (!statusEl) return;
       const override = statusText && statusText(phase, event);
       statusEl.textContent = override != null ? override : DEFAULT_STATUS_TEXT[phase];
       statusEl.className =

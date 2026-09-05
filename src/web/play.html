@@ -146,7 +146,12 @@
     // Shared connect/status/reconnect/idle-close lifecycle from ws-client.js;
     // only the lobby-specific pieces are configured here.
     const wsClient = window.WSClient.create({
-      statusEl: null,
+      // ws-client.js writes each phase into whatever element it is handed, and
+      // it belongs to another workstream this cycle. The lobby has no status
+      // pill of its own — its connection reading is the header chip, driven by
+      // idle-watcher through ServerStatusBadge → PageChrome.setSocket — so it
+      // hands the factory a detached sink rather than a null it must guard.
+      statusEl: document.createElement('span'),
       subscribeMessage: () => ({ type: 'subscribe-lobby' }),
       onMessage: (msg) => {
         if (msg.type === 'debug-hello') {

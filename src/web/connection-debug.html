@@ -106,6 +106,14 @@
   <script src="/dom-utils.js"></script>
   <script src="/page-chrome.js"></script>
   <script>
+    // Same declaration the other socket-less screens make (04 §1 F5): this
+    // page reads the connection LOG over HTTP; it holds no socket of its own,
+    // and a blank status area would read as "healthy".
+    window.PageChrome.setSocketAbsent(
+      'The debugger reads /api/connection-log/recent over HTTP. It holds no ' +
+      'socket itself — the connections it lists are other pages\u2019.'
+    );
+
     const rowsEl = document.getElementById('rows');
     const statsEl = document.getElementById('stats');
     const logFilePathEl = document.getElementById('logFilePath');
@@ -128,8 +136,14 @@
       'client-page-hidden','client-page-visible','client-page-unload'
     ]);
 
+    // A count the server did not send is UNKNOWN, and unknown is a dash. It
+    // used to render the word `undefined` seven times across the fold, which
+    // reads as a broken page rather than as a quiet one.
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : '—');
+
     function renderStats(stats) {
-      logFilePathEl.textContent = 'Log file: ' + (stats.logFilePath || '');
+      logFilePathEl.textContent =
+        'Log file: ' + (stats.logFilePath || '(not reported by this server)');
       const cards = [
         ['Active server conns', stats.activeServerConnections],
         ['Server connects', stats.serverConnects],
@@ -142,7 +156,7 @@
       statsEl.innerHTML = cards.map(([label, value]) => `
         <div class="stat-card">
           <div class="stat-label">${label}</div>
-          <div class="stat-value">${value}</div>
+          <div class="stat-value">${num(value)}</div>
         </div>
       `).join('');
     }

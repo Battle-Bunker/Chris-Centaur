@@ -42,6 +42,13 @@
   var current = null;      // the PAGES entry for this document
   var statusEl = null;     // the chip row
   var chips = {};          // key -> element
+  // key -> the last chip() call for it. A page's inline script runs while the
+  // document is still parsing, so it asks for its chips BEFORE the header
+  // exists; without this the reading is dropped and the one page that has no
+  // socket is the one that ends up saying nothing about it — which is exactly
+  // the silence F5 is about. Every reading is remembered and replayed into
+  // the header the moment there is one.
+  var chipState = {};
   var extraKeys = [];      // page-registered handlers
   var listState = null;    // set up by PageChrome.list()
 
@@ -53,6 +60,7 @@
   var GLYPH = { ok: '●', warn: '◐', bad: '✕', unknown: '○' };
 
   function chip(key, tone, word, title, href) {
+    chipState[key] = [key, tone, word, title, href];
     if (!statusEl) return null;
     var el = chips[key];
     if (!el) {
@@ -155,6 +163,10 @@
     });
     statusEl = header.querySelector('.chrome-status');
     chips = {};
+    // Replay whatever the page already told us, in the order it told us.
+    var pending = chipState;
+    chipState = {};
+    Object.keys(pending).forEach(function (k) { chip.apply(null, pending[k]); });
   }
 
   /* ── The key sheet ─────────────────────────────────────────────────────── */

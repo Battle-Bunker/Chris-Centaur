@@ -232,7 +232,37 @@ function main(): void {
   app.post('/api/firebase-retry', (_req, res) =>
     res.json({ state: 'connected', error: null, since: Date.now() })
   );
-  app.get('/api/connection-log/recent', (_req, res) => res.json({ events: [], logFile: '(harness)' }));
+  // Shape-exact for `routes/connection-debug.ts`: `{ stats, events }`. The
+  // page reads `stats.*` by name, so a fixture that sent neither made every
+  // tile on /connection-debug read `undefined` and photographed as a broken
+  // page. A short, realistic stream — one idle close, one error — is enough
+  // to exercise the row colouring as well as the counts.
+  app.get('/api/connection-log/recent', (_req, res) => {
+    const t = Date.now();
+    res.json({
+      stats: {
+        logFilePath: '/tmp/ws-connections.log  (harness)',
+        activeServerConnections: 2,
+        serverConnects: 9,
+        serverDisconnects: 7,
+        serverErrors: 1,
+        clientOpens: 9,
+        clientCloses: 7,
+        clientErrors: 1,
+      },
+      events: [
+        { ts: t - 9 * 60_000, side: 'server', type: 'server-connect', connId: 'srv-7f21c0', ip: '10.0.0.4' },
+        { ts: t - 9 * 60_000, side: 'client', type: 'client-open', connId: 'cli-31aa9e', serverConnId: 'srv-7f21c0' },
+        { ts: t - 8 * 60_000, side: 'server', type: 'server-subscribe', connId: 'srv-7f21c0', gameId: 'live-mixed' },
+        { ts: t - 4 * 60_000, side: 'server', type: 'server-error', connId: 'srv-4c0b13', message: 'read ECONNRESET' },
+        { ts: t - 3 * 60_000, side: 'client', type: 'client-idle-close', connId: 'cli-31aa9e', code: 4001,
+          reason: 'idle: no board in 10m', durationMs: 6 * 60_000 },
+        { ts: t - 2 * 60_000, side: 'server', type: 'server-idle-close', connId: 'srv-7f21c0', code: 4001,
+          reason: 'idle sweep', durationMs: 7 * 60_000 },
+        { ts: t - 60_000, side: 'client', type: 'client-reconnect-attempt', connId: 'cli-31aa9e' },
+      ],
+    });
+  });
   app.post('/api/connection-log/client', (_req, res) => res.json({ ok: true }));
 
   const httpServer = createServer(app);
