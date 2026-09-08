@@ -386,3 +386,60 @@ Everything in `01 §5` about *what an operator actually does in the seat* —
 whether they watch or intervene, whether `Space` is pressed in anger, whether a
 pin has ever been regretted, whether a second operator ever plays — remains
 open. This document measured the interface. It did not measure an operator.
+
+---
+
+### Addendum, 2026-09-08 — four fixes, photographed
+
+Four small repairs to the shipped page, each inside a boundary this document
+already drew. Evidence: `eval/ui-fixes-2026-09-08/`.
+
+* **One naming boundary.** Unit keys on the wire are `<playerId>#<n>` — twenty
+  opaque characters and a slot — and every `*HTML` producer in
+  `src/web/lens-panel.js` printed them raw. The panel now takes a resolver
+  (`LensPanel.setNames`) and passes producer TEXT, never attributes, through
+  it, so handlers keep looking units up by key while the operator reads the
+  roster's own words. `play-game.html` supplies the roster name and letter from
+  `snakeLastSeen`, appending the letter only when the name does not already end
+  in it — the harness names units `red C`, and "red C C" is worse than the key
+  it replaced. Proved through the real producer: a `panel.movesets.fixed` call
+  on key `a1b2c3d4e5f6a7b8#3` renders `🔒 Chris C → 96 staged (Ada)`, with no
+  key left in text. In the walkthrough the ids are already human, so
+  `eval/ui-fixes-2026-09-08/rail-human-names.png` shows the state where the
+  substitution applies — the movesets fixed strip — carrying **no** key of
+  twelve characters or more anywhere in the rail's visible text.
+* **One clock.** The latency strip drew its own depleting bar, notch and
+  jitter band, saying the same thing as L0 on the board's edge a hand's width
+  away. The strip's copy is gone; the band it alone measured now draws into
+  `#turnClockBand` inside `#turnClock`. `eval/ui-fixes-2026-09-08/header-one-clock.png`
+  is the strip and the board edge in one frame: no clock in the strip
+  (`.lat-clock*` count 0 in the live DOM), one bar on the edge, driven to 60 %
+  of a 1500 ms budget with the last-safe-press notch drawn. The band is absent
+  because the local wire has no jitter to draw — which is what a steady wire
+  is supposed to look like. The wire-state word and all four number cells now
+  carry titles ("Round trip browser ↔ Centaur, from pings"; "Age of the newest
+  decision frame from the Centaur"; "Age of the newest board from the game
+  server"; "Game server → Centaur lag, when the server reports its own clock"),
+  read back from the live page rather than asserted.
+* **A historic turn shows that turn.** The event log stamps events with the
+  BOARD turn, which does not advance until the next board arrives, so intent
+  filed after a turn's expiry replayed as if it had happened inside it.
+  `historicFrameFor` now folds only to the last event at or before the turn's
+  `turnExpiryTime`, from the turn's own `board.arrived` payload; a log without
+  an arrival keeps the old reading.
+* **No rollover flicker.** The rail, lane, stage line, chip row and unit status
+  were `innerHTML` rebuilds on every frame — a few hundred nodes torn down and
+  re-entered at each turn, restarting every enter animation on content that had
+  not moved. `setHTML` keeps the last markup per element, returns at once when
+  it is unchanged, and otherwise replaces only the top-level children whose
+  markup differs.
+
+**Gates**, all green on this tree: `npx tsc --noEmit -p .`; `npx eslint
+src/**/*.ts src/web/*.js scripts/*.js` (0 errors); `npm run build:lens`;
+`npx jest --maxWorkers=2 "src/tests/lens-" "src/lobster/__tests__/lens-"
+src/tests/local-game-determinism.test.ts` — 22 suites, 353 tests. Drills:
+`scripts/lens-walkthrough.js` (all steps, 0 page exceptions, 0 overflow),
+`scripts/alerts-drill.js` 46/46, `scripts/input-drill.js` 38/38, and
+`scripts/latency-sim.js` over all five wire profiles — 0 late presses under
+every one, which is the number the notch exists to hold at zero. None of the
+four changes moved a drill's selectors or its assertions.

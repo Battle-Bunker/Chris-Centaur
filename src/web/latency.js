@@ -883,36 +883,6 @@
 #latency-mount { position: relative; width: 100%; height: 26px; margin: 0 0 var(--space-4); font-size: var(--size-11); color: var(--lat-mount-ink); }
 .lat { position: absolute; left: 0; right: 0; top: 0; }
 .lat-head { display: flex; flex-direction: column; gap: var(--space-3); }
-.lat-clock {
-  position: relative; height: 5px; border-radius: var(--radius-2); overflow: hidden;
-  background: var(--lat-track-bg); box-shadow: inset 0 0 0 1px var(--lat-track-line);
-}
-/* Motion and brightness, which is what the periphery can read: the bar
-   shortens as the turn runs out and its fill brightens as it does. */
-.lat-clock-fill {
-  position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--clock-run);
-}
-.lat[data-clock="warn"] .lat-clock-fill { background: var(--clock-warn); }
-.lat[data-clock="urgent"] .lat-clock-fill { background: var(--clock-urgent); }
-.lat[data-clock="past"] .lat-clock-fill { background: var(--clock-past); }
-/* THE LAST SAFE PRESS: where the countdown stops being a countdown you can
-   act inside. A notch and not a colour, so it survives the fill under it. */
-.lat-clock-safe {
-  position: absolute; top: -1px; bottom: -1px; width: 2px; left: 100%;
-  background: var(--clock-notch); display: none;
-}
-.lat-clock-safe.on { display: block; }
-/* THE BAND. The press cost is a distribution and the notch is its confident
-   end; this is the spread between that and the usual press, so an operator
-   can see HOW UNCERTAIN the mark is and not only where it is. It is drawn
-   under the fill's own tone rather than over it — uncertainty is not
-   urgency — and it disappears entirely when the two ends agree, which is
-   what a steady wire looks like. */
-.lat-clock-band {
-  position: absolute; top: 0; bottom: 0; left: 100%; width: 0%;
-  background: var(--clock-band); display: none;
-}
-.lat-clock-band.on { display: block; }
 .lat-line { display: flex; align-items: center; gap: var(--space-6); white-space: nowrap; height: 15px; }
 /* WHERE THE TURN'S TIME WENT — inside the line that already exists, in the
    horizontal space between the state word and the numbers, so the strip's
@@ -1056,10 +1026,12 @@
     mount.innerHTML =
       '<div class="lat" data-state="LIVE" data-clock="idle">' +
       '<div class="lat-head">' +
-      '<div class="lat-clock"><div class="lat-clock-fill"></div>' +
-      '<div class="lat-clock-band"></div><div class="lat-clock-safe"></div></div>' +
+      // NO CLOCK HERE. The depleting bar and the last-safe-press notch are the
+      // page's L0 clock on the board's own edge (`#turnClock`, fed from
+      // `read()`); a second copy in this strip said the same thing twice. This
+      // module keeps only the jitter BAND, which it draws onto that clock.
       '<div class="lat-line"><span class="lat-dot"></span>' +
-      '<span class="lat-state">—</span>' +
+      '<span class="lat-state" title="Wire state: DISCONNECTED → STALE → DEGRADED → THINKING → LIVE, from the round trip and the age of the newest frame and board">—</span>' +
       // BUILT ONCE, LIKE THE FOUR NUMBERS. Eight segments and twelve history
       // bars, created at mount and only ever written into afterwards: these
       // change on every turn, and an `innerHTML` that rebuilds twenty nodes
@@ -1076,7 +1048,7 @@
       // second for the life of the session. The markup below is character for
       // character what `numsHTML` used to produce; `drawNums` now writes the
       // value text and the grade attribute in place.
-      NUM_CELLS.map((c) => `<span class="lat-num" data-grade="none">${c.label}&nbsp;<span class="lat-v">—</span></span>`).join('') +
+      NUM_CELLS.map((c) => `<span class="lat-num" data-grade="none" title="${c.title}">${c.label}&nbsp;<span class="lat-v">—</span></span>`).join('') +
       '</span>' +
       '<span class="lat-hist">' +
       new Array(HISTORY_TURNS).fill(0).map(() => '<i class="lat-bar" style="height:1px"></i>').join('') +
@@ -1088,8 +1060,6 @@
       '</div>';
     root = mount.querySelector('.lat');
     applyNumbersPref();
-    el.fill = mount.querySelector('.lat-clock-fill');
-    el.safe = mount.querySelector('.lat-clock-safe');
     el.state = mount.querySelector('.lat-state');
     el.nums = mount.querySelector('.lat-nums');
     el.num = Array.prototype.slice.call(mount.querySelectorAll('.lat-num'));
@@ -1098,7 +1068,9 @@
     el.why = mount.querySelector('.lat-why');
     el.advice = mount.querySelector('.lat-advice');
     el.cmds = mount.querySelector('.lat-cmds');
-    el.band = mount.querySelector('.lat-clock-band');
+    // The band lives on the page's L0 clock; a page without one (a bare
+    // drill mount) gets a detached element and no band.
+    el.band = global.document.getElementById('turnClockBand') || global.document.createElement('i');
     el.spend = mount.querySelector('.lat-spend');
     el.seg = Array.prototype.slice.call(mount.querySelectorAll('.lat-seg'));
     el.hist = mount.querySelector('.lat-hist');
@@ -1160,16 +1132,19 @@
   const NUM_CELLS = [
     {
       label: 'rtt',
+      title: 'Round trip browser ↔ Centaur, from pings',
       value: (r) => (r.rttMs === null ? '—' : `${r.rttMs}ms`),
       grade: (r) => grade(r.rttMs, r.thresholds.rttWarnMs, r.thresholds.rttDegradedMs),
     },
     {
       label: 'frame',
+      title: 'Age of the newest decision frame from the Centaur',
       value: (r) => (r.frameAgeMs === null ? '—' : `+${r.frameAgeMs}ms`),
       grade: (r) => grade(r.frameAgeMs, r.thresholds.thinkingMs, r.thresholds.degradedMs),
     },
     {
       label: 'board',
+      title: 'Age of the newest board from the game server',
       value: (r) => (r.boardAgeMs === null ? '—' : `+${r.boardAgeMs}ms`),
       grade: (r) => grade(r.boardAgeMs, r.budgetMs, r.budgetMs * 2),
     },
@@ -1177,6 +1152,7 @@
     // a different statement from "the hop was instant".
     {
       label: 'game',
+      title: 'Game server → Centaur lag, when the server reports its own clock',
       value: (r) => (r.gameLagMs === null ? '—' : `+${r.gameLagMs}ms`),
       grade: (r) => grade(r.gameLagMs, r.thresholds.thinkingMs, r.thresholds.degradedMs),
     },
@@ -1365,16 +1341,13 @@
     // being one. Both are percentages of the budget, so neither reads layout.
     const remaining = r.remainingMs;
     if (remaining === null) {
-      setStyle(el.fill, 'fillW', 'width', '0%');
       setAttr(root, 'clock', 'data-clock', 'idle');
-      if (el.safe.classList.contains('on')) el.safe.classList.remove('on');
       if (el.band.classList.contains('on')) el.band.classList.remove('on');
       written.safeL = undefined;
       written.bandL = undefined;
       written.bandW = undefined;
     } else {
       const frac = Math.max(0, Math.min(1, remaining / r.budgetMs));
-      setStyle(el.fill, 'fillW', 'width', `${(frac * 100).toFixed(1)}%`);
       // THE NOTCH, AT THE CONFIDENT END OF THE BAND, and the band behind it.
       // `pressSlackMs` is now the `notchConfidence` quantile of the observed
       // press costs, so the hard mark is where a press stops being safe NINE
@@ -1385,11 +1358,8 @@
       const safeFrac =
         r.pressSlackMs === null ? null : Math.max(0, Math.min(1, (remaining - r.pressSlackMs) / r.budgetMs));
       if (safeFrac === null) {
-        if (el.safe.classList.contains('on')) el.safe.classList.remove('on');
         if (el.band.classList.contains('on')) el.band.classList.remove('on');
       } else {
-        if (!el.safe.classList.contains('on')) el.safe.classList.add('on');
-        setStyle(el.safe, 'safeL', 'left', `${(safeFrac * 100).toFixed(1)}%`);
         const midMs = r.pressCost && r.pressCost.midMs !== null ? r.pressCost.midMs : r.pressSlackMs;
         const midFrac = Math.max(0, Math.min(1, (remaining - midMs) / r.budgetMs));
         const w = Math.max(0, midFrac - safeFrac);

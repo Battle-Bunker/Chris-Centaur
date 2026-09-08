@@ -986,7 +986,25 @@ const LensPanel = (() => {
     );
   }
 
-  return {
+  // ONE NAMING BOUNDARY. Unit keys on the wire are `<playerId>#<n>` — twenty
+  // opaque characters and a slot — and the producers above print them raw.
+  // The page knows the human names (the roster's team name and letter) and
+  // hands a resolver in through `setNames`; every HTML producer this module
+  // exports passes its TEXT through `humanise`, so a key is never shown where
+  // a name is known. Only text between tags is touched: `data-unit="…"` and
+  // every other attribute keeps the key, because handlers look units up by it.
+  let nameOf = null;
+  const UNIT_KEY = /\b([A-Za-z0-9_-]{12,})#(\d+)\b/g;
+  function setNames(fn) { nameOf = typeof fn === 'function' ? fn : null; }
+  function humanise(html) {
+    if (!nameOf || typeof html !== 'string' || html.indexOf('#') < 0) return html;
+    return html.replace(/>([^<]*#[^<]*)</g, (m, text) =>
+      '>' + text.replace(UNIT_KEY, (key) => {
+        const n = nameOf(key);
+        return typeof n === 'string' && n ? escapeHTML(n) : key;
+      }) + '<');
+  }
+  const api = {
     inkFromTranscript,
     railHTML,
     stageHTML,
@@ -1010,7 +1028,15 @@ const LensPanel = (() => {
     keyBinding,
     KEYMAP,
     escapeHTML,
+    setNames,
   };
+  for (const k of Object.keys(api)) {
+    if (k.endsWith('HTML') && k !== 'escapeHTML' && typeof api[k] === 'function') {
+      const f = api[k];
+      api[k] = (...a) => humanise(f(...a));
+    }
+  }
+  return api;
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

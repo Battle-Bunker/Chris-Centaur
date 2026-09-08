@@ -449,6 +449,10 @@
     }
     .turn-clock.idle .turn-clock-fill { background: var(--grey-3a3a3a); }
     .turn-clock-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ground); display: none; }
+    /* The jitter band behind the notch, drawn by latency.js: from the usual
+       press cost back to the confident one. Vanishes on a steady wire. */
+    .turn-clock-band { position: absolute; top: 0; bottom: 0; left: 100%; width: 0%; background: var(--clock-band); display: none; pointer-events: none; }
+    .turn-clock-band.on { display: block; }
     .turn-clock-mark.on { display: block; }
 
     /* L1 — the stage line and the unfinished-business strip. Top of the rail,
@@ -1052,6 +1056,7 @@
                size the grip can drag. -->
           <div class="turn-clock idle" id="turnClock" title="Time left in the turn. The notch is the last press that can still land.">
             <div class="turn-clock-fill" id="turnClockFill" style="width:0%"></div>
+            <div class="turn-clock-band" id="turnClockBand"></div>
             <div class="turn-clock-mark" id="turnClockMark"></div>
           </div>
           <div class="canvas-wrapper">
@@ -1587,12 +1592,12 @@
           ? LensPanel.railHTML(lensTranscript)
           : `<section class="lens-panel"><div class="lens-empty">` +
             LensPanel.escapeHTML(lensEmptyText(view, frame)) + `</div></section>`;
-        rail.innerHTML = banner + body;
+        setHTML(rail, banner + body);
         rail.classList.toggle('lens-held', !!lensHeld);
       }
       const lane = document.getElementById('lensLane');
       if (lane) {
-        lane.innerHTML = LensPanel.laneHTML(lensLaneRows(), {
+        setHTML(lane, LensPanel.laneHTML(lensLaneRows(), {
           seq: lensSeq,
           expanded: lensLaneExpanded,
           // THE BADGE COMPONENT, not a copy of it. `modeBadge` and
@@ -1602,7 +1607,7 @@
           // how a recorded frame came to offer `[N] return to now`.
           badge:
             frame && view ? `${view.modeBadge(frame)} · ${view.provenanceBadge(frame)}` : null,
-        });
+        }));
       }
       renderStageLine();
       renderLensControls();
@@ -1661,7 +1666,7 @@
         const rows = stageRowsFromRoster();
         transcript = rows.length ? [{ op: 'panel.stage', args: [rows] }] : transcript;
       }
-      el.innerHTML = LensPanel.stageHTML(transcript, stagedViewForStageLine());
+      setHTML(el, LensPanel.stageHTML(transcript, stagedViewForStageLine()));
     }
 
     // ── L0: the turn clock, as a shape on the board's edge ────────────────
@@ -1944,7 +1949,7 @@
         ? `<div class="lens-undo-note">↺ <kbd>${LensPanel.escapeHTML(keyOf('release') || 'U')}</kbd> ` +
           `undoes: ${LensPanel.escapeHTML(lensUndoNote)}</div>`
         : '';
-      el.innerHTML = `<div class="lens-affs">${chips.join('')}</div>${armed}${undo}`;
+      setHTML(el, `<div class="lens-affs">${chips.join('')}</div>${armed}${undo}`);
     }
 
     // ── KEY SCHEMES AND DENSITY, both persisted per browser ──────────────
@@ -2755,6 +2760,25 @@
       for (const rec of snakeLastSeen.values()) out.push(rec.snake);
       return out;
     }
+
+    // THE HUMAN NAME OF A UNIT KEY — the roster's own words: team name and
+    // letter ("Chris C"), from the last board that carried the unit, so the
+    // dead keep their names. The lens panel prints every key through this
+    // (`LensPanel.setNames`); a key nobody has seen yet prints as itself.
+    function unitDisplayName(unitId) {
+      const rec = snakeLastSeen.get(unitId);
+      const snake = rec && rec.snake;
+      if (!snake) return null;
+      const base = String(snake.name || '').trim();
+      const letter = String(snake.letter || '').trim();
+      // A ROSTER NAME MAY ALREADY CARRY ITS LETTER (the harness names units
+      // `red C`), and saying it twice — "red C C" — is worse than the key it
+      // replaced. The letter is appended only when the name does not end in it.
+      if (!letter) return base || null;
+      if (!base) return letter;
+      return base.split(/\s+/).pop() === letter ? base : `${base} ${letter}`;
+    }
+    if (window.LensPanel && LensPanel.setNames) LensPanel.setNames(unitDisplayName);
 
     // The clash inspector: the game server's own account of what collided on
     // the inspected cell — reason, within-turn sub-step, participants and who
@@ -4225,7 +4249,34 @@
     // the sentence, never the mechanism (there is no per-unit control UI).
     function renderUnitStatus(html) {
       const el = document.getElementById('unitStatusLine');
-      if (el) el.innerHTML = html;
+      if (el) setHTML(el, html);
+    }
+
+    // WRITE ONLY WHAT CHANGED. The rail, lane, stage line and chip row were
+    // rebuilt with `innerHTML` on every frame and every turn, so a turn
+    // rollover tore down a few hundred nodes and re-entered them — the
+    // flicker, and every enter animation restarting on content that had not
+    // moved. This keeps the last markup per element, returns at once when it
+    // is unchanged, and otherwise replaces only the top-level children whose
+    // markup differs, in place, so untouched rows keep their nodes.
+    const _lastHTML = new WeakMap();
+    function setHTML(el, html) {
+      if (_lastHTML.get(el) === html) return;
+      _lastHTML.set(el, html);
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      const next = Array.from(tpl.content.childNodes);
+      const cur = Array.from(el.childNodes);
+      const same = (a, b) => a.nodeType === b.nodeType &&
+        (a.nodeType === 1 ? a.outerHTML === b.outerHTML : a.textContent === b.textContent);
+      const n = Math.max(cur.length, next.length);
+      for (let i = 0; i < n; i++) {
+        const c = cur[i];
+        const x = next[i];
+        if (c && x) { if (!same(c, x)) el.replaceChild(x, c); }
+        else if (x) el.appendChild(x);
+        else if (c) el.removeChild(c);
+      }
     }
 
     // The selected candidate, phrased for the status line.
@@ -5950,7 +6001,23 @@
       const view = lensView();
       const events = historicEvents.get(turn);
       if (!view || !events || events.length === 0) return null;
-      const last = events[events.length - 1];
+      // ONLY WHAT HAPPENED INSIDE THIS TURN'S CLOCK. The log stamps every
+      // event with the BOARD turn, and the board turn does not advance until
+      // the next board arrives — so staging for the next turn, issued after
+      // this turn's expiry, is filed under this turn and a replay that folded
+      // to the log's last event showed the live intent instead of where the
+      // turn ended. The fold stops at the last event whose wall time is at or
+      // before the turn's expiry (`board.arrived` carries it); a log with no
+      // arrival keeps the old reading.
+      let last = events[events.length - 1];
+      const arrived = events.find((e) => e.kind === 'board.arrived');
+      const expiry = arrived && arrived.payload && Number.isFinite(arrived.payload.turnExpiryTime)
+        ? arrived.payload.turnExpiryTime : null;
+      if (expiry !== null) {
+        for (let i = events.length - 1; i >= 0; i--) {
+          if (Number.isFinite(events[i].atWall) && events[i].atWall <= expiry) { last = events[i]; break; }
+        }
+      }
       try {
         // THE BOARD COMES FROM `turn_boards`, NOT FROM THE LOG. `logStoredEvent`
         // drops the anchor's settlement on the way to Postgres, so a
