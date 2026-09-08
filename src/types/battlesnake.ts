@@ -1,4 +1,4 @@
-import type { ActiveEffect } from '@shared/types/Game';
+import type { ActiveEffect, UnitConfig } from '@shared/types/Game';
 
 export interface Coord {
   x: number;
@@ -73,19 +73,19 @@ export interface Board {
   // The turn count the game is adjudicated at (GameSetup.maxTurns): absent
   // means the engine's default limit, null means unlimited.
   maxTurns?: number | null;
-  // Energy one food replenishes (GameSetup.foodEnergy), added to the eater and
-  // clamped to its kind's max. Absent means the engine default of 100 — one
-  // meal, a full tank — which is the rule food has always played by. A meal
-  // grows the eater only when it FILLS it, so this is what growth costs.
-  foodEnergy?: number;
-  // Per-unit-type max health from the setup (GameSetup.maxHealthPerUnit),
-  // keyed by unit type regardless of whether that type is currently fielded —
-  // a pawns-only setup can still configure the queen's max for the moment a
-  // pawn promotes. A promoted pawn's health is clamped DOWN (never raised) to
-  // this map's 'queen' entry; absent map or absent key means the engine
-  // default of 100. Distinct from `Snake.maxHealth`, which is already
-  // resolved against a unit's CURRENT type.
-  maxHealthPerUnit?: Partial<Record<string, number>>;
+  // The per-unit-type configuration group (GameSetup.unitConfig), keyed by unit
+  // type whether or not that type is currently fielded — a pawns-only setup
+  // can still configure the queen's numbers for the moment a pawn promotes.
+  // Three per kind: `foodEnergy` (what one meal adds, clamped to the max — a
+  // meal grows the eater only when it FILLS it, so this is what growth costs),
+  // `maxEnergy` (the tank; a promoted pawn's health is clamped DOWN to the
+  // queen's), and `startingWeight` (the weight a unit spawns at, which only
+  // the server's placement applies). An absent group or field is the engine
+  // default, which readers get from `unitTypeConfig` rather than restating.
+  // Distinct from `Snake.maxHealth`, already resolved against a unit's CURRENT
+  // type. Upstream folds an older setup's `maxEnergyPerUnit`/`foodEnergy` into
+  // this shape on read, so the bot only ever sees the group.
+  unitConfig?: UnitConfig;
   snakes: Snake[];
   // Collisions the game server resolved while producing THIS board, in api
   // coords. ONE RECORD PER CELL PER EVENT: a unit that died contributes one

@@ -23,7 +23,8 @@ import { ORTHOGONALS, leavesTrail } from '../engine-vendor/engine/moveGrammar';
 import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import { legalActions, legalTargets } from '../engine-vendor/engine/queries';
 import type { BoardShape } from '../engine-vendor/engine/queries';
-import type { UnitType } from '../engine-vendor/shared/types/Game';
+import type { UnitConfig, UnitType } from '../engine-vendor/shared/types/Game';
+import { UNIT_TYPES, everyUnitType, unitTypeConfig } from '../engine-vendor/engine/unitConfig';
 import { winsContest } from '../lobster/evaluate/contest';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 // --- outcome instrument (ENDGAME) -----------------------------------------
@@ -116,15 +117,17 @@ export interface GameSpec {
   /** How long a pickup's debuff and its allies' buffs last. */
   readonly potionWindowTurns?: number;
   /**
-   * ENERGY ONE MEAL RESTORES — `GameSetup.foodEnergy`, straight through to
-   * `resolveTurn`. Absent means the engine's own `DEFAULT_FOOD_ENERGY` (100),
-   * which equals `defaultMaxEnergy`, so every meal fills and every meal grows:
-   * the old rule, and the reason no scenario in this file has ever exercised
+   * THE PER-UNIT-TYPE CONFIGURATION — `GameSetup.unitConfig`, straight through
+   * to `resolveTurn`: what a meal is worth to a kind, the tank it fills, and
+   * the weight it spawns at. Absent means the engine's own defaults (100, 100,
+   * and 3 for a snake / 1 for a piece), so every meal fills and every meal
+   * grows: the old rule, and the reason no scenario in this file exercised
    * fill-to-grow (`docs/design/BEHAVIOUR-AUDIT.md`, "the gap the corpus cannot
-   * close"). Set it BELOW a kind's max and a unit needs several meals to fill,
-   * and grows only on the one that tops it off.
+   * close") before `sparse-lean`. Set a kind's `foodEnergy` BELOW its max and
+   * that kind needs several meals to fill, and grows only on the one that tops
+   * it off. `--food-energy=N` is the shorthand that sets it for every kind.
    */
-  readonly foodEnergy?: number;
+  readonly unitConfig?: UnitConfig;
 }
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -642,7 +645,7 @@ export function buildBoard(spec: GameSpec): Board {
     hazards: [],
     hazardDamage: 100,
     pawnPromotionWeight: DEFAULT_PAWN_PROMOTION_WEIGHT,
-    maxHealthPerUnit: {},
+
     // THE CAP THE HARNESS PLAYS TO IS THE CAP THE BOT IS TOLD ABOUT (ENDGAME
     // §1, §4.1 part (A)). `runGame`'s loop stops at `spec.maxTurns ?? 100`;
     // stating the same number here is what makes the board the bot marshals
@@ -651,11 +654,11 @@ export function buildBoard(spec: GameSpec): Board {
     // stays silent measures a bot that cannot see its own boundary.
     maxTurns: spec.maxTurns ?? 100,
     snakes,
-    // ONE MEAL'S WORTH OF ENERGY, and absent unless the spec names it: a board
-    // that states nothing is the input `marshalBoard` has always been handed,
-    // and `resolveTurn` then reads `DEFAULT_FOOD_ENERGY`. Stating it is what
+    // THE PER-UNIT-TYPE CONFIGURATION, and absent unless the spec names it: a
+    // board that states nothing is the input `marshalBoard` has always been
+    // handed, and the engine then reads its own defaults. Stating it is what
     // makes fill-to-grow visible (`--food-energy`).
-    ...(spec.foodEnergy === undefined ? {} : { foodEnergy: spec.foodEnergy }),
+    ...(spec.unitConfig === undefined ? {} : { unitConfig: spec.unitConfig }),
     // A POTION-FREE BOARD CARRIES NO POTION FIELDS AT ALL, not empty ones.
     // `marshalBoard` reads "potions enabled" off the board's own contents when
     // the flag is absent, and `Simulator` decides whether a unit's expiry turn
@@ -1281,7 +1284,7 @@ export function stepGame(
       invulnerabilityLevel: tier,
     };
     if (result.promoted.includes(snake.id)) {
-      next.maxHealth = board.maxHealthPerUnit?.queen ?? 100;
+      next.maxHealth = unitTypeConfig(board.unitConfig, 'queen').maxEnergy;
     }
     // How long that level is safe to bank on: the earliest expiry among the
     // effects settlement left this unit holding. A board carrying no schedule
@@ -3251,7 +3254,7 @@ export const POTION_SCENARIO: GameSpec = {
  */
 export const SPARSE_LEAN_SCENARIO: GameSpec = {
   ...SPARSE_SCENARIO,
-  foodEnergy: 20,
+  unitConfig: everyUnitType({ foodEnergy: 20 }),
 };
 
 // --- side symmetry (docs/design/SIDE-ASYMMETRY.md) -------------------------
@@ -3392,7 +3395,7 @@ export const MIRROR_POTION_SCENARIO: GameSpec = {
 /** `sparse-lean`, made fair: `mirror-sparse` with a meal worth half a tank. */
 export const MIRROR_SPARSE_LEAN_SCENARIO: GameSpec = {
   ...MIRROR_SPARSE_SCENARIO,
-  foodEnergy: 20,
+  unitConfig: everyUnitType({ foodEnergy: 20 }),
 };
 // --- end side symmetry ------------------------------------------------------
 // === BEGIN wide-corpus scenarios — owned by the `wide-corpus` worker ========
@@ -3428,7 +3431,7 @@ export interface CorpusShape {
   readonly potions?: number;
   readonly potionRespawnTurns?: number;
   readonly maxTurns?: number;
-  readonly foodEnergy?: number;
+  readonly unitConfig?: UnitConfig;
 }
 
 /** Team ids, in spawn order. Team 0 is OURS everywhere (`--opponent`). */
@@ -3580,7 +3583,7 @@ export function boardOfShape(shape: CorpusShape): GameSpec {
     food,
     foodTarget: shape.food,
     maxTurns: shape.maxTurns ?? 100,
-    ...(shape.foodEnergy === undefined ? {} : { foodEnergy: shape.foodEnergy }),
+    ...(shape.unitConfig === undefined ? {} : { unitConfig: shape.unitConfig }),
     ...(potions === undefined
       ? {}
       : {
@@ -4254,7 +4257,7 @@ async function summarise(
             seed,
             turnsRequested: turns,
             opponent: out.opponent?.name,
-            foodEnergy: spec.foodEnergy,
+            foodEnergy: uniformFoodEnergy(spec.unitConfig),
             side: out.side,
           },
           budget
@@ -4524,7 +4527,9 @@ Flags
                  opponent bench and \`scripts/round-robin.sh\` were written
                  against; it sets the same slot, writes the same \`side\` field
                  and is refused if it disagrees with an explicit --side.
-  --food-energy=N  WHAT ONE MEAL IS WORTH (\`GameSetup.foodEnergy\`). Absent: the
+  --food-energy=N  WHAT ONE MEAL IS WORTH, FOR EVERY KIND — the shorthand that
+                 sets \`foodEnergy\` in every unit type's configuration group
+                 (\`GameSetup.unitConfig\`). Absent: the
                  scenario's own value, which for every scenario but
                  \`sparse-lean\` is nothing at all, so the engine reads
                  \`DEFAULT_FOOD_ENERGY\` = 100 = the default max energy and every
@@ -4769,7 +4774,27 @@ function parseFlags(argv: readonly string[]): Flags {
  * engine reads `DEFAULT_FOOD_ENERGY` exactly as it always has.
  */
 const withFoodEnergy = (spec: GameSpec, foodEnergy: number | null): GameSpec =>
-  foodEnergy === null ? spec : { ...spec, foodEnergy };
+  foodEnergy === null
+    ? spec
+    : {
+        ...spec,
+        unitConfig: Object.fromEntries(
+          UNIT_TYPES.map((type) => [type, { ...spec.unitConfig?.[type], foodEnergy }])
+        ) as UnitConfig,
+      };
+
+/**
+ * WHAT A MEAL IS WORTH ON THIS BOARD, for the summary's one number: the value
+ * every kind agrees on, or absent where they do not (or where the spec
+ * configured nothing at all). Every scenario and the `--food-energy` shorthand
+ * set the kinds together, so this is the number the summary always carried.
+ */
+const uniformFoodEnergy = (config: UnitConfig | undefined): number | undefined => {
+  if (config === undefined) return undefined;
+  const stated = UNIT_TYPES.map((type) => config[type]?.foodEnergy);
+  const first = stated[0];
+  return first !== undefined && stated.every((v) => v === first) ? first : undefined;
+};
 
 function scenariosNamed(which: string, foodEnergy: number | null = null): Array<[string, GameSpec]> {
   // --- side symmetry (SIDE-ASYMMETRY.md): `all` is PINNED to the five
@@ -4923,7 +4948,7 @@ async function main(): Promise<void> {
             seed,
             turnsRequested: turns,
             opponent: opponent?.name,
-            foodEnergy: spec.foodEnergy,
+            foodEnergy: uniformFoodEnergy(spec.unitConfig),
             side: slot,
           },
           budget

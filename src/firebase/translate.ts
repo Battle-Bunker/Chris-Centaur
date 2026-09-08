@@ -19,6 +19,10 @@
 import { Timestamp } from 'firebase/firestore';
 import { BoardSnapshot, Clash, Coord, Direction, GameState, Snake } from '../types/battlesnake';
 import { TTClash, TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tactictoes-types';
+// The per-unit-type configuration is read through the engine's own reader —
+// the same function the server reads it with — so the bot cannot disagree with
+// it about a default or about how an older document maps into the group.
+import { unitConfigOf, unitTypeConfig } from '../engine-vendor/engine/unitConfig';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
@@ -327,7 +331,7 @@ function buildSnake(
   // Per-type max health from the setup config, resolved against the unit's
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
   // default is 100 when the map or key is absent.
-  snake.maxHealth = setup.maxEnergyPerUnit?.[unitType] ?? 100;
+  snake.maxHealth = unitTypeConfig(unitConfigOf(setup), unitType).maxEnergy;
   const expiry = aggregateExpiryTurn(turn.activeEffects, playerID);
   if (expiry !== null) snake.invulnerabilityExpiryTurn = expiry;
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
@@ -391,8 +395,13 @@ export function buildBoardState(
   // health clamped to the queen's configured max); readers default an absent
   // field to the engine's values.
   if (setup.pawnPromotionWeight !== undefined) board.pawnPromotionWeight = setup.pawnPromotionWeight;
-  if (setup.maxEnergyPerUnit !== undefined) board.maxHealthPerUnit = setup.maxEnergyPerUnit;
-  if (setup.foodEnergy !== undefined) board.foodEnergy = setup.foodEnergy;
+  // The per-unit-type configuration group, through the engine's own reader: a
+  // setup written before the group existed states its numbers as
+  // `maxEnergyPerUnit` and a global `foodEnergy`, and this is what folds them
+  // in. Written only when the setup states something, so an unconfigured game
+  // still reaches the search as a board that names nothing.
+  const unitConfig = unitConfigOf(setup);
+  if (Object.keys(unitConfig).length > 0) board.unitConfig = unitConfig;
   // Collisions resolved into this board, mapped into api coords like every
   // other positional field. They ride on the board (not on a per-snake view)
   // because a clash is a fact about the board, readable by any spectator.
