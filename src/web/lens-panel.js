@@ -994,11 +994,14 @@ const LensPanel = (() => {
   // a name is known. Only text between tags is touched: `data-unit="…"` and
   // every other attribute keeps the key, because handlers look units up by it.
   let nameOf = null;
-  const UNIT_KEY = /\b([A-Za-z0-9_-]{12,})#(\d+)\b/g;
+  // A team's FIRST unit is keyed by the bare player id; the rest carry `#n`.
+  // Both shapes are candidates; the resolver decides — an unknown token is
+  // left exactly as it was.
+  const UNIT_KEY = /\b[A-Za-z0-9_-]{16,}(?:#\d+)?\b/g;
   function setNames(fn) { nameOf = typeof fn === 'function' ? fn : null; }
   function humanise(html) {
-    if (!nameOf || typeof html !== 'string' || html.indexOf('#') < 0) return html;
-    return html.replace(/>([^<]*#[^<]*)</g, (m, text) =>
+    if (!nameOf || typeof html !== 'string') return html;
+    return html.replace(/>([^<]*[A-Za-z0-9_-]{16,}[^<]*)</g, (m, text) =>
       '>' + text.replace(UNIT_KEY, (key) => {
         const n = nameOf(key);
         return typeof n === 'string' && n ? escapeHTML(n) : key;

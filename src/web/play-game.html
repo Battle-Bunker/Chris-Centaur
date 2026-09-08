@@ -2765,10 +2765,22 @@
     // letter ("Chris C"), from the last board that carried the unit, so the
     // dead keep their names. The lens panel prints every key through this
     // (`LensPanel.setNames`); a key nobody has seen yet prints as itself.
+    const _unnamedWarned = new Set();
     function unitDisplayName(unitId) {
       const rec = snakeLastSeen.get(unitId);
-      const snake = rec && rec.snake;
-      if (!snake) return null;
+      const snake = (rec && rec.snake) ||
+        ((currentGameState?.board?.snakes) || []).find((s) => s.id === unitId) || null;
+      if (!snake || !(snake.name || snake.letter)) {
+        // Say so ONCE per key, with what was seen — a raw key on the page is a
+        // defect report, and the next one should name its cause.
+        if (!_unnamedWarned.has(unitId)) {
+          _unnamedWarned.add(unitId);
+          console.warn('[lens] no human name for unit', unitId,
+            snake ? { name: snake.name, letter: snake.letter, teamName: snake.teamName, keys: Object.keys(snake) } : 'not on any board seen',
+            'known:', Array.from(snakeLastSeen.keys()));
+        }
+        return null;
+      }
       const base = String(snake.name || '').trim();
       const letter = String(snake.letter || '').trim();
       // A ROSTER NAME MAY ALREADY CARRY ITS LETTER (the harness names units
