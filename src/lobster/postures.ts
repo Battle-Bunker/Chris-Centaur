@@ -295,3 +295,21 @@ export class PostureGovernor {
     return flip
   }
 }
+
+// ---------------------------------------------------------------------------
+// The tier-defence policy knob
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the candidate layer is allowed to ACT on the tier window — the
+ * tier-safe staging filter and the self-debuff ordering (`candidates.ts`).
+ *
+ * It lives here, with the other policy, because it is a policy: what the
+ * search BELIEVES about tier is now the engine's answer and not a knob at all
+ * (a claim's `tierAtArrival` is the effect schedule lapsed by the rules), while
+ * what the search is allowed to REFUSE on the strength of that belief is a
+ * choice this build makes. One is a correction, the other is a preference, and
+ * the seam that used to switch the correction off has nothing left to switch.
+ */
+export const TIER_DEFENSE: boolean =
+  String(process.env.CENTAUR_TIER_DEFENSE ?? '').trim().toLowerCase() !== 'off';

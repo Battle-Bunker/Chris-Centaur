@@ -99,7 +99,56 @@
     return periods;
   }
 
-  const api = { buildPeriods };
+  /**
+   * THE ANSWER THE PAGE EXISTS TO GIVE, as numbers.
+   *
+   * `buildPeriods` reconstructs what happened; this states it. The operator's
+   * question is "how much of this window was the bot up, how much of that was
+   * billed idle, and did it die" — every part of which is derivable from the
+   * periods and was, before this, left to hovering one band at a time
+   * (docs/design/ux/04-SECONDARY-SCREENS.md §1 F4).
+   *
+   * Everything is CLIPPED TO THE WINDOW, so the reading always matches the
+   * chart above it: a period that starts before `from` contributes only its
+   * overlap, and `dead` is the window's remainder — the time no process was
+   * running, which is the only time that costs nothing.
+   */
+  function summarize(periods, events, from, to) {
+    const span = Math.max(0, to - from);
+    const clip = (a, b) => Math.max(0, Math.min(b, to) - Math.max(a, from));
+
+    let active = 0, idle = 0, up = 0;
+    let boots = 0, graceful = 0, crashes = 0, silentKills = 0, unknownEnds = 0;
+    let openEnded = false;
+
+    for (const p of periods) {
+      for (const seg of p.segments) {
+        const d = clip(seg.start, seg.end);
+        if (d <= 0) continue;
+        up += d;
+        if (seg.state === 'active') active += d; else idle += d;
+      }
+      // A period whose start is inside the window is a boot inside it. One
+      // synthesized from events before the first loaded boot is not.
+      if (!p.startUnknown && p.start >= from && p.start <= to) boots++;
+      if (p.openEnded) { if (p.end >= from) openEnded = true; continue; }
+      if (p.end < from || p.end > to) continue;
+      if (p.endKnown) {
+        if (p.endClass === 'crash') crashes++; else graceful++;
+      } else if (p.endClass === 'crash') crashes++;
+      else if (p.endClass === 'silent-kill') silentKills++;
+      else unknownEnds++;
+    }
+    const dead = Math.max(0, span - up);
+    return {
+      from, to, span, up, active, idle, dead,
+      idleShareOfUp: up > 0 ? idle / up : 0,
+      upShareOfWindow: span > 0 ? up / span : 0,
+      boots, graceful, crashes, silentKills, unknownEnds, openEnded,
+    };
+  }
+
+  const api = { buildPeriods, summarize };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

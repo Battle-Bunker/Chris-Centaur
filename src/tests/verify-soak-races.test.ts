@@ -106,7 +106,6 @@ function harness(ourIds: ReadonlyArray<string>): Harness {
         };
       },
       pinSnakeIdOf: (_g, unitId) => ourIds[unitId] ?? null,
-      logDecision: () => undefined,
       log: () => undefined,
     },
   };

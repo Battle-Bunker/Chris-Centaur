@@ -23,7 +23,7 @@
  * length of its ray. A HOLD ENTERS NOTHING AND PAYS NOTHING (the sole exception
  * is the stationary hazard dose, which `restVerdict` already prices in the
  * candidate layer). A trail unit has no hold in its grammar — staging its own
- * square is not a move — so only a `stayLegal` kind has an energy decision to
+ * square is not a move — so only a kind that may HOLD has an energy decision to
  * make at all, and this term is identically zero for everything else.
  *
  * Food is the only heal, it restores to the eater's own kind's maximum, and it
@@ -38,8 +38,8 @@
  * interval per candidate and `exhaustionFatal` a trit — and it can only ORDER
  * with it. Ordering never licenses a move, and `DEFAULT_SWITCH_MARGIN` is 0.01,
  * so any positive scoring difference restages away from the cheap seed. The
- * fold, meanwhile, has no per-cell price at all: `healthEconomy`'s
- * `budgetShare` is a flat 1 for a stay-legal unit above the reserve, so above
+ * fold, meanwhile, has no per-cell price at all: `energyEconomy`'s
+ * `budgetShare` is a flat 1 for a piece above the reserve, so above
  * half health a nine-cell slide and a hold score the same, and `momentum`
  * charges the HOLD half a reversal while charging motion nothing. The bot is
  * biased toward motion by construction. See `docs/design/energy.md`.
@@ -96,8 +96,8 @@
  * small, which is the property `basic-intelligence.test.ts` gates on.
  */
 
-import { profileOf } from '../../partial-engine/index';
-import { type Feature, bound, point } from './bound';
+import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
+import { type Feature, ourUnitTerm } from './bound';
 import { foodDistance } from './food';
 import type { EvalContext, Standing } from './features';
 
@@ -117,7 +117,7 @@ export function tripOf(dist: Int32Array, cell: number, diameter: number): number
 
 /**
  * What this unit's move cost it, priced. Zero for anything that is not
- * `stayLegal` — a kind with no hold in its grammar is not choosing to spend —
+ * a PIECE — a kind with no hold in its grammar is not choosing to spend —
  * and zero for a hold, a rotation and a meal, all three of which spend nothing.
  */
 export function energyCostOf(
@@ -126,15 +126,15 @@ export function energyCostOf(
   dist: Int32Array,
   diameter: number
 ): number {
-  if (!profileOf(s.kind).stayLegal) return 0;
+  if (!isPieceType(s.kind)) return 0;
   const unit = ctx.sub.unitOf(s.unitId);
   if (unit === undefined) return 0;
-  // Turn-start health. Read off the substrate and not off the resolution, for
+  // Turn-start energy. Read off the substrate and not off the settlement, for
   // the same reason `food.ts` reads it there: it must be a per-unit constant
   // within the decision, or the term acquires an opinion about destinations.
-  const runway = unit.health;
+  const runway = unit.energy;
   if (runway <= 0) return 0;
-  const spend = Math.min(runway, Math.max(0, runway - s.health));
+  const spend = Math.min(runway, Math.max(0, runway - s.energy));
   if (spend === 0) return 0;
   const d = tripOf(dist, unit.cells[0] as number, diameter);
   const slack = clamp01(1 - d / runway);
@@ -165,33 +165,23 @@ export const energyFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let ours = 0;
-    let priceable = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      ours++;
-      if (profileOf(s.kind).stayLegal) priceable++;
-    }
     // A board on which we command nothing that may decline to spend — every
     // snake-only board — is an EXACT zero here, so its fold is bit-for-bit the
     // fold it was before this member existed, and the food flood is not even
     // asked for.
-    if (ours === 0 || priceable === 0) return point(0);
-
-    const dist = foodDistance(ctx.sub);
-    const diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
-    let worst = 0;
-    let best = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      if (!s.bestAlive && !s.worstAlive) continue;
-      const cost = energyCostOf(ctx, s, dist, diameter);
-      if (cost === 0) continue;
-      if (s.bestAlive) worst -= cost;
-      if (s.worstAlive) best -= cost;
-    }
-    const lo = worst / ours;
-    const hi = best / ours;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    let dist: Int32Array | undefined;
+    let diameter = 0;
+    return ourUnitTerm(
+      ctx,
+      (s) => {
+        if (dist === undefined) {
+          dist = foodDistance(ctx.sub);
+          diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
+        }
+        const c = energyCostOf(ctx, s, dist, diameter);
+        return [-c, -c];
+      },
+      (_ctx, ours) => ours.some((s) => isPieceType(s.kind))
+    );
   },
 };

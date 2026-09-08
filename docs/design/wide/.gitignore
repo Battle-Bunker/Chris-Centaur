@@ -1,0 +1,20 @@
+# THE TRACES ARE NOT COMMITTED, and the summaries are.
+#
+# A trace is 50-80 KB and there is one per game; the corpus is hundreds of
+# games, and every byte of it is a deterministic function of (build, scenario,
+# seed, arm) — `--nodes` is what that mode is for. So the traces are
+# REGENERATED, never stored: every reproduction in BEHAVIOUR-AUDIT-3.md prints
+# the single command that rebuilds its own, and `scripts/wide-corpus.sh` will
+# re-record any game whose summary is missing and skip every one that is not.
+#
+# The JSON summaries ARE committed: they are what `ab-compare.js` and
+# `wide-corpus.js pair` subtract, they are small, and a later build's numbers
+# are only meaningful against a recorded earlier build's.
+logs/
+tmp/
+
+# The two concatenations `ab-compare.js` reads are `cat json/*-<arm>.jsonl`,
+# rebuilt by the recorder on every run. Storing them would store the corpus
+# twice.
+wide-mirror.jsonl
+wide-material-only.jsonl

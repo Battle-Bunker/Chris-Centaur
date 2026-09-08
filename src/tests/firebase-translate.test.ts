@@ -41,7 +41,7 @@ function makeSetup(overrides: Partial<TTGameSetup> = {}): TTGameSetup {
 
 function makeTurn(overrides: Partial<TTTurn> = {}): TTTurn {
   return {
-    playerHealth: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
+    playerEnergy: { centA: 90, 'centA#2': 80, centB: 70, 'centB#2': 60 },
     startTime: null as any,
     endTime: null as any,
     moves: {},
@@ -281,7 +281,7 @@ describe('maxHealth from setup.maxHealthPerUnit', () => {
         { id: 'centB', teamID: 'centB', letter: 'A', unitType: 'rook' },
         { id: 'centB#2', teamID: 'centB', letter: 'B' },
       ],
-      maxHealthPerUnit: { snake: 150, pawn: 30, queen: 80 },
+      maxEnergyPerUnit: { snake: 150, pawn: 30, queen: 80 },
     });
     // centA#2 promoted mid-game: the QUEEN max applies, not the pawn's.
     const turn = makeTurn({ unitTypes: { 'centA#2': 'queen' } });
@@ -332,18 +332,33 @@ describe('pawnPromotionWeight and maxHealthPerUnit ride on the board for the Sim
     // pawn promotes — the map is config, not derived from what is on board.
     const state = buildGameState(
       'g1',
-      makeSetup({ maxHealthPerUnit: { pawn: 100, queen: 30 } }),
+      makeSetup({ maxEnergyPerUnit: { pawn: 100, queen: 30 } }),
       makeTurn(),
       0,
       'centA',
       null
     );
-    expect(state.board.maxHealthPerUnit).toEqual({ pawn: 100, queen: 30 });
+    expect(state.board.unitConfig).toEqual({ pawn: { maxEnergy: 100 }, queen: { maxEnergy: 30 } });
   });
 
-  it('stays absent when the setup omits maxHealthPerUnit', () => {
+  it('stays absent when the setup configures nothing', () => {
     const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
-    expect(state.board.maxHealthPerUnit).toBeUndefined();
+    expect(state.board.unitConfig).toBeUndefined();
+  });
+
+  it('folds a setup written before the group existed into the group', () => {
+    // The two settings the group replaced: a per-type max map and one global
+    // food energy. The bot must see them as the group and nothing else.
+    const state = buildGameState(
+      'g1',
+      makeSetup({ maxEnergyPerUnit: { pawn: 40 }, foodEnergy: 20 }),
+      makeTurn(),
+      0,
+      'centA',
+      null
+    );
+    expect(state.board.unitConfig?.pawn).toEqual({ foodEnergy: 20, maxEnergy: 40 });
+    expect(state.board.unitConfig?.rook).toEqual({ foodEnergy: 20 });
   });
 });
 

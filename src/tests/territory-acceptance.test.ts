@@ -34,6 +34,7 @@ import {
 } from '../lobster/evaluate';
 import type { Partition, Standing } from '../lobster/evaluate';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
+import { moverSurvival } from '../lobster/bounds/material';
 import fixture from './fixtures/territory-acceptance.json';
 
 interface Sample {
@@ -54,25 +55,37 @@ const boardAt = (swap: number, turn: number): Sample => {
 };
 
 /** Every joint plan over our own units, capped — the candidate set a decision
- * would order. Deterministic: roster order, then the engine's enumeration. */
+ * would order. Deterministic: roster order, then the engine's enumeration.
+ *
+ * THE CAP IS SPENT IN LEVEL ORDER, and that is a COVERAGE property rather than
+ * a taste. Extending the cross product depth-first means the first prefix's
+ * whole option list is consumed before the second prefix is extended once, so
+ * with six units and a cap of 64 every plan priced carries the FIRST unit's
+ * FIRST move — the harness reports a constant and the reader blames the
+ * feature. Taking option index k across every carried plan before moving to
+ * k+1 keeps each unit's options represented for as long as the cap allows. */
 function ourPlans(sub: EngineSubstrate, asTeam: number, cap: number): JointPlan[] {
   let plans: Array<Map<UnitId, Candidate>> = [new Map()];
   for (const u of sub.roster()) {
     if (u.team !== asTeam) continue;
+    const acts = sub.actionsOf(u.unitId);
     const next: Array<Map<UnitId, Candidate>> = [];
-    for (const p of plans) {
-      for (const a of sub.enumerate(u.unitId)) {
+    // LEVEL ORDER, NOT DEPTH FIRST. The cap is spent one option-index at a
+    // time across every plan carried in, so a prefix never loses its whole
+    // option list to the plan before it.
+    for (let k = 0; k < acts.length && next.length < cap; k++) {
+      for (const p of plans) {
         if (next.length >= cap) break;
+        const a = acts[k] as Candidate;
         const m = new Map(p);
         m.set(u.unitId, {
           unitId: u.unitId,
-          from: -1,
-          to: a.dest,
-          path: a.action.kind === 'move' ? [...a.action.path] : [],
+          from: a.from,
+          to: a.to,
+          path: a.path,
         });
         next.push(m);
       }
-      if (next.length >= cap) break;
     }
     plans = next;
   }
@@ -147,6 +160,65 @@ function read(sample: Sample, staleness = 0): Reading {
   }
 }
 
+interface KingOption {
+  /** The cell our king stages onto. */
+  readonly to: number;
+  readonly reachLo: number;
+  readonly reachHi: number;
+  readonly fullLo: number;
+  readonly partition: Partition<Standing>;
+}
+
+/**
+ * ONE PLAN PER OPTION OF OUR KING, every other unit of ours frozen on its
+ * first action — a COVERAGE reading, not a sample.
+ *
+ * The cross-product harness above can only ever price `cap` plans, and on a
+ * board where one unit's fate decides the whole team's admission that cap has
+ * to be spent so the fate is represented. This says it by construction: the
+ * king walks its own option list, nothing else varies, so every king fate the
+ * position contains is priced exactly once and the floor's response to it is
+ * the only thing that can differ between the rows.
+ *
+ * The siblings are frozen rather than DROPPED from the plan, because a unit a
+ * plan does not name is HELD, and `ADMISSION.lo.ours` excludes a held unit of
+ * ours — dropping them would zero `ours` for a reason that has nothing to do
+ * with the king and would make the reading vacuous.
+ */
+function kingOptions(sample: Sample): KingOption[] {
+  const { board, turn, team } = sample;
+  const ourIds = (board.snakes ?? [])
+    .filter((s) => (s.teamID ?? s.id) === team && s.health > 0 && s.body.length > 0)
+    .map((s) => s.id);
+  const sub = makeSubstrate({ board, turn, asTeam: team, modeled: ourIds });
+  try {
+    const asTeam = sub.teamNumber(team);
+    const ours = sub.roster().filter((u) => u.team === asTeam);
+    const king = ours.find((u) => u.isKing);
+    if (king === undefined) throw new Error('no king of ours on this board');
+    return sub.actionsOf(king.unitId).map((a) => {
+      const plan = new Map<UnitId, Candidate>();
+      for (const u of ours) {
+        const act = u.unitId === king.unitId ? a : (sub.actionsOf(u.unitId)[0] as Candidate);
+        plan.set(u.unitId, { unitId: u.unitId, from: act.from, to: act.to, path: act.path });
+      }
+      const ev = defaultEvaluator.evaluatePlan(sub, plan, asTeam);
+      const partition = sub.withResolution(plan, asTeam, ({ resolution, bounds }) =>
+        makeContext(sub, resolution, bounds, asTeam, 4).partition('lo')
+      );
+      return {
+        to: a.to as number,
+        reachLo: ev.parts['reach']?.lo ?? 0,
+        reachHi: ev.parts['reach']?.hi ?? 0,
+        fullLo: ev.bound.lo,
+        partition,
+      };
+    });
+  } finally {
+    sub.release();
+  }
+}
+
 const span = (xs: number[]): number => Math.max(...xs) - Math.min(...xs);
 const argmax = (xs: number[]): number => {
   let best = 0;
@@ -187,11 +259,19 @@ describe('A — food control decided by the partition (seed 116 swap 0, turn 2)'
     expect(separation(r.reachLo)).toBeGreaterThan(0.9);
   });
 
-  test('per-unit room reads the two roomy snakes, at the counts the lens measured', () => {
+  test('per-unit room reads the two roomy snakes, and neither is short of what it needs', () => {
+    // RE-PINNED as `kept`, in the same units and the same positions. The old
+    // numbers (25/3, 15/3) were plane-1 ownership over an unbarred dilation —
+    // ground these snakes win a RACE to. `kept` is capped at `need`, so a roomy
+    // unit reads exactly `need` and costs the term nothing.
     const ours = oursIn(r.first);
-    expect(ours.map((t) => `${t.owned}/${t.subject.weightMax}`)).toEqual(['25/3', '15/3']);
-    // Both comfortably above their own body length: nothing is boxed here.
-    for (const t of ours) expect(Math.sqrt(t.owned / t.subject.weightMax)).toBeGreaterThan(2);
+    // The two the WORST reading admits keep everything they need; nothing is
+    // boxed here. The third is a unit `ADMISSION.lo.ours` drops as contingent —
+    // `room` prices it anyway, at its real region rather than at the full fear,
+    // because a fear that jumped when a unit became contingent would be a cliff
+    // in a term that must slide. Its 1/5 is what a snake keeps when every
+    // held enemy's cloud is a barrier, which is what the worst world is.
+    expect(ours.map((t) => `${t.kept}/${t.need}`)).toEqual(['5/5', '5/5', '1/5']);
   });
 });
 
@@ -214,12 +294,18 @@ describe('B — confinement invisible to material (seed 116 swap 1, turn 7)', ()
       const b1 = roomOf(sub, r.first, 'b1');
       expect(b0).toBeDefined();
       expect(b1).toBeDefined();
-      expect([b0?.owned, b0?.subject.weightMax]).toEqual([3, 3]);
-      expect([b1?.owned, b1?.subject.weightMax]).toEqual([12, 4]);
-      // b0 is AT the threshold — one cell fewer and its term starts falling —
-      // while b1 is a factor of sqrt(3) clear of it.
-      expect(Math.sqrt((b0 as { owned: number }).owned / 3)).toBeCloseTo(1, 10);
-      expect(Math.sqrt((b1 as { owned: number }).owned / 4)).toBeCloseTo(Math.sqrt(3), 10);
+      // G-7. THE ONE ASSERTION THIS WHOLE BOARD EXISTS FOR: b0 dies at turn 16
+      // and this is turn 7, so a quantity billed as the death predictor has to
+      // FIRE HERE, nine turns out, on a board where material is 11 v 11 and
+      // stays 11 v 11 for eight more turns. The old reading did not: plane-1
+      // ownership put b0 at 3 cells against a body of 3 — AT the threshold, so
+      // `min(1, sqrt(3/3))` saturated at exactly 1 and cost nothing at all.
+      expect([b0?.kept, b0?.need]).toEqual([2, 5]);
+      expect((b0 as { kept: number }).kept).toBeLessThan((b0 as { need: number }).need);
+      // b1 is not boxed, and the term must tell them apart rather than fearing
+      // the whole team.
+      expect([b1?.kept, b1?.need]).toEqual([6, 6]);
+      expect((b1 as { kept: number }).kept).toEqual((b1 as { need: number }).need);
     } finally {
       sub.release();
     }
@@ -245,9 +331,18 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
     // (survive, or lose one of a few units), territory takes dozens.
     const distinct = (xs: number[]): number => new Set(xs.map((x) => x.toFixed(9))).size;
     for (const { turn, r } of arc) {
-      // Material's only distinct floors here are cliff levels — how many of
-      // ours die — never anything about the position itself.
-      expect([turn, distinct(r.materialLo) <= 4]).toEqual([turn, true]);
+      // Material's distinct floors here are LEVELS — whole units of weight,
+      // every one of them a multiple of `CLIFF_MATERIAL_WEIGHT` — and never
+      // anything about the position itself. Four of them were how many of ours
+      // could die; six are how many of ours could die OR BE CUT, since the
+      // fold started reading the ledger's `sever` entries against a mover
+      // (`bounds/material.ts::moverSeverLoss`, and the floor was not a floor
+      // without it). A partial loss is still a level, so the claim this test
+      // makes — that material grades in whole units of material and territory
+      // grades in the position — is the same claim at the same coarseness; the
+      // comparison against `reachLo` two lines down is the load-bearing half
+      // and it is untouched.
+      expect([turn, distinct(r.materialLo) <= 6]).toEqual([turn, true]);
       expect([turn, distinct(r.reachLo) >= 2 * distinct(r.materialLo)]).toEqual([turn, true]);
       expect([turn, span(r.reachLo) > 0.3]).toEqual([turn, true]);
     }
@@ -259,56 +354,229 @@ describe('C — the slow squeeze (seed 116 swap 0, turns 6–22)', () => {
     }
   });
 
-  test("r2's room follows the squeeze and the recovery, cell for cell", () => {
-    // 10 → 5 → 10 → 16 across turns 6, 14, 18, 22, against a body of 3.
-    const owned = arc.map(({ r }) => {
-      const last = oursIn(r.first).slice(-1)[0];
-      return last === undefined ? -1 : last.owned;
-    });
-    expect(owned).toEqual([10, 5, 10, 16]);
+  test("r2 is never actually boxed on this arc, and the term says so rather than grading it", () => {
+    // RE-PINNED, AND THE PROPERTY CHANGED WITH THE QUANTITY. The old arc was
+    // 10 → 5 → 10 → 16 plane-1 cells against a body of 3: an uncapped RACE
+    // reading, which graded a squeeze r2 survived. `kept` is capped at `need`,
+    // and r2 keeps its five cells at every turn of the arc — it is squeezed and
+    // it is not boxed. A term that graded it here would be a second, weaker
+    // `reach`, and the block above is where the squeeze is asserted, on the
+    // feature that owns it.
+    const kept = arc.map(({ r }) => oursIn(r.first).map((t) => `${t.kept}/${t.need}`));
+    // r2 is the one this block is about and it is `5/5` at every turn of the
+    // arc; the extra rows at 6 and 22 are teammates the worst reading does not
+    // admit (see block A), priced rather than dropped.
+    expect(kept).toEqual([
+      ['5/5', '5/5', '1/5'],
+      ['5/5'],
+      ['5/5'],
+      ['5/5', '1/5'],
+    ]);
   });
 });
 
+/**
+ * D — RE-PINNED, AND WHY.
+ *
+ * D was written against a floor that did not price OUR OWN KING'S FALL. The
+ * one-engine cut closed that hole: on `mid11` our king r0 can stage onto a
+ * square the blue queen's claim holds and beats, and the re-vendored
+ * `settlePartial` writes a `regicide` divergence for every team-mate —
+ * `via: ["r0"]` — because losing the last king takes the team off the board.
+ * `moverSurvival` resolves those at the king and answers `maybe`, so
+ * `ADMISSION.lo.ours = worstAlive && !held` admits NOBODY of ours and the
+ * floor reads `ours = 0 / theirs = 62` of 121. That is honest: in that world
+ * we own no cell because we are not on the board.
+ *
+ * The gradient D was asking for is real, and the reason the old harness could
+ * not see it was COVERAGE, not the floor. The king has three safe squares of
+ * its nine (72, 97, 98), and on those the partition reads `ours = 1 /
+ * theirs = 89` — the exact pair the pre-cut fold produced. The old harness
+ * spent its cap of 64 depth-first, so every plan it priced carried the king's
+ * FIRST move; `ourPlans` now spends the cap in level order, and D additionally
+ * prices ONE PLAN PER KING OPTION below so the king's safe squares are covered
+ * BY CONSTRUCTION rather than by where a cap happened to fall.
+ *
+ * What is asserted is therefore the honest property and not the old numbers:
+ * the floor is a gradient over the king's own options, and it is CONSTANT
+ * exactly across the options that leave the king exposed. The old block's
+ * `span > 0.2` and `separation > 0.5` are gone: over nine options the floor
+ * takes two values, one per king fate, and demanding it tell nearly every
+ * candidate apart was pinning the coarseness of a floor that had never priced
+ * the king. The ceiling's `span > 0.2` is gone for the same reason — the `hi`
+ * reading admits on BEST-case survival, which no choice of our king's square
+ * changes, so a span there measured nothing about this position.
+ */
 describe('D — the slider guard (mid11 seed 101)', () => {
-  const r = read(MID11);
+  const rows = kingOptions(MID11);
+  const exposed = rows.filter((k) => k.partition.ours === 0);
+  const safe = rows.filter((k) => k.partition.ours > 0);
 
-  test('the floor is a gradient, not the pinned −1 the all-kinds fold produced', () => {
-    // Under the fold this replaced, this position read ours = 0.4 of 121 with
-    // reach.lo pinned in [−1.0000, −0.8595]: 0.14 of range and no ordering.
-    expect(Math.min(...r.reachLo)).toBeGreaterThan(-1);
-    expect(span(r.reachLo)).toBeGreaterThan(0.2);
-    expect(separation(r.reachLo)).toBeGreaterThan(0.5);
+  test('the king has both fates here, so the block is not vacuous', () => {
+    expect(rows.length).toBe(9);
+    expect(exposed.length).toBeGreaterThan(0);
+    expect(safe.length).toBeGreaterThan(0);
   });
 
-  test('the ceiling is not pinned at "we own everything" either', () => {
-    expect(Math.max(...r.reachHi)).toBeLessThan(1);
-    expect(span(r.reachHi)).toBeGreaterThan(0.2);
+  test('the floor is a gradient over the king\'s options, not the pinned −1 the all-kinds fold produced', () => {
+    // Under the fold this replaced, this position read ours = 0.4 of 121 with
+    // reach.lo pinned in [−1.0000, −0.8595]: 0.14 of range and no ordering.
+    const los = rows.map((k) => k.reachLo);
+    expect(Math.min(...los)).toBeGreaterThan(-1);
+    expect(span(los)).toBeGreaterThan(0);
+  });
+
+  test('and it is constant exactly across the options that leave the king exposed', () => {
+    // The sharp statement: a floor that has priced the king cannot tell two
+    // worlds apart in which we are equally off the board, and must tell those
+    // apart from the worlds in which we are not.
+    expect(span(exposed.map((k) => k.reachLo))).toBe(0);
+    const [pinned] = exposed.map((k) => k.reachLo) as [number];
+    for (const k of safe) expect([k.to, k.reachLo === pinned]).toEqual([k.to, false]);
+  });
+
+  test('the FULL floor puts the king\'s fall below every ordering term, not beside it', () => {
+    // The cliff, in the one place it decides: territory may order the squares
+    // the king survives on, and may never price a square it does not.
+    for (const k of exposed) expect([k.to, Number.isFinite(k.fullLo)]).toEqual([k.to, false]);
+    for (const k of safe) expect([k.to, Number.isFinite(k.fullLo)]).toEqual([k.to, true]);
+  });
+
+  test('the ceiling is not pinned at "we own everything"', () => {
+    for (const k of rows) {
+      expect([k.to, k.reachHi < 1]).toEqual([k.to, true]);
+      expect([k.to, k.reachHi > k.reachLo]).toEqual([k.to, true]);
+    }
   });
 
   test('the LEVEL stays low, and that is the honest reading rather than a bug', () => {
     // A held enemy is a turn behind us on the clock and its one-move cloud is
     // a whole slider line, so a SOUND floor on a slider board concedes most of
     // the board. What the two-plane rule buys is not a higher level — it is an
-    // ordering. Pinned so that a future change claiming to "fix the level" has
-    // to say what it did to soundness.
-    expect(r.first.ours / r.first.open).toBeLessThan(0.2);
-    expect(r.first.trails.some((t) => t.mine && t.owned > 20)).toBe(true);
+    // ordering. Read on a square the king SURVIVES, because on the others the
+    // level is zero for a reason material already states.
+    const p = (safe[0] as KingOption).partition;
+    expect(p.ours / p.open).toBeLessThan(0.2);
+    // AND THE PER-UNIT READING IS NOT ROOMY HERE, which is the honest half of
+    // the same sentence. The old assertion was `owned > 20` — an uncapped race
+    // count. `kept` is a region measured against a board on which a held blue
+    // QUEEN's claim cloud is most of the interior within two turns, so our one
+    // trail unit reads 1 of the 5 cells it needs on every square the king
+    // survives on. That is the saturation `docs/design/entrapment.md` §4.4
+    // names: on a slider board the term is near-constant and carries no
+    // ordering, and it is pinned here so that a later change which claims to
+    // have fixed it has a number to move.
+    expect(p.trails.filter((t) => t.mine).map((t) => `${t.kept}/${t.need}`)).toEqual(['5/5']);
   });
 });
 
 describe('E — the two-turn-stale guard', () => {
   const stale = [2, 6, 10, 14].map((turn) => ({ turn, r: read(boardAt(0, turn), 2) }));
 
+  /**
+   * TURN 10 IS NOT SHARP ANY MORE, AND THE REASON IS A PROOF THAT WAS NEVER
+   * THERE.
+   *
+   * This test used to read `separation > 0.5` at all four stale turns. Turn 10
+   * cleared it at 0.619 — the weakest of the four — on the strength of our
+   * third snake being scored ALIVE, and that reading came from the engine's
+   * body-rule ledger entries, which carry `couldBeat: false` unconditionally
+   * (`bounds/material.ts`, and the defect report in
+   * `src/tests/settle-partial-sever-pile.test.ts`). It is a proof for one
+   * arrival and not for two, and this board has two: `b1` and `b2` can both
+   * stand on `r2`'s trail cells 32 and 45. Equal tier means the first to
+   * arrive DIES on the segment, which registers `r2` itself into that cell's
+   * durable pile, and `b2` — weight 5 against `b1`'s 4 and `r2`'s 3 — then
+   * arrives as the pile's unique strict maximum and takes both of the others.
+   * `r2` is a victim of a contest it never stood in.
+   *
+   * So the floor stopped ordering four candidates it had no world for:
+   * `separation` on `reachLo` went 0.619 -> 0.381 and the distinct readings
+   * went 4 -> 2, at turn 10 alone (2, 6 and 14 are unchanged to the digit).
+   * The bar is kept at 0.5 exactly where a sharp floor is still available, and
+   * turn 10 is re-pinned to the property that actually survives — the floor is
+   * not FLAT there — plus the mechanism, so that a later change which
+   * re-sharpens this board without the engine having been fixed fails here
+   * rather than passing quietly.
+   */
+  const SHARP = [2, 6, 14];
+
   test('the floor still orders candidates under stale clouds', () => {
     for (const { turn, r } of stale) {
+      // Never vacuous, at any staleness: this is what E is for.
+      expect([turn, separation(r.reachLo) > 0]).toEqual([turn, true]);
+    }
+    for (const { turn, r } of stale.filter((s) => SHARP.includes(s.turn))) {
       expect([turn, separation(r.reachLo) > 0.5]).toEqual([turn, true]);
+    }
+  });
+
+  test('and turn 10 is provable again: the engine ledgers the pile contest a sever can become, so a lone sever proves survival', () => {
+    const sample = boardAt(0, 10);
+    const ourIds = (sample.board.snakes ?? [])
+      .filter((s) => (s.teamID ?? s.id) === sample.team && s.health > 0 && s.body.length > 0)
+      .map((s) => s.id);
+    const observedTurns = new Map(
+      (sample.board.snakes ?? [])
+        .filter((s) => !ourIds.includes(s.id))
+        .map((s) => [s.id, sample.turn - 2] as [string, number])
+    );
+    const sub = makeSubstrate({
+      board: sample.board,
+      turn: sample.turn,
+      asTeam: sample.team,
+      modeled: ourIds,
+      observedTurns,
+    });
+    try {
+      const asTeam = sub.teamNumber(sample.team);
+      const plan = new Map<UnitId, Candidate>();
+      for (const u of sub.roster()) {
+        if (u.team !== asTeam) continue;
+        const a = sub.actionsOf(u.unitId)[0] as Candidate;
+        plan.set(u.unitId, { unitId: u.unitId, from: a.from, to: a.to, path: a.path });
+      }
+      sub.withResolution(plan as JointPlan, asTeam, ({ resolution }) => {
+        const mine = resolution.ledger.filter((d) => d.unitId === 'r2');
+        // Every contact naming it is the body rule's other half, and every one
+        // of them says it cannot lose — which is the entry this fold no longer
+        // reads as a proof.
+        expect([...new Set(mine.map((d) => d.kind))]).toEqual(['sever']);
+        expect(mine.some((d) => d.couldBeat)).toBe(false);
+        // Two distinct claims over the same segment cell: the pile.
+        const overCell = new Map<number, Set<string>>();
+        for (const d of mine) {
+          if (!overCell.has(d.cell)) overCell.set(d.cell, new Set());
+          (overCell.get(d.cell) as Set<string>).add(d.heldId);
+        }
+        expect([...overCell.values()].some((ids) => ids.size > 1)).toBe(true);
+        expect(moverSurvival(resolution, 'r2')).toBe('yes');
+        return null;
+      });
+    } finally {
+      sub.release();
     }
   });
 
   test('staleness erodes the floor without collapsing it', () => {
     for (const { turn, r } of stale) {
       expect([turn, span(r.reachLo) > 0]).toEqual([turn, true]);
+    }
+  });
+
+  test('and room orders candidates exactly where a unit is short, and is silent where none is', () => {
+    // THE SHAPE OF THE REPAIRED TERM, read under the staleness that used to be
+    // this block's whole subject: it grades wherever a unit of ours is short of
+    // what it needs, and a two-turn-stale enemy cloud is exactly what makes one
+    // short. The old assertion was the same `span > 0`, on a race reading that
+    // never saturated; this one is on a region reading that does, so the bar
+    // below says how far from saturation it stays.
+    for (const { turn, r } of stale) {
       expect([turn, span(r.roomLo) > 0]).toEqual([turn, true]);
+      // AND NOT PINNED AT THE FLOOR. A term that read −1 for every candidate
+      // would be sound, flat and useless — the degeneracy §4.4 of
+      // `docs/design/entrapment.md` is written against.
+      expect([turn, Math.max(...r.roomLo) > -1]).toEqual([turn, true]);
     }
   });
 });
@@ -481,13 +749,13 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
       const plan = new Map<UnitId, Candidate>();
       for (const u of sub.roster()) {
         if (u.team !== asTeam) continue;
-        const a = sub.enumerate(u.unitId)[0];
+        const a = sub.actionsOf(u.unitId)[0];
         if (a === undefined) continue;
         plan.set(u.unitId, {
           unitId: u.unitId,
-          from: -1,
-          to: a.dest,
-          path: a.action.kind === 'move' ? [...a.action.path] : [],
+          from: a.from,
+          to: a.to,
+          path: a.path,
         });
       }
       const out = new Map<string, number>();
@@ -495,7 +763,7 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
         const p = makeContext(sub, resolution, bounds, asTeam, 4).partition('lo');
         for (const t of p.trails) {
           if (!t.mine) continue;
-          out.set(sub.unitOf(t.subject.unitId)?.wireId ?? '?', t.owned);
+          out.set(sub.unitOf(t.subject.unitId)?.wireId ?? '?', t.kept);
         }
         return null;
       });
@@ -509,11 +777,17 @@ describe('a documented boundary: a teammate leaving the board frees its neighbou
     const all = roomsWith(ourIds);
     const fewer = roomsWith(ourIds.filter((id) => id !== 'b0'));
     expect(all.size).toBeGreaterThan(fewer.size);
-    for (const [wireId, owned] of fewer) {
-      expect([wireId, owned >= (all.get(wireId) ?? 0)]).toEqual([wireId, true]);
+    for (const [wireId, kept] of fewer) {
+      expect([wireId, kept >= (all.get(wireId) ?? 0)]).toEqual([wireId, true]);
     }
-    // And at least one of them really did gain, or this test proves nothing.
-    expect([...fewer].some(([w, o]) => o > (all.get(w) ?? 0))).toBe(true);
+    // AND ON THIS BOARD NOBODY GAINS, which is what the CAP buys. The direction
+    // still exists — b0's body and its claim cloud are both barriers, and
+    // removing it can only REMOVE barriers — but b1 already keeps all six cells
+    // it needs, so there is nothing above the cap for it to gain. The reading
+    // that could be improved by a teammate's death is exactly the reading that
+    // was already saturated, and the inequality below is what made the
+    // direction harmless even when it did bite.
+    expect([...fewer].map(([w, k]) => [w, k, all.get(w)])).toEqual([['b1', 6, 6]]);
   });
 
   test('and the loss still costs more than the room it frees', () => {

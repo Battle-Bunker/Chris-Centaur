@@ -64,10 +64,11 @@
  * (`w x range < 10 x lightest unit weight`) whatever the roster size.
  */
 
-import { bbTest } from '../../partial-engine/index';
+import { bbTest } from '../bits';
 import type { EngineSubstrate } from '../substrate';
-import { type Feature, bound, point } from './bound';
+import { type Feature, envelope, point } from './bound';
 import type { EvalContext, Standing } from './features';
+import { perBoard } from './memo';
 
 /** No path from this cell to any meal. */
 const UNREACHABLE = -1;
@@ -103,9 +104,10 @@ const DISTANCE = new WeakMap<EngineSubstrate, Int32Array>();
  * Cached per substrate: one flood per decision, not one per evaluation.
  */
 export function foodDistance(sub: EngineSubstrate): Int32Array {
-  const hit = DISTANCE.get(sub);
-  if (hit !== undefined) return hit;
+  return perBoard(DISTANCE, sub, () => computeFoodDistance(sub));
+}
 
+function computeFoodDistance(sub: EngineSubstrate): Int32Array {
   const grid = sub.grid;
   const width = grid.width;
   const dist = new Int32Array(grid.cells).fill(UNREACHABLE);
@@ -136,29 +138,26 @@ export function foodDistance(sub: EngineSubstrate): Int32Array {
       queue[tail++] = next;
     }
   }
-  DISTANCE.set(sub, dist);
   return dist;
 }
 
 /**
  * One unit's appetite for where it is standing.
  *
- * The hunger scale reads the unit's health at the START of the turn, not the
- * health the resolution left it with, and that is not a detail: eating restores
- * a unit to its kind's maximum, so a resolved reading prices the very move that
- * fed it as the move of a unit with no appetite — the two effects cancel and the
- * meal stops being worth anything. Reading turn-start health makes the scale a
+ * The hunger scale reads the unit's energy at the START of the turn, not the
+ * energy the settlement left it with, and that is not a detail: eating refills
+ * a unit toward its kind's maximum, so a settled reading prices the very move
+ * that fed it as the move of a unit with no appetite — the two effects cancel
+ * and the meal stops being worth anything. Reading turn-start energy makes the scale a
  * per-unit CONSTANT within one decision, so this feature is purely positional
  * and the value of the meal itself is left where it belongs, in `material`.
  */
 function pullOf(ctx: EvalContext, s: Standing, dist: Int32Array): number {
   const d = dist[s.cell];
   if (d === undefined || d === UNREACHABLE) return 0;
-  const config = ctx.sub.engine.config;
-  const perKind = config.maxHealthPerKind?.[s.kind];
-  const cap = Math.max(1, perKind ?? config.maxHealth);
-  const health = ctx.sub.unitOf(s.unitId)?.health ?? s.health;
-  const hunger = Math.min(1, Math.max(0, 1 - health / cap));
+  const cap = Math.max(1, ctx.sub.maxEnergyOf(s.kind));
+  const energy = ctx.sub.unitOf(s.unitId)?.energy ?? s.energy;
+  const hunger = Math.min(1, Math.max(0, 1 - energy / cap));
   const diameter = Math.max(1, ctx.sub.grid.width + ctx.sub.grid.height);
   const near = Math.max(0, 1 - d / diameter);
   return near * (HUNGER_FLOOR + (1 - HUNGER_FLOOR) * hunger);
@@ -202,6 +201,6 @@ export const foodFeature: Feature<EvalContext> = {
     if (ours === 0) return point(0);
     lo /= ours;
     hi /= ours;
-    return bound(lo, (lo + hi) / 2, hi);
+    return envelope(lo, hi);
   },
 };

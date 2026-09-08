@@ -26,6 +26,8 @@ import {
   type StagingCandidate,
 } from "../lobster/voc"
 import { bounds, cand, ledgerEntry, plan, score } from "./lobster-harness"
+import { BOUND_EPSILON, compareFloors, widthOf, withNarrowing } from "../lobster/bounds"
+import { DEFAULT_DEAD_BELOW, detectVacuity } from "../lobster/postures"
 
 const SIGHTED = channelPolicyFor("SIGHTED")
 
@@ -166,10 +168,101 @@ describe("leader selection", () => {
     expect(rows[pickLeader(rows, VACUOUS)].key).toBe("b")
   })
 
+  it("never orders on est across a horizon (06 F-4)", () => {
+    const ccd = "cloud-contingent-dead" as const
+    // FOGGED-VACUOUS: est is the PRIMARY key, which is exactly the posture
+    // where the missing guard mattered most — the one channel depth cannot
+    // back up soundly is the one channel that adjudicates there.
+    const vacuous = [
+      row({ key: "shallow", lo: CLIFF, est: 40, hi: 8, horizon: 1, vacuity: ccd }),
+      row({ key: "deep", lo: CLIFF, est: 3, hi: 10, horizon: 2, vacuity: ccd }),
+    ]
+    expect(vacuous[pickLeader(vacuous, VACUOUS)].key).toBe("deep")
+    // SIGHTED: est is the tie-break under a floor tie, and the horizon sits
+    // immediately above it, so the tie falls to the better-informed reading
+    // rather than to a comparison no fold declares a discount for.
+    const sighted = [
+      row({ key: "shallow", lo: 10, est: 40, hi: 30, horizon: 1 }),
+      row({ key: "deep", lo: 10, est: 3, hi: 30, horizon: 2 }),
+    ]
+    expect(sighted[pickLeader(sighted, SIGHTED)].key).toBe("deep")
+    // And within ONE horizon est still orders, which is the whole of its job.
+    const level = [
+      row({ key: "low", lo: 10, est: 3, hi: 30, horizon: 2 }),
+      row({ key: "high", lo: 10, est: 40, hi: 30, horizon: 2 }),
+    ]
+    expect(level[pickLeader(level, SIGHTED)].key).toBe("high")
+  })
+
   it("computes root slack as a RIVAL quantity, not a bound gap", () => {
     const rows = [row({ key: "L", lo: 10, hi: 90 }), row({ key: "R", lo: 0, hi: 25 })]
     expect(rootSlack(rows, 0)).toBe(15) // 25 − 10, not 90 − 10
     expect(rootSlack([rows[0]], 0)).toBe(0)
+  })
+})
+
+describe("the switch margin is re-derived, not inherited (06 F-6)", () => {
+  it("is a NOISE threshold: the depth artifact it would guard is refused by basis identity", () => {
+    // The fear behind a bigger margin at depth is a floor movement that is an
+    // artifact of a truncated deep enumeration. It cannot reach the margin: a
+    // min-side truncation may not move a floor unless it is DECLARED, and a
+    // declared narrowing lands in the assumption set, changes the basis key,
+    // and makes the comparison refuse outright. Exact separation, made by
+    // identity — which is why a magnitude threshold is the wrong instrument
+    // whatever it is set to.
+    const honest = bounds(10, 20)
+    const truncated = withNarrowing(bounds(10 + 5 * DEFAULT_SWITCH_MARGIN, 20), {
+      kind: "narrowing",
+      unitId: 9,
+      note: "deep sweep cut short",
+    })
+    expect(compareFloors(honest, honest).comparable).toBe(true)
+    const across = compareFloors(truncated, honest)
+    expect(across.comparable).toBe(false)
+    expect(across).toMatchObject({ refusal: "basis_mismatch" })
+    // …and the same two bounds, with the narrowing NOT declared, compare
+    // perfectly well — so the refusal is about the declaration, never the size.
+    expect(compareFloors(bounds(10 + 5 * DEFAULT_SWITCH_MARGIN, 20), honest)).toEqual({
+      comparable: true,
+      order: 1,
+    })
+  })
+
+  it("cannot be a fraction of the bracket, because the arm it adjudicates has no width", () => {
+    // The one arm where the margin decides rather than damps is the est arm,
+    // and it runs only under FOGGED-VACUOUS — where every candidate's floor is
+    // ON the cliff and the production cliff is −∞. A width-proportional margin
+    // there is an infinite margin.
+    const onTheCliff = bounds(DEFAULT_DEAD_BELOW, 40, { ledger: [ledgerEntry(9)] })
+    expect(widthOf(onTheCliff)).toBe(Number.POSITIVE_INFINITY)
+    expect(detectVacuity(onTheCliff).cause).toBe("cloud-contingent-dead")
+
+    const ccd = "cloud-contingent-dead" as const
+    const rows = (est: number): StagingCandidate[] => [
+      row({ key: "a", lo: DEFAULT_DEAD_BELOW, est: 10, hi: 40, vacuity: ccd }),
+      row({ key: "b", lo: DEFAULT_DEAD_BELOW, est, hi: 40, vacuity: ccd }),
+    ]
+    // An infinite margin freezes the wire at whatever was staged when the
+    // posture flipped — the exact passivity the posture exists to escape.
+    const frozen = new StickyStager(widthOf(onTheCliff))
+    frozen.stage(rows(10), VACUOUS)
+    expect(frozen.stage(rows(900), VACUOUS).staged.key).toBe("a")
+    // The constant lets the gradient move, which is the whole point of it.
+    const live = new StickyStager()
+    live.stage(rows(10), VACUOUS)
+    expect(live.stage(rows(900), VACUOUS).staged.key).toBe("b")
+  })
+
+  it("sits strictly between the arithmetic tolerance and the smallest real distinction", () => {
+    // Both bounds are horizon-free: neither the bounds layer's float tolerance
+    // nor the criterion profile's resolution is a function of how many plies
+    // proved a number, so the value between them does not move with depth.
+    const FEATURES_IN_THE_FOLD = 12
+    expect(BOUND_EPSILON * FEATURES_IN_THE_FOLD).toBeLessThan(DEFAULT_SWITCH_MARGIN)
+    // The positional vocabulary spans about four points at its widest; a
+    // hundredth is three orders inside it, so every distinction it can draw
+    // still restages.
+    expect(DEFAULT_SWITCH_MARGIN).toBeLessThan(4 / 100)
   })
 })
 
@@ -192,14 +285,47 @@ describe("sticky staging (F1/F2 and the dead-dethroned-by-the-living rule)", () 
     expect(big.reason).toBe("improved")
   })
 
-  it("refuses a shallower-horizon improvement however large", () => {
+  it("takes a strictly better PROVED floor however shallow it was proved (06 F-5)", () => {
+    // A floor is a floor whatever proved it — `compareFloors` reads `worst` and
+    // nothing else — so this arm's inherited `leader.horizon >= incumbent.horizon`
+    // was refusing a proof in favour of a worse one that happened to be
+    // better-informed. The guard's stated motivation is an est-channel
+    // phenomenon and it stays on the est arm, where it is required.
     const s = new StickyStager()
     s.stage([row({ key: "a", lo: 10, horizon: 2 })], SIGHTED)
     const d = s.stage(
       [row({ key: "a", lo: 10, horizon: 2 }), row({ key: "b", lo: 900, horizon: 1 })],
       SIGHTED,
     )
-    expect(d.staged.key).toBe("a")
+    expect(d.staged.key).toBe("b")
+    expect(d.reason).toBe("improved")
+  })
+
+  it("never lets est cross a horizon on the gradient arm (06 F-4, F-5)", () => {
+    const ccd = "cloud-contingent-dead" as const
+    const s = new StickyStager(1, CLIFF)
+    s.stage([row({ key: "a", lo: CLIFF, est: 10, hi: 40, horizon: 2, vacuity: ccd })], VACUOUS)
+    // A SHALLOWER reading with a hugely better est is not a better est: it is
+    // an answer to another question, and no margin adjudicates between the two.
+    const shallow = s.stage(
+      [
+        row({ key: "a", lo: CLIFF, est: 10, hi: 40, horizon: 2, vacuity: ccd }),
+        row({ key: "b", lo: CLIFF, est: 900, hi: 40, horizon: 1, vacuity: ccd }),
+      ],
+      VACUOUS,
+    )
+    expect(shallow.staged.key).toBe("a")
+    // A DEEPER one takes the stage on being deeper, margin or no margin —
+    // deliberately, because the margin is a noise threshold WITHIN a horizon
+    // and there is no noise question across one.
+    const deep = s.stage(
+      [
+        row({ key: "a", lo: CLIFF, est: 10, hi: 40, horizon: 2, vacuity: ccd }),
+        row({ key: "c", lo: CLIFF, est: 9, hi: 40, horizon: 3, vacuity: ccd }),
+      ],
+      VACUOUS,
+    )
+    expect(deep.staged.key).toBe("c")
   })
 
   it("keeps a cloud-contingent-DEAD incumbent staged while the demand is serviced", () => {

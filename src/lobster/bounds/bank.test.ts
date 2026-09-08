@@ -6,8 +6,9 @@
  * answering [-∞, +∞] would pass the soundness harness and be worthless.
  */
 
-import type { JointPlan, Substrate, UnitId } from '../contracts';
+import type { Candidate, JointPlan, Substrate, UnitId } from '../contracts';
 import { B0_ONLY, BoundBank, DEFAULT_BANK_CONFIG, isDischarged, ledgerOf, witnessOf } from './index';
+import { footprintOf } from './plan';
 import {
   allPlans,
   makeEvaluator,
@@ -31,19 +32,27 @@ const CONTACT: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 2, 2 * 7 + 2], health: 60 },
-    { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 4], health: 60 },
-    { id: 3, team: THEIRS, type: 'king', occupancy: [4 * 7 + 4], health: 60 },
+    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 2, 2 * 7 + 2], energy: 60 },
+    { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 4], energy: 60 },
+    { id: 3, team: THEIRS, type: 'king', occupancy: [4 * 7 + 4], energy: 60 },
   ],
 };
 
 /** Opposite corners of a big board: nothing can reach anything. */
+/**
+ * Two units that cannot touch each other, on either side's turn — and NOT
+ * kings. A board with a king on it plays under regicide, and regicide is a
+ * team verdict off one unit's death, so the engine reports every unit of such
+ * a team as possibly-gone whatever the geometry says. That is the right
+ * answer and it is not the question here: this board exists to exhibit a
+ * settlement in which nothing unknown can matter at all.
+ */
 const DISTANT: BoardSpec = {
   width: 11,
   height: 11,
   units: [
-    { id: 1, team: OURS, type: 'king', occupancy: [1 * 11 + 1], health: 60 },
-    { id: 2, team: THEIRS, type: 'king', occupancy: [9 * 11 + 9], health: 60 },
+    { id: 1, team: OURS, type: 'knight', occupancy: [1 * 11 + 1], energy: 60 },
+    { id: 2, team: THEIRS, type: 'knight', occupancy: [9 * 11 + 9], energy: 60 },
   ],
 };
 
@@ -334,6 +343,110 @@ describe('entanglement gating decides WHO', () => {
   });
 });
 
+/**
+ * REVIEW-1 F3's board, in the harness's vocabulary: a unit that is not ours to
+ * command and is FIXED by a reference action, and one held enemy whose only
+ * meeting with this decision is that reference action's own staged path.
+ *
+ *   1  ours     knight (0,0), staging (1,2) — nowhere near anything
+ *   2  theirs   rook (9,9), FIXED by reference to (9,7), path 97 then 86
+ *   3  theirs   rook (5,7), whose rank claim runs through 86
+ *
+ * Nothing our commandable knight does can touch unit 3; only the reference
+ * action can, which is exactly the coverage the gate was losing.
+ */
+const REFERENCED: BoardSpec = {
+  width: 11,
+  height: 11,
+  units: [
+    { id: 1, team: OURS, type: 'knight', occupancy: [0], energy: 60 },
+    { id: 2, team: THEIRS, type: 'rook', occupancy: [9 * 11 + 9], energy: 60 },
+    { id: 3, team: THEIRS, type: 'rook', occupancy: [7 * 11 + 5], energy: 60 },
+  ],
+};
+
+/**
+ * A substrate that records every footprint the bank asks `entangled` about —
+ * a Proxy rather than a subclass for the reason memo.ts gives: it forwards
+ * every capability it was not told about, and it binds what it forwards to the
+ * real substrate so the method still sees its own fields.
+ */
+function watchingEntanglement(
+  inner: Substrate,
+  seen: UnitId[][],
+): Substrate {
+  return new Proxy(inner, {
+    get(target, prop): unknown {
+      if (prop === 'entangled') {
+        return (probes: Parameters<Substrate['entangled']>[0]): ReadonlyArray<UnitId> => {
+          const ids = target.entangled(probes);
+          seen.push([...ids]);
+          return ids;
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? (value as (...a: never[]) => unknown).bind(target) : value;
+    },
+  }) as Substrate;
+}
+
+describe('the entanglement gate reads the plan PLUS the reference actions', () => {
+  test('a unit entangled only with a FIXED teammate is still enumerated', () => {
+    // REVIEW-1 F3. `price` asked the gate about `plan`, not about `base =
+    // withReferences(plan)`, so `footprintOf` omitted the staged paths of
+    // units this decision does not command but has FIXED by reference — and a
+    // held unit entangled only with such a path was never enumerated. Sound
+    // (a missing unit stays held at a sound bound) and a real loss of B1/B3
+    // coverage, in the multi-seat case that reference actions exist for.
+    const board = makeTestBoard(REFERENCED);
+    const sub = makeSubstrate(board, OURS);
+    const seen: UnitId[][] = [];
+    const gen = makeGenerator();
+    const reference: Candidate = {
+      unitId: 2,
+      from: -1,
+      to: 7 * 11 + 9,
+      path: sub.pathFor(2, 7 * 11 + 9) as ReadonlyArray<number>,
+    };
+    const bank = new BoundBank({
+      sub: watchingEntanglement(sub, seen),
+      gen,
+      evaluate: makeEvaluator(),
+      asTeam: OURS,
+      budget: unboundedBudget(),
+      basis: [],
+      referenceActions: new Map([[2, reference]]),
+      config: DEFAULT_BANK_CONFIG,
+    });
+    try {
+      expect(reference.path).toEqual([8 * 11 + 9, 7 * 11 + 9]);
+      const ours = sub.optionsFor(1).find((c) => c.to === 2 * 11 + 1) as Candidate;
+      const plan: JointPlan = new Map([[1, ours]]);
+      // The finding's own reproduction, on this board: what `price` asked the
+      // gate about, and what it resolves.
+      expect(sub.entangled(footprintOf(plan))).toEqual([]);
+      expect(sub.entangled(footprintOf(new Map(plan).set(2, reference)))).toEqual([2, 3]);
+      const out = bank.price(plan);
+      // The geometric arm of the gate, on the footprint it was handed.
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen[0]).toContain(3);
+      // And unit 3 is enumerated. This half is MASKED on most boards — the
+      // gate is a union and its ledger arm often names the same unit — which
+      // is why the assertion above is the one that pins the fix.
+      // And unit 3 IS enumerated — B3 covers the whole gate here. This half
+      // reads the same before the fix: the gate is a UNION and its ledger arm
+      // (`residueOf(b0.ledger)`) happens to name unit 3 on this board too,
+      // which is the masking REVIEW-2 measured across eight variants. The
+      // geometric arm is the one that was wrong, so the assertion above — on
+      // the footprint the gate is handed — is the one that pins the fix.
+      expect(out.members.map((m) => m.rung)).toContain('B3');
+    } finally {
+      bank.release();
+      sub.release();
+    }
+  });
+});
+
 describe('degrading when the substrate cannot model', () => {
   test('the bank falls back to B0 and stays sound', () => {
     // A substrate WITHOUT withModelled — a deliberate violation of the
@@ -343,11 +456,10 @@ describe('degrading when the substrate cannot model', () => {
     const board = makeTestBoard(CONTACT);
     const rich = makeSubstrate(board, OURS);
     const poor = {
-      state: rich.state,
       unitIds: () => rich.unitIds(),
+      unitIdOf: (wireId: string) => rich.unitIdOf(wireId),
       commandable: (team: number) => rich.commandable(team),
       resolveBoundedFor: (plan: JointPlan, team: number) => rich.resolveBoundedFor(plan, team),
-      releaseResolution: () => undefined,
       entangled: (
         cells: ReadonlyArray<{ cell: number; fromSubStep: number; toSubStep: number }>,
       ) => rich.entangled(cells),
@@ -402,7 +514,7 @@ describe('the ledger translation', () => {
       });
       expect(plan).toBeDefined();
       const { resolution } = sub.resolveBoundedFor(plan as JointPlan, OURS);
-      const translated = ledgerOf(resolution);
+      const translated = ledgerOf(sub, resolution);
       expect(translated.length).toBeGreaterThan(0);
       for (const raw of resolution.ledger) {
         const wanted = raw.assumedPresent ? 'if_absent' : 'if_present';
@@ -542,14 +654,13 @@ describe('the adversary-completeness guard has INDEPENDENT evidence (V4 S2)', ()
   });
 });
 
-// ------------------------------------------------ the slab budget (V3-R7)
+// --------------------------------------------- the resolution budget (V3-R7)
 
-describe('the memo holds ONE slab budget across every modelled sibling', () => {
+describe('the memo holds ONE retention budget across every modelled sibling', () => {
   test('siblings share the ceiling instead of each getting their own', () => {
-    // `memoCapacity` is a SLAB budget and slabs come from one arena, so a memo
-    // whose children each kept a capacity-sized cache had a real ceiling of
-    // capacity x views — measured at 9754 outstanding slabs against a nominal
-    // 4096, which is 27 MB of ArrayBuffer per engine.
+    // A memo whose children each kept a capacity-sized cache had a real
+    // ceiling of capacity x views — measured at 9754 retained resolutions
+    // against a nominal 4096.
     const board = makeTestBoard(CONTACT);
     const own = makeSubstrate(board, OURS);
     const gen = makeGenerator();
@@ -569,8 +680,8 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
         bank as unknown as {
           memo: {
             stats: {
-              slabs: number;
-              peakSlabs: number;
+              retained: number;
+              peak: number;
               capacity: number;
               resolutions: number;
             };
@@ -580,8 +691,8 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
       expect(stats.capacity).toBe(4);
       // Every view writes into the same store, so the high-water mark is the
       // budget — not the budget times the number of hold configurations.
-      expect(stats.peakSlabs).toBeLessThanOrEqual(4);
-      expect(stats.slabs).toBeLessThanOrEqual(4);
+      expect(stats.peak).toBeLessThanOrEqual(4);
+      expect(stats.retained).toBeLessThanOrEqual(4);
       // And the work really was spread over more than one view.
       expect(stats.resolutions).toBeGreaterThan(4);
     } finally {
@@ -590,7 +701,7 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
     }
   });
 
-  test('release still returns every slab the family borrowed', () => {
+  test('release drops every resolution the family cached', () => {
     const board = makeTestBoard(CONTACT);
     const own = makeSubstrate(board, OURS);
     const gen = makeGenerator();
@@ -604,9 +715,10 @@ describe('the memo holds ONE slab budget across every modelled sibling', () => {
       config: { ...DEFAULT_BANK_CONFIG, gateOnEntanglement: false, memoCapacity: 4 },
     });
     for (const plan of allPlans(own, gen, OURS, 6)) bank.price(plan);
+    const memo = (bank as unknown as { memo: { stats: { retained: number } } }).memo;
+    expect(memo.stats.retained).toBeGreaterThan(0);
     bank.release();
-    expect(own.outstanding()).toBe(1);
+    expect(memo.stats.retained).toBe(0);
     own.release();
-    expect(own.outstanding()).toBe(0);
   });
 });

@@ -1,0 +1,130 @@
+{
+  "detached": {},
+  "top": [
+    {
+      "name": "Object",
+      "count": 10549,
+      "bytes": 296172
+    },
+    {
+      "name": "Array",
+      "count": 1944,
+      "bytes": 31104
+    },
+    {
+      "name": "system / Context",
+      "count": 357,
+      "bytes": 12704
+    },
+    {
+      "name": "HTMLElement",
+      "count": 213,
+      "bytes": 3432
+    },
+    {
+      "name": "HTMLDivElement",
+      "count": 178,
+      "bytes": 2872
+    },
+    {
+      "name": "Map",
+      "count": 128,
+      "bytes": 2084
+    },
+    {
+      "name": "HTMLSpanElement",
+      "count": 94,
+      "bytes": 1528
+    },
+    {
+      "name": "Error",
+      "count": 44,
+      "bytes": 1104
+    },
+    {
+      "name": "TypedArray",
+      "count": 36,
+      "bytes": 1008
+    },
+    {
+      "name": "HTMLButtonElement",
+      "count": 58,
+      "bytes": 952
+    },
+    {
+      "name": "SVGPathElement",
+      "count": 45,
+      "bytes": 732
+    },
+    {
+      "name": "CSSParserToken",
+      "count": 42,
+      "bytes": 504
+    },
+    {
+      "name": "Set",
+      "count": 27,
+      "bytes": 468
+    },
+    {
+      "name": "HTMLHeadingElement",
+      "count": 25,
+      "bytes": 424
+    },
+    {
+      "name": "HTMLScriptElement",
+      "count": 22,
+      "bytes": 376
+    },
+    {
+      "name": "SVGSVGElement",
+      "count": 19,
+      "bytes": 316
+    },
+    {
+      "name": "Attr",
+      "count": 17,
+      "bytes": 296
+    },
+    {
+      "name": "HTMLInputElement",
+      "count": 16,
+      "bytes": 280
+    },
+    {
+      "name": "InjectedScript",
+      "count": 2,
+      "bytes": 272
+    },
+    {
+      "name": "HTMLStyleElement",
+      "count": 14,
+      "bytes": 248
+    },
+    {
+      "name": "HTMLDListElement",
+      "count": 14,
+      "bytes": 236
+    },
+    {
+      "name": "HTMLLabelElement",
+      "count": 11,
+      "bytes": 188
+    },
+    {
+      "name": "WeakMap",
+      "count": 9,
+      "bytes": 180
+    },
+    {
+      "name": "SelectorEvaluatorImpl",
+      "count": 2,
+      "bytes": 176
+    },
+    {
+      "name": "NodeList",
+      "count": 9,
+      "bytes": 168
+    }
+  ]
+}

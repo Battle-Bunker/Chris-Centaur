@@ -99,8 +99,8 @@ board ate 3 meals in 361 unit-turns (0.83 per 100), one starved to death, and
 the survivors ended on 26 health.
 
 **2. Pieces have no positional gradient at all.** `command` is weighted 0 in
-`DEFAULT_WEIGHTS` (`calibration.ts:76`); `room` is plane-1 only, so it is
-identically zero for a unit that leaves no trail; and `reach`'s plane-2
+`DEFAULT_WEIGHTS` (`calibration.ts:76`); `room` reads trail units only, so it
+is identically zero for a unit that leaves no trail; and `reach`'s plane-2
 displacement set saturates for anything faster than a snake (the analysis is
 already written down in `calibration.ts`, under THE SLIDER REPAIR). The
 consequence is not subtle — every option a piece has scores THE SAME:
@@ -583,3 +583,48 @@ all three, the set is empty, and `restoreLeastBad` puts them back
 which every legal move is fatal by exhaustion anyway. The prune leaves nothing
 AVOIDABLE behind; what is left is a snake that had already boxed itself in,
 which is a room problem and not a staging one.
+
+## `room` measures what a unit can KEEP, and the column runs `[-1, 0]`
+
+**Read this if you are looking at the lens's `room` column and expecting the
+old numbers.** The quantity behind the name changed; the key, the weight and
+the position in the fold did not.
+
+It used to be *"how much ground this unit wins the RACE to"* — plane 1 of the
+territory partition, ours minus theirs, over the range `[-1, +1]`. It is now
+*"how much ground this unit can KEEP"*: a flood from the unit's settled head
+out to `max(4, length + 2)` turns, in which
+
+* a wall bars at every turn,
+* every trail unit's body bars on its own VACATING SCHEDULE — cell `O[i]` is
+  barred while `i <= length - 1 - t`, the flooding unit's own body included, so
+  its coil opens behind it one cell per turn,
+* and any cell another unit's head can hold AT OR BEFORE `t` is barred
+  outright.
+
+The reading is `kept` cells against `need = max(4, length + 2)`, and the term
+is `- sqrt((need - kept) / need)` averaged over our own live units. So:
+
+| what you see | what it means |
+|---|---|
+| `0` | every one of our units keeps all the room it needs. The commonest value, and it is not a missing reading. |
+| a small negative | one unit is a cell or two short. The FIRST cell of shortfall costs about a third of the whole term — `sqrt` is steep at the top — because that is where a decision can still be changed. |
+| near `-1` | a unit is boxed, or the board is a slider board (see below). |
+
+**The column never goes positive.** The enemy half is gone: a held enemy is a
+claim cloud and has no head cell to flood from, and `reach` already carries the
+contested-ground difference at the team level. The cost of that is a lost
+incentive to box the ENEMY in — the aggressive half of territory management,
+dropped deliberately in favour of the conservative half.
+
+**A slider board saturates it.** A held queen's claim cloud is most of the
+interior within two turns, so on `mixed` and `potions` every one of our snakes
+reads a shortfall and the term is nearly constant across candidates. It is
+sound there and it carries almost no ordering; `reach` and `material` do the
+work. `docs/design/entrapment.md` §4.4 is the standing note on it.
+
+`docs/design/entrapment.md` is the derivation, and
+`src/tests/entrapment.test.ts` pins the two positions that decide the shape: a
+length-8 coil that reads `0.000` (it is chasing its own tail and it is fine)
+and a length-4 snake with one cell of region that reads `0.913` and dies on
+every continuation the rules allow it.

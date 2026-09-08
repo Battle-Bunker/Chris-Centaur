@@ -191,6 +191,24 @@ export function stagingRowOf(
  * Both modes fall back, in order, to the un-vetoed candidates and then to the
  * whole set ordered by hi, so a leader always exists: staging nothing is never
  * an outcome of this function.
+ *
+ * ── EST NEVER CROSSES A HORIZON (06 F-4) ───────────────────────────────────
+ *
+ * `lo` and `hi` are claims about a horizon-independent quantity proved to
+ * different depths, so they compare across horizons unharmed. `est` is a
+ * summary AT a horizon — the evaluator's advisory scalar, from B0 alone, with
+ * no basis and no soundness claim — so two of them from two depths answer two
+ * questions and no field declares a discount between them. This was compared
+ * with no guard at both of this function's est reads: as the tie-break under
+ * `adjudicate`, and as the PRIMARY key under `veto`, which is precisely the
+ * FOGGED-VACUOUS posture where est is the channel that adjudicates.
+ *
+ * The fix is one coordinate in the ladder, not a fourth coordinate in the
+ * basis: HORIZON sits immediately above every est comparison, so est only ever
+ * compares readings of the same depth, and where depths differ the deeper
+ * reading is preferred — the same direction the sticky stager's own guard
+ * points, held deliberately rather than by inheritance. Depth therefore needs
+ * no fiber coordinate of its own (06 §1.5, Q-L7).
  */
 export function pickLeader(
   rows: ReadonlyArray<StagingCandidate>,
@@ -199,30 +217,39 @@ export function pickLeader(
   if (rows.length === 0) return -1
   const admissible: number[] = []
   for (let i = 0; i < rows.length; i++) if (!vetoed(rows[i].vacuity)) admissible.push(i)
+  const lo = (r: StagingCandidate): number => r.lo
+  const hi = (r: StagingCandidate): number => r.hi
+  const est = (r: StagingCandidate): number => r.est
+  const at = (r: StagingCandidate): number => r.horizon
 
   if (policy.loRole === "veto") {
     const pool = admissible.length > 0 ? admissible : rows.map((_, i) => i)
-    return bestOf(rows, pool, (r) => r.est, (r) => r.hi)
+    // est is the ORDERING channel here, so the horizon guard goes ABOVE it.
+    return bestOf(rows, pool, [at, est, hi])
   }
 
   const alive = admissible.filter((i) => rows[i].vacuity === "alive")
-  if (alive.length > 0) return bestOf(rows, alive, (r) => r.lo, (r) => r.est)
-  if (admissible.length > 0) return bestOf(rows, admissible, (r) => r.hi, (r) => r.est)
-  return bestOf(rows, rows.map((_, i) => i), (r) => r.hi, (r) => r.est)
+  if (alive.length > 0) return bestOf(rows, alive, [lo, at, est])
+  if (admissible.length > 0) return bestOf(rows, admissible, [hi, at, est])
+  return bestOf(rows, rows.map((_, i) => i), [hi, at, est])
 }
 
+/** Argmax on a lexicographic ladder of numeric keys, first index wins ties. */
 function bestOf(
   rows: ReadonlyArray<StagingCandidate>,
   pool: ReadonlyArray<number>,
-  primary: (r: StagingCandidate) => number,
-  secondary: (r: StagingCandidate) => number,
+  keys: ReadonlyArray<(r: StagingCandidate) => number>,
 ): number {
   let best = pool[0]
   for (const i of pool) {
     const a = rows[i]
     const b = rows[best]
-    if (primary(a) > primary(b) || (primary(a) === primary(b) && secondary(a) > secondary(b))) {
-      best = i
+    for (const key of keys) {
+      const ka = key(a)
+      const kb = key(b)
+      if (ka === kb) continue
+      if (ka > kb) best = i
+      break
     }
   }
   return best
@@ -241,35 +268,65 @@ export function rootSlack(rows: ReadonlyArray<StagingCandidate>, leaderIdx: numb
 }
 
 /**
- * Minimum lo improvement before the staged move switches leader at the same
- * horizon (RESULTS F1). Raw anytime streams without it had mid-budget regret
- * spikes of ~1000 from tie-flips and ≤4-point h=1 refutations that reversed at
- * h=2.
+ * Minimum improvement before the staged move switches leader (RESULTS F1). Raw
+ * anytime streams without it had mid-budget regret spikes of ~1000 from
+ * tie-flips and ≤4-point h=1 refutations that reversed at h=2.
  *
  * ── WHY IT IS NOT FIVE ANY MORE ────────────────────────────────────────────
  *
- * Five was calibrated against material, and against a stream that reached
- * horizon 2. Neither holds. On this build the horizon is always 1
- * (`kernel.ts` reads `run.lastView?.horizon ?? 1` and the production search
- * core is not a `Refiner`, so the view is never built) — so the "refutation
- * that reverses at h=2" the margin was protecting against cannot occur. And the
- * whole POSITIONAL vocabulary — reach, room, command, food, momentum,
- * healthEconomy — spans about four points at its widest, against material's ten
- * per unit of weight. A margin of five therefore did not damp positional churn:
- * it made positional value UNSTAGEABLE. Nothing the evaluator could say about
- * where a unit should go was ever worth five, so the staged plan was whatever
- * `seedPlan` picked first — the generator's ordered-first candidate — for the
- * whole game unless half a unit of material changed hands.
- *
- * That is what a bot looks like when its snakes walk in straight lines past the
- * food and its pieces never move: the traces are in
+ * Five was calibrated against material. The whole POSITIONAL vocabulary —
+ * reach, room, command, food, momentum, energyEconomy — spans about four points
+ * at its widest, against material's ten per unit of weight, so a margin of five
+ * did not damp positional churn: it made positional value UNSTAGEABLE. Nothing
+ * the evaluator could say about where a unit should go was ever worth five, so
+ * the staged plan was whatever `seedPlan` picked first — the generator's
+ * ordered-first candidate — for the whole game unless half a unit of material
+ * changed hands. That is what a bot looks like when its snakes walk in straight
+ * lines past the food and its pieces never move: the traces are in
  * `docs/BASIC-INTELLIGENCE.md`, and 80% of all staged moves in a recorded game
  * were the seed, untouched.
  *
- * The margin's real job is to refuse a switch that is worth nothing — floating
- * point noise, and exact ties. Exact ties are already refused by the strict
- * `>`; noise is bounded well below a hundredth. So the margin is now one
- * thousandth of the lightest unit's material: large enough that no rounding
+ * ── WHY IT IS STILL A CONSTANT AT DEPTH (06 F-6) ───────────────────────────
+ *
+ * Its second calibration was made on the premise that no deep reading could
+ * arrive, which is no longer true, so the number is re-derived rather than
+ * inherited. The margin and the horizon guard were one mechanism and they are
+ * re-decided in one place: the GUARD does the horizon work, exactly (F-4/F-5
+ * above), and the MARGIN does the noise work, which is horizon-independent.
+ * Three steps, each read off the bounds layer rather than chosen:
+ *
+ *  1. THE ARTIFACT A BIGGER MARGIN WOULD BE PROTECTING AGAINST CANNOT REACH IT.
+ *     The fear is a deep floor movement that is an artifact of a truncated deep
+ *     enumeration. But a min-side truncation may not move a floor at all unless
+ *     it is DECLARED: `declareTruncatedFloor` → `withNarrowing` (`score.ts`) →
+ *     a `narrowing` assumption → a different `BasisKey` → `compareFloors`
+ *     answers `{comparable:false, refusal:'basis_mismatch'}` and the row is not
+ *     sorted against the others at all. Sound deep floors and unsound ones are
+ *     separated by basis IDENTITY, which is exact. A magnitude threshold cannot
+ *     make that separation in either direction — it would refuse sound deep
+ *     proofs below its size while still admitting unsound ones above it — so it
+ *     is the wrong instrument for the job, at any setting.
+ *
+ *  2. BRACKET WIDTH IS NOT AVAILABLE AS A SCALE WHERE THE MARGIN ADJUDICATES.
+ *     The one arm where the margin decides rather than damps is the est arm,
+ *     and that arm runs only under FOGGED-VACUOUS — where every candidate's
+ *     `lo` sits on the cliff and `DEAD` is `−∞`. The bracket is unbounded below
+ *     and its width is infinite, so a width-proportional margin there is an
+ *     infinite margin, which freezes the wire at whatever happened to be staged
+ *     when the posture flipped. That is precisely the passivity the posture
+ *     exists to escape.
+ *
+ *  3. WHAT IS LEFT IS THE MARGIN'S REAL JOB, and both of its bounds are
+ *     horizon-free. Exact ties are already refused by the strict `>`. Float
+ *     drift is bounded by the bounds layer's own declared tolerance,
+ *     `BOUND_EPSILON = 1e-9`, accumulated over a fold of a dozen weighted
+ *     features — many orders of magnitude below a hundredth. And the smallest
+ *     distinction the criterion profile can draw is a positional term's own
+ *     resolution, well above a hundredth. Neither the arithmetic tolerance nor
+ *     the profile's resolution is a function of how many plies proved a number,
+ *     so the value that sits strictly between them does not move with depth.
+ *
+ * One thousandth of the lightest unit's material: large enough that no rounding
  * difference can restage a move, small enough that every distinction the
  * criterion profile is capable of drawing can.
  */
@@ -281,6 +338,15 @@ export interface StagingDecision {
   readonly switched: boolean
   readonly reason: "initial" | "collapse" | "improved" | "gradient" | "sticky"
   readonly slack: number
+  /**
+   * THE HORIZON OF THE ROW THAT IS ACTUALLY STAGED (06 F-3).
+   *
+   * It used to be `min over rows` — the table's SHALLOWEST — while the kernel's
+   * forced path stamped the staged row's own, so `EmitRecord.horizon` meant two
+   * different things on two paths into the same field. A depth of the table is
+   * not a property of the plan on the wire, and the field the emission carries
+   * is about the plan on the wire. One meaning, and it is this one.
+   */
   readonly horizon: number
 }
 
@@ -310,12 +376,14 @@ export class StickyStager {
     const leaderIdx = pickLeader(rows, policy)
     const leader = rows[leaderIdx]
     const slack = rootSlack(rows, leaderIdx)
-    const horizon = Math.min(...rows.map((r) => r.horizon))
     const incumbent = rows.find((r) => r.key === this.stagedKey)
+    // The decision's horizon is the STAGED row's, whichever row that turns out
+    // to be — see the field's own note.
+    const at = (staged: StagingCandidate): number => staged.horizon
 
     if (this.stagedKey === null || incumbent === undefined) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "initial", slack, horizon }
+      return { staged: leader, leader, switched: true, reason: "initial", slack, horizon: at(leader) }
     }
 
     // A dead incumbent is dethroned only by a LIVING leader. When everything
@@ -326,7 +394,7 @@ export class StickyStager {
     const leaderLiving = leader.vacuity === "alive"
     if (incumbentMaterialDead && leaderLiving) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "collapse", slack, horizon }
+      return { staged: leader, leader, switched: true, reason: "collapse", slack, horizon: at(leader) }
     }
 
     // F2: a cloud-contingent-DEAD (vacuous) incumbent stays staged while the
@@ -337,24 +405,76 @@ export class StickyStager {
     // (est, over an lo-vetoed set) may dethrone by the same margin rule.
     const incumbentVacuous = incumbent.vacuity === "cloud-contingent-dead"
     if (incumbentVacuous && !policy.vacuousMayWin) {
-      return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+      return {
+        staged: incumbent,
+        leader,
+        switched: false,
+        reason: "sticky",
+        slack,
+        horizon: at(incumbent),
+      }
     }
     if (incumbentVacuous && policy.vacuousMayWin) {
+      // THE GUARD IS REQUIRED HERE (06 F-5), and it is stronger than a `>=`.
+      // This arm dethrones on `est`, and an est from another horizon is not a
+      // bigger or smaller est — it is an answer to another question, so the
+      // MARGIN cannot adjudicate it either. Three cases, and only one of them
+      // is a number comparison: a strictly deeper leader takes the stage
+      // because it is the better-informed reading of the same decision; an
+      // equal-horizon leader must clear the margin, which is what the margin
+      // is for; a shallower one is refused outright.
       const better =
-        leader.horizon >= incumbent.horizon && leader.est > incumbent.est + this.margin
+        leader.horizon > incumbent.horizon ||
+        (leader.horizon === incumbent.horizon && leader.est > incumbent.est + this.margin)
       if (better) {
         this.stagedKey = leader.key
-        return { staged: leader, leader, switched: true, reason: "gradient", slack, horizon }
+        return {
+          staged: leader,
+          leader,
+          switched: true,
+          reason: "gradient",
+          slack,
+          horizon: at(leader),
+        }
       }
-      return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+      return {
+        staged: incumbent,
+        leader,
+        switched: false,
+        reason: "sticky",
+        slack,
+        horizon: at(incumbent),
+      }
     }
 
-    // F1: a ≥margin lo improvement at an equal-or-deeper horizon.
-    if (leader.horizon >= incumbent.horizon && leader.lo > incumbent.lo + this.margin) {
+    // F1: a ≥margin lo improvement. AND NOT "at an equal-or-deeper horizon"
+    // (06 F-5): a floor is a floor whatever proved it — `compareFloors` reads
+    // `worst` and nothing else — so refusing a strictly better PROVED floor
+    // because a shallower reading proved it is preferring ignorance to a proof.
+    // The guard's stated motivation, the "≤4-point h=1 refutation that reversed
+    // at h=2", is an est-channel phenomenon: a refutation on sound ceilings
+    // cannot reverse under contraction-only refinement. So it stays on the est
+    // arm above, where it is required, and comes off the floor arm, where it
+    // was inherited.
+    if (leader.lo > incumbent.lo + this.margin) {
       this.stagedKey = leader.key
-      return { staged: leader, leader, switched: true, reason: "improved", slack, horizon }
+      return {
+        staged: leader,
+        leader,
+        switched: true,
+        reason: "improved",
+        slack,
+        horizon: at(leader),
+      }
     }
-    return { staged: incumbent, leader, switched: false, reason: "sticky", slack, horizon }
+    return {
+      staged: incumbent,
+      leader,
+      switched: false,
+      reason: "sticky",
+      slack,
+      horizon: at(incumbent),
+    }
   }
 
   /** Exposed so callers can name the cliff they are staging against. */

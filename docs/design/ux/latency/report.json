@@ -1,0 +1,780 @@
+{
+  "scenes": [
+    {
+      "note": "ack chips",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-B 11ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-B 0ms"
+        }
+      ]
+    },
+    {
+      "name": "clean",
+      "flags": [],
+      "turnTimeoutMs": 3000,
+      "why": "the shipped wire, with a real turn clock: what LIVE and THINKING look like",
+      "failure": null
+    },
+    {
+      "note": "contest",
+      "adaHeld": "red-A",
+      "boHolds": "red-C"
+    },
+    {
+      "name": "slow",
+      "flags": [
+        "--latency=500",
+        "--jitter=60"
+      ],
+      "turnTimeoutMs": 3000,
+      "why": "a second of round trip: DEGRADED, the widened press slack, and a write in flight",
+      "failure": null
+    },
+    {
+      "name": "gamelag",
+      "flags": [
+        "--latency-game=1500"
+      ],
+      "turnTimeoutMs": 1200,
+      "why": "the OTHER hop: the centaur is fine and the game server is behind",
+      "failure": null
+    },
+    {
+      "name": "loss",
+      "flags": [
+        "--latency=180",
+        "--jitter=60",
+        "--loss=0.5",
+        "--loss-any"
+      ],
+      "turnTimeoutMs": 1500,
+      "why": "half the frames dropped: what an unrecoverable gap reads as",
+      "failure": null
+    }
+  ],
+  "shots": [
+    {
+      "scene": "clean",
+      "name": "01-live",
+      "note": "LIVE — the shipped wire under a turn clock: the bar is the deadline, the notch near its right shoulder is the last safe press — a couple of dozen milliseconds of slack on a free wire — and there is no banner at all, because silence is the signal",
+      "driftedTo": null,
+      "bytes": 20490,
+      "read": {
+        "state": "LIVE",
+        "why": null,
+        "turn": 3,
+        "budgetMs": 2919,
+        "rttMs": 5,
+        "oneWayDownMs": 6,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620734827,
+        "lastSafePressAt": 1788620734824,
+        "pressSlackMs": 3,
+        "remainingMs": 2812,
+        "frameAgeMs": 106,
+        "boardAgeMs": 107,
+        "gameLagMs": 31,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1460,
+          "degradedMs": 2919,
+          "rttDegradedMs": 876,
+          "rttWarnMs": 292,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "LIVE",
+      "text": "LIVE rtt 5ms frame +75ms board +76ms game +31ms ✓ select red-A 9ms ✗ ask red-A 1ms — no decision is inspectable on this game right…",
+      "banner": null,
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 9ms"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "97.3%"
+    },
+    {
+      "scene": "clean",
+      "name": "02-thinking",
+      "note": "THINKING — half a budget with no decision frame, still inside the deadline. The dot dims and nothing else moves, because the bot is allowed to think and a banner here would cry wolf every turn",
+      "driftedTo": null,
+      "bytes": 19523,
+      "read": {
+        "state": "THINKING",
+        "why": null,
+        "turn": 4,
+        "budgetMs": 2950,
+        "rttMs": 45,
+        "oneWayDownMs": 5,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620735415,
+        "lastSafePressAt": 1788620735392,
+        "pressSlackMs": 23,
+        "remainingMs": 797,
+        "frameAgeMs": 1542,
+        "boardAgeMs": 2153,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2950,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "THINKING",
+      "text": "THINKING rtt 45ms frame +1508ms board +2119ms game +1ms ✗ ask red-A 1ms — no decision is inspectable on this game right…",
+      "banner": null,
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "warn",
+      "safeMark": "27.4%"
+    },
+    {
+      "scene": "clean",
+      "name": "03-acknowledged",
+      "note": "COMMAND ACKNOWLEDGEMENT — the optimistic chips, reconciled: ✓ with the round trip each one actually took. A command that answers for itself settles to ✓ ack; one acknowledged only by the next broadcast that would carry its effect settles to the weaker ✓ applied",
+      "driftedTo": null,
+      "bytes": 24125,
+      "read": {
+        "state": "LIVE",
+        "why": null,
+        "turn": 5,
+        "budgetMs": 2949,
+        "rttMs": 80,
+        "oneWayDownMs": 36,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620737850,
+        "lastSafePressAt": 1788620737810,
+        "pressSlackMs": 40,
+        "remainingMs": 2370,
+        "frameAgeMs": 315,
+        "boardAgeMs": 579,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "LIVE",
+      "text": "LIVE rtt 80ms frame +272ms board +536ms game +1ms ✗ ask red-A 1ms — no decision is inspectable on this game right… ✓ select red-B 11ms ✗ ask red-B 4ms — no decision is inspectable on this game right…",
+      "banner": null,
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-B 11ms"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-B 4ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "80.5%"
+    },
+    {
+      "scene": "clean",
+      "name": "04-stale",
+      "note": "STALE — no decision frame past this turn's deadline. The bar is spent, the fill goes flat grey, and the banner names the AGE rather than the socket: determinations are still offered here, and labelled",
+      "driftedTo": null,
+      "bytes": 27311,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 2756 ms, past this turn's deadline",
+        "turn": 5,
+        "budgetMs": 2949,
+        "rttMs": 40,
+        "oneWayDownMs": 18,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620737850,
+        "lastSafePressAt": 1788620737830,
+        "pressSlackMs": 20,
+        "remainingMs": -71,
+        "frameAgeMs": 2756,
+        "boardAgeMs": 3020,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "STALE",
+      "text": "STALE rtt 40ms frame +2719ms board +2983ms game +1ms no decision frame for 2719 ms, past this turn's deadline ✗ ask red-A 1ms — no decision is inspectable on this game right… ✓ select red-B 11ms ✗ ask red-B 4ms — no decision is inspectable on this game right…",
+      "banner": "no decision frame for 2719 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-B 11ms"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-B 4ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "clean",
+      "name": "05-disconnected",
+      "note": "DISCONNECTED — the one rung that is allowed to be red, and it still says the code and that a reconnect is pending rather than going quietly grey",
+      "driftedTo": null,
+      "bytes": 21336,
+      "read": {
+        "state": "DISCONNECTED",
+        "why": "socket closed (4001) — reconnecting",
+        "turn": 5,
+        "budgetMs": 2949,
+        "rttMs": 40,
+        "oneWayDownMs": 18,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620737850,
+        "lastSafePressAt": 1788620737830,
+        "pressSlackMs": 20,
+        "remainingMs": -287,
+        "frameAgeMs": 2972,
+        "boardAgeMs": 3236,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "DISCONNECTED",
+      "text": "DISCONNECTED rtt 40ms frame +2924ms board +3188ms game +1ms socket closed (4001) — reconnecting ✗ ask red-A 1ms — no decision is inspectable on this game right… ✗ ask red-B 4ms — no decision is inspectable on this game right…",
+      "banner": "socket closed (4001) — reconnecting",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-B 4ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "06-degraded-rtt",
+      "note": "DEGRADED on round trip — 500 ms ± 60 injected on each hop. The banner says the number AND what it costs (\"a press needs N ms to land\"), and the notch has walked left off the shoulder of the bar to where it now belongs",
+      "driftedTo": null,
+      "bytes": 23108,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1214 ms round trip — a press needs 627 ms to land",
+        "turn": 2,
+        "budgetMs": 2945,
+        "rttMs": 1214,
+        "oneWayDownMs": 545,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 3,
+        "deadlineAt": 1788620753245,
+        "lastSafePressAt": 1788620752618,
+        "pressSlackMs": 627,
+        "remainingMs": 673,
+        "frameAgeMs": 1622,
+        "boardAgeMs": 2272,
+        "gameLagMs": 5,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1473,
+          "degradedMs": 2945,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 3643
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 38
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1214ms frame +1622ms board +2272ms game +5ms 1214 ms round trip — a press needs 627 ms to land ⟳ select red-A 38ms",
+      "banner": "1214 ms round trip — a press needs 627 ms to land",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 38ms"
+        }
+      ],
+      "clock": "warn",
+      "safeMark": "1.6%"
+    },
+    {
+      "scene": "slow",
+      "name": "07-optimistic-pending",
+      "note": "OPTIMISTIC — the gesture is on screen in the frame it was made in, ⟳ and its own age, with nothing yet having answered it",
+      "driftedTo": null,
+      "bytes": 27534,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1214 ms round trip — a press needs 627 ms to land",
+        "turn": 2,
+        "budgetMs": 2945,
+        "rttMs": 1214,
+        "oneWayDownMs": 545,
+        "serverWorkMs": 20,
+        "clockOffsetMs": 3,
+        "deadlineAt": 1788620753245,
+        "lastSafePressAt": 1788620752618,
+        "pressSlackMs": 627,
+        "remainingMs": 164,
+        "frameAgeMs": 2131,
+        "boardAgeMs": 2781,
+        "gameLagMs": 5,
+        "droppedTurns": 0,
+        "pending": 2,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1473,
+          "degradedMs": 2945,
+          "rttDegradedMs": 884,
+          "rttWarnMs": 295,
+          "pendingMs": 3643
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 547
+        },
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 13
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1214ms frame +2126ms board +2776ms game +5ms 1214 ms round trip — a press needs 627 ms to land · a lock issued now may not land this turn ⟳ select red-A 542ms ⟳ select red-A 8ms",
+      "banner": "1214 ms round trip — a press needs 627 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 542ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 8ms"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "08-reconciled",
+      "note": "RECONCILED — the same chip after the server answered: the age it took is exactly the measurement the last-safe-press mark is drawn from, which is why the two are on the same surface",
+      "driftedTo": null,
+      "bytes": 24353,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1241 ms round trip — a press needs 621 ms to land",
+        "turn": 4,
+        "budgetMs": 2949,
+        "rttMs": 1241,
+        "oneWayDownMs": 551,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 4,
+        "deadlineAt": 1788620755912,
+        "lastSafePressAt": 1788620755291,
+        "pressSlackMs": 621,
+        "remainingMs": 1969,
+        "frameAgeMs": 652,
+        "boardAgeMs": 980,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 3724
+        }
+      },
+      "pending": [
+        {
+          "type": "lens-conditional",
+          "label": "ask red-A",
+          "ageMs": 84
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1241ms frame +631ms board +959ms game +1ms 1241 ms round trip — a press needs 621 ms to land ✓ select red-A 1310ms ✓ select red-A 778ms ⟳ ask red-A 63ms",
+      "banner": "1241 ms round trip — a press needs 621 ms to land",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 1310ms"
+        },
+        {
+          "state": "ack",
+          "text": "✓ select red-A 778ms"
+        },
+        {
+          "state": "pending",
+          "text": "⟳ ask red-A 63ms"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "46.4%"
+    },
+    {
+      "scene": "slow",
+      "name": "09-last-safe-press",
+      "note": "PAST THE LAST SAFE PRESS — inside the deadline, outside the flight time. The fill goes to its urgent tone and the banner gains the sentence a countdown alone cannot say: a lock issued now may not land this turn",
+      "driftedTo": null,
+      "bytes": 32492,
+      "read": {
+        "state": "DEGRADED",
+        "why": "1151 ms round trip — a press needs 576 ms to land",
+        "turn": 5,
+        "budgetMs": 2949,
+        "rttMs": 1151,
+        "oneWayDownMs": 530,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 6,
+        "deadlineAt": 1788620757112,
+        "lastSafePressAt": 1788620756536,
+        "pressSlackMs": 576,
+        "remainingMs": 529,
+        "frameAgeMs": 2173,
+        "boardAgeMs": 2420,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 3452
+        }
+      },
+      "pending": [],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 1151ms frame +2165ms board +2412ms game +1ms 1151 ms round trip — a press needs 576 ms to land · a lock issued now may not land this turn ✗ ask red-A 1103ms — no decision is inspectable on this game right… ✗ ask red-A 1019ms — no decision is inspectable on this game right…",
+      "banner": "1151 ms round trip — a press needs 576 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1103ms — no decision is inspectable on this game right…"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 1019ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "urgent",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "slow",
+      "name": "10-rollback",
+      "note": "ROLLED BACK, AND SAID SO — a second operator held the unit, so the optimistic chip does not quietly vanish: it becomes ✗ with the reason, and stays long enough to read",
+      "driftedTo": null,
+      "bytes": 21913,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 11227 ms, past this turn's deadline",
+        "turn": 5,
+        "budgetMs": 2949,
+        "rttMs": 994,
+        "oneWayDownMs": 508,
+        "serverWorkMs": 3,
+        "clockOffsetMs": -6,
+        "deadlineAt": 1788620757112,
+        "lastSafePressAt": 1788620756612,
+        "pressSlackMs": 500,
+        "remainingMs": -8525,
+        "frameAgeMs": 11227,
+        "boardAgeMs": 11474,
+        "gameLagMs": 1,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 1475,
+          "degradedMs": 2949,
+          "rttDegradedMs": 885,
+          "rttWarnMs": 295,
+          "pendingMs": 2982
+        }
+      },
+      "pending": [],
+      "domState": "STALE",
+      "text": "STALE rtt 994ms frame +11176ms board +11423ms game +1ms no decision frame for 11176 ms, past this turn's deadline ✗ select red-C 1005ms — another operator holds it",
+      "banner": "no decision frame for 11176 ms, past this turn's deadline",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ select red-C 1005ms — another operator holds it"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "gamelag",
+      "name": "11-game-lag",
+      "note": "THE SECOND HOP — the client↔centaur wire is free and the TURN is 1.5 s old on arrival. `game +1500ms` is its own number beside `frame` and `board`, and the banner names the game server rather than the connection the operator can see",
+      "driftedTo": null,
+      "bytes": 23087,
+      "read": {
+        "state": "DEGRADED",
+        "why": "the game server is 1524 ms behind",
+        "turn": 3,
+        "budgetMs": 1126,
+        "rttMs": 24,
+        "oneWayDownMs": 7,
+        "serverWorkMs": 0,
+        "clockOffsetMs": 0,
+        "deadlineAt": 1788620787510,
+        "lastSafePressAt": 1788620787498,
+        "pressSlackMs": 12,
+        "remainingMs": 1049,
+        "frameAgeMs": 8,
+        "boardAgeMs": 77,
+        "gameLagMs": 1524,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 563,
+          "degradedMs": 1126,
+          "rttDegradedMs": 338,
+          "rttWarnMs": 113,
+          "pendingMs": 1200
+        }
+      },
+      "pending": [],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 24ms frame +19ms board +20ms game +1524ms the game server is 1524 ms behind ✓ select red-A 7ms ✗ ask red-A 10ms — no decision is inspectable on this game right…",
+      "banner": "the game server is 1524 ms behind",
+      "chips": [
+        {
+          "state": "ack",
+          "text": "✓ select red-A 7ms"
+        },
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 10ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "ok",
+      "safeMark": "97.2%"
+    },
+    {
+      "scene": "loss",
+      "name": "12-loss",
+      "note": "LOSS — half of every message type dropped, on both hops, on top of 180 ms ± 60. The rung the surface lands on is whatever the AGE says, because a dropped frame is indistinguishable from a frame that was never sent — which is the honest reading, and the reason the ladder is built on age rather than on socket liveness",
+      "driftedTo": null,
+      "bytes": 23251,
+      "read": {
+        "state": "DEGRADED",
+        "why": "486 ms round trip — a press needs 263 ms to land",
+        "turn": 2,
+        "budgetMs": 1434,
+        "rttMs": 486,
+        "oneWayDownMs": 239,
+        "serverWorkMs": 20,
+        "clockOffsetMs": -10,
+        "deadlineAt": 1788620804544,
+        "lastSafePressAt": 1788620804281,
+        "pressSlackMs": 263,
+        "remainingMs": -1239,
+        "frameAgeMs": 230,
+        "boardAgeMs": 2673,
+        "gameLagMs": 16,
+        "droppedTurns": 0,
+        "pending": 1,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 717,
+          "degradedMs": 1434,
+          "rttDegradedMs": 430,
+          "rttWarnMs": 143,
+          "pendingMs": 1458
+        }
+      },
+      "pending": [
+        {
+          "type": "select-snake",
+          "label": "select red-A",
+          "ageMs": 499
+        }
+      ],
+      "domState": "DEGRADED",
+      "text": "DEGRADED rtt 486ms frame +203ms board +2646ms game +16ms 486 ms round trip — a press needs 263 ms to land · a lock issued now may not land this turn ⟳ select red-A 472ms",
+      "banner": "486 ms round trip — a press needs 263 ms to land · a lock issued now may not land this turn",
+      "chips": [
+        {
+          "state": "pending",
+          "text": "⟳ select red-A 472ms"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    },
+    {
+      "scene": "loss",
+      "name": "13-loss-stale",
+      "note": "STALE under loss — the same rung as 04, reached by a wire that is up, fast and losing frames rather than by a turn that ended",
+      "driftedTo": null,
+      "bytes": 22011,
+      "read": {
+        "state": "STALE",
+        "why": "no decision frame for 2938 ms",
+        "turn": 2,
+        "budgetMs": 1434,
+        "rttMs": 403,
+        "oneWayDownMs": 195,
+        "serverWorkMs": 116,
+        "clockOffsetMs": -15,
+        "deadlineAt": 1788620804544,
+        "lastSafePressAt": 1788620804226,
+        "pressSlackMs": 318,
+        "remainingMs": -4134,
+        "frameAgeMs": 2938,
+        "boardAgeMs": 5568,
+        "gameLagMs": 16,
+        "droppedTurns": 0,
+        "pending": 0,
+        "overdue": 0,
+        "thresholds": {
+          "thinkingMs": 717,
+          "degradedMs": 1434,
+          "rttDegradedMs": 430,
+          "rttWarnMs": 143,
+          "pendingMs": 1209
+        }
+      },
+      "pending": [],
+      "domState": "STALE",
+      "text": "STALE rtt 403ms frame +2911ms board +5541ms game +16ms no decision frame for 2911 ms ✗ ask red-A 393ms — no decision is inspectable on this game right…",
+      "banner": "no decision frame for 2911 ms",
+      "chips": [
+        {
+          "state": "refused",
+          "text": "✗ ask red-A 393ms — no decision is inspectable on this game right…"
+        }
+      ],
+      "clock": "past",
+      "safeMark": "0%"
+    }
+  ],
+  "console": [
+    {
+      "scene": "clean",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:05:24.092Z)"
+    },
+    {
+      "scene": "clean",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "scene": "clean",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "scene": "clean",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "scene": "slow",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:05:45.175Z)"
+    },
+    {
+      "scene": "slow",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "scene": "gamelag",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:06:16.013Z)"
+    },
+    {
+      "scene": "gamelag",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "scene": "loss",
+      "text": "[firebase-status] not_configured — local walkthrough (since 2026-09-05T15:06:37.982Z)"
+    },
+    {
+      "scene": "loss",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "exceptions": []
+}

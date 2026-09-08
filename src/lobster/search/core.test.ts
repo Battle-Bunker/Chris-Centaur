@@ -34,7 +34,9 @@ import {
   type BoardSpec,
   type BoundedSubstrate,
 } from '../bounds/testkit';
-import { NoRosterError, makeSearchCore, planTieKey } from './index';
+import { DEFAULT_TUNING, NoRosterError, makeSearchCore, planTieKey, ranksAbove } from './index';
+import type { RankedRow } from './index';
+import { asRefiner, planKey as vocPlanKey } from '../voc';
 
 const OURS = 0;
 const THEIRS = 1;
@@ -47,9 +49,9 @@ const CROWD: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], health: 60 },
-    { id: 2, team: OURS, type: 'rook', occupancy: [2 * 7 + 5], health: 60 },
-    { id: 3, team: THEIRS, type: 'queen', occupancy: [4 * 7 + 3, 4 * 7 + 3, 4 * 7 + 3], health: 60 },
+    { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], energy: 60 },
+    { id: 2, team: OURS, type: 'rook', occupancy: [2 * 7 + 5], energy: 60 },
+    { id: 3, team: THEIRS, type: 'queen', occupancy: [4 * 7 + 3, 4 * 7 + 3, 4 * 7 + 3], energy: 60 },
   ],
 };
 
@@ -165,9 +167,8 @@ describe('a complete legal JointPlan at every instant', () => {
     // Deliberately NOT a full Substrate: the roster accessor is withheld to
     // exercise the search's refusal arm, hence the cast.
     const rosterless = {
-      state: rich.state,
       resolveBoundedFor: rich.resolveBoundedFor.bind(rich),
-      releaseResolution: () => undefined,
+      unitIdOf: rich.unitIdOf.bind(rich),
       entangled: rich.entangled.bind(rich),
       influenceOf: rich.influenceOf.bind(rich),
       release: () => undefined,
@@ -366,8 +367,8 @@ describe('reference actions: a teammate not ours to command', () => {
       width: 7,
       height: 7,
       units: [
-        { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], health: 60 },
-        { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 5], health: 60 },
+        { id: 1, team: OURS, type: 'rook', occupancy: [2 * 7 + 1], energy: 60 },
+        { id: 2, team: THEIRS, type: 'king', occupancy: [2 * 7 + 5], energy: 60 },
       ],
     };
     const h = harness(spec);
@@ -692,4 +693,283 @@ describe('a cached session runs on the CURRENT slice clock', () => {
       h.close();
     }
   }, 120_000);
+});
+
+// ===========================================================================
+
+describe('the refiner seam has a producer (06 F-1)', () => {
+  test('the core narrows to a Refiner, and the view names a leader and its rivals', () => {
+    const h = harness(CROWD);
+    const core = makeSearchCore();
+    const refiner = asRefiner(core);
+    // THE WHOLE FINDING IN ONE LINE. `asRefiner` yielded null on every build
+    // this bot has ever run, so `run.lastView` was never assigned and
+    // `EmitRecord.horizon` was a constant column that looked like a reading.
+    expect(refiner).not.toBeNull();
+    const r = refiner as NonNullable<typeof refiner>;
+    try {
+      // Before anything is priced the view is honestly empty — not a fabricated
+      // leader over a table of nothing.
+      const cold = r.refinementView(h.ctx);
+      expect(cold.candidates).toEqual([]);
+      expect(cold.leaderIdx).toBe(-1);
+
+      const improved = core.improve(h.ctx);
+      const view = r.refinementView(h.ctx);
+      expect(view.candidates.length).toBeGreaterThan(0);
+      const leader = view.candidates[view.leaderIdx] as (typeof view.candidates)[number];
+      // The view's leader and the search's incumbent are the same plan: the
+      // ladder is the same ladder, tie-break included.
+      expect(leader.key).toBe(vocPlanKey(improved.plan));
+      expect(leader.lo).toBe(improved.bounds.worst);
+
+      // Root slack is a RIVAL quantity — `max_R(R.hi − L.lo)` — and never the
+      // leader's own bound gap.
+      const rivals = view.candidates.filter((c) => c !== leader);
+      const expected = rivals.reduce((m, c) => Math.max(m, c.hi - leader.lo), 0);
+      expect(view.slack).toBe(Math.max(0, expected));
+
+      // What the view does NOT claim: no held-unit lever has a producer here,
+      // so none is offered, and `depthMax` says the honest no about depth.
+      expect(view.units).toEqual([]);
+      expect(view.depthMax).toBe(1);
+      expect(view.candidates.every((c) => c.horizon === 1)).toBe(true);
+      expect(view.horizon).toBe(1);
+      expect(view.round).toBeGreaterThan(0);
+    } finally {
+      core.release?.();
+      h.close();
+    }
+  }, 120_000);
+
+  test('improve reports the horizon ITS OWN reading was proved at (06 F-2)', () => {
+    const h = harness(CROWD);
+    const core = makeSearchCore();
+    try {
+      // One ply, said by the reading rather than inferred from a slice. The
+      // field exists so that a deepened plan can say something else without the
+      // kernel having to guess which plan the slice deepened.
+      expect(core.improve(h.ctx).horizon).toBe(1);
+    } finally {
+      core.release?.();
+      h.close();
+    }
+  }, 120_000);
+});
+
+/**
+ * The branch that decided each trial WHOSE INCUMBENT WAS THE SEED AND WHOSE OWN
+ * READING IS ONE PLY — i.e. every comparison the guards under test are actually
+ * about: a shallow trial against the deep reading whose horizon the test set.
+ * Once the search accepts something the incumbent is a fresh one-ply reading and
+ * the two horizons agree again, which is the guard working rather than the guard
+ * being absent.
+ *
+ * THE TRIAL'S OWN HORIZON IS PART OF THE FILTER, and it has to be. A depth is a
+ * property of a joint ASSIGNMENT (`06 F-2`), so a trial that lands back on the
+ * seed's own assignment carries the seed's horizon — the search can and does
+ * re-price it from a restart, and its `est` may have moved because the bank's
+ * witness set grew underneath it. Comparing that trial against the incumbent is
+ * a comparison WITHIN one horizon, which is precisely what these two rungs are
+ * supposed to decide; counting it as a crossing would assert the opposite of the
+ * finding. So the filter names the crossing itself rather than approximating it
+ * by "the incumbent is the seed".
+ */
+function refusalsAgainstSeed(spec: BoardSpec, incumbentHorizon: number | undefined): string[] {
+  const h = harness(spec);
+  const because: string[] = [];
+  try {
+    // The incumbent is the plan an unconstrained search already settled on,
+    // so nothing displaces it and every trial in the run below is compared
+    // against THIS reading — which is what makes the horizon under test the
+    // horizon on the other side of every comparison.
+    const settled = makeSearchCore().improve(h.ctx);
+    const seedKey = planKey(settled.plan);
+    const incumbent: PlanScore = {
+      plan: settled.plan,
+      bounds: settled.bounds,
+      witnesses: settled.witnesses,
+      ...(incumbentHorizon === undefined ? {} : { horizon: incumbentHorizon }),
+    };
+    makeSearchCore().improve({
+      ...h.ctx,
+      incumbent,
+      trials: (t) => {
+        if (t.because === null) return;
+        if (planKey(t.incumbentPlan) !== seedKey) return;
+        if (incumbentHorizon !== undefined && (t.horizon ?? 1) === incumbentHorizon) return;
+        because.push(t.because);
+      },
+    });
+  } finally {
+    h.close();
+  }
+  return because;
+}
+
+describe('est never crosses a horizon (06 F-4)', () => {
+  test('rung 4 decides within a horizon and is skipped across one', () => {
+    const specs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => seededBoard(n, 6, 2));
+    // The situation is REACHABLE: at one ply the ladder really does fall
+    // through to est against this very incumbent, so the guard below refuses
+    // something rather than asserting a vacuous truth.
+    const level = specs.flatMap((spec) => refusalsAgainstSeed(spec, undefined));
+    expect(level).toContain('est');
+    // Now the incumbent's reading was proved two plies out and every trial one.
+    // `est` is the evaluator's advisory scalar with no basis, no ledger and no
+    // soundness claim, taken from B0 alone; two of them at two horizons are two
+    // evaluations of two different boards with no declared discount between
+    // them. The rung says nothing, and the ceiling — a bound — decides instead.
+    const across = specs.flatMap((spec) => refusalsAgainstSeed(spec, 2));
+    expect(across).not.toContain('est');
+    // The ladder is still a ladder: every rung that CAN cross still fires.
+    expect(across.length).toBeGreaterThan(0);
+  }, 180_000);
+});
+
+describe('the ceiling rung never crosses a horizon either (08 F-10)', () => {
+  /**
+   * F-4's mirror, and the reason it is a separate finding: `hi` DOES cross a
+   * horizon as a BOUND — an upper bound on one horizon-independent quantity,
+   * proved to different depths — but this rung uses it as a ranking key
+   * PREFERRING THE LARGER, and a deeper reading has a lower ceiling. Left
+   * open, the rung refuses a plan for having been measured, at an equal floor,
+   * where no rung above it is watching.
+   *
+   * The harness is F-4's own, one describe down, so the two guards are tested
+   * against the same reachability argument rather than two different ones.
+   */
+  test('rung 5 decides within a horizon and is skipped across one', () => {
+    const specs = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => seededBoard(n, 6, 2));
+    const level = specs.flatMap((spec) => refusalsAgainstSeed(spec, undefined));
+    // Reachable: at one ply the ladder really does fall through to the ceiling.
+    expect(level).toContain('hi');
+    const across = specs.flatMap((spec) => refusalsAgainstSeed(spec, 2));
+    expect(across).not.toContain('hi');
+    // And the ladder still decides: what is left is the salted tie, which is
+    // an indifferent order rather than a preference for the looser bound.
+    expect(across.length).toBeGreaterThan(0);
+    expect(across).toContain('tie');
+  }, 180_000);
+
+  /**
+   * THE HOLE F-10's GUARD ACTUALLY HAD, and the reason it only ever held by
+   * luck: `horizonOfPlan` was a `WeakMap` keyed on the plan OBJECT, and the
+   * search rebuilds a plan object on every trial (`withMove`/`withMoves` return
+   * a fresh `Map`). So an ascent that wandered off the seeded assignment and
+   * came back to it arrived holding a DIFFERENT OBJECT for the SAME assignment,
+   * the probe missed, the depth read 1, and rungs 4 and 5 decided against a
+   * reading proved two plies out — at an equal floor, where nothing above them
+   * is watching. Reproduced on `seededBoard(1, 6, 2)`: trial 0 is the seed at
+   * horizon 2 and declines correctly; three trials later the ascent takes a
+   * rival; by trial 12 the incumbent is the seed's assignment again, in a new
+   * object, reading 1, and `hi` decides.
+   *
+   * A depth is a property of a proof about a particular joint ASSIGNMENT, so
+   * this asserts the assignment's identity carries it: somewhere in the `across`
+   * run the search re-prices the seed's own assignment, and that reading must
+   * still say two. Before the fix every such trial said one.
+   */
+  test('a rebuilt plan object with the seed ASSIGNMENT keeps the seed horizon', () => {
+    const seen: number[] = [];
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const h = harness(seededBoard(n, 6, 2));
+      try {
+        const settled = makeSearchCore().improve(h.ctx);
+        const seedKey = planKey(settled.plan);
+        makeSearchCore().improve({
+          ...h.ctx,
+          incumbent: {
+            plan: settled.plan,
+            bounds: settled.bounds,
+            witnesses: settled.witnesses,
+            horizon: 2,
+          },
+          trials: (t) => {
+            if (planKey(t.plan) !== seedKey) return;
+            // The seeded plan is itself a rebuild — `seedPlan` never hands back
+            // the caller's object — so every hit here is the defect's own shape.
+            expect(t.plan as object).not.toBe(settled.plan as object);
+            seen.push(t.horizon ?? 1);
+          },
+        });
+      } finally {
+        h.close();
+      }
+    }
+    // Reachable at all, and every reading of that assignment says two.
+    expect(seen.length).toBeGreaterThan(0);
+    expect([...new Set(seen)]).toEqual([2]);
+  }, 180_000);
+});
+
+/**
+ * §5.1 — `leaderOf` compared `est` across horizons where `better()` refuses to.
+ *
+ * The view's leader and the search's incumbent must name the same plan, and
+ * `leaderOf`'s own comment always said so; the `est` rung was the one place it
+ * did not. Both ladders are now `ranksAbove`, so the guard is one line in one
+ * place rather than two comments asking a human to keep two copies in step.
+ *
+ * INERT ON THIS BUILD — `depthMax` is 1 and nothing produces a horizon above
+ * it, which is why the byte-identical runner does not move. It stops being
+ * inert the moment a continuation layer lands, and the disagreement would fire
+ * at an EQUAL FLOOR, where no rung above it is watching.
+ */
+describe('the leader ranks by the same rule as better() (§5.1)', () => {
+  const SEED = DEFAULT_TUNING.seed;
+  const planOf = (to: number): JointPlan =>
+    new Map([[1 as UnitId, { unitId: 1 as UnitId, from: 0, to, path: [to] } as Candidate]]);
+  const row = (to: number, worst: number, est: number, best: number, horizon: number): RankedRow => ({
+    plan: planOf(to),
+    est,
+    horizon,
+    bounds: { worst, best, ledger: [], assumptions: [], exact: false },
+  });
+
+  test('est decides at an equal floor WITHIN one horizon', () => {
+    const rich = row(4, 0, 5, 9, 1);
+    const poor = row(3, 0, 1, 9, 1);
+    expect(ranksAbove(rich, poor, SEED)).toBe(true);
+    expect(ranksAbove(poor, rich, SEED)).toBe(false);
+  });
+
+  test('and says NOTHING across two — where the old ladder named the other plan', () => {
+    // Two readings of two different boards: equal floor, equal ceiling, and the
+    // deeper one carries the larger est. The salted tie is the other way round,
+    // so the two rules name DIFFERENT leaders and the difference is visible.
+    const deep = row(4, 0, 5, 9, 2);
+    const shallow = row(3, 0, 1, 9, 1);
+    const deepTie = planTieKey(deep.plan, SEED);
+    const shallowTie = planTieKey(shallow.plan, SEED);
+    expect(deepTie).not.toBe(shallowTie);
+    expect(deepTie).toBeLessThan(shallowTie);
+
+    // The old rung: `if (a.est !== b.est) …` — unguarded, so `deep` displaced
+    // `shallow` on an est comparison `better()` declines to make.
+    expect(deep.est).toBeGreaterThan(shallow.est);
+    // The rule now: est skipped, ceiling skipped, the indifferent order decides.
+    expect(ranksAbove(deep, shallow, SEED)).toBe(false);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(true);
+  });
+
+  test('the FLOOR still crosses a horizon, because a floor is a bound', () => {
+    // The rung that can speak across depths is the one that always could: a
+    // proved floor is a claim about a horizon-independent quantity.
+    const deep = row(4, 3, 0, 9, 2);
+    const shallow = row(3, 1, 8, 9, 1);
+    expect(ranksAbove(deep, shallow, SEED)).toBe(true);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(false);
+  });
+
+  test('a basis mismatch is a refusal in BOTH directions, whatever the horizons', () => {
+    const held: Assumption = { kind: 'narrowing', unitId: 9 as UnitId, note: 'k' };
+    const deep = row(4, 3, 5, 9, 2);
+    const shallow: RankedRow = {
+      ...row(3, 1, 1, 9, 1),
+      bounds: { worst: 1, best: 9, ledger: [], assumptions: [held], exact: false },
+    };
+    expect(ranksAbove(deep, shallow, SEED)).toBe(false);
+    expect(ranksAbove(shallow, deep, SEED)).toBe(false);
+  });
 });

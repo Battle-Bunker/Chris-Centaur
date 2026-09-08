@@ -12,7 +12,6 @@
  */
 
 import type { Board, Coord, Snake } from '../types/battlesnake';
-import { marshalBoard } from '../logic/turn-oracle';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import type { EngineSubstrate } from '../lobster/substrate';
 import {
@@ -28,26 +27,13 @@ import {
 } from '../lobster/evaluate';
 import type { EvalContext } from '../lobster/evaluate';
 import type { Candidate, JointPlan, UnitId } from '../lobster/contracts';
+import { makeSnake as snake, boardOf, cellAt } from './board-fixtures';
 
 const TURN = 12;
 
-function snake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
+// NOT converted to the shared `piece`: this one builds a body of `weight`
+// copies of the same cell (`body.length` = `length`), unlike every other
+// copy's `[at]` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (
   id: string,
   at: Coord,
@@ -61,10 +47,7 @@ const piece = (
     ...extra,
   });
 
-const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
-
-const cell = (board: Board, c: Coord): number => marshalBoard(board, TURN).toIndex(c);
+const cell = (board: Board, c: Coord): number => cellAt(board, TURN, c);
 
 function planOf(
   sub: EngineSubstrate,

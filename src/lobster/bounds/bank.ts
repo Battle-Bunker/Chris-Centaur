@@ -73,9 +73,20 @@ import type {
   Witness,
 } from "../contracts";
 import type { BudgetHandle } from "../contracts";
-import type { Resolution } from "../../partial-engine/index";
-import { evaluatorResidueEntry, ledgerOf, residueOf } from "./ledger";
-import { footprintOf, planKey, withMove, withMoves } from "./plan";
+import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
+import type { MarshalledBoard } from "../../logic/turn-oracle";
+import { evaluatorResidueEntry, residueOf } from "./ledger";
+import {
+  dumpBoard,
+  exactCheckSettings,
+  exactReplyCheck,
+  noteExactSkip,
+  reportExact,
+  shippedEvaluator,
+  type ExactBoardDump,
+} from "./exact-reply";
+import { footprintOf, planKey, withMoves } from "./plan";
+import { loudReadingOf, type LoudReading } from "./loud";
 import { memoizeSubstrate, type MemoizedSubstrate } from "./memo";
 import { EvaluationMemo, evalNamespace, type EvalMemoStats } from "./evalmemo";
 import { modelledView, isModelling } from "./substrate-ext";
@@ -114,7 +125,7 @@ export interface BankConfig {
   readonly declareTruncatedFloor: boolean;
   /** Restrict B1/B3 to units the staged paths are actually entangled with. */
   readonly gateOnEntanglement: boolean;
-  /** Resolutions cached per decision context. */
+  /** PartialSettlements cached per decision context. */
   readonly memoCapacity: number;
   /**
    * EVALUATIONS cached per decision context — a different budget from the one
@@ -177,7 +188,7 @@ export interface BankResult extends PlanScore {
    * The resolution of the branch that justified the FLOOR — the world the
    * search must repair, because it is the one the promise is made against.
    */
-  readonly worstResolution: Resolution;
+  readonly worstResolution: PartialSettlement;
   /** The est channel — ordering only, never adjudication. */
   readonly est: number;
   /**
@@ -189,6 +200,13 @@ export interface BankResult extends PlanScore {
    * why.
    */
   readonly narrowings: ReadonlyArray<Assumption>;
+  /**
+   * THE LOUD PRODUCT, measured beside the reply product and never acted on
+   * (`08-DEPTH-VERDICT` §5 step 1). Null when the B3 preamble did not run —
+   * nothing is modelled, or the gate is empty — which is itself an occasion
+   * class: there is no held enemy to reply, so there is nothing to enumerate.
+   */
+  readonly loud: LoudReading | null;
 }
 
 export interface BankInput {
@@ -227,7 +245,7 @@ interface Branch {
   readonly replies: ReadonlyMap<UnitId, Candidate> | null;
   /** The world this branch actually resolved — what the search reads to find
    *  its own casualties and to order the next sweep. */
-  readonly resolution: Resolution;
+  readonly resolution: PartialSettlement;
 }
 
 /**
@@ -242,6 +260,15 @@ interface View {
 }
 
 const isFinite_ = (n: number): boolean => Number.isFinite(n);
+
+/** The best item by `better`'s strict order. `items` must be non-empty. */
+function pickBy<T>(items: ReadonlyArray<T>, better: (candidate: T, incumbent: T) => boolean): T {
+  let pick = items[0] as T;
+  for (const item of items) {
+    if (better(item, pick)) pick = item;
+  }
+  return pick;
+}
 
 export class BoundBank {
   private readonly cfg: BankConfig;
@@ -283,6 +310,9 @@ export class BoundBank {
    * caller state must cross every boundary.
    */
   private budget: BudgetHandle;
+
+  /** Plans priced by this bank — the exact-reply audit's sampling counter. */
+  private priced = 0;
 
   constructor(private readonly input: BankInput) {
     this.cfg = { ...DEFAULT_BANK_CONFIG, ...(input.config ?? {}) };
@@ -359,11 +389,18 @@ export class BoundBank {
    * than of an engine field (the substrate's base state keeps every unit live
    * and holds per-resolve, so its field carries no slots to read).
    */
+  private uncontrolledCache: ReadonlyArray<UnitId> | null = null;
+
   private uncontrolled(): ReadonlyArray<UnitId> {
+    // Constant for the life of a bank — the roster, the frame and the
+    // reference actions are all fixed at construction — and `price` asks for
+    // it on every call. Computed once.
+    if (this.uncontrolledCache !== null) return this.uncontrolledCache;
     const ours = new Set(this.memo.commandable(this.input.asTeam));
-    return this.memo
+    this.uncontrolledCache = this.memo
       .unitIds()
       .filter((id) => !ours.has(id) && !this.referenceActions.has(id));
+    return this.uncontrolledCache;
   }
 
   // ------------------------------------------------------------------ views
@@ -392,9 +429,10 @@ export class BoundBank {
    * entry this call filled, so a branch costs one engine resolution — and the
    * eval memo makes a REPEATED branch cost neither (see evalmemo.ts).
    *
-   * `evalNs` is the namespace `price` computed for this call: evaluator
-   * identity, basis, frame. It is a parameter rather than a field so there is
-   * no captured-identity twin of the captured-clock defect above.
+   * `evalScope` is the namespace `price` computed for this call — evaluator
+   * identity, basis, frame — joined to the view, which `sweepLists` fixes for
+   * the whole sweep. It is a parameter rather than a field so there is no
+   * captured-identity twin of the captured-clock defect above.
    *
    * `planKey` is computed ONCE here and used twice — as the memo key and as
    * the bound's provenance note. It used to be computed twice per branch, at
@@ -405,14 +443,18 @@ export class BoundBank {
     plan: JointPlan,
     rung: Rung,
     replies: ReadonlyMap<UnitId, Candidate> | null,
-    evalNs: string,
+    evalScope: string,
   ): Branch {
     const pk = planKey(plan);
-    const { resolution } = view.sub.resolveBoundedFor(plan, this.input.asTeam);
-    const bound: Bound = this.evalMemo.score(`${evalNs}|${view.key}|${pk}`, () =>
+    const bounded = view.sub.resolveBoundedFor(plan, this.input.asTeam);
+    const resolution = bounded.resolution;
+    // `evalScope` is `${evalNs}|${view.key}` — built ONCE per sweep by the
+    // caller, because it is constant across every branch of one. The memo
+    // splits on exactly that seam and reassembles nothing: see evalmemo.ts.
+    const bound: Bound = this.evalMemo.scoreIn(evalScope, pk, () =>
       this.input.evaluate.scorePlan(view.sub, plan, this.input.asTeam),
     );
-    let ledger: ReadonlyArray<LedgerEntry> = ledgerOf(resolution);
+    let ledger: ReadonlyArray<LedgerEntry> = bounded.ledger;
     if (ledger.length === 0 && bound.hi - bound.lo > BOUND_EPSILON) {
       // The engine proved nothing held could have changed this outcome, and
       // the evaluator still reports a gap. Something narrowed that is not an
@@ -437,6 +479,69 @@ export class BoundBank {
       replies,
       resolution,
     };
+  }
+
+  /**
+   * THE LEAF PRODUCTION, once, for all four rungs.
+   *
+   * A rung is not a different kind of enumeration; it is a different LIST
+   * SHAPE over the same one. Every member fixes a tuple of enemy replies onto
+   * `base`, prices it in `view`, and names the replies it fixed:
+   *
+   *   B0  no lists                       one leaf, no reply fixed at all
+   *   B1  one gated unit's options       one leaf per reply
+   *   B2  a singleton per replying unit  one leaf, the whole tuple fixed
+   *   B3  every gated unit's options     the cross-product
+   *
+   * WHETHER THE CLOCK MAY CUT A SWEEP SHORT is a property of the RUNG and is
+   * settled here, once, because it is a soundness statement rather than a
+   * performance one — see `cuttable` below.
+   *
+   * EVERY SOUNDNESS DIFFERENCE BETWEEN THE RUNGS STAYS AT THE CALL SITE: which
+   * `complete` a group closes on, what a cut sweep does to the rest of the
+   * ladder, B3's `loud` preamble and its product cap. This produces branches
+   * and decides nothing about what a group may claim from them.
+   */
+  private sweepLists(
+    view: View,
+    base: JointPlan,
+    rung: Rung,
+    lists: ReadonlyArray<{ readonly id: UnitId; readonly options: ReadonlyArray<Candidate> }>,
+    evalNs: string,
+  ): { leaves: Branch[]; swept: boolean } {
+    // B1 and B3 MIN over an enemy's replies, so a sweep the clock cut short is
+    // a min over a PREFIX — an over-estimate — and it comes back `swept:
+    // false` so its caller cannot let it raise a floor. B0 and B2 produce one
+    // leaf each and may not be cut at all: B0 is the floor of last resort and
+    // the only source of a ceiling, and half a witness certifies nothing.
+    const cuttable = rung === "B1" || rung === "B3";
+    // THE EVALUATION MEMO'S SCOPE, ONCE PER SWEEP. Both halves are fixed here
+    // — the namespace `price` computed and the view this sweep prices under —
+    // so every branch below shares one string OBJECT, and V8 hashes it once
+    // for the whole sweep instead of once per branch.
+    const evalScope = `${evalNs}|${view.key}`;
+    const leaves: Branch[] = [];
+    let swept = true;
+    const walk = (i: number, acc: Candidate[]): void => {
+      const list = lists[i];
+      if (list === undefined) {
+        // NO REPLY FIXED is not the same as an empty set of replies: B0 speaks
+        // about the held cloud as it stands, and `null` is what says so.
+        const replies = acc.length === 0 ? null : new Map(acc.map((c) => [c.unitId, c]));
+        leaves.push(this.priceBranch(view, withMoves(base, acc), rung, replies, evalScope));
+        return;
+      }
+      for (const option of list.options) {
+        if (cuttable && this.budget.shouldStop()) {
+          swept = false;
+          return;
+        }
+        walk(i + 1, [...acc, option]);
+        if (!swept) return;
+      }
+    };
+    walk(0, []);
+    return { leaves, swept };
   }
 
   private optionsFor(
@@ -513,15 +618,17 @@ export class BoundBank {
     // the same one: which evaluator (and therefore which criterion profile,
     // weights and reach horizon), which BASIS, and which frame the value is
     // denominated in. Recomputed rather than captured — see evalmemo.ts.
-    const evalNs = evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam);
-    const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: Resolution }> = [];
+    const evalNs = this.evalMemo.namespaceToken(
+      evalNamespace(this.input.evaluate, this.basisKey, this.input.asTeam),
+    );
+    const floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }> = [];
     const ceilingBranches: Branch[] = [];
     const members: MemberReport[] = [];
     let finished = true;
 
-    // ---- B0 -------------------------------------------------------------
+    // ---- B0: no lists — one leaf, and the clock may not cut it short ----
     const b0View = this.viewFor([]);
-    const b0 = this.priceBranch(b0View, base, "B0", null, evalNs);
+    const b0 = this.sweepLists(b0View, base, "B0", [], evalNs).leaves[0] as Branch;
     const b0Report: MemberReport = {
       rung: "B0",
       unitId: null,
@@ -535,9 +642,17 @@ export class BoundBank {
     members.push(b0Report);
 
     let est = b0.est;
+    let loud: LoudReading | null = null;
 
     if (this.canModel) {
-      const gated = this.gate(plan, b0.bounds.ledger);
+      // `base`, NOT `plan`: the footprint the gate tests has to carry every
+      // staged path this decision has fixed, and the reference actions are
+      // staged paths we have fixed by declaration rather than commanded. Asked
+      // about `plan` alone, a held unit entangled ONLY with a fixed teammate
+      // was never enumerated — sound (it stays held at a sound bound) and a
+      // real loss of B1/B3 coverage in exactly the multi-seat case reference
+      // actions exist for. See REVIEW-1 F3.
+      const gated = this.gate(base, b0.bounds.ledger);
 
       // ---- B3: the whole gate at once, when the product fits -------------
       let b3Covered = false;
@@ -547,31 +662,20 @@ export class BoundBank {
         const view = this.viewFor(gated);
         const lists = gated.map((id) => ({ id, ...this.optionsFor(view, id) }));
         const product = lists.reduce((n, l) => n * l.options.length, 1);
-        if (
+        // NAMED so the instrument can carry it: `b3` on the reading is the
+        // Finding D-1 axis — whether ply 1 already closed this bracket.
+        const eligible =
           coversEverything &&
           lists.every((l) => l.complete && l.options.length > 0) &&
-          product <= this.cfg.productCap
-        ) {
-          const leaves: Branch[] = [];
-          let swept = true;
-          const walk = (i: number, acc: Candidate[]): void => {
-            if (!swept) return;
-            if (this.budget.shouldStop()) {
-              swept = false;
-              return;
-            }
-            const list = lists[i];
-            if (list === undefined) {
-              const replies = new Map(acc.map((c) => [c.unitId, c]));
-              leaves.push(this.priceBranch(view, withMoves(base, acc), "B3", replies, evalNs));
-              return;
-            }
-            for (const option of list.options) {
-              walk(i + 1, [...acc, option]);
-              if (!swept) return;
-            }
-          };
-          walk(0, []);
+          product <= this.cfg.productCap;
+        loud = loudReadingOf(plan, lists, product, eligible, coversEverything);
+        if (eligible) {
+          // The clock once before the group commits — the read B1's loop takes
+          // before each enemy, and B2's before each witness. Inside the sweep,
+          // one per option.
+          const { leaves, swept } = this.budget.shouldStop()
+            ? { leaves: [] as Branch[], swept: false }
+            : this.sweepLists(view, base, "B3", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
           if (leaves.length > 0) {
             members.push(this.closeGroup("B3", null, leaves, swept, true, floorMembers));
@@ -590,17 +694,8 @@ export class BoundBank {
           }
           const view = this.viewFor([enemy]);
           const { options, complete } = this.optionsFor(view, enemy);
-          if (options.length === 0) continue;
-          const leaves: Branch[] = [];
-          let swept = true;
-          for (const option of options) {
-            if (this.budget.shouldStop()) {
-              swept = false;
-              break;
-            }
-            const replies = new Map([[enemy, option]]);
-            leaves.push(this.priceBranch(view, withMove(base, option), "B1", replies, evalNs));
-          }
+          const lists = [{ id: enemy, options }];
+          const { leaves, swept } = this.sweepLists(view, base, "B1", lists, evalNs);
           for (const leaf of leaves) ceilingBranches.push(leaf);
           if (leaves.length === 0) continue;
           members.push(this.closeGroup("B1", enemy, leaves, swept, complete, floorMembers));
@@ -621,13 +716,10 @@ export class BoundBank {
           const ids = [...witness.replies.keys()];
           if (ids.length === 0) continue;
           const view = this.viewFor(ids);
-          const branch = this.priceBranch(
-            view,
-            withMoves(base, [...witness.replies.values()]),
-            "B2",
-            witness.replies,
-            evalNs,
-          );
+          // A FIXED TUPLE: one list per replying unit, one option each, so the
+          // walk has exactly one leaf to price and no choice to cut short.
+          const lists = ids.map((id) => ({ id, options: [witness.replies.get(id) as Candidate] }));
+          const branch = this.sweepLists(view, base, "B2", lists, evalNs).leaves[0] as Branch;
           ceilingBranches.push(branch);
           members.push({
             rung: "B2",
@@ -649,26 +741,20 @@ export class BoundBank {
     // are allowed to come from different members. Only the WINNER's basis
     // conditions the result — a losing conditional member asserted something
     // the answer does not use.
-    let floorPick = floorMembers[0] as { bounds: ScoreBounds; report: MemberReport; resolution: Resolution };
-    for (const m of floorMembers) {
-      if (m.bounds.worst > floorPick.bounds.worst) floorPick = m;
-      else if (
-        m.bounds.worst === floorPick.bounds.worst &&
-        m.bounds.ledger.length < floorPick.bounds.ledger.length
-      ) {
-        floorPick = m;
-      }
-    }
-    let ceilPick = ceilingBranches[0] as Branch;
-    for (const b of ceilingBranches) {
-      if (b.bounds.best < ceilPick.bounds.best) ceilPick = b;
-      else if (
-        b.bounds.best === ceilPick.bounds.best &&
-        b.bounds.ledger.length < ceilPick.bounds.ledger.length
-      ) {
-        ceilPick = b;
-      }
-    }
+    const floorPick = pickBy(
+      floorMembers,
+      (m, incumbent) =>
+        m.bounds.worst > incumbent.bounds.worst ||
+        (m.bounds.worst === incumbent.bounds.worst &&
+          m.bounds.ledger.length < incumbent.bounds.ledger.length)
+    );
+    const ceilPick = pickBy(
+      ceilingBranches,
+      (b, incumbent) =>
+        b.bounds.best < incumbent.bounds.best ||
+        (b.bounds.best === incumbent.bounds.best &&
+          b.bounds.ledger.length < incumbent.bounds.ledger.length)
+    );
 
     // A CONDITIONAL floor and an UNCONDITIONAL ceiling are statements about
     // two different games, and the conditional one may legitimately sit above
@@ -701,7 +787,7 @@ export class BoundBank {
     if (!isFinite_(est)) est = bounds.worst;
     est = Math.min(Math.max(est, bounds.worst), bounds.best);
 
-    return {
+    const result: BankResult = {
       plan,
       bounds,
       witnesses: this.witnessList,
@@ -714,7 +800,93 @@ export class BoundBank {
       worstResolution: floorPick.resolution,
       est,
       narrowings: this.narrowingList,
+      loud,
     };
+    // THE EXACT-REPLY ORACLE, after the answer is finished and never before.
+    // `resolutions` is already fixed above, so the settlements the audit spends
+    // are not charged to the plan it is auditing; see `exact-reply.ts` for why
+    // it may not spend the decision's clock either.
+    this.auditExactReplies(base, result);
+    return result;
+  }
+
+  /**
+   * ASK THE WORLDS (`exact-reply.ts`), on one priced plan in every `rate`.
+   *
+   * Off — which is every build that has not set `CENTAUR_EXACT_CHECK` — this
+   * is one null check per price. On, it is the only instrument that can refute
+   * a floor that is wrong on every rung at once, which is precisely the class
+   * the sixteen-arm inversion gate cannot see: that gate compares the bank's
+   * members against each other, and two members that agree about a wrong
+   * number pass it.
+   */
+  private auditExactReplies(base: JointPlan, result: BankResult): void {
+    const settings = exactCheckSettings();
+    if (settings === null) return;
+    this.priced++;
+    if (this.priced % settings.rate !== 0) return;
+    if (!this.canModel) return noteExactSkip("no-model");
+    // A floor resting on a DECLARED NARROWING promises something about a
+    // restricted game, and the worlds below are drawn from the whole one:
+    // comparing them would be the category error the declaration exists to
+    // prevent. The BASIS is not such a narrowing — it fixes our own side and
+    // the teammates this decision does not command, and `base` names every one
+    // of them, so every world enumerated below already satisfies it.
+    if (!result.floorComplete) return noteExactSkip("conditional-floor");
+    const evaluate = shippedEvaluator(this.input.evaluate);
+    if (evaluate === null) return noteExactSkip("foreign-evaluator");
+    const held = this.uncontrolled();
+    // Concreteness, asked of our own side: a world is a board only if every
+    // unit is named, and a plan that left one of ours out would make OUR unit
+    // the held claim and the leaf a timeline rather than a board.
+    for (const id of this.memo.commandable(this.input.asTeam)) {
+      if (!base.has(id)) return noteExactSkip("plan-incomplete");
+    }
+    const view = this.viewFor(held);
+    const check = exactReplyCheck({
+      sub: view.sub,
+      base,
+      held,
+      evaluate,
+      asTeam: this.input.asTeam,
+      floor: result.bounds.worst,
+      floorFrom: result.floorFrom,
+      ceiling: result.bounds.best,
+      memberFloors: result.members
+        .filter((m) => m.floor !== null)
+        .map((m) => ({ rung: m.rung, unitId: m.unitId, floor: m.floor as number })),
+      cap: settings.cap,
+      // The bank's own view cache, so a violation is attributed to a TERM by
+      // rebuilding the rung's reading rather than by guessing — see `classOf`.
+      // Value-transparent: `viewFor` memoises, and a view is a function of the
+      // id set alone.
+      viewOf: (modelled) => this.viewFor([...modelled]).sub,
+    });
+    reportExact(check, () => this.dumpFor(base, held));
+  }
+
+  /** The failing position, in the shape `exact-reply.ts`'s test can rebuild. */
+  private dumpFor(base: JointPlan, held: ReadonlyArray<UnitId>): ExactBoardDump | null {
+    const sub = this.memo as unknown as {
+      marshalled?: MarshalledBoard;
+      turn?: number;
+      teamLabel?: (n: number) => string | undefined;
+      roster?: () => ReadonlyArray<{ unitId: UnitId; wireId: string; staleness: number }>;
+      unitOf?: (id: UnitId) => { wireId: string } | undefined;
+    };
+    const marshalled = sub.marshalled;
+    const roster = sub.roster?.();
+    const asTeam = sub.teamLabel?.(this.input.asTeam);
+    if (marshalled === undefined || roster === undefined || asTeam === undefined) return null;
+    const wireOf = (id: UnitId): string => sub.unitOf?.(id)?.wireId ?? `?${id}`;
+    return dumpBoard(
+      marshalled,
+      sub.turn ?? marshalled.arrivalTurn - 1,
+      asTeam,
+      roster.map((u) => [u.wireId, (sub.turn ?? 0) - u.staleness] as [string, number]),
+      [...base.values()].map((c) => [wireOf(c.unitId), c.to] as [string, number]),
+      held.map(wireOf),
+    );
   }
 
   /**
@@ -733,7 +905,7 @@ export class BoundBank {
     leaves: ReadonlyArray<Branch>,
     swept: boolean,
     complete: boolean,
-    floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: Resolution }>,
+    floorMembers: Array<{ bounds: ScoreBounds; report: MemberReport; resolution: PartialSettlement }>,
   ): MemberReport {
     const group = backupMin(
       leaves.map((l) => l.bounds),

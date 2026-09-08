@@ -11,8 +11,8 @@ import { BoardSnapshot } from '../types/battlesnake';
  *   hammer the DB.
  * - recordGameEnd: finalize the row from the /end webhook (end time, final
  *   turn, winner, end reason).
- * - backfillFromDecisionLogs: one-time, idempotent reconstruction of rows for
- *   games that predate this table, derived from logged game states.
+ * - backfillFromStoredBoards: one-time, idempotent reconstruction of rows for
+ *   games that predate this table, derived from the boards stored in `turn_boards`.
  *
  * All lifecycle writes are fire-and-forget: a DB error is logged and never
  * blocks gameplay.
@@ -143,44 +143,47 @@ export class GameRegistry {
       });
   }
 
-  // Idempotent backfill: create games rows for every distinct game already in
-  // decision_logs that has no row yet. Derives the start/end timestamps from
-  // log timestamps, the final turn / board / ruleset from the latest logged
-  // game state. Never touches decision_logs, never overwrites existing rows
-  // (ON CONFLICT DO NOTHING), so it's safe to run on every boot — subsequent
-  // runs only scan games not yet present.
-  public async backfillFromDecisionLogs(): Promise<void> {
+  /**
+   * Idempotent backfill: create `games` rows for every distinct game already in
+   * `turn_boards` that has no row yet, deriving the timestamps from the stored
+   * boards and the dimensions and ruleset from the latest settlement.
+   *
+   * It reads `turn_boards` because that is where a board lives now — one
+   * canonical settlement per (game, BOARD turn) rather than one embedded copy
+   * per unit per turn — so the scan touches one row per turn instead of
+   * twenty-six, and there is no "prefer a board-bearing row" clause because
+   * every row bears one. Never overwrites existing rows (ON CONFLICT DO
+   * NOTHING), so it is safe to run on every boot.
+   */
+  public async backfillFromStoredBoards(): Promise<void> {
     try {
       const result = await db.execute(sql`
         WITH missing AS (
-          SELECT DISTINCT d.game_id
-          FROM decision_logs d
-          WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.id = d.game_id)
+          SELECT DISTINCT t.game_id
+          FROM turn_boards t
+          WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.id = t.game_id)
         ),
         agg AS (
           SELECT
             game_id,
-            MIN(timestamp) AS started_at,
-            MAX(timestamp) AS ended_at,
-            MAX((game_state->>'turn')::int) AS final_turn
-          FROM decision_logs
+            MIN(created_at) AS started_at,
+            MAX(created_at) AS ended_at,
+            MAX(turn) AS final_turn
+          FROM turn_boards
           WHERE game_id IN (SELECT game_id FROM missing)
           GROUP BY game_id
         ),
         rep AS (
-          -- Modern rows carry a slim {turn, you} game_state with no board/
-          -- game metadata; prefer a board-bearing (old-format) row as the
-          -- representative so a hybrid game never backfills NULL dimensions.
           SELECT DISTINCT ON (game_id)
             game_id,
-            (game_state->'board'->>'width')::int AS board_width,
-            (game_state->'board'->>'height')::int AS board_height,
-            game_state->'game'->'ruleset'->>'name' AS ruleset_name,
-            game_state->'game'->>'map' AS game_mode,
-            (game_state->'game'->>'timeout')::int AS timeout_ms
-          FROM decision_logs
+            (settlement->'board'->>'width')::int AS board_width,
+            (settlement->'board'->>'height')::int AS board_height,
+            settlement->'game'->'ruleset'->>'name' AS ruleset_name,
+            settlement->'game'->>'map' AS game_mode,
+            (settlement->'game'->>'timeout')::int AS timeout_ms
+          FROM turn_boards
           WHERE game_id IN (SELECT game_id FROM missing)
-          ORDER BY game_id, (game_state->'board' IS NULL) ASC, turn DESC
+          ORDER BY game_id, turn DESC
         )
         INSERT INTO games (
           id, started_at, ended_at, final_turn,
@@ -194,12 +197,12 @@ export class GameRegistry {
         JOIN rep r USING (game_id)
         ON CONFLICT (id) DO NOTHING
       `);
-      const count = (result as any).rowCount ?? 0;
+      const count = (result as { rowCount?: number }).rowCount ?? 0;
       if (count > 0) {
-        console.log(`[GameRegistry] Backfilled ${count} games from decision logs`);
+        console.log(`[GameRegistry] Backfilled ${count} games from stored boards`);
       }
     } catch (error) {
-      console.error('[GameRegistry] Backfill from decision logs failed:', error);
+      console.error('[GameRegistry] Backfill from stored boards failed:', error);
     }
   }
 }

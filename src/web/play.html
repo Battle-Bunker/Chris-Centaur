@@ -6,102 +6,122 @@
   <title>Centaur Play - Active Games</title>
   <link rel="stylesheet" href="/chrome.css">
   <style>
-    .status-bar {
-      background: #2a2a2a; border-radius: 8px; padding: 15px;
-      margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;
+    /* The list bar, the freshness reading and the card body. The header, the
+       nav, the status chips, the focus rings and the card hover all come from
+       chrome.css — see docs/design/ux/04-SECONDARY-SCREENS.md §2.1. */
+
+    .fresh {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600;
     }
-    .status-text { font-size: 14px; color: #888; }
-    .ws-status {
-      font-size: 11px; padding: 3px 8px; border-radius: 10px;
-      font-weight: 600;
+    .fresh .glyph { font-size: 11px; }
+    /* The staleness ladder at lobby scale (01-RESEARCH §4, Clock B). Word and
+       brightness carry it; there is no red, because none of these states is
+       an error — a quiet lobby is a lobby with nothing happening in it. */
+    .fresh-live { color: #d6efd7; }        .fresh-live .glyph  { color: var(--go); }
+    .fresh-slow { color: #cfcfcf; }        .fresh-slow .glyph  { color: #999; }
+    .fresh-stale { color: var(--ink-faint); } .fresh-stale .glyph { color: var(--ink-faint); }
+
+    /* ── A game row ─────────────────────────────────────────────────────── */
+    .game-card {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 12px 14px; position: relative; cursor: pointer;
     }
-    .ws-status.connected { background: #2e7d32; color: #c8e6c9; }
-    .ws-status.disconnected { background: #c62828; color: #ffcdd2; }
-    .ws-status.connecting { background: #e65100; color: #ffe0b2; }
-    /* On top of the chrome.css game-card base: side-by-side card layout. */
-    .game-card { display: flex; gap: 15px; align-items: stretch; }
-    /* Pending lobby: invited but not started. Not clickable — there is no
-       game page until the game starts. */
-    .game-card.pending { border: 2px solid #FF9800; cursor: default; }
-    .game-card.pending:hover { border-color: #FF9800; transform: none; }
-    .pending-badge {
-      font-size: 11px; font-weight: 700; color: #FF9800;
-      border: 1px solid #FF9800; border-radius: 10px; padding: 2px 8px;
+    /* The whole card is the target, but the anchor is a real <a> with a real
+       href — keyboard, middle-click, ⌘-click and the status bar all work,
+       which an onclick handler on a <div> gave up (F6). */
+    .entry-link { color: #fff; text-decoration: none; }
+    .entry-link::after { content: ''; position: absolute; inset: 0; }
+    .entry-link:focus-visible::after {
+      outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 8px;
     }
-    .game-card-settings { font-size: 12px; color: #888; margin-bottom: 8px; }
+    /* Anything the operator can click INSTEAD of entering the game has to sit
+       above the stretched link. */
+    .above { position: relative; z-index: 1; }
+
+    .game-card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .card-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .card-top .grow { flex: 1; }
+    .game-card-time { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+    .game-card-sub { font-size: 12px; color: var(--ink-dim); }
+
     .team-dot {
       display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-      border: 1px solid #555;
+      border: 1px solid #555; flex: 0 0 auto;
     }
-    .game-card-info { flex: 1; min-width: 0; }
-    .game-card-header {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 8px;
-    }
-    .game-card-id {
-      font-size: 11px; color: #666; word-break: break-all;
-      margin-bottom: 8px;
-    }
-    .game-card-time {
-      font-size: 12px; color: #4CAF50; white-space: nowrap;
-    }
-    .game-card-turn { font-size: 12px; color: #888; }
-    .game-card-snakes {
-      display: flex; flex-wrap: wrap; gap: 8px;
-    }
+    .our-centaur-line { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #bbb; }
+    .our-centaur-line strong { color: #fff; }
+
+    .game-card-snakes { display: flex; flex-wrap: wrap; gap: 6px; }
     .controlled-snake-tag {
       display: inline-flex; align-items: center; gap: 4px;
-      background: #333; padding: 4px 10px; border-radius: 12px;
-      font-size: 13px; border: 1px solid #555;
+      background: #333; padding: 2px 9px; border-radius: 12px;
+      font-size: 12px; border: 1px solid #555;
     }
     .our-team-tag { border-color: #4caf50; }
     .us-badge {
       background: #4caf50; color: #08130a; font-weight: 700;
       font-size: 10px; padding: 1px 5px; border-radius: 8px; letter-spacing: 0.5px;
     }
-    .our-centaur-line {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 13px; color: #bbb; margin: 4px 0;
+
+    /* Which bot this game is playing, read back from the route that knows
+       (GET /api/play/game/:id/bot). `~` marks a binding no decision has used
+       yet — `observed: false` — which is a different claim from the one an
+       observed binding makes. */
+    .bot-line { font-size: 12px; color: var(--ink-dim); display: flex; gap: 6px; align-items: center; }
+    .bot-line b { color: #cfe0f0; font-weight: 600; }
+    .bot-scope {
+      font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+      border: 1px solid #4a4a4a; border-radius: 3px; padding: 0 4px; color: var(--ink-faint);
     }
-    .our-centaur-line strong { color: #fff; }
-    .game-card-minimap {
-      width: 150px; min-width: 150px; flex-shrink: 0;
-    }
+    .bot-line .unobserved { color: var(--warn); }
+    .bot-refused { color: #f0b48a; }
+
+    .game-card-minimap { width: 96px; min-width: 96px; flex-shrink: 0; }
     .game-card-canvas {
       width: 100%; aspect-ratio: 1; border: 1px solid #444;
-      border-radius: 4px; background: #ffffff;
+      border-radius: 4px; background: #ffffff; display: block;
     }
-    .engine-link {
-      font-size: 11px; color: #4CAF50; text-decoration: none;
-      white-space: nowrap;
+    .engine-link { font-size: 11px; color: #8fc7f5; white-space: nowrap; }
+
+    /* Pending lobby: invited, not started. There is no game page yet, so the
+       row is deliberately NOT an entry. */
+    .game-card.pending { border-color: var(--warn); cursor: default; }
+    .game-card.pending:hover { border-color: var(--warn); background: var(--panel); }
+    .pending-badge {
+      font-size: 11px; font-weight: 700; color: var(--warn);
+      border: 1px solid var(--warn); border-radius: 10px; padding: 1px 8px;
+      letter-spacing: 0.06em;
     }
-    .engine-link:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Centaur Play</h1>
-    <div class="nav-links">
-      <a href="/history">History</a>
-      <a href="/config">Config</a>
-    </div>
-  </div>
+  <div class="header"><h1>Play</h1></div>
 
   <div class="main-content">
-    <div class="status-bar">
-      <span class="status-text" id="statusText">Connecting...</span>
-      <span class="ws-status connecting" id="wsStatus">Connecting</span>
+    <div class="list-bar">
+      <input class="list-filter" id="filter" type="search" autocomplete="off"
+             placeholder="Filter games  ( / )" aria-label="Filter games">
+      <span class="count-read" id="statusText">Connecting…</span>
+      <span class="grow"></span>
+      <span class="fresh fresh-stale" id="freshness" title="How old the lobby on screen is">
+        <span class="glyph">○</span><span class="word">no data yet</span>
+      </span>
     </div>
 
-    <div id="gameContainer">
+    <div id="gameContainer" role="list">
       <div class="no-games">
-        <h2>Connecting...</h2>
-        <p>Waiting for WebSocket connection to server.</p>
+        <h2>Connecting…</h2>
+        <p>Waiting for the WebSocket connection to the centaur server.</p>
       </div>
     </div>
   </div>
 
   <script src="/dom-utils.js"></script>
+  <!-- The preference store, before every module that reads one
+       (docs/design/ux/12-PREFERENCES.md). It also owns the Ctrl+, panel. -->
+  <script src="/prefs.js"></script>
+  <script src="/page-chrome.js"></script>
   <script src="/board-renderer.js"></script>
   <script src="/idle-policy.js"></script>
   <script src="/server-status-badge.js"></script>
@@ -114,6 +134,12 @@
     let currentGames = [];
     let currentPendingGames = [];
     let engineHost = null; // GAME_ENGINE_HOST from the server; null = no links
+    let filterText = '';
+    // When the last lobby-update landed. This is the lobby's Clock B
+    // (01-RESEARCH §4): the age of what is on screen, which is a different
+    // question from whether the socket is open.
+    let lastUpdateAt = null;
+
     const wsDebug = window.ConnectionDebugger.attach({});
     const idleWatcher = window.IdleWatcher.attach({
       getWS: () => ws,
@@ -123,8 +149,12 @@
     // Shared connect/status/reconnect/idle-close lifecycle from ws-client.js;
     // only the lobby-specific pieces are configured here.
     const wsClient = window.WSClient.create({
-      statusEl: document.getElementById('wsStatus'),
-      statusClassPrefix: 'ws-status',
+      // ws-client.js writes each phase into whatever element it is handed, and
+      // it belongs to another workstream this cycle. The lobby has no status
+      // pill of its own — its connection reading is the header chip, driven by
+      // idle-watcher through ServerStatusBadge → PageChrome.setSocket — so it
+      // hands the factory a detached sink rather than a null it must guard.
+      statusEl: document.createElement('span'),
       subscribeMessage: () => ({ type: 'subscribe-lobby' }),
       onMessage: (msg) => {
         if (msg.type === 'debug-hello') {
@@ -133,6 +163,7 @@
           currentGames = msg.games;
           currentPendingGames = msg.pendingGames || [];
           engineHost = msg.engineHost || null;
+          lastUpdateAt = Date.now();
           renderGames(currentGames);
         } else if (msg.type === 'firebase-status') {
           window.FirebaseStatusBanner?.set(msg.status);
@@ -155,59 +186,111 @@
     // The old 2-minute turn-activity filter here was a second, independent
     // staleness heuristic layered on top and made cards blink out and back.
 
-    function formatStartTime(ts) {
-      if (!ts) return '';
-      return 'Started ' + new Intl.DateTimeFormat(undefined, {
-        month: 'short', day: 'numeric',
-        hour: 'numeric', minute: '2-digit'
-      }).format(new Date(ts));
+    // ── Which bot is this game playing ──────────────────────────────────────
+    // GET /api/play/game/:id/bot, ONCE per game id and then cached. The route
+    // is read-only by design (docs/BOT-BINDING.md §3) and the answer only
+    // moves when an operator writes a config_store row, so re-asking on every
+    // lobby-update — one per turn — would be traffic for nothing.
+    const botCache = new Map();
+    function botFor(gameId) {
+      if (!botCache.has(gameId)) {
+        botCache.set(
+          gameId,
+          fetch('/api/play/game/' + encodeURIComponent(gameId) + '/bot')
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+        );
+      }
+      return botCache.get(gameId);
     }
+
+    function paintBot(slotId, info) {
+      const el = document.getElementById(slotId);
+      if (!el || !info) return;
+      const refused = (info.refusals || []).length;
+      el.innerHTML =
+        'bot <b>' + escapeHtml(info.name || info.profile || '?') + '</b>' +
+        '<span class="bot-scope">' + escapeHtml(info.source || '?') + '</span>' +
+        (info.observed
+          ? ''
+          : '<span class="unobserved" title="No turn has been decided for this game yet — this is what the NEXT decision would resolve to.">~ not yet observed</span>') +
+        (refused
+          ? '<span class="bot-refused" title="' + escapeHtml((info.refusals || []).join('\n')) +
+            '">⚠ ' + refused + ' refused binding' + (refused === 1 ? '' : 's') + '</span>'
+          : '');
+    }
+
+    // ── Freshness ───────────────────────────────────────────────────────────
+    // Local ticking only. Nothing here touches the network: an interval that
+    // asked the server anything would hold the autoscale instance up, which is
+    // the bug idle-watcher.js exists to prevent.
+    function paintFreshness() {
+      const el = document.getElementById('freshness');
+      if (!el) return;
+      let tone = 'stale', glyph = '○', word = 'no data yet';
+      if (lastUpdateAt != null) {
+        const age = Date.now() - lastUpdateAt;
+        if (age < 30000) { tone = 'live'; glyph = '●'; word = 'live'; }
+        else if (age < 120000) { tone = 'slow'; glyph = '◐'; word = 'quiet ' + fmtAgo(lastUpdateAt); }
+        else { tone = 'stale'; glyph = '○'; word = 'last update ' + fmtAgo(lastUpdateAt); }
+      }
+      el.className = 'fresh fresh-' + tone;
+      el.querySelector('.glyph').textContent = glyph;
+      el.querySelector('.word').textContent = word;
+      document.querySelectorAll('[data-since]').forEach((n) => {
+        n.textContent = fmtAgo(Number(n.dataset.since));
+      });
+    }
+    setInterval(paintFreshness, 5000);
 
     // Link to the game on the team snek engine server. Empty string when the
-    // host isn't configured or the session/game IDs aren't known. stopPropagation
-    // keeps the click from also triggering the card's own click handler.
+    // host isn't configured or the session/game IDs aren't known. The link
+    // sits ABOVE the card's stretched entry link, so clicking it goes to the
+    // engine rather than into the game.
     function engineLink(sessionID, gameID) {
       if (!engineHost || !sessionID || !gameID) return '';
-      const url = `https://${engineHost}/session/${encodeURIComponent(sessionID)}/${encodeURIComponent(gameID)}`;
-      return `<a class="engine-link" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on engine ↗</a>`;
+      const url = `https://${encodeURIComponent(engineHost)}/session/${encodeURIComponent(sessionID)}/${encodeURIComponent(gameID)}`;
+      return `<a class="engine-link above" href="${escapeHtml(url)}" target="_blank" rel="noopener">View on engine ↗</a>`;
     }
 
-    // Firebase-provided team data is untrusted: escape names (escapeHtml from
-    // dom-utils.js) before innerHTML interpolation and only pass through
-    // colors that look like plain CSS color tokens (hex / rgb()/hsl() / simple
-    // keyword) so nothing can break out of the style attribute.
-    function safeColor(c) {
-      return typeof c === 'string' && /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\))$/.test(c.trim())
-        ? c.trim() : '#888';
+    // Firebase-provided team data is untrusted: escape names (escapeHtml) and
+    // run colours through safeColor (both from dom-utils.js) so nothing can
+    // break out of a style attribute.
+
+    function teamTagsOf(teams) {
+      return teams.map((t) =>
+        `<span class="controlled-snake-tag${t.ours ? ' our-team-tag' : ''}"><span class="team-dot" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.name)}${t.ours ? ' <span class="us-badge">US</span>' : ''}</span>`
+      ).join('');
     }
 
     // Pending lobby bubble: the centaur has been invited but the game hasn't
-    // started. Identified by sessionID+gameID; deliberately NOT clickable.
+    // started. Identified by sessionID+gameID; deliberately NOT an entry.
     function renderPendingCard(pg) {
       const board = pg.boardWidth && pg.boardHeight ? `${pg.boardWidth}×${pg.boardHeight}` : '?';
       const teams = pg.teams || [];
-      const teamTags = teams.map(t =>
-        `<span class="controlled-snake-tag${t.ours ? ' our-team-tag' : ''}"><span class="team-dot" style="background:${safeColor(t.color)}"></span>${escapeHtml(t.name)}${t.ours ? ' <span class="us-badge">US</span>' : ''}</span>`
-      ).join('');
       const ourTeam = teams.find(t => t.ours);
       const ourLine = ourTeam
         ? `<div class="our-centaur-line"><span class="team-dot" style="background:${safeColor(ourTeam.color)}"></span>Playing as <strong>${escapeHtml(ourTeam.name)}</strong></div>`
         : '';
       return `
-        <div class="game-card pending">
+        <div class="game-card pending" role="listitem">
+          <span class="idx" aria-hidden="true">·</span>
           <div class="game-card-info">
-            <div class="game-card-header">
+            <div class="card-top">
               <span class="pending-badge">PENDING</span>
-              <span class="game-card-turn">${teams.length} team${teams.length === 1 ? '' : 's'}</span>
-            </div>
-            <div class="game-card-id">${pg.sessionID} / ${pg.gameID} ${engineLink(pg.sessionID, pg.gameID)}</div>
-            <div class="game-card-settings">
-              Board ${board} · ${pg.snakesPerTeam ?? '?'} snakes/team · ${pg.maxTurnTime ?? '?'}s turns
+              <span class="game-card-sub">${teams.length} team${teams.length === 1 ? '' : 's'} · board ${board} · ${escapeHtml(String(pg.snakesPerTeam ?? '?'))} snakes/team · ${escapeHtml(String(pg.maxTurnTime ?? '?'))}s turns</span>
+              <span class="grow"></span>
+              <span class="game-card-time">not started</span>
             </div>
             ${ourLine}
-            <div class="game-card-snakes">${teamTags}</div>
+            <div class="game-card-snakes">${teamTagsOf(teams)}</div>
+            <div class="mono">${escapeHtml(pg.sessionID)} / ${escapeHtml(pg.gameID)} ${engineLink(pg.sessionID, pg.gameID)}</div>
           </div>
         </div>`;
+    }
+
+    function matches(text) {
+      return filterText === '' || String(text).toLowerCase().includes(filterText.toLowerCase());
     }
 
     function renderGames(games) {
@@ -215,71 +298,106 @@
       const statusText = document.getElementById('statusText');
       const pending = currentPendingGames;
 
+      const sorted = [...games]
+        .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
+        .filter((g) => matches(
+          [g.gameId, g.ourTeam && g.ourTeam.name, (g.controlledSnakes || []).map(s => s.name).join(' ')].join(' ')
+        ));
+      const shownPending = pending.filter((p) => matches([p.gameID, p.sessionID].join(' ')));
+
       if (games.length === 0 && pending.length === 0) {
         container.innerHTML = `
           <div class="no-games">
-            <h2>No Active Games</h2>
+            <h2>No active games</h2>
             <p>Start a game on the TacticToes platform to see it here.<br>
-            Games appear automatically when this centaur is invited to one.</p>
+            Games appear the moment this centaur is invited to one.</p>
           </div>`;
         statusText.textContent = 'No active games';
         return;
       }
+      if (sorted.length === 0 && shownPending.length === 0) {
+        container.innerHTML = `
+          <div class="no-games">
+            <h2>Nothing matches “${escapeHtml(filterText)}”</h2>
+            <p>${games.length} active · ${pending.length} pending. Press Esc to clear the filter.</p>
+          </div>`;
+        statusText.textContent = `0 of ${games.length + pending.length} shown`;
+        return;
+      }
 
       const parts = [];
-      if (games.length > 0) parts.push(`${games.length} active game${games.length > 1 ? 's' : ''}`);
+      if (games.length > 0) parts.push(`${games.length} active`);
       if (pending.length > 0) parts.push(`${pending.length} pending`);
-      statusText.textContent = parts.join(' · ') || 'No active games';
-
-      const sorted = [...games].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+      const hidden = (games.length - sorted.length) + (pending.length - shownPending.length);
+      statusText.textContent = parts.join(' · ') + (hidden > 0 ? ` · ${hidden} filtered out` : '');
 
       let html = '';
-      for (const pg of pending) {
-        html += renderPendingCard(pg);
-      }
-      for (const game of sorted) {
-        const startLabel = formatStartTime(game.startedAt);
+      for (const pg of shownPending) html += renderPendingCard(pg);
+
+      sorted.forEach((game, i) => {
         const snakeTags = (game.controlledSnakes || []).map(s =>
           `<span class="controlled-snake-tag">${escapeHtml(s.name || 'Snake')}</span>`
         ).join('');
         const ourActiveLine = game.ourTeam
           ? `<div class="our-centaur-line"><span class="team-dot" style="background:${safeColor(game.ourTeam.color)}"></span>Playing as <strong>${escapeHtml(game.ourTeam.name)}</strong></div>`
           : '';
-
+        const n = shownPending.length + i + 1;
         html += `
-        <div class="game-card" onclick="openGame('${game.gameId}')">
+        <div class="game-card" role="listitem" data-href="${escapeHtml(gameUrl(game.gameId))}" data-idx="${n}">
+          <span class="idx" aria-hidden="true">${n <= 9 ? n : '·'}</span>
           <div class="game-card-info">
-            <div class="game-card-header">
-              <span class="game-card-turn">Turn ${game.turn}</span>
-              ${startLabel ? `<span class="game-card-time">${startLabel}</span>` : ''}
+            <div class="card-top">
+              <a class="entry-link" href="${escapeHtml(gameUrl(game.gameId))}">
+                <span class="headline-num">${escapeHtml(game.turn)}</span>
+                <span class="headline-unit">turn</span>
+              </a>
+              <span class="grow"></span>
+              <span class="game-card-time">started <span data-since="${Number(game.startedAt) || 0}">${escapeHtml(fmtAgo(game.startedAt))}</span></span>
             </div>
-            <div class="game-card-id">${game.gameId} ${engineLink(game.sessionId, game.gameId)}</div>
             ${ourActiveLine}
+            <div class="bot-line" id="bot-slot-${n}">bot <span class="bot-scope">reading…</span></div>
             <div class="game-card-snakes">${snakeTags}</div>
+            <div class="mono">${escapeHtml(game.gameId)} ${engineLink(game.sessionId, game.gameId)}</div>
           </div>
           <div class="game-card-minimap">
-            <canvas class="game-card-canvas" id="minimap-${game.gameId}" width="200" height="200"></canvas>
+            <canvas class="game-card-canvas" id="minimap-${n}" width="200" height="200"
+                    aria-hidden="true"></canvas>
           </div>
         </div>`;
-      }
+      });
       container.innerHTML = html;
 
+      sorted.forEach((game, i) => {
+        const n = shownPending.length + i + 1;
+        botFor(game.gameId).then((info) => paintBot(`bot-slot-${n}`, info));
+      });
+
       requestAnimationFrame(() => {
-        sorted.forEach(game => {
-          if (game.gameState) {
-            const canvas = document.getElementById(`minimap-${game.gameId}`);
-            if (canvas) {
-              canvas.width = canvas.clientWidth;
-              canvas.height = canvas.clientHeight;
-              const ourIds = (game.controlledSnakes || []).map(s => s.id);
-              BoardRenderer.renderMinimap(canvas, game.gameState, ourIds);
-            }
-          }
+        sorted.forEach((game, i) => {
+          if (!game.gameState) return;
+          const canvas = document.getElementById(`minimap-${shownPending.length + i + 1}`);
+          if (!canvas) return;
+          canvas.width = canvas.clientWidth;
+          canvas.height = canvas.clientHeight;
+          const ourIds = (game.controlledSnakes || []).map(s => s.id);
+          BoardRenderer.renderMinimap(canvas, game.gameState, ourIds);
         });
       });
+      paintFreshness();
     }
 
+    // The shared list keyboard: `/` filters, ↑↓ move, Enter opens, 1..9 open
+    // the nth row — the same idiom /history uses, so one habit covers both.
+    window.PageChrome.list({
+      container: document.getElementById('gameContainer'),
+      itemSel: '.game-card[data-href]',
+      filterEl: document.getElementById('filter'),
+      onFilter: (text) => { filterText = text; renderGames(currentGames); },
+      open: (el) => { window.location.href = el.dataset.href; },
+    });
+
     connectWebSocket();
+    paintFreshness();
   </script>
 </body>
 </html>

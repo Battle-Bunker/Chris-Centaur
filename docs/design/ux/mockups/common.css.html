@@ -1,0 +1,28 @@
+<!-- SHARED TOKENS AND CHROME for the three mockups. Inlined into each file
+     (self-contained, no build): this copy is the source the three were kept in
+     step with, and is not itself loaded by anything. -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* Okabe–Ito derived. Every one of these is ALSO carried by a glyph or a
+       shape somewhere it is used; nothing is encoded by hue alone. */
+    --ink:        #e0e0e0;
+    --ink-dim:    #9a9a9a;
+    --ink-faint:  #7d7d7d;
+    --panel:      #2a2a2a;
+    --panel-2:    #232323;
+    --line:       #3a3a3a;
+    --lens:       #B39DFF;   /* hypothetical      · glyph ▸ / hollow arrow   */
+    --foil:       #4DB6AC;   /* the runner-up     · glyph ◇ / dotted rule    */
+    --warn:       #FF8A65;   /* refused / stale   · glyph ⚠                  */
+    --fixed:      #9A9A9A;   /* pinned / held     · glyph 🔒 ⛨              */
+    --ours:       #81c784;   /* our team          · glyph ●                  */
+    --clock-hi:   #eaeaea;
+    --clock-lo:   #6a6a6a;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a1a; color: var(--ink); width: 1500px; height: 950px;
+    overflow: hidden;
+  }
+</style>

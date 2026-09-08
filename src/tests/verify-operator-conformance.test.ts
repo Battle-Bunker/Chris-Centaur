@@ -28,6 +28,8 @@ import type {
   UnitId,
 } from '../lobster/contracts';
 import type { Board as ApiBoard, Coord, Snake } from '../types/battlesnake';
+import { makeSnake, piece as sharedPiece } from './board-fixtures';
+import type { LensEvent } from '../lens/types';
 import { LobsterKernel, type KernelOptions, type KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
 import { GrammarCandidateGenerator } from '../lobster/candidates';
@@ -53,25 +55,10 @@ class StepClock {
   readonly peek = (): number => this.t;
 }
 
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
+// Local adapter: this file's `piece` takes `teamID` as a fifth positional,
+// not in `extra` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>
-  makeSnake(id, [at], { unitType, length: weight, teamID } as Partial<Snake>);
+  sharedPiece(id, at, unitType, weight, { teamID });
 
 const boardOf = (snakes: Snake[], size: number): ApiBoard =>
   ({ width: size, height: size, food: [], hazards: [], snakes }) as ApiBoard;
@@ -159,6 +146,10 @@ interface Script {
 
 interface Run {
   readonly report: KernelReport;
+  /** The lens frames, when the caller asked to watch. Empty otherwise — and
+   *  "otherwise" is the default, because attaching the sink is itself work on
+   *  a clock that ticks per read. */
+  readonly frames: ReadonlyArray<LensEvent>;
   readonly emissions: ReadonlyArray<EmitRecord>;
   /** The plan handed to `conform` on each call; index 0 is rung 0. */
   readonly conformSeeds: ReadonlyArray<JointPlan>;
@@ -182,6 +173,10 @@ async function drive(options: {
    * no-cross-epoch-leak test and not something a real search can be relied on
    * to produce. */
   floorShift?: (epoch: number) => number;
+  /** Attach the lens sink. The report no longer carries `basisHistory` or
+   *  `postureFlips` (04 §5.2 #11) — a basis change and a posture flip are
+   *  moments, so they are `partition` and `posture` frames. */
+  watch?: boolean;
 }): Promise<Run> {
   const clock = new StepClock();
   const sub = makeSubstrate({ board: options.board, turn: TURN, asTeam: options.ourTeam });
@@ -190,6 +185,7 @@ async function drive(options: {
   const emissions: EmitRecord[] = [];
   const conformSeeds: JointPlan[] = [];
   const firedAtEmission: number[] = [];
+  const frames: LensEvent[] = [];
   let slice = 0;
 
   const kernel = new LobsterKernel({
@@ -248,13 +244,14 @@ async function drive(options: {
       deadlineMs: clock.peek() + (options.budgetMs ?? 200),
       initialPins: options.initialPins ?? [],
       now: clock.now,
+      ...(options.watch === true ? { lens: (e: LensEvent): void => void frames.push(e) } : {}),
     })) {
       emissions.push(rec);
     }
   } finally {
     sub.release();
   }
-  return { report: kernel.lastReport as KernelReport, emissions, conformSeeds, firedAtEmission };
+  return { report: kernel.lastReport as KernelReport, emissions, conformSeeds, firedAtEmission, frames };
 }
 
 afterEach(() => clearGeometryCache());
@@ -428,6 +425,7 @@ describe('constraint epochs never share a ratchet', () => {
       script,
       budgetMs: 250,
       floorShift: (epoch) => -10 * epoch,
+      watch: true,
     });
 
     const firstOfEpoch = new Map<number, EmitRecord>();
@@ -440,10 +438,11 @@ describe('constraint epochs never share a ratchet', () => {
     expect(run.report.refusals['ratchet-gap']).toBe(0);
     expect(run.report.boundViolations).toBe(0);
     // One basis per (epoch, posture): no epoch owns two bases without a flip.
-    const perEpoch = new Map<number, number>();
-    for (const b of run.report.basisHistory) perEpoch.set(b.epoch, (perEpoch.get(b.epoch) ?? 0) + 1);
-    const flips = run.report.postureFlips.length;
-    expect([...perEpoch.values()].reduce((a, b) => a + b, 0)).toBe(run.report.epochs + flips);
+    // A basis change is a `partition` frame — one at t0, one per epoch, one
+    // per flip — so the count is the arithmetic, read off the timeline.
+    const partitions = run.frames.filter((e) => e.kind === 'partition').length;
+    const flips = run.frames.filter((e) => e.kind === 'posture').length;
+    expect(partitions).toBe(run.report.epochs + flips);
     // Every epoch that emitted anything got its own conforming record.
     expect(run.report.conformance).toHaveLength(script.length);
   });

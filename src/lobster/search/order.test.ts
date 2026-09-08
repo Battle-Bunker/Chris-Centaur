@@ -7,7 +7,7 @@
  * mysterious quality drift in the search.
  */
 
-import type { Candidate, JointPlan, UnitId } from '../contracts';
+import type { Candidate, JointPlan, Substrate, UnitId } from '../contracts';
 import {
   makeGenerator,
   makeSubstrate,
@@ -24,13 +24,14 @@ const COLLIDE: BoardSpec = {
   width: 7,
   height: 7,
   units: [
-    { id: 1, team: OURS, type: 'king', occupancy: [3 * 7 + 2], health: 60 },
-    { id: 2, team: OURS, type: 'king', occupancy: [3 * 7 + 4], health: 60 },
-    { id: 3, team: THEIRS, type: 'king', occupancy: [1 * 7 + 1], health: 60 },
+    { id: 1, team: OURS, type: 'king', occupancy: [3 * 7 + 2], energy: 60 },
+    { id: 2, team: OURS, type: 'king', occupancy: [3 * 7 + 4], energy: 60 },
+    { id: 3, team: THEIRS, type: 'king', occupancy: [1 * 7 + 1], energy: 60 },
   ],
 };
 
 function collisionWorld(): {
+  sub: ReturnType<typeof makeSubstrate>;
   resolution: ReturnType<ReturnType<typeof makeSubstrate>['resolveBoundedFor']>['resolution'];
   plan: JointPlan;
   close(): void;
@@ -45,8 +46,17 @@ function collisionWorld(): {
     [1 as UnitId, pick(1 as UnitId)],
     [2 as UnitId, pick(2 as UnitId)],
   ]);
-  return { resolution: sub.resolveBoundedFor(plan, OURS).resolution, plan, close: () => sub.release() };
+  return {
+    sub,
+    resolution: sub.resolveBoundedFor(plan, OURS).resolution,
+    plan,
+    close: () => sub.release(),
+  };
 }
+
+/** A substrate for the calls that never touch one — the null-resolution arms. */
+const stubSub = (): Substrate =>
+  ({ unitIdOf: () => undefined }) as unknown as Substrate;
 
 describe('the salt', () => {
   test('it is deterministic, and different salts disagree', () => {
@@ -82,7 +92,7 @@ describe('self-inflicted pairs', () => {
     const world = collisionWorld();
     try {
       const ours = new Set<UnitId>([1, 2]);
-      const pairs = selfInflictedPairs(world.resolution, ours, world.plan);
+      const pairs = selfInflictedPairs(world.sub, world.resolution, ours, world.plan);
       expect(pairs.length).toBeGreaterThan(0);
       for (const [a, b] of pairs) {
         expect(ours.has(a)).toBe(true);
@@ -102,7 +112,7 @@ describe('self-inflicted pairs', () => {
     try {
       // Pretend only unit 1 is ours: the pair now has fewer than two of ours in
       // it, so there is nothing for a 2-opt to repair.
-      expect(selfInflictedPairs(world.resolution, new Set<UnitId>([1]), world.plan)).toEqual([]);
+      expect(selfInflictedPairs(world.sub, world.resolution, new Set<UnitId>([1]), world.plan)).toEqual([]);
     } finally {
       world.close();
     }
@@ -113,12 +123,12 @@ describe('danger order', () => {
   test('the dead go first, then the merely involved, then by id', () => {
     const world = collisionWorld();
     try {
-      const dead = deadIn(world.resolution);
+      const dead = deadIn(world.sub, world.resolution);
       expect(dead.size).toBeGreaterThan(0);
-      const order = dangerOrder([1, 2], world.resolution, new Set());
+      const order = dangerOrder(world.sub, [1, 2], world.resolution, new Set());
       expect(order.length).toBe(2);
       const rank = (id: UnitId): number =>
-        dead.has(id) ? 0 : involvedIn(world.resolution).has(id) ? 1 : 2;
+        dead.has(id) ? 0 : involvedIn(world.sub, world.resolution).has(id) ? 1 : 2;
       expect(rank(order[0] as UnitId)).toBeLessThanOrEqual(rank(order[1] as UnitId));
     } finally {
       world.close();
@@ -128,14 +138,14 @@ describe('danger order', () => {
   test('a PINNED unit is not in the sweep at all', () => {
     const world = collisionWorld();
     try {
-      expect(dangerOrder([1, 2], world.resolution, new Set([1 as UnitId]))).toEqual([2]);
+      expect(dangerOrder(world.sub, [1, 2], world.resolution, new Set([1 as UnitId]))).toEqual([2]);
     } finally {
       world.close();
     }
   });
 
   test('with no resolution it is still total and deterministic', () => {
-    expect(dangerOrder([3, 1, 2], null, new Set())).toEqual([1, 2, 3]);
+    expect(dangerOrder(stubSub(), [3, 1, 2], null, new Set())).toEqual([1, 2, 3]);
   });
 });
 
@@ -143,11 +153,11 @@ describe('contested units — the joint-polish selection', () => {
   test('units the resolver keeps naming come first, capped', () => {
     const world = collisionWorld();
     try {
-      const picked = contestedUnits([1, 2], world.resolution, new Set(), 1);
+      const picked = contestedUnits(world.sub, [1, 2], world.resolution, new Set(), 1);
       expect(picked.length).toBe(1);
       expect([1, 2]).toContain(picked[0]);
-      expect(contestedUnits([1, 2], world.resolution, new Set([1, 2]), 3)).toEqual([]);
-      expect(contestedUnits([1, 2], null, new Set(), 3)).toEqual([]);
+      expect(contestedUnits(world.sub, [1, 2], world.resolution, new Set([1, 2]), 3)).toEqual([]);
+      expect(contestedUnits(stubSub(), [1, 2], null, new Set(), 3)).toEqual([]);
     } finally {
       world.close();
     }

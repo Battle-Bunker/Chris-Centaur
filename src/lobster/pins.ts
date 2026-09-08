@@ -20,10 +20,10 @@
  */
 
 import type {
+  Candidate,
   CellIndex,
   JointPlan,
   Pin,
-  PinAdvice,
   PinEvent,
   Posture,
   Witness,
@@ -235,6 +235,33 @@ export class TeamPinLedger {
 }
 
 // ------------------------------------------------------------------- advice
+
+/**
+ * Proved price of an operator pin, offered as advice; never auto-applied.
+ *
+ * THE PRICE IS AN INTERVAL, because both sides of the subtraction are. With
+ * the unconstrained decision proved in [u.lo, u.hi] and the conforming one in
+ * [c.lo, c.hi], the cost is proved in [u.lo − c.hi, u.hi − c.lo]: `costLo` is
+ * the LEAST the pin can be costing, `costHi` the MOST, and the width is how
+ * little the decision knows. Both clamped at zero: a pin that HELPS is free,
+ * not negative. A `min`/`max` across the two same-channel deltas is NOT this —
+ * it can publish the ceiling's delta as the floor's answer and brackets
+ * nothing.
+ *
+ * Both deltas difference an incumbent's bracket against a speculative
+ * context's, so both are subject to basis identity (non-negotiable 5): the
+ * consumer that computes them must prove the two sides share a posture and a
+ * constraint epoch, or mark the advice degraded and say so.
+ */
+export interface PinAdvice {
+  readonly pin: Pin
+  /** floor(best unconstrained) − ceiling(best conforming); ≥ 0. */
+  readonly costLo: number
+  /** ceiling(best unconstrained) − floor(best conforming); ≥ 0. */
+  readonly costHi: number
+  readonly witness: Witness | null // the concrete punishing line, when known
+  readonly alternative: Candidate | null
+}
 
 /** PinAdvice with the confidence channel and the wire identity attached. */
 export interface TeamPinAdvice extends PinAdvice {

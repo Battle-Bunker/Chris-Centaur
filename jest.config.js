@@ -18,6 +18,16 @@ module.exports = {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  // THE ONE SUITE THE DEFAULT RUN DOES NOT TAKE, and it is a matter of time
+  // rather than of trust: `exact-reply.gate.test.ts` settles concrete worlds
+  // inside sixteen games and costs about four minutes. Its seed-1 arm per
+  // scenario runs on every `npx jest` from `exact-reply.test.ts`, out of the
+  // same table and through the same runner, so nothing here is unguarded —
+  // only less of it is guarded. `npm run gate:exact` names the file back in
+  // by overriding this list — `npm run gate:exact` puts the PATH FIRST and
+  // the override after it, because jest's array options otherwise swallow the
+  // positional that follows them.
+  testPathIgnorePatterns: ['/node_modules/', 'exact-reply\\.gate\\.test\\.ts$'],
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
