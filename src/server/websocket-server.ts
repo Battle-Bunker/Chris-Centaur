@@ -709,10 +709,18 @@ export class GameWebSocketServer {
         gameId,
         snakeId,
         turn: turnData.gameState.turn,
-        // CANDIDATE ENUMERATION, and nothing more. `moveEvaluations` stopped
-        // being a scoring contract when the decision stopped being per-unit
-        // (04 §5.3 #17): the client reads the direction-keyed / destination-
-        // keyed split out of it and reads every number out of the lens frame.
+        // THE UNIT'S CANDIDATE MOVES — the engine's `legalActions` for THIS
+        // unit on THIS board, asked once, on the server, through
+        // `getUnitCandidates`. The page renders and navigates these and
+        // enumerates nothing of its own: the direction-keyed / destination-
+        // keyed split it used to read out of `moveEvaluations` was a
+        // client-side enumeration that handed a knight a snake's four
+        // neighbours whenever the rows were not destination-keyed.
+        candidates: turnData.candidates || [],
+        // What the decision THOUGHT of some of them, and nothing more.
+        // `moveEvaluations` stopped being a scoring contract when the decision
+        // stopped being per-unit (04 §5.3 #17); it is no longer a candidate
+        // contract either. Every number is read out of the lens frame.
         moveEvaluations: turnData.moveEvaluations,
         botRecommendation: turnData.botRecommendation,
         // Which bot made it. Rides the per-unit frame because a centaur may

@@ -755,6 +755,18 @@ async function main(): Promise<void> {
             return moveIndexToDirection(unit.cells[0] as number, candidate.to, sub.grid.width);
           },
         });
+        // A PIECE'S CANDIDATES ARE PUBLISHED TOO. `updatePieceTurn` is the
+        // manager's own piece intake — the same call the Firebase interface
+        // makes — and it broadcasts a `snake-turn-update` whose `candidates`
+        // are the engine's `legalActions` for that piece. Without it a knight
+        // on this board reached the page with no enumeration at all, which is
+        // exactly the state the client used to paper over by inventing a
+        // snake's four neighbours for it.
+        for (const [wireId, view] of views) {
+          const unit = sub.unitOfWireId(wireId);
+          if (unit === undefined || unit.type === 'snake') continue;
+          manager.updatePieceTurn(opts.gameId, wireId, view);
+        }
         for (const row of rows) {
           const unit = sub.unitOfWireId(row.snakeId);
           const view = views.get(row.snakeId);
