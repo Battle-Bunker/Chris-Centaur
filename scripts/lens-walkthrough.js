@@ -573,6 +573,50 @@ async function main() {
     cursorOn
   );
 
+  /** THE KNIGHT DRILL — a unit is offered ITS OWN moves, in the browser.
+   *
+   *  The defect: a knight on the board was drawn the four orthogonal
+   *  neighbours of its square, because the page enumerated candidates itself
+   *  whenever the wire's rows were not destination-keyed and the only
+   *  enumeration it knew was a snake's. The page enumerates nothing now — it
+   *  reads the list the server built from the engine's `legalActions` through
+   *  the one accessor, `candidatesOf` — and this asserts that from inside the
+   *  page, on the rail's own unit list and the board's own candidate cells:
+   *  every cell a knight is offered is an L-jump or its own square, and NONE
+   *  of them is an orthogonal neighbour. */
+  const knightCandidates = await page.evaluate(() => {
+    if (typeof currentGameState === 'undefined' || !currentGameState) return { found: false };
+    const units = (currentGameState.board.snakes || []).filter((s) => s.unitType === 'knight');
+    const out = [];
+    for (const u of units) {
+      if (typeof candidatesOf !== 'function') return { found: false, noAccessor: true };
+      const head = u.head || u.body[0];
+      const cells = candidatesOf(u.id).map((c) => c.dest).filter(Boolean);
+      out.push({
+        id: u.id,
+        count: cells.length,
+        offsets: cells.map((c) => [c.x - head.x, c.y - head.y]),
+      });
+    }
+    return { found: out.length > 0, units: out };
+  });
+  const knightShapes = (knightCandidates.units || []).flatMap((u) => u.offsets);
+  const knightIsKnight =
+    knightCandidates.found &&
+    knightShapes.length > 0 &&
+    knightShapes.every(([dx, dy]) => {
+      const adx = Math.abs(dx);
+      const ady = Math.abs(dy);
+      return (adx === 1 && ady === 2) || (adx === 2 && ady === 1) || (adx === 0 && ady === 0);
+    }) &&
+    knightShapes.every(([dx, dy]) => Math.abs(dx) + Math.abs(dy) !== 1);
+  report.notes.knightCandidates = knightCandidates;
+  check(
+    'candidates — a knight is offered knight cells, never a snake\u2019s four neighbours',
+    knightIsKnight,
+    knightCandidates
+  );
+
   // 1 — PIN. `Space` stages the candidate under the cursor: one determination,
   // the operator's own unit, no confirmation, and an undo the moment it lands.
   // THE ROUND TRIP, ON A SNAKE: stage, take it back, stage again. The middle

@@ -23,7 +23,7 @@ import {
   stagingActionFor,
   stagingBoard,
 } from '../logic/staging-legality';
-import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
+import { apiCoordToIndex, moveIndexToDirection, toApiCoord } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
 import {
   WaypointContext,
@@ -64,6 +64,31 @@ import type {
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 import { colorForArrivalIndex } from '../shared/player-palette';
+
+/**
+ * ONE CANDIDATE, AS THE ENGINE ENUMERATED IT.
+ *
+ * The single shape every consumer of "what may this unit be told to do" reads
+ * — the page's `candidatesOf`, the staging path, the rail. It is produced in
+ * exactly one place (`getUnitCandidates` below), from exactly one source (the
+ * vendored engine's `legalActions`, reached through `legalStagingCandidates`),
+ * for EVERY unit kind. There is no snake branch and no piece branch: a snake's
+ * four steps and a knight's eight jumps are the same question asked of the
+ * same grammar, and the answer is always the answer for the unit it was asked
+ * about.
+ */
+export interface UnitCandidate {
+  // The value STAGING puts on the wire for this candidate: a Direction for a
+  // trail unit, a full-board destination index for a piece. Derived from the
+  // engine's own action, never from arithmetic downstream.
+  move: CentaurMove;
+  // The candidate's cell in api coords. For a `stay` it is the unit's own
+  // square; for a pawn's `rotate` it is the side square the turn signals with
+  // (never entered) — the same square the engine keyed the action under.
+  dest: Coord;
+  // The engine action's own discriminant.
+  kind: 'stay' | 'move' | 'rotate';
+}
 
 export interface MoveEvaluation {
   // The candidate id: a Direction for snakes (byte-identical to the historic
@@ -148,6 +173,12 @@ const PIECE_TERMS: ReadonlyArray<{
 
 export interface TurnData {
   gameState: GameState;
+  // THE UNIT'S CANDIDATE MOVES. Stamped by `bindTurnData` on every write of
+  // `latestTurnData`, from `getUnitCandidates` — so every payload that carries
+  // a unit's turn data carries its enumeration with it, and no transport can
+  // publish one without the other. Optional in the TYPE only because callers
+  // hand this shape in; the manager always fills it.
+  candidates?: UnitCandidate[];
   moveEvaluations: MoveEvaluation[];
   territoryCells: { [snakeId: string]: { x: number; y: number }[] };
   // A Direction for a snake; a FULL-BOARD destination index for a chess piece
@@ -3006,22 +3037,104 @@ export class ActiveGameManager {
    * there is nothing type-aware in this layer, and the piece's own shortest
    * path is what the goto route draws.
    */
-  private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
+  /**
+   * THE ONE ENUMERATION. Asked of the engine, for whatever unit it is asked
+   * about.
+   *
+   * `legalStagingCandidates` is the api-coordinate adapter over the vendored
+   * `legalActions` — the engine's single answer to "what may this unit do on
+   * this board". Every candidate anything in this process offers comes from
+   * here, and it is called in exactly ONE place so that it cannot be bypassed:
+   * a caller that wants a unit's options has no other function to reach for,
+   * and no branch on unit kind to get wrong. The bug this replaces was
+   * precisely that — a knight offered a snake's four orthogonal neighbours,
+   * because the enumeration lived downstream of the unit it was about.
+   *
+   * Returns null when there is no board, no unit, or no head to enumerate
+   * from — never a partial or invented list.
+   */
+  private enumerateUnitCandidates(gameId: string, snakeId: string): {
+    gs: GameState;
+    head: Coord;
+    origin: number;
+    fullW: number;
+    fullH: number;
+    isSnake: boolean;
+    legal: ReturnType<typeof legalStagingCandidates>;
+  } | null {
     const game = this.games.get(gameId);
     const controlled = game?.controlledSnakes.get(snakeId);
     const snapshot = game?.boardState;
-    if (!controlled || !snapshot?.board || !this.isPieceUnit(controlled)) return [];
+    if (!controlled || !snapshot?.board) return null;
     const gs = this.viewFor(snapshot, snakeId);
     const head = gs?.you?.head || gs?.you?.body?.[0];
-    if (!gs || !head) return [];
-
-    const board = gs.board;
-    const { fullW, fullH } = fullDims(board);
+    if (!gs || !head) return null;
+    const { fullW, fullH } = fullDims(gs.board);
+    const origin = apiCoordToIndex(head, fullW, fullH);
     const unitType = controlled.unitType ?? 'snake';
-    const legal = legalStagingCandidates(
-      grammarUnitAt(unitType, apiCoordToIndex(head, fullW, fullH), gs.you.orientation),
-      this.stagingBoardFor(board)
-    );
+    return {
+      gs,
+      head,
+      origin,
+      fullW,
+      fullH,
+      isSnake: !this.isPieceUnit(controlled),
+      legal: legalStagingCandidates(
+        grammarUnitAt(unitType, origin, gs.you.orientation),
+        this.stagingBoardFor(gs.board)
+      ),
+    };
+  }
+
+  /**
+   * A UNIT'S CANDIDATE MOVES, for the wire and for anything else that asks.
+   *
+   * The engine's own action list, carried as concrete cells plus the identity
+   * staging speaks in: a Direction for a trail unit — DERIVED FROM THE ENGINE
+   * ACTION's destination, not from a direction table walked over the board —
+   * and the full-board destination index for a piece. Nothing here knows what
+   * a knight is; it knows what `legalActions` returned.
+   */
+  getUnitCandidates(gameId: string, snakeId: string): UnitCandidate[] {
+    const enumerated = this.enumerateUnitCandidates(gameId, snakeId);
+    if (!enumerated) return [];
+    const { origin, fullW, fullH, isSnake, legal } = enumerated;
+    const out: UnitCandidate[] = [];
+    for (const { dest, action } of legal) {
+      // The wire has one word per candidate. For a piece that word is the
+      // destination index the engine keyed the action under; for a trail unit
+      // it is the direction that destination IS, read off the engine's own
+      // cell arithmetic in `translate.ts` (the one mapping in the codebase).
+      // A destination the wire has no word for keys no candidate at all.
+      const move: CentaurMove | null = isSnake
+        ? moveIndexToDirection(origin, dest, fullW)
+        : dest;
+      if (move === null) continue;
+      out.push({ move, dest: toApiCoord(dest, fullW, fullH), kind: action.kind });
+    }
+    return out;
+  }
+
+  /**
+   * THE BINDING. Every write of a unit's `latestTurnData` goes through here,
+   * and here is where the enumeration is stamped on: whatever a transport
+   * hands in, the candidates travelling with it are the ones
+   * `getUnitCandidates` just asked the engine for THIS unit on THIS board.
+   *
+   * That is what makes the invariant structural rather than a convention. A
+   * caller cannot publish a unit's turn data with somebody else's moves on it,
+   * or with none, because it does not get to supply them.
+   */
+  private bindTurnData(gameId: string, snakeId: string, turnData: TurnData): TurnData {
+    return { ...turnData, candidates: this.getUnitCandidates(gameId, snakeId) };
+  }
+
+  private computePieceCandidates(gameId: string, snakeId: string): PieceCandidateScore[] {
+    const controlled = this.games.get(gameId)?.controlledSnakes.get(snakeId);
+    if (!controlled || !this.isPieceUnit(controlled)) return [];
+    const enumerated = this.enumerateUnitCandidates(gameId, snakeId);
+    if (!enumerated) return [];
+    const { gs, head, fullW, fullH, legal } = enumerated;
     const dests = legal.map(c => toApiCoord(c.dest, fullW, fullH));
     // Progress is measured in the STATE the candidate leaves the piece in: a
     // move displaces it (facing unchanged), a stay spends the turn standing,
@@ -3055,7 +3168,7 @@ export class ActiveGameManager {
     // One marshalling of the board into engine terms, reused by every
     // candidate below. `action.path` is already full-board indices, which is
     // what the engine wants, so a move's ray goes straight in.
-    const marshalled = marshalBoard(board, gs.turn);
+    const marshalled = marshalBoard(gs.board, gs.turn);
 
     return legal.map(({ dest, action }, i) => {
       const stat = progress?.[i].stat ?? 0;
@@ -3256,13 +3369,13 @@ export class ActiveGameManager {
     controlled.botRecommendation = botRecommendation;
     // Candidate turn data: every legal destination scored by the waypoint
     // bias, through the same TurnData/broadcast contract snakes use.
-    controlled.latestTurnData = {
+    controlled.latestTurnData = this.bindTurnData(gameId, snakeId, {
       gameState,
       moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
       territoryCells: {},
       botRecommendation,
       timestamp: Date.now(),
-    };
+    });
 
     // Re-stage for the new turn: goto commands persist across turns (the
     // queue shifts on arrival in updateBoard); heuristic stages nothing.
@@ -3780,13 +3893,17 @@ export class ActiveGameManager {
     // move matrix — the UI reads the same TurnData shape for both, so a
     // recommendation arriving for a piece rebuilds the candidate rows here the
     // way updatePieceTurn does rather than publishing whatever the caller had.
-    controlled.latestTurnData = this.isPieceUnit(controlled)
-      ? {
-          ...turnData,
-          moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
-          botRecommendation: move,
-        }
-      : turnData;
+    controlled.latestTurnData = this.bindTurnData(
+      gameId,
+      snakeId,
+      this.isPieceUnit(controlled)
+        ? {
+            ...turnData,
+            moveEvaluations: this.computePieceMoveEvaluations(gameId, snakeId),
+            botRecommendation: move,
+          }
+        : turnData
+    );
     controlled.botRecommendation = move;
     // Lift the board-wide Voronoi grids off this snake's decision onto the
     // GAME, where every unit's views can read them.

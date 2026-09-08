@@ -3498,6 +3498,11 @@
           const snakeId = msg.snakeId;
           controlledSnakeTurnData[snakeId] = {
             turnData: {
+              // THE UNIT'S CANDIDATE MOVES, as the server's one enumeration
+              // (`ActiveGameManager.getUnitCandidates`, the engine's
+              // `legalActions` for THIS unit) produced them. The page adds
+              // nothing to this list and never builds one of its own.
+              candidates: msg.candidates || [],
               moveEvaluations: msg.moveEvaluations,
               botRecommendation: msg.botRecommendation,
               timestamp: msg.timestamp,
@@ -3841,6 +3846,21 @@
       return move != null ? (moveState?.moves?.[String(move)] ?? null) : null;
     }
 
+    /**
+     * THE ONE ACCESSOR: a unit's candidate moves.
+     *
+     * Every candidate this page draws, navigates, hovers, clicks or stages
+     * comes through here, and this is the whole of it — a read of the list the
+     * server enumerated FOR THAT UNIT from the vendored engine's
+     * `legalActions`. There is no branch on unit kind, no direction table, no
+     * neighbour arithmetic and no fallback: a unit with no published
+     * enumeration has no candidates, which is the truthful answer and not a
+     * reason to invent four.
+     */
+    function candidatesOf(unitId) {
+      return controlledSnakeTurnData[unitId]?.turnData?.candidates || [];
+    }
+
     function setupMoveStateForSnake(snakeId) {
       const csData = controlledSnakeTurnData[snakeId];
       if (!csData || !csData.turnData || !currentGameState) {
@@ -3855,26 +3875,22 @@
         return;
       }
 
-      const head = snake.head || snake.body[0];
       // The unit's own candidate ENUMERATION, and nothing else: what the unit
       // may be told to do, keyed the way the keyboard navigates it. What each
       // candidate is WORTH is the cluster's best under it, and that lives on
       // the lens frame with its grade.
       const evalData = { evaluations: td.moveEvaluations || [] };
-      moveState = BoardRenderer.processMoveEvaluations(evalData, [], head, null);
+      moveState = BoardRenderer.buildMoveState(candidatesOf(snakeId), evalData, null);
       moveState.selectedSnake = snakeId;
 
       if (csData.moveCommitted && csData.committedMove) {
-        // After the move is committed, candidates for "what next" come from
-        // the projected head (head + committed offset), not the stale
-        // current head. buildPostCommitCandidates gives us the 3 forward
-        // options (reverse-of-committed excluded) rooted there.
-        const post = buildPostCommitCandidates(snakeId);
-        if (post) {
-          moveState = post;
-        } else {
-          moveState.selectedMove = String(csData.committedMove);
-        }
+        // The committed move is one of this turn's candidates, so the cursor
+        // simply rests on it. There is no separate post-commit enumeration:
+        // the one that used to live here projected the head forward and fanned
+        // three orthogonal steps off it, which is a snake's move set written
+        // out on the page — the exact shape of enumeration this surface no
+        // longer performs. Next turn's candidates arrive with next turn.
+        moveState.selectedMove = String(csData.committedMove);
         moveSubmitted = true;
       } else {
         moveSubmitted = false;
@@ -4821,60 +4837,6 @@
       return head;
     }
 
-    // Build a synthetic moveState rooted at the projected head after a move
-    // has been committed this turn — candidates must never be drawn from the
-    // old head. The candidates represent the THREE forward options
-    // for next turn (the reverse of the committed move is excluded — going
-    // back would mean colliding with our own neck).
-    //
-    // These candidates carry no per-move evaluations (the bot hasn't planned
-    // next turn yet), so they render as plain cells. They're for Q-mode
-    // planning and click-to-extend only; they don't participate in submit.
-    function buildPostCommitCandidates(snakeId) {
-      const csData = controlledSnakeTurnData[snakeId];
-      if (!csData?.moveCommitted || !csData.committedMove) return null;
-      // Snake-only: a piece's committed move is a numeric destination with no
-      // reverse to exclude and no forward fan — no post-commit candidates.
-      if (!directionOffset(csData.committedMove)) return null;
-      const proj = getProjectedHead(snakeId);
-      if (!proj || !currentGameState) return null;
-      const board = currentGameState.board;
-      const reverse = { up: 'down', down: 'up', left: 'right', right: 'left' };
-      const forbidden = reverse[csData.committedMove];
-
-      const moves = {};
-      for (const dir of ['up', 'down', 'left', 'right']) {
-        if (dir === forbidden) continue;
-        const off = directionOffset(dir);
-        const cell = { x: proj.x + off.dx, y: proj.y + off.dy };
-        const inBounds = cell.x >= 0 && cell.y >= 0 && cell.x < board.width && cell.y < board.height;
-        // Field names must match the BoardRenderer contract (`position` and
-        // `positionKey`) — the renderer uses these to place candidate cells,
-        // overlays, and tooltips.
-        moves[dir] = {
-          key: dir,
-          move: dir,
-          direction: dir,
-          kind: 'move',
-          label: dir.toUpperCase(),
-          position: cell,
-          positionKey: `${cell.x},${cell.y}`,
-          isSafe: inBounds,
-          isEvaluated: false,
-          displayScore: null,
-        };
-      }
-      // Same position→candidate index shape as processMoveEvaluations, so
-      // every moveState consumer sees one contract (no stay candidate here).
-      const candidatesByPosition = new Map();
-      for (const m of Object.values(moves)) candidatesByPosition.set(m.positionKey, m);
-      return {
-        head: proj, moves, selectedMove: null, postCommit: true,
-        candidatesByPosition, holdCandidate: null,
-        selectedSnake: snakeId,
-      };
-    }
-
     // Small transient toast (bottom of the viewport) for one-line user
     // feedback, e.g. history-scrub notices. Replaces the old premove banner's
     // notice slot, which went away with the premove queue.
@@ -5220,16 +5182,35 @@
       return d;
     }
 
-    // The unit's live legality context for KeyNavMachine transitions: its
-    // type's axis ring, the candidate-derived per-axis reach, whether a
-    // hold (stay) candidate exists this turn, and its wire orientation
-    // — numpad 5 resets the axis to it.
+    // The axes this unit's OWN candidates lie on, clockwise from up. Derived
+    // from the enumeration the engine produced for it — not from a table of
+    // what its kind can do — so the arrow pad walks a knight's L's and a
+    // rook's rays because those are the cells the unit was offered. A unit
+    // with no candidates has an empty ring, and every transition over it is
+    // unavailable rather than invented.
+    function keyNavRing() {
+      const head = selectedUnitHead();
+      const ms = inspectionContext().moveState;
+      if (!head || !ms || !ms.moves) return [];
+      const offsets = [];
+      for (const m of Object.values(ms.moves)) {
+        if (!m.position || m.kind === 'stay') continue;
+        offsets.push({ dx: m.position.x - head.x, dy: m.position.y - head.y });
+      }
+      return KeyNavMachine.ringOf(offsets);
+    }
+
+    // The unit's live legality context for KeyNavMachine transitions: the axis
+    // ring its own candidates make, the candidate-derived per-axis reach,
+    // whether a hold (stay) candidate exists this turn, and its wire
+    // orientation — numpad 5 resets the axis to it.
     function keyNavCtx(unit) {
+      const ring = keyNavRing();
       return {
-        ring: KeyNavMachine.ringFor(unit?.unitType),
+        ring,
         maxDist: maxDistAlong,
         canHold: !!holdCandidate(),
-        axisFor: (digit) => KeyNavMachine.numpadAxisFor(unit?.unitType, digit),
+        axisFor: (digit) => KeyNavMachine.numpadAxisFor(digit, ring),
         orientation: unitOrientation(unit),
       };
     }
@@ -5239,11 +5220,9 @@
     // the same numpad key re-extends along it out of hold); with no memory
     // seedNav fills in the wire orientation.
     function deriveKeyNavFromSelection(move, prev) {
-      const unit = inspectionContext().unit;
       const head = selectedUnitHead();
       const hasOffset = move && head && move.kind !== 'stay' && move.position;
       return KeyNavMachine.deriveFromOffset(
-        unit?.unitType,
         hasOffset ? move.position.x - head.x : 0,
         hasOffset ? move.position.y - head.y : 0,
         prev?.axis || null

@@ -2401,24 +2401,33 @@ const BoardRenderer = (function () {
   }
 
   /**
-   * CANDIDATE ENUMERATION. The direction-keyed / destination-keyed split, the
-   * position index and the hold candidate — the half of this function that is
-   * correct and hard-won, and that `keynav-machine` depends on.
+   * THE MOVE STATE, BUILT OVER THE UNIT'S OWN CANDIDATE LIST.
    *
-   * The scoring half is gone (04 §5.3 #17). A per-candidate number was a view
-   * of a per-unit decision the bot no longer takes; what a candidate is worth
-   * is now `aggregate(L(C, u→m) rank 1)` — the best the CLUSTER can do given
-   * that candidate — and it arrives on the lens frame with a grade, never as a
-   * bare number.
+   * `candidates` is what the SERVER enumerated for this unit — the vendored
+   * engine's `legalActions` for that unit on that board, carried per candidate
+   * as {move, dest, kind}. This function indexes them and nothing more. It
+   * does not know what a snake is, what a knight is, or which way is up.
+   *
+   * IT USED TO. It read a "direction-keyed / destination-keyed" split out of
+   * the evaluation rows and, whenever the rows were not destination-keyed —
+   * including when there were NO rows at all — built four candidates by adding
+   * ±1 to the head's x and y. That is a snake's move set, and it was handed to
+   * every unit that fell down that branch, knights included. The split is
+   * gone: there is one source, it is the unit's own, and there is no fallback
+   * to fall back to.
+   *
+   * `moveEvaluations` is now only what the decision THOUGHT of some of these
+   * candidates — it marks `isEvaluated` and nothing else. What a candidate is
+   * WORTH is `aggregate(L(C, u→m) rank 1)`, which arrives on the lens frame
+   * with a grade, never as a bare number (04 §5.3 #17).
    *
    * `safeMoves` is gone too (#18), and with it the idea that the BOARD knows
    * which candidates are admissible. Admissibility is a ledger disposition
    * now, with a grade that says strictly more than a boolean did; what the
-   * board offers is what is ENUMERATED, and the fatal marker still warns about
-   * the one determination that kills you. A candidate the operator cannot see
-   * is a candidate they cannot inspect.
+   * board offers is what the engine ENUMERATED, and the fatal marker still
+   * warns about the one determination that kills you.
    */
-  function processMoveEvaluations(moveEvaluations, _offerable, head, chosenMove) {
+  function buildMoveState(candidates, moveEvaluations, chosenMove) {
     const moveState = {
       selectedMove: null,
       moves: {},
@@ -2439,72 +2448,30 @@ const BoardRenderer = (function () {
       evaluationsMap[String(evalData.move)] = evalData;
     });
 
-    // Candidate source. Snakes (direction-keyed rows, incl. every historic
-    // row): the four directions with head-derived positions, whether or not
-    // each was evaluated — the historic 4-way model, unchanged. Pieces
-    // (destination-keyed rows): the evaluation rows ARE the candidates — the
-    // unit's legal moves this turn, each carrying its numeric destination id
-    // (`move`, the same value staging puts on the wire), its `dest` cell and
-    // its stay/move/rotate kind.
-    const destinationKeyed = evaluationsArray.some(
-      (e) => e && (typeof e.move === "number" || (e.dest && typeof e.move !== "string")),
-    );
-
-    let candidates;
-    if (destinationKeyed) {
-      candidates = evaluationsArray.map((evalData) => ({
-        key: String(evalData.move),
-        move: evalData.move,
-        direction: null,
-        kind: evalData.kind || "move",
-        position: evalData.dest || null,
-        // Enumerated candidates are legal by construction.
-        isSafe: true,
-      }));
-    } else {
-      candidates = ["up", "down", "left", "right"].map((direction) => {
-        let candidatePos = null;
-        switch (direction) {
-          case "up":
-            candidatePos = { x: head.x, y: head.y + 1 };
-            break;
-          case "down":
-            candidatePos = { x: head.x, y: head.y - 1 };
-            break;
-          case "left":
-            candidatePos = { x: head.x - 1, y: head.y };
-            break;
-          case "right":
-            candidatePos = { x: head.x + 1, y: head.y };
-            break;
-        }
-        return {
-          key: direction,
-          move: direction,
-          direction: direction,
-          kind: "move",
-          position: candidatePos,
-          isSafe: true,
-        };
-      });
-    }
-
     const chosenKey = chosenMove == null ? null : String(chosenMove);
-    candidates.forEach((candidate) => {
-      const evalData = evaluationsMap[candidate.key];
-      moveState.moves[candidate.key] = {
-        key: candidate.key,
+    (candidates || []).forEach((candidate) => {
+      const key = String(candidate.move);
+      const position = candidate.dest || null;
+      moveState.moves[key] = {
+        key,
         move: candidate.move,
-        direction: candidate.direction,
-        kind: candidate.kind,
-        label: candidateLabel(candidate),
-        position: candidate.position,
-        positionKey: candidate.position
-          ? `${candidate.position.x},${candidate.position.y}`
-          : null,
-        isSafe: candidate.isSafe,
-        isChosen: candidate.key === chosenKey,
-        isEvaluated: !!evalData,
+        // The direction word, when the wire's identity for this candidate IS
+        // one — a trail unit's staged move. Derived by the server off the
+        // engine's own action; nothing here turns a cell into a direction.
+        direction: typeof candidate.move === "string" ? candidate.move : null,
+        kind: candidate.kind || "move",
+        label: candidateLabel({
+          direction: typeof candidate.move === "string" ? candidate.move : null,
+          kind: candidate.kind,
+          position,
+          move: candidate.move,
+        }),
+        position,
+        positionKey: position ? `${position.x},${position.y}` : null,
+        // Enumerated by the engine, so legal by construction.
+        isSafe: true,
+        isChosen: key === chosenKey,
+        isEvaluated: !!evaluationsMap[key],
       };
     });
 
@@ -4528,7 +4495,7 @@ const BoardRenderer = (function () {
 
   return {
     hexToRgba,
-    processMoveEvaluations,
+    buildMoveState,
     moveDestinationCell,
     renderBoard,
     createBoardOverlay,
