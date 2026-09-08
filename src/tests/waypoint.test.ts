@@ -452,9 +452,15 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({
       type: 'green',
       cells: [{ x: 6, y: 5 }, { x: 8, y: 5 }, { x: 8, y: 8 }],
+      // Every projected waypoint carries the command's authority, so the page
+      // can show how loud its own standing order is (16-COMMANDS §2). Nothing
+      // asked for one here, so it is the default ×1 — the shipped weight.
+      authority: 1,
     });
     // Only the ACTIVE target (head of the queue) is handed to the engine.
-    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toEqual({ kind: 'goto', target: { x: 6, y: 5 } });
+    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toEqual({
+      kind: 'goto', target: { x: 6, y: 5 }, authority: 1,
+    });
 
     // Append-toggle: appending an already-queued cell removes it.
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId, true);
@@ -588,7 +594,9 @@ describe('ActiveGameManager goto/near intents', () => {
     snakes = [makeSnake('A', { x: 6, y: 5 })];
     mgr.updateBoard(gameId, makeGameState(gameId, 2, snakes, 'A'));
     expect(cs.intent.kind).toBe('goto');
-    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toEqual({ kind: 'goto', target: { x: 7, y: 5 } });
+    expect(mgr.getActiveWaypointTarget(gameId, 'A')).toEqual({
+      kind: 'goto', target: { x: 7, y: 5 }, authority: 1,
+    });
 
     // Head arrives on the last target → the plan is done, back to heuristic.
     snakes = [makeSnake('A', { x: 7, y: 5 })];
@@ -611,7 +619,9 @@ describe('ActiveGameManager goto/near intents', () => {
     expect(cs.staged?.move).toBe('right');
     expect(cs.staged?.source).toBe('waypoint');
     expect(mgr.getRoutesForGame(gameId)['A']).toBeUndefined();
-    expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({ type: 'blue', cells: [{ x: 8, y: 5 }] });
+    expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({
+      type: 'blue', cells: [{ x: 8, y: 5 }], authority: 1,
+    });
 
     // Landing on a near target does NOT clear it — "stay close" has no arrival.
     snakes = [makeSnake('A', { x: 8, y: 5 })];
@@ -677,7 +687,9 @@ describe('ActiveGameManager goto/near intents', () => {
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 5 }, userId);
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 8, y: 8 }, userId, true);
     mgr.setWaypoint(gameId, 'A', { type: 'blue', x: 3, y: 3 }, userId);
-    expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({ type: 'blue', cells: [{ x: 3, y: 3 }] });
+    expect(mgr.getWaypointsForGame(gameId)['A']).toEqual({
+      type: 'blue', cells: [{ x: 3, y: 3 }], authority: 1,
+    });
     expect(cs.gotoRoute).toEqual([]);
 
     mgr.setWaypoint(gameId, 'A', { type: 'green', x: 2, y: 2 }, userId);

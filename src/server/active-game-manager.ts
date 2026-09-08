@@ -362,8 +362,12 @@ export type SnakeIntent =
   // manual.move is CentaurMove: a Direction for snakes, a FULL-BOARD
   // destination index for chess pieces (setUserSelection enforces the split).
   | { kind: 'manual'; move: CentaurMove; fatalConsent?: FatalMoveConsent }
-  | { kind: 'goto'; targets: Coord[] }
-  | { kind: 'near'; target: Coord }
+  // AUTHORITY (16-COMMANDS §2) rides WITH the command, on both kinds, because
+  // it is a property of the order the operator gave and not of the unit: a
+  // louder goto is a different order, and replacing the intent replaces it.
+  // Absent means ×1 — the shipped weight, unchanged.
+  | { kind: 'goto'; targets: Coord[]; authority?: number }
+  | { kind: 'near'; target: Coord; authority?: number }
   | { kind: 'hold' };
 
 // The active next-move source, exposed to clients as `activeIntentModes`. Mirrors
@@ -1585,25 +1589,48 @@ export class ActiveGameManager {
     const controlled = game.controlledSnakes.get(snakeId);
     if (!controlled) return null;
     if (controlled.intent.kind === 'goto' && controlled.intent.targets.length > 0) {
-      return { kind: 'goto', target: controlled.intent.targets[0] };
+      return {
+        kind: 'goto',
+        target: controlled.intent.targets[0],
+        authority: ActiveGameManager.normalizeAuthority(controlled.intent.authority),
+      };
     }
     if (controlled.intent.kind === 'near') {
-      return { kind: 'near', target: controlled.intent.target };
+      return {
+        kind: 'near',
+        target: controlled.intent.target,
+        authority: ActiveGameManager.normalizeAuthority(controlled.intent.authority),
+      };
     }
     return null;
   }
 
   // Client projection: every waypoint cell per snake. Green carries the whole
   // goto queue in order (cells[0] is the active target); blue has one cell.
-  getWaypointsForGame(gameId: string): { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } } {
+  getWaypointsForGame(
+    gameId: string
+  ): { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[]; authority: number } } {
     const game = this.games.get(gameId);
     if (!game) return {};
-    const result: { [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[] } } = {};
+    const result: {
+      [snakeId: string]: { type: 'green' | 'blue'; cells: Coord[]; authority: number };
+    } = {};
     for (const [snakeId, cs] of game.controlledSnakes) {
+      // The authority travels with the projection because the operator has to
+      // be able to SEE how loud their own standing order is — on the chip and
+      // on the board marker — without asking for it (16-COMMANDS §2).
       if (cs.intent.kind === 'goto' && cs.intent.targets.length > 0) {
-        result[snakeId] = { type: 'green', cells: cs.intent.targets };
+        result[snakeId] = {
+          type: 'green',
+          cells: cs.intent.targets,
+          authority: ActiveGameManager.normalizeAuthority(cs.intent.authority),
+        };
       } else if (cs.intent.kind === 'near') {
-        result[snakeId] = { type: 'blue', cells: [cs.intent.target] };
+        result[snakeId] = {
+          type: 'blue',
+          cells: [cs.intent.target],
+          authority: ActiveGameManager.normalizeAuthority(cs.intent.authority),
+        };
       }
     }
     return result;
@@ -1617,7 +1644,10 @@ export class ActiveGameManager {
   setWaypoint(
     gameId: string,
     snakeId: string,
-    waypoint: { type: 'green' | 'blue'; x: number; y: number } | null,
+    // `authority` is `unknown` because THIS is the boundary that validates it:
+    // it arrives from a page as JSON and is normalised below, exactly as `x`
+    // and `y` are. A narrower type here would only move the lie upstream.
+    waypoint: { type: 'green' | 'blue'; x: number; y: number; authority?: unknown } | null,
     userId: string,
     append: boolean = false
   ): boolean {
@@ -1651,16 +1681,23 @@ export class ActiveGameManager {
     if (w > 0 && (x < 0 || x >= w)) return false;
     if (h > 0 && (y < 0 || y >= h)) return false;
     if (waypoint.type !== 'green' && waypoint.type !== 'blue') return false;
+    // NORMALISED ONCE, AT THE BOUNDARY. Everything downstream reads a number
+    // already inside the band, so no consumer has to know what a missing or
+    // absurd authority means.
+    const authority = ActiveGameManager.normalizeAuthority(waypoint.authority);
 
     if (waypoint.type === 'blue') {
-      this.logCommandEvent(gameId, snakeId, 'near-set', operator, { target: { x, y } });
-      this.setIntent(gameId, snakeId, { kind: 'near', target: { x, y } }, operator);
+      this.logCommandEvent(gameId, snakeId, 'near-set', operator, { target: { x, y }, authority });
+      this.setIntent(gameId, snakeId, { kind: 'near', target: { x, y }, authority }, operator);
       return true;
     }
 
     if (append && controlled.intent.kind === 'goto') {
       // Toggle queue membership: appending an already-queued cell removes it.
       const targets = controlled.intent.targets;
+      // An append is a command too, and it carries its own loudness: the queue
+      // as a whole is re-voiced at the authority of the press that extended it.
+      controlled.intent.authority = authority;
       const existing = targets.findIndex(t => t.x === x && t.y === y);
       if (existing >= 0) {
         targets.splice(existing, 1);
@@ -1693,8 +1730,9 @@ export class ActiveGameManager {
     this.logCommandEvent(gameId, snakeId, 'goto-set', operator, {
       target: { x, y },
       targets: [{ x, y }],
+      authority,
     });
-    this.setIntent(gameId, snakeId, { kind: 'goto', targets: [{ x, y }] }, operator);
+    this.setIntent(gameId, snakeId, { kind: 'goto', targets: [{ x, y }], authority }, operator);
     return true;
   }
 
@@ -2025,9 +2063,10 @@ export class ActiveGameManager {
         { board: new RouteBoard(gs) }
       );
 
-      const weight = wp.kind === 'goto'
-        ? ActiveGameManager.GOTO_PROGRESS_WEIGHT
-        : ActiveGameManager.NEAR_PROGRESS_WEIGHT;
+      // ONE multiplication, for both kinds and for every unit: the command's
+      // own authority, times the base weight for its kind. There is no
+      // per-kind authority rule and no second place this factor is applied.
+      const weight = ActiveGameManager.waypointWeight(wp);
 
       return ActiveGameManager.argmaxSurvivingMove(rows.map((evaluation, i) => ({
         move: evaluation.move,
@@ -2064,6 +2103,47 @@ export class ActiveGameManager {
   // exactly the scale collision this function used to have.
   private static readonly GOTO_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.food; // 4
   private static readonly NEAR_PROGRESS_WEIGHT = LOBSTER_WEIGHTS.contest; // 3, weaker than goto
+
+  /**
+   * THE AUTHORITY BAND. One multiplier, ×1 to ×10, on whatever weight the
+   * command's kind carries. It is clamped rather than refused because it
+   * arrives over the wire from a page: a nonsense number is an input to be
+   * normalised at the boundary, not an error to propagate into the fold.
+   *
+   * ×1 is the shipped behaviour exactly. ×10 is the top of the band because
+   * the goto weight is 4 and the survival cliff lives inside `material` at 10
+   * per unit weight: ×10 puts a perfectly-aligned step's bias at 40, loud
+   * enough to outvote a meal (a fold gap of ~10, measured §1) and still
+   * incapable of buying a death, which `argmaxSurvivingMove`'s veto refuses
+   * before any score is compared. Nothing here can raise a fatal candidate
+   * into the pool: the veto runs on membership, not on magnitude.
+   */
+  static readonly MIN_AUTHORITY = 1;
+  static readonly MAX_AUTHORITY = 10;
+
+  /** The wire's authority, normalised: absent/NaN → 1, else clamped to the band. */
+  static normalizeAuthority(value: unknown): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return ActiveGameManager.MIN_AUTHORITY;
+    return Math.min(
+      ActiveGameManager.MAX_AUTHORITY,
+      Math.max(ActiveGameManager.MIN_AUTHORITY, n)
+    );
+  }
+
+  /**
+   * The progress weight one waypoint command carries, on the fold's own scale:
+   * the base weight for its kind times the operator's authority. THE one place
+   * authority enters the snake bias; `computePieceCandidates` applies the same
+   * factor to the piece scale's own base, so a piece and a snake obey the same
+   * dial and neither has a rule of its own.
+   */
+  private static waypointWeight(wp: WaypointContext): number {
+    const base = wp.kind === 'goto'
+      ? ActiveGameManager.GOTO_PROGRESS_WEIGHT
+      : ActiveGameManager.NEAR_PROGRESS_WEIGHT;
+    return base * ActiveGameManager.normalizeAuthority(wp.authority);
+  }
 
   /**
    * "Certain fatal" per the fold's OWN worst-case verdict for this candidate,
@@ -3150,8 +3230,8 @@ export class ActiveGameManager {
 
     const waypoint = this.getActiveWaypointTarget(gameId, snakeId);
     const weight = !waypoint ? 0
-      : waypoint.kind === 'goto' ? DEFAULT_CONFIG.gotoProgress
-      : DEFAULT_CONFIG.nearProgress;
+      : (waypoint.kind === 'goto' ? DEFAULT_CONFIG.gotoProgress : DEFAULT_CONFIG.nearProgress)
+        * ActiveGameManager.normalizeAuthority(waypoint.authority);
     let progress: WaypointCandidateProgress[] | null = null;
     if (waypoint) {
       try {
@@ -4158,7 +4238,12 @@ export class ActiveGameManager {
         this.setIntent(
           gameId,
           snakeId,
-          remaining.length > 0 ? { kind: 'goto', targets: remaining } : { kind: 'heuristic' },
+          // The authority survives the shift for the same reason attribution
+          // does: the remaining queue is the SAME order, at the loudness it
+          // was given.
+          remaining.length > 0
+            ? { kind: 'goto', targets: remaining, authority: controlled.intent.authority }
+            : { kind: 'heuristic' },
           // The remaining queue continues the SAME command — attribution is
           // preserved so replays keep crediting the commanding operator.
           remaining.length > 0 ? controlled.intentBy : null

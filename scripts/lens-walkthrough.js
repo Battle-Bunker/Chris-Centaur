@@ -1840,7 +1840,12 @@ async function main() {
   pfCheck('Ctrl+, opens the panel on the live view, which has no chrome at all',
     panelOpen.open === true, panelOpen);
   pfCheck('it is generated from the schema — one section per group',
-    JSON.stringify(panelOpen.groups) === JSON.stringify(['lens', 'board', 'alerts', 'wire', 'tour', 'review', 'chrome']),
+    // `command` is the goto/near authority group (16-COMMANDS §2.3). The list
+    // is spelled out rather than counted because the assertion is that the
+    // panel is GENERATED FROM THE SCHEMA — a count would pass on the wrong
+    // seven sections.
+    JSON.stringify(panelOpen.groups) ===
+      JSON.stringify(['lens', 'command', 'board', 'alerts', 'wire', 'tour', 'review', 'chrome']),
     panelOpen.groups);
   await shot(page, 'p1-prefs-panel', 'the settings panel — one section per module, generated from the schema table', '.prefs-pop');
 
