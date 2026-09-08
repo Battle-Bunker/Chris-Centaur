@@ -49,6 +49,13 @@ const WAIT = parseInt(arg('wait', '2200'), 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = { checks: [], notes: {}, shots: [], exceptions: [] };
 
+/** The walkthrough server's own turn advance, so a drill can assert what the
+ *  NEXT turn does with a standing order rather than only what this one shows. */
+const step = () =>
+  fetch(`${BASE}/dev/step`, { method: 'POST' })
+    .then((r) => r.json())
+    .catch(() => null);
+
 function check(drill, step, ok, saw) {
   report.checks.push({ drill, step, ok: !!ok, saw });
   console.log(`  ${ok ? '✓' : '✗'} ${drill}/${step}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
@@ -526,6 +533,140 @@ async function touchDrill(browser, label, viewport) {
   await context.close();
 }
 
+// ── the authority drill (16-COMMANDS §2) ─────────────────────────
+//
+// THE COMMAND, AND HOW LOUD IT IS. `goto` is a weighted vote in the fold's own
+// matrix and the weight it shipped with is under half the fold's material
+// term, so an ordinary meal outvotes the operator (§1, measured). The dial
+// multiplies that weight. Three properties, and the third is the one that must
+// never regress:
+//
+//   1. the dial is REACHABLE — by pointer and by keyboard, in the chip
+//      grammar, like every other control in the bar;
+//   2. the number RIDES WITH THE ORDER — it is on the wire, on the chip and on
+//      the projection the board marker draws from;
+//   3. a loud order is still only a VOTE — at ×10 the unit follows the target
+//      where following it survives, and a step the fold has proved fatal is
+//      refused at every authority.
+//
+// The exact arithmetic is asserted deterministically in
+// `src/tests/wire-command-authority.test.ts`; this asserts that a human at the
+// real page can reach it and that the live surface agrees with it.
+async function authorityDrill(page) {
+  const D = 'authority';
+  await takeOver(page);
+  const geo = await waitForGeometry(page);
+  check(D, 'a focused unit with an enumeration to command', !!geo, geo);
+  if (!geo) return;
+
+  // A SURVIVABLE TARGET: the nearest empty cell at least four steps off, so
+  // there is a route to follow and arrival does not end the order on the turn
+  // it was given.
+  const target = await page.evaluate(() => {
+    const b = currentGameState.board;
+    const snake = b.snakes.find((s) => s.id === selectedSnakeId);
+    if (!snake) return null;
+    const head = snake.body[0];
+    const taken = new Set();
+    b.snakes.forEach((s) => s.body.forEach((c) => taken.add(`${c.x},${c.y}`)));
+    (b.hazards || []).forEach((c) => taken.add(`${c.x},${c.y}`));
+    let best = null;
+    for (let x = 0; x < b.width; x++) {
+      for (let y = 0; y < b.height; y++) {
+        const d = Math.abs(x - head.x) + Math.abs(y - head.y);
+        if (d < 4 || taken.has(`${x},${y}`)) continue;
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    return best;
+  });
+  check(D, 'a survivable target exists to command', !!target, target);
+  if (!target) return;
+
+  const read = () =>
+    page.evaluate((t) => {
+      const b = currentGameState.board;
+      const snake = b.snakes.find((s) => s.id === selectedSnakeId);
+      const head = snake ? snake.body[0] : null;
+      const staged =
+        typeof stagedMoves === 'undefined' || !selectedSnakeId ? null : stagedMoves[selectedSnakeId] || null;
+      const step = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
+      const d = step[staged && staged.requestedMove];
+      const dest = head && d ? { x: head.x + d[0], y: head.y + d[1] } : null;
+      const dist = (c) => (c ? Math.abs(c.x - t.x) + Math.abs(c.y - t.y) : null);
+      return {
+        dial: typeof lensGotoAuthority === 'undefined' ? null : lensGotoAuthority,
+        chip: (document.querySelector('[data-lens-action="goto"]') || {}).innerText || null,
+        way: typeof waypoints === 'undefined' || !selectedSnakeId ? null : waypoints[selectedSnakeId] || null,
+        staged,
+        headDist: dist(head),
+        destDist: dist(dest),
+      };
+    }, target);
+
+  // 1 — THE DIAL, BY POINTER.
+  check(D, 'the ×10 chip is there to press', await chip(page, 'authority.10'), null);
+  await sleep(700);
+  const loud = await read();
+  check(D, 'the dial reads ×10 and the goto chip says so', loud.dial === 10 && /×10/.test(loud.chip || ''), loud);
+
+  // 2 — AND BY KEYBOARD. A control the mouse alone can reach is a control a
+  //     switch user does not have (12 §1.5); the chips are `role="button"`
+  //     spans, so focus plus Enter is the whole path.
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-lens-action="authority.2"]');
+    if (el) el.focus();
+  });
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  check(D, 'Enter on a focused chip sets the authority — the keyboard reaches the dial',
+    (await read()).dial === 2, await read());
+
+  // 3 — THE ORDER, GIVEN QUIETLY. ×1 is the shipped weight and MAY be
+  //     overruled, so this records the number rather than asserting a move.
+  check(D, 'back to ×1 for the quiet order', await chip(page, 'authority.1'), null);
+  await sleep(600);
+  await chip(page, 'goto');
+  await sleep(400);
+  await showBoard(page);
+  const at = await cellPoint(page, target);
+  await page.mouse.click(at.x, at.y);
+  await sleep(1400);
+  const quiet = await read();
+  check(D, '×1 — the target is set and the wire carries the authority it was given',
+    !!quiet.way && quiet.way.type === 'green' && Number(quiet.way.authority) === 1, quiet.way);
+  report.notes.quietFollow = { headDist: quiet.headDist, destDist: quiet.destDist, staged: quiet.staged };
+
+  // 4 — AND THE SAME ORDER, LOUD. Raising the dial re-issues the standing
+  //     order at the new loudness, so it lands in THIS turn.
+  check(D, 'the ×10 chip is there to press again', await chip(page, 'authority.10'), null);
+  await sleep(1400);
+  const raised = await read();
+  check(D, '×10 — raising the dial re-voices the standing order on the wire',
+    !!raised.way && Number(raised.way.authority) === 10, raised.way);
+
+  await step();
+  await sleep(2200);
+  const followed = await read();
+  check(D, '×10 — the command is the staged move’s source on the next turn',
+    !!followed.staged && followed.staged.source === 'waypoint', followed.staged);
+  check(D, '×10 — a survivable route is FOLLOWED: the staged step does not retreat from the target',
+    followed.destDist !== null && followed.headDist !== null && followed.destDist <= followed.headDist,
+    { headDist: followed.headDist, destDist: followed.destDist, staged: followed.staged });
+  // THE VETO IS NOT FOR SALE. No authority may stage a move the server has
+  // marked fatal — the certain-death veto runs on membership of the candidate
+  // pool, before any score is compared.
+  check(D, 'at ×10 the staged move is still not a certain death',
+    !followed.staged || followed.staged.fatal !== true, followed.staged);
+  await shot(page, 'a1-authority', 'the commands panel with the goto authority raised to ×10', '#railCommands');
+
+  // Left as found, for whatever drill runs next.
+  await chip(page, 'clear');
+  await sleep(800);
+  await chip(page, 'authority.1');
+  await sleep(400);
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({
@@ -542,6 +683,7 @@ async function main() {
   const page = await pointerDrill(context);
   await dragDrill(page);
   await handednessDrill(page);
+  await authorityDrill(page);
   await context.close();
 
   await touchDrill(browser, 'tablet', { width: 768, height: 1024 });

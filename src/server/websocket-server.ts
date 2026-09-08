@@ -995,11 +995,18 @@ export class GameWebSocketServer {
         if (!client.gameId || !client.userId) break;
         const snakeId = msg.snakeId;
         if (!snakeId) break;
-        // msg.waypoint may be null (clear) or {type, x, y}. msg.append (set by
-        // shift+alt-click) TOGGLES the cell's membership in the goto queue
-        // instead of replacing it. On success setWaypoint re-stages the move,
-        // firing the coalesced onStagedChange → broadcastSelectionsUpdate; no
-        // explicit broadcast.
+        // msg.waypoint may be null (clear) or {type, x, y, authority}.
+        // msg.append (set by shift+alt-click) TOGGLES the cell's membership in
+        // the goto queue instead of replacing it. On success setWaypoint
+        // re-stages the move, firing the coalesced onStagedChange →
+        // broadcastSelectionsUpdate; no explicit broadcast.
+        //
+        // AUTHORITY RIDES ON THE WAYPOINT, not beside it: it is part of the
+        // order, so a message that carries a target carries the loudness that
+        // target was given. It is passed through UNVALIDATED on purpose —
+        // `setWaypoint` normalises it at the single boundary that owns every
+        // other field of this payload, and a second clamp here could only
+        // disagree with that one.
         this.gameManager.setWaypoint(
           client.gameId, snakeId, msg.waypoint ?? null, client.userId, msg.append === true
         );

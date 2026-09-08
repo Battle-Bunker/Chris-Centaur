@@ -141,6 +141,15 @@ on **age** rather than on whether the socket is up.
 
 ![the stage line and the strip](design/ux/manual/03-glance.png)
 
+**The right column is two boxes, and the split is who wrote what.** Everything
+**you** write is in the **top-right** box — the stage line, the
+unfinished-business strip, the unit header, the control chips and the goto
+authority — and that box does **not move**: it has a fixed place and a fixed
+size, so a chip is where it was last turn whatever the bot did in between.
+Everything the **bot** says is in the **bottom-right** box — candidates,
+movesets, breakdown, key sheet and the timeline lane — and that box scrolls
+inside itself. Nothing you read can push anything you press.
+
 **The stage line** is one sentence, in the largest type in the rail, in a box
 that never moves, and it is there whether or not a unit is focused:
 `Bot stages A → 109~ · B → 131~ · C → 106~`. It covers every unit this decision
@@ -269,6 +278,7 @@ alone, which is what a touchscreen, a head pointer and a switch have.
 | `⌕ drill` | `B` | opens the breakdown for a cluster-mate; a **long-press** on a moveset row does the same | one inspection out of the turn's reserve |
 | `◎ goto` | right-click | a destination reward on a cell — drawn as a **cross** | biases the search toward that cell; it is not a command to move there |
 | `◉ near` | ctrl-click | a proximity reward — drawn as a **ring** | biases the search toward staying within a radius |
+| `◎ ×1 ×2 ×5 ×10` | — | **authority**: how loud the `goto`/`near` vote is | multiplies the weight of that vote, and nothing else |
 | `✕ clear` | `Del` | clears your manual input for the unit | removes the override; queue and target go with it |
 
 **Two ways to reach `goto` and `near`.** The right-click and the ctrl-click are
@@ -278,6 +288,38 @@ none on a switch, so both chips also **arm**: press the chip and it re-reads
 left press sets the target. `Esc` cancels and the arm expires on its own after
 eight seconds. On a touchscreen a **held press** on a cell sets the goto target
 too, which is where every platform puts its secondary click.
+
+### How loud your order is — `goto` authority
+
+**A `goto` is a vote, and at `×1` it is a quiet one.** The bot scores every
+candidate on one scale; on that scale a single meal is worth about **10** and
+the shipped `goto` reward is worth at most **4**. So a hungry snake with food
+one step the other way walks the other way, does exactly what you told it not
+to, and is behaving correctly. That is the arithmetic, not a bug — but you
+were never given a way to argue with it.
+
+The four chips under the control bar are that way. They multiply the weight of
+your standing order:
+
+| | |
+|---|---|
+| `×1` | the shipped vote. Loses to a meal, loses to most contests. |
+| `×2` | insistent. Wins the small disagreements. |
+| `×5` | loud. |
+| `×10` | an order. Outvotes a meal (a bias of 40 against a gap of ~10). |
+
+* The number **rides on the target you set**, so it is a property of that
+  order, not a mode you are in. It shows on the `goto` chip (`set ×10`) and on
+  the board marker itself, in the corner of the target cell.
+* **Raising it re-issues the order in the same turn** — you do not have to set
+  the target again.
+* Its default is a preference (`Ctrl+,` → **Commands** → *Default goto
+  authority*), so the authority you actually play at is the one you get.
+* **No authority can buy a certain death.** A step the bot has already proved
+  fatal is thrown out of the running before any score is compared, at every
+  authority there is. Raising the dial makes a unit insistent; it cannot make
+  it suicidal. If your unit still will not go where you point it at `×10`, the
+  bot is telling you that the route out is worse than it looks.
 
 **Two ways to pick a move.** Click the candidate cell, or **drag from the
 unit's head to it** — both reach exactly the same selection, and `Space` stages

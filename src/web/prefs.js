@@ -128,6 +128,27 @@
       ],
     },
     {
+      group: 'command',
+      title: 'Commands',
+      note:
+        'How loud your standing orders are when the bot disagrees ' +
+        '(16-COMMANDS \u00a72). A command is a weighted vote, never an override: ' +
+        'no authority can buy a step the fold has already proved fatal.',
+      prefs: [
+        {
+          id: 'command.gotoAuthority', label: 'Default goto authority', type: 'enum',
+          values: ['1', '2', '5', '10'],
+          labels: {
+            1: '\u00d71 \u2014 a vote (default)',
+            2: '\u00d72 \u2014 insistent',
+            5: '\u00d75 \u2014 loud',
+            10: '\u00d710 \u2014 an order',
+          },
+          def: '1',
+        },
+      ],
+    },
+    {
       group: 'board',
       title: 'The board',
       note: 'What is drawn at rest, and how large.',

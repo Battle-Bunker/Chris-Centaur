@@ -33,6 +33,17 @@ import { Orientation } from './staging-legality';
 export interface WaypointContext {
   kind: 'goto' | 'near';
   target: Coord;
+  /**
+   * THE OPERATOR'S AUTHORITY (docs/design/ux/16-COMMANDS.md §2): a multiplier
+   * on the progress WEIGHT, never on the stat, so the stat stays the bounded
+   * [0,1] ramp every consumer here assumes and the loudness lives entirely in
+   * the one number the caller multiplies it by. Absent means ×1.
+   *
+   * Nothing in this module reads it — the stat does not change with authority
+   * — it rides on the context so the target and the loudness of the order that
+   * set it travel together.
+   */
+  authority?: number;
 }
 
 /**

@@ -832,8 +832,46 @@
         position: sticky;
         top: 12px;
         max-height: calc(100vh - 24px);
+        /* TWO ROWS, AND ONLY THE SECOND ONE SCROLLS. The column used to be one
+           scroll region, so the commands sat wherever the bot's panels
+           happened to end and moved every time those panels changed size. The
+           first row is a fixed box; the second takes the rest and scrolls
+           inside itself, which is what keeps the first one still. */
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: var(--space-10);
+        overflow: hidden;
+      }
+      /* TOP RIGHT — THE OPERATOR'S COMMANDS, at a fixed height. Fixed rather
+         than `auto` because an auto row still grows when the stage line wraps
+         to a second sentence, and a control that moves 20 px is a control the
+         hand has to look for. It scrolls inside itself in the rare turn that
+         overflows it, so nothing is ever unreachable. */
+      #gameUI > .selected-snake-panel > #railCommands {
+        height: 424px;
+        overflow-y: auto;
+        min-height: 0;
+      }
+      /* AND THE ONE THING INSIDE IT THAT CHANGES SIZE. The stage line is the
+         bot's sentence — `Bot stages A → 109~ · B → 131~ · …` — and it wraps
+         to a second line as units are added, which measured 60 px one turn and
+         82 px the next and carried every control under it 21 px down the page.
+         A fixed box for the sentence too, scrolling in the rare turn that
+         overflows it, is what makes the CHIPS stand still and not merely the
+         panel that holds them. */
+      #gameUI > .selected-snake-panel > #railCommands > #lensStage {
+        height: 88px;
         overflow-y: auto;
       }
+      /* BOTTOM RIGHT — READ-ONLY BOT INFORMATION, in its own scroll box. */
+      #gameUI > .selected-snake-panel > #railBot {
+        overflow-y: auto;
+        min-height: 0;
+      }
+      /* DENSITY STILL APPLIES (12 §2.3): the type in the box changes size, so
+         the box does too — once, per density, and never per turn. */
+      #gameUI > .selected-snake-panel.lens-compact > #railCommands { height: 376px; }
+      #gameUI > .selected-snake-panel.lens-roomy > #railCommands { height: 480px; }
       /* HANDEDNESS MIRRORS THE WORKING COLUMN AND NOTHING ELSE (12 §1.6).
          The literature supports a MIRRORED optimum for the hand that points —
          occlusion is the mechanism, and a static placement disadvantages one
@@ -849,6 +887,14 @@
         grid-template-areas: "banner banner" "rail board" "rail roster";
       }
     }
+
+    /* THE AUTHORITY ROW. It is the same chips in the same row grammar as
+       `#lensControls`, with one line of its own above them saying what the
+       dial cannot do — because "louder" invites exactly the wrong belief, and
+       the veto is the one fact an operator must not learn by dying. No new
+       colours: the active step borrows the primary chip tone the bar already
+       has. */
+    .lens-authority-note { font-size: var(--size-11); color: var(--ink-dim); margin-top: var(--space-6); }
 
     /* ── THE INPUT LAYER'S OWN SURFACE (docs/design/ux/12-INPUT-MODALITIES.md)
        Three groups, and the first two are DELIBERATELY invisible at rest on a
@@ -1073,45 +1119,71 @@
         <div class="snake-info-list" id="snakeInfoList"></div>
       </div>
 
+      <!-- THE RIGHT COLUMN IS TWO BOXES, AND THE SPLIT IS BY AUTHORSHIP
+           (16-COMMANDS §3). Everything the OPERATOR writes is in the top box,
+           at a position that does not move; everything the BOT says is in the
+           bottom box, which scrolls inside itself. The old single scroll
+           region put the command bar wherever the bot's panels happened to
+           end — measured at y = 921 on one turn and y = 598 on the next
+           (`screens/commands/report-before.json`), which is a control that
+           moves 323 px under the operator's hand inside a 500 ms turn. -->
       <div class="selected-snake-panel" id="selectedSnakePanel">
-        <!-- L1. OUTSIDE `#selectionUI` on purpose: "what is the bot about to
-             do" and "is anything of mine unplanned" are asked every turn,
-             whether or not a unit is focused, and the shipped rail's answer
-             with nothing selected was "Click one, or Tab." -->
-        <section class="lens-panel lens-stage" id="lensStage"></section>
-        <div id="noSelectionMsg" class="no-selection-msg">
-          Click on one of your snakes to select and control it
-        </div>
-        <div id="selectionUI" style="display: none;">
-          <div class="selected-snake-header">
-            <span class="selected-snake-name" id="selectedSnakeName"></span>
-            <span class="intent-mode-badge" id="intentModeBadge"></span>
+        <section class="rail-commands" id="railCommands">
+          <!-- L1. OUTSIDE `#selectionUI` on purpose: "what is the bot about to
+               do" and "is anything of mine unplanned" are asked every turn,
+               whether or not a unit is focused, and the shipped rail's answer
+               with nothing selected was "Click one, or Tab." The
+               unfinished-business strip under it is the OPERATOR's list of
+               what still needs a decision, which is why it is up here with the
+               controls rather than down among the readouts. -->
+          <section class="lens-panel lens-stage" id="lensStage"></section>
+          <div id="noSelectionMsg" class="no-selection-msg">
+            Click on one of your snakes to select and control it
           </div>
+          <!-- The commands half of what `#selectionUI` used to wrap. It is a
+               second element rather than a moved one so BOTH halves keep
+               showing and hiding on the same rule, and every id in either half
+               is the id it always was. -->
+          <div id="commandsUI" style="display: none;">
+            <div class="selected-snake-header">
+              <span class="selected-snake-name" id="selectedSnakeName"></span>
+              <span class="intent-mode-badge" id="intentModeBadge"></span>
+            </div>
 
-          <!-- Move selection has no button UI: candidates are picked on the
-               board (click) or with the keyboard, and staged with Space. See
-               the shortcuts pane (Ctrl+/) for the whole schema. -->
-          <div class="unit-status-line" id="unitStatusLine"></div>
+            <!-- Move selection has no button UI: candidates are picked on the
+                 board (click) or with the keyboard, and staged with Space. See
+                 the shortcuts pane (Ctrl+/) for the whole schema. -->
+            <div class="unit-status-line" id="unitStatusLine"></div>
 
-          <!-- THE LENS. Four panels, in the order the cursor descends them,
-               plus the turn's own lane. Every one of them is rendered from the
-               view-model's draw transcript (src/lens/view → lens-panel.js), so
-               what the rail says and what the board draws are one statement. -->
-          <div class="lens-rail" id="lensRail"></div>
-          <!-- Every control the focused unit has, in one row, in one
-               vocabulary, with its key on it: pin/lock, undo, hold, goto,
-               near, clear. THE ONLY LOCK AFFORDANCE ON THE SURFACE: the
-               movesets panel used to draw a second one in a second grammar a
-               few pixels above (05 H-6), and the exact pin count, the armed
-               state and the reason a press would refuse are all here now,
-               where the key is. -->
-          <div class="lens-panel" id="lensControls"></div>
-          <!-- The cheat sheet, at rest. Ctrl+/ is the full reference and it is
-               a modal; this is the eight keys in the hot path, rendered from
-               the same table, so the scheme picker rewrites both. -->
-          <div class="lens-panel" id="lensKeys"></div>
-          <div class="lens-panel" id="lensLane"></div>
-        </div>
+            <!-- Every control the focused unit has, in one row, in one
+                 vocabulary, with its key on it: pin/lock, undo, hold, goto,
+                 near, clear. THE ONLY LOCK AFFORDANCE ON THE SURFACE: the
+                 movesets panel used to draw a second one in a second grammar a
+                 few pixels above (05 H-6), and the exact pin count, the armed
+                 state and the reason a press would refuse are all here now,
+                 where the key is. -->
+            <div class="lens-panel" id="lensControls"></div>
+            <!-- HOW LOUD THE ORDER IS (16-COMMANDS §2). Same chip grammar as
+                 the row above, same dispatcher, same keyboard. -->
+            <div class="lens-panel" id="lensAuthority"></div>
+          </div>
+        </section>
+        <section class="rail-bot" id="railBot">
+          <div id="selectionUI" style="display: none;">
+            <!-- THE LENS. Four panels, in the order the cursor descends them,
+                 plus the turn's own lane. Every one of them is rendered from
+                 the view-model's draw transcript (src/lens/view →
+                 lens-panel.js), so what the rail says and what the board draws
+                 are one statement. All of it is READ-ONLY: nothing in this box
+                 takes a command. -->
+            <div class="lens-rail" id="lensRail"></div>
+            <!-- The cheat sheet, at rest. Ctrl+/ is the full reference and it is
+                 a modal; this is the eight keys in the hot path, rendered from
+                 the same table, so the scheme picker rewrites both. -->
+            <div class="lens-panel" id="lensKeys"></div>
+            <div class="lens-panel" id="lensLane"></div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -1185,6 +1257,8 @@
             <dd><b>Clear every command</b> given to the selected unit &mdash; staged move, goto queue, near target, staged rotation &mdash; reverting it to no human input at all. It then does whatever no input means for it (a snake follows the bot; a piece holds).</dd>
             <dt>Right-click</dt>
             <dd><b>goto</b> target &mdash; a green cell marked with a <b>cross</b>: the bot is rewarded for approaching it. A weighted vote in the same scoring matrix every heuristic feeds &mdash; never a path override &mdash; so survival can still outvote it. Right-click the lone target again to cancel.</dd>
+            <dt><b>&times;1 &times;2 &times;5 &times;10</b></dt>
+            <dd><b>Authority</b> &mdash; how loud that vote is, in the commands panel top-right. At <b>&times;1</b> a goto is worth less than half of one meal in the bot&rsquo;s own arithmetic, which is why a hungry snake walks the other way; each step multiplies the weight, and <b>&times;10</b> outvotes a meal. The number rides on the target you set, shows on the <b>goto</b> chip and on the board marker, and its default is a preference. It <em>cannot</em> buy a certain death: a step the bot has already proved fatal is refused at every authority, so raising it makes the unit insistent, never suicidal.</dd>
             <dt><kbd>Shift</kbd>+Right-click</dt>
             <dd><b>Cue</b> another goto target onto the queue instead of replacing it; shift-right a queued cell again to remove it. Only the active (first) target steers the bot; the faded path is a prediction.</dd>
             <dt><kbd>Ctrl</kbd>+click</dt>
@@ -1820,6 +1894,75 @@
       return true;
     }
 
+    // ── AUTHORITY: HOW LOUD THE ORDER IS ─────────────────────────────────
+    //
+    // `goto` is a weighted vote in the fold's own scoring matrix, and the
+    // weight it was shipped with (4, `LOBSTER_WEIGHTS.food`) is under half the
+    // fold's material term (10 per unit weight) — so a meal one step the other
+    // way outvotes the operator every time (16-COMMANDS §1, measured). This is
+    // the multiplier on that weight, and it is the WHOLE of the change: it
+    // rides on the `set-waypoint` message, the server clamps it to ×1..×10 and
+    // multiplies the weight by it, and the certain-fatal veto is untouched —
+    // no authority can buy a step the fold has already proved fatal.
+    const LENS_AUTHORITIES = [1, 2, 5, 10];
+    let lensGotoAuthority = 1;
+
+    function lensAuthorityOf(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 1;
+      return Math.min(10, Math.max(1, n));
+    }
+
+    /** The authority the SELECTED unit's standing order is actually running at
+     *  — the server's number where there is one, else the dial's. */
+    function lensActiveAuthority() {
+      const way = selectedSnakeId ? waypoints[selectedSnakeId] : null;
+      return way ? lensAuthorityOf(way.authority) : lensGotoAuthority;
+    }
+
+    function setLensGotoAuthority(value) {
+      lensGotoAuthority = lensAuthorityOf(value);
+      Prefs.set('command.gotoAuthority', String(lensGotoAuthority));
+      // A DIAL THE OPERATOR TURNS IS A COMMAND THEY GAVE. If this unit already
+      // has a standing order, re-issue it at the new loudness rather than
+      // waiting for the next press: the operator raised their voice about THIS
+      // order, and the turn they raised it in is the one it has to land in.
+      const way = selectedSnakeId ? waypoints[selectedSnakeId] : null;
+      if (way && way.cells && way.cells.length > 0) {
+        const type = way.type;
+        setWaypointForSnake(selectedSnakeId, { type, x: way.cells[0].x, y: way.cells[0].y });
+        for (let i = 1; i < way.cells.length; i++) {
+          setWaypointForSnake(selectedSnakeId, { type, x: way.cells[i].x, y: way.cells[i].y }, true);
+        }
+      }
+      renderLensAuthority();
+      renderLensControls();
+    }
+
+    /** The dial, in the chip grammar: one chip per step, the active one toned
+     *  `primary`, every one of them a `role="button"` the keyboard reaches
+     *  through the same panel handler every other chip uses. */
+    function renderLensAuthority() {
+      const el = document.getElementById('lensAuthority');
+      if (!el) return;
+      const active = lensActiveAuthority();
+      const chips = LENS_AUTHORITIES.map((n) =>
+        LensPanel.chipHTML({
+          glyph: '◎',
+          label: `×${n}`,
+          tone: n === active ? 'primary' : '',
+          note: n === lensGotoAuthority ? 'default' : '',
+          action: `authority.${n}`,
+        })
+      );
+      setHTML(
+        el,
+        `<div class="lens-affs">${chips.join('')}</div>` +
+          `<div class="lens-authority-note">goto authority — a louder vote, never an ` +
+          `override. No authority buys a certain death.</div>`
+      );
+    }
+
     /** One row of chips: glyph · verb · key · state, in one vocabulary, for
      *  every control the focused unit has. */
     function renderLensControls() {
@@ -1926,7 +2069,12 @@
           key: 'right-click',
           tone: lensPendingTarget === 'green' ? 'armed' : '',
           off: !selectedSnakeId,
-          note: way && way.type === 'green' ? 'set' : '',
+          // THE LOUDNESS, ON THE CHIP THAT SET IT. A standing order whose
+          // authority is only visible in a preferences pane is an order the
+          // operator cannot audit at the moment it is being overruled.
+          note: way && way.type === 'green'
+            ? `set ×${lensAuthorityOf(way.authority)}`
+            : `×${lensGotoAuthority}`,
           action: selectedSnakeId ? 'goto' : null,
         }),
         LensPanel.chipHTML({
@@ -1935,7 +2083,9 @@
           key: 'ctrl-click',
           tone: lensPendingTarget === 'blue' ? 'armed' : '',
           off: !selectedSnakeId,
-          note: way && way.type === 'blue' ? 'set' : '',
+          note: way && way.type === 'blue'
+            ? `set ×${lensAuthorityOf(way.authority)}`
+            : `×${lensGotoAuthority}`,
           action: selectedSnakeId ? 'near' : null,
         }),
         LensPanel.chipHTML({ glyph: '✕', label: 'clear', key: 'Del', action: 'clear' }),
@@ -1964,6 +2114,7 @@
     function loadLensPrefs() {
       LensPanel.setScheme(Prefs.get('lens.scheme'));
       lensDensityPref = Prefs.get('lens.density');
+      lensGotoAuthority = lensAuthorityOf(Prefs.get('command.gotoAuthority'));
       applyLensPrefs();
     }
     function applyLensPrefs() {
@@ -1975,6 +2126,7 @@
       }
       renderLensKeys();
       renderLensControls();
+      renderLensAuthority();
       renderShortcutKeys();
     }
     function setLensScheme(name) {
@@ -2092,7 +2244,15 @@
         case 'clear': if (selectedSnakeId) clearHumanInput(selectedSnakeId); break;
         case 'goto': lensArmTarget('green'); break;
         case 'near': lensArmTarget('blue'); break;
-        default: if (action) lensRunAction(action); break;
+        default:
+          // The dial is a chip like any other, so it arrives here like any
+          // other and does not get a handler of its own anywhere else.
+          if (action && action.indexOf('authority.') === 0) {
+            setLensGotoAuthority(action.slice('authority.'.length));
+          } else if (action) {
+            lensRunAction(action);
+          }
+          break;
       }
     }
 
@@ -3954,6 +4114,7 @@
     function hideSelectionUI() {
       document.getElementById('noSelectionMsg').style.display = 'block';
       document.getElementById('selectionUI').style.display = 'none';
+      document.getElementById('commandsUI').style.display = 'none';
       document.getElementById('selectedSnakePanel').classList.remove('active');
     }
 
@@ -4637,10 +4798,17 @@
     // append-toggle resolution. The server coalesces its staged-change
     // broadcast per event-loop tick and renders here are frame-batched, so
     // the round trip costs at most a frame.
+    // AUTHORITY RIDES WITH THE TARGET, on every path that sets one — the
+    // right-click, the ctrl-click, the armed chip and the shift+alt append all
+    // come through here, so there is one place the loudness is attached and no
+    // gesture can send a target without it.
     function setWaypointForSnake(snakeId, waypoint, append = false) {
       if (!snakeId) return;
+      const payload = waypoint
+        ? Object.assign({}, waypoint, { authority: lensGotoAuthority })
+        : waypoint;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint, append }));
+        ws.send(JSON.stringify({ type: 'set-waypoint', snakeId, waypoint: payload, append }));
       }
     }
 
@@ -5015,6 +5183,26 @@
           ctx.fillStyle = '#fff';
           ctx.fillText(String(i + 1), px + cellSize / 2, py + cellSize / 2 + 1);
         }
+      }
+      // THE LOUDNESS, ON THE MARK ITSELF. The authority is a property of this
+      // standing order, and the board is where the operator is looking when
+      // the bot declines to follow it — so the active target carries it, in
+      // the same stroked-white type the queue numbers use, and only when it is
+      // louder than the default (a ×1 label on every marker would be noise).
+      const authority = Number(waypoint.authority);
+      if (Number.isFinite(authority) && authority > 1) {
+        const cell = waypoint.cells[0];
+        const px = cell.x * cellSize;
+        const py = (board.height - 1 - cell.y) * cellSize;
+        ctx.globalAlpha = 1;
+        ctx.font = `bold ${Math.max(9, Math.floor(cellSize * 0.28))}px sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#000';
+        ctx.strokeText(`\u00d7${authority}`, px + cellSize - pad, py + cellSize - pad);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`\u00d7${authority}`, px + cellSize - pad, py + cellSize - pad);
       }
       ctx.restore();
     }
@@ -6891,6 +7079,7 @@
       const historic = viewMode === 'historic';
       document.getElementById('noSelectionMsg').style.display = 'none';
       document.getElementById('selectionUI').style.display = 'block';
+      document.getElementById('commandsUI').style.display = 'block';
       document.getElementById('selectedSnakePanel').classList.toggle('active', !historic);
 
       const snakeId = historic ? getHistoricSnakeId() : selectedSnakeId;
