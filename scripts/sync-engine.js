@@ -46,6 +46,7 @@ const VENDORED_FILES = [
   { from: 'functions/src/gameprocessors/engine/moveGrammar.ts', to: 'engine/moveGrammar.ts' },
   { from: 'functions/src/gameprocessors/engine/settlePartial.ts', to: 'engine/settlePartial.ts' },
   { from: 'functions/src/gameprocessors/engine/claims.ts', to: 'engine/claims.ts' },
+  { from: 'functions/src/gameprocessors/engine/unitConfig.ts', to: 'engine/unitConfig.ts' },
   { from: 'shared/types/Game.ts', to: 'shared/types/Game.ts' },
   { from: 'functions/src/gameprocessors/engine/VENDOR.md', to: 'VENDOR.md' },
 ];

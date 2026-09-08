@@ -48,6 +48,7 @@ import {
 } from '../evaluate';
 import type { LawCase } from '../evaluate';
 import { makeSnake, piece, cellAt } from '../../tests/board-fixtures';
+import { everyUnitType } from '../../engine-vendor/engine/unitConfig';
 
 // --------------------------------------------------------------------- fixtures
 
@@ -1812,7 +1813,12 @@ describe('food and energy under the rule that only a full tank grows', () => {
           orientation: { dx: 0, dy: 1 },
         }),
       ],
-      { food: [foodAt], ...(foodEnergy === undefined ? {} : { foodEnergy }) }
+      {
+        food: [foodAt],
+        // What a meal is worth is per unit KIND now: the shorthand for "this
+        // board plays a lean meal" is the same group on every type.
+        ...(foodEnergy === undefined ? {} : { unitConfig: everyUnitType({ foodEnergy }) }),
+      }
     );
 
   function partOf(board: Board, to: Coord, key: string): { lo: number; est: number; hi: number } {

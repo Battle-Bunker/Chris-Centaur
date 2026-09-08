@@ -49,6 +49,7 @@ import type { Orientation } from '../engine-vendor/engine/moveGrammar';
 import type { BoardShape, GrammarUnit } from '../engine-vendor/engine/queries';
 import { coverOf, legalTargets, pathOf as pathOfQuery } from '../engine-vendor/engine/queries';
 import { settleTurn } from '../engine-vendor/engine/settleTurn';
+import { DEFAULT_MAX_ENERGY, unitTypeConfig } from '../engine-vendor/engine/unitConfig';
 import { NO_SPAWN } from '../engine-vendor/engine/spawn';
 import { computeClaims, NEVER } from '../engine-vendor/engine/claims';
 import type { Claim, HeldUnit, PartialSettleInput } from '../engine-vendor/engine/claims';
@@ -384,7 +385,7 @@ export class EngineSubstrate implements Substrate {
     this.arrivalTurn = marshalled.arrivalTurn;
     this.hazardDamage = marshalled.config.hazardDamage;
     this.pawnPromotionWeight = marshalled.pawnPromotionWeight;
-    this.defaultMaxEnergy = marshalled.config.defaultMaxEnergy ?? 100;
+    this.defaultMaxEnergy = DEFAULT_MAX_ENERGY;
 
     const geometry = geometryFor(marshalled, options.gameId ?? '');
     this.geometry = geometry;
@@ -581,7 +582,12 @@ export class EngineSubstrate implements Substrate {
 
   /** The energy ceiling for a kind — what a full tank is worth to it. */
   maxEnergyOf(type: UnitType): number {
-    return this.marshalled.config.maxEnergy?.[type] ?? this.defaultMaxEnergy;
+    return unitTypeConfig(this.marshalled.config.unitConfig, type).maxEnergy;
+  }
+
+  /** What one meal is worth to a kind — the other half of the food rule. */
+  foodEnergyOf(type: UnitType): number {
+    return unitTypeConfig(this.marshalled.config.unitConfig, type).foodEnergy;
   }
 
   // --- the grammar, asked ---------------------------------------------------

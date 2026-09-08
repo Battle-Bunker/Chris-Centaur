@@ -369,19 +369,21 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     };
   });
 
-  // Per-KIND max ENERGY, which is what the engine's food phase refills toward.
-  // The board's own map is the configured source; a unit's resolved
-  // `snake.maxHealth` (translate.ts sets it from that same config) fills in
-  // for boards that carry the per-unit figure but not the map — hand-built
-  // fixtures, mostly, but the two must never disagree about what a meal is
-  // worth.
-  const maxEnergy: NonNullable<ResolveTurnInput['maxEnergy']> = {
-    ...(board.maxHealthPerUnit as ResolveTurnInput['maxEnergy']),
+  // The per-unit-type configuration the engine reads its food phase and its
+  // clamps from. The board's own group is the configured source; a unit's
+  // resolved `snake.maxHealth` (translate.ts sets it from that same config)
+  // fills in the max for boards that carry the per-unit figure but not the
+  // group — hand-built fixtures, mostly, but the two must never disagree about
+  // what a meal is worth.
+  const unitConfig: NonNullable<ResolveTurnInput['unitConfig']> = {
+    ...(board.unitConfig as ResolveTurnInput['unitConfig']),
   };
   for (const snake of living) {
     if (snake.maxHealth === undefined) continue;
     const type = (snake.unitType ?? 'snake') as UnitType;
-    if (maxEnergy[type] === undefined) maxEnergy[type] = snake.maxHealth;
+    if (unitConfig[type]?.maxEnergy === undefined) {
+      unitConfig[type] = { ...unitConfig[type], maxEnergy: snake.maxHealth };
+    }
   }
 
   const config: Omit<ResolveTurnInput, 'units'> = {
@@ -392,8 +394,7 @@ export function marshalBoard(board: Board, currentTurn: number): MarshalledBoard
     hazardDamage: board.hazardDamage ?? 100,
     food: (board.food ?? []).map(toIndex),
     regicideTeamIDs: Array.from(regicideTeamIDs),
-    maxEnergy,
-    ...(board.foodEnergy === undefined ? {} : { foodEnergy: board.foodEnergy }),
+    unitConfig,
   };
 
   const potions = (board.invulnerabilityPotions ?? []).map(toIndex);

@@ -338,12 +338,27 @@ describe('pawnPromotionWeight and maxHealthPerUnit ride on the board for the Sim
       'centA',
       null
     );
-    expect(state.board.maxHealthPerUnit).toEqual({ pawn: 100, queen: 30 });
+    expect(state.board.unitConfig).toEqual({ pawn: { maxEnergy: 100 }, queen: { maxEnergy: 30 } });
   });
 
-  it('stays absent when the setup omits maxHealthPerUnit', () => {
+  it('stays absent when the setup configures nothing', () => {
     const state = buildGameState('g1', makeSetup(), makeTurn(), 0, 'centA', null);
-    expect(state.board.maxHealthPerUnit).toBeUndefined();
+    expect(state.board.unitConfig).toBeUndefined();
+  });
+
+  it('folds a setup written before the group existed into the group', () => {
+    // The two settings the group replaced: a per-type max map and one global
+    // food energy. The bot must see them as the group and nothing else.
+    const state = buildGameState(
+      'g1',
+      makeSetup({ maxEnergyPerUnit: { pawn: 40 }, foodEnergy: 20 }),
+      makeTurn(),
+      0,
+      'centA',
+      null
+    );
+    expect(state.board.unitConfig?.pawn).toEqual({ foodEnergy: 20, maxEnergy: 40 });
+    expect(state.board.unitConfig?.rook).toEqual({ foodEnergy: 20 });
   });
 });
 

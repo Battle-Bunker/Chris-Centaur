@@ -809,9 +809,9 @@ describe('a board that configures per-kind ceilings is settled against them', ()
       piece('p', { x: 1, y: 3 }, 'pawn', 1, { teamID: 'red' }),
       piece('K', { x: 5, y: 3 }, 'king', 1, { teamID: 'blue' }),
     ]);
-    (board as { maxHealthPerUnit?: Record<string, number> }).maxHealthPerUnit = {
-      pawn: pawnMax,
-      king: 100,
+    board.unitConfig = {
+      pawn: { maxEnergy: pawnMax },
+      king: { maxEnergy: 100 },
     };
     return board;
   };

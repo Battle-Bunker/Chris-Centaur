@@ -53,7 +53,7 @@
  * Off, this file costs one null check per priced plan.
  */
 
-import type { ActiveEffect } from "../../engine-vendor/shared/types/Game";
+import type { ActiveEffect, UnitConfig } from "../../engine-vendor/shared/types/Game";
 import type { ResolveUnit } from "../../engine-vendor/engine/resolveTurn";
 import type { MarshalledBoard } from "../../logic/turn-oracle";
 import type { Candidate, Evaluator, JointPlan, Substrate, UnitId } from "../contracts";
@@ -476,7 +476,7 @@ export interface ExactBoardDump {
   readonly hazardDamage: number;
   readonly food: ReadonlyArray<number>;
   readonly regicideTeamIDs: ReadonlyArray<string>;
-  readonly defaultMaxEnergy?: number;
+  readonly unitConfig?: UnitConfig;
   readonly potions: ReadonlyArray<number>;
   readonly potionsEnabled: boolean;
   readonly potionWindowTurns: number;
@@ -512,7 +512,7 @@ export function dumpBoard(
     hazardDamage: config.hazardDamage,
     food: [...config.food],
     regicideTeamIDs: [...(config.regicideTeamIDs ?? [])],
-    ...(config.defaultMaxEnergy === undefined ? {} : { defaultMaxEnergy: config.defaultMaxEnergy }),
+    ...(config.unitConfig === undefined ? {} : { unitConfig: config.unitConfig }),
     potions: [...marshalled.potions],
     potionsEnabled: marshalled.potionsEnabled,
     potionWindowTurns: marshalled.potionWindowTurns,
@@ -543,7 +543,7 @@ export function boardOfDump(dump: ExactBoardDump): MarshalledBoard {
       hazardDamage: dump.hazardDamage,
       food: [...dump.food],
       regicideTeamIDs: [...dump.regicideTeamIDs],
-      ...(dump.defaultMaxEnergy === undefined ? {} : { defaultMaxEnergy: dump.defaultMaxEnergy }),
+      ...(dump.unitConfig === undefined ? {} : { unitConfig: dump.unitConfig }),
     },
     potions: [...dump.potions],
     arrivalTurn: dump.arrivalTurn,
