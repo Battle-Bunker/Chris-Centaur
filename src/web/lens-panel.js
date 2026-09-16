@@ -645,7 +645,7 @@ const LensPanel = (() => {
     // move, and nothing at all for a confirmed staged move — which is the
     // common case and therefore the quiet one.
     const word = (row) => {
-      if (row.to == null) return `<span class="lens-unplanned">${escapeHTML(row.name || row.letter)} ◦ no plan</span>`;
+      if (row.to == null) return `<span class="lens-unplanned">${escapeHTML(row.letter || row.name)} ◦ no plan</span>`;
       const mark =
         row.state === 'committed'
           ? '»'
@@ -655,7 +655,7 @@ const LensPanel = (() => {
               ? '~'
               : '';
       return (
-        `<span class="lens-stage-move">${escapeHTML(row.name || row.letter)} →&nbsp;${escapeHTML(row.to)}${mark}` +
+        `<span class="lens-stage-move">${escapeHTML(row.letter || row.name)} →&nbsp;${escapeHTML(row.to)}${mark}` +
         `${row.fixity && row.fixity !== 'free' ? ` <span class="lens-stage-why">${escapeHTML(row.fixity)}</span>` : ''}` +
         `</span>`
       );

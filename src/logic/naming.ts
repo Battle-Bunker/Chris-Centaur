@@ -127,7 +127,8 @@ export function teamNameOf(team: { id?: string | null; name?: string | null } | 
 export function unitNameOf(teamName: string, letter: string): string {
   const team = teamName.trim();
   const l = letter.trim();
-  if (!team) return l ? `Unit ${l}` : 'Unit';
+  // With no team to qualify it, a unit IS its letter — the glyph on the board.
+  if (!team) return l || 'Unit';
   if (!l) return team;
   // A team name that already ends in the letter ("Chris A") must not become
   // "Chris A A": the composition is idempotent. A ONE-WORD team name is never
@@ -135,6 +136,16 @@ export function unitNameOf(teamName: string, letter: string): string {
   // first unit "A" and its second "A B".
   const words = team.split(/\s+/);
   return words.length > 1 && words[words.length - 1] === l ? team : `${team} ${l}`;
+}
+
+/** A game with no better name than its document id is called by a SHORT form
+ *  of that id — head and tail, enough to tell two games apart, never the whole
+ *  twenty characters. */
+export function gameFallbackTitle(gameId: string | null | undefined): string {
+  const id = gameId ? String(gameId).trim() : '';
+  if (!id) return 'Game';
+  if (id.length <= 10) return `Game ${id}`;
+  return `Game ${id.slice(0, 4)}…${id.slice(-4)}`;
 }
 
 /** The game's title, from the teams that are playing it. */

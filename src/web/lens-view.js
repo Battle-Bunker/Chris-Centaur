@@ -48,6 +48,7 @@ var LensView = (() => {
     emptyStateLine: () => emptyStateLine,
     featureLabel: () => featureLabel,
     frameAtSeq: () => frameAtSeq,
+    gameFallbackTitle: () => gameFallbackTitle,
     gameTitleOf: () => gameTitleOf,
     incumbentCandidate: () => incumbentCandidate,
     initialCursor: () => initialCursor,
@@ -55,6 +56,7 @@ var LensView = (() => {
     makeReplayDecisionSource: () => makeReplayDecisionSource,
     markForArrivalIndex: () => markForArrivalIndex,
     markForColor: () => markForColor,
+    mergeDirectories: () => mergeDirectories,
     modeBadge: () => modeBadge,
     movesetListFor: () => movesetListFor,
     movesetListKey: () => movesetListKey,
@@ -72,6 +74,7 @@ var LensView = (() => {
     reviveEvents: () => reviveEvents,
     rowTrails: () => rowTrails,
     rowsFor: () => rowsFor,
+    shortenKey: () => shortenKey,
     stageSummary: () => stageSummary,
     stagedCellOf: () => stagedCellOf,
     unitLetter: () => unitLetter,
@@ -120,10 +123,16 @@ var LensView = (() => {
   function unitNameOf(teamName, letter) {
     const team = teamName.trim();
     const l = letter.trim();
-    if (!team) return l ? `Unit ${l}` : "Unit";
+    if (!team) return l || "Unit";
     if (!l) return team;
     const words = team.split(/\s+/);
     return words.length > 1 && words[words.length - 1] === l ? team : `${team} ${l}`;
+  }
+  function gameFallbackTitle(gameId) {
+    const id = gameId ? String(gameId).trim() : "";
+    if (!id) return "Game";
+    if (id.length <= 10) return `Game ${id}`;
+    return `Game ${id.slice(0, 4)}…${id.slice(-4)}`;
   }
   function gameTitleOf(teams, turn) {
     const names = teams.map((t) => t.name).filter(Boolean);
@@ -209,6 +218,14 @@ var LensView = (() => {
       { title: options.title ?? null, turn: snapshot?.turn ?? null }
     );
     return options.operators ? { ...dir, operators: options.operators } : dir;
+  }
+  function mergeDirectories(base, over) {
+    return {
+      title: over.title && over.title !== "Game" ? over.title : base.title,
+      teams: { ...base.teams, ...over.teams },
+      units: { ...base.units, ...over.units },
+      operators: { ...base.operators, ...over.operators }
+    };
   }
   function unitName(dir, unit) {
     if (unit == null || unit === "") return "no unit";

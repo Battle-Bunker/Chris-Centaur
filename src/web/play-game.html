@@ -1635,9 +1635,12 @@
       const view = lensView();
       if (!view || lensEvents.length === 0) return null;
       try {
-        return lensReplay
-          ? view.replayFrameAtSeq(lensEvents, lensSeq, lensReplaySettlement)
-          : view.frameAtSeq(lensEvents, lensSeq, lensAtHead);
+        return withBoardNames(
+          lensReplay
+            ? view.replayFrameAtSeq(lensEvents, lensSeq, lensReplaySettlement)
+            : view.frameAtSeq(lensEvents, lensSeq, lensAtHead),
+          currentGameState
+        );
       } catch (e) {
         const said = e && e.message ? e.message : String(e);
         if (lensFoldComplaint !== said) {
@@ -1646,6 +1649,21 @@
         }
         return null;
       }
+    }
+
+    // THE NAMES A FRAME CARRIES ARE COMPLETED FROM THE BOARD THE PAGE HOLDS.
+    // The server's directory rides on `board.arrived`; a frame folded from a
+    // log with no anchor, or served by a bot built before the directory
+    // existed, arrives with names missing — and the page ALREADY has every
+    // unit's letter and team on the board it draws (the roster reads them).
+    // One merge, at the one point every frame passes through: the server's
+    // names win where present, the board's fill the rest, and a key is shown
+    // only when neither has anything — which is what the guard test asserts.
+    function withBoardNames(frame, snapshot) {
+      const view = lensView();
+      if (!frame || !snapshot || !view || !view.namesFromBoard || !view.mergeDirectories) return frame;
+      const fromBoard = view.namesFromBoard(snapshot);
+      return { ...frame, names: view.mergeDirectories(fromBoard, frame.names || view.EMPTY_DIRECTORY) };
     }
 
     function lensRender() {
@@ -3477,7 +3495,13 @@
         const board = currentGameState;
         if (view && view.namesFromBoard && board) title = view.namesFromBoard(board).title;
       }
-      return (title || 'Game') + (suffix || '');
+      // No team has a name: the game is called by a SHORT form of its id,
+      // never the bare twenty characters and never nothing at all.
+      if (!title || title === 'Game') {
+        const view = window.LensView;
+        title = view && view.gameFallbackTitle ? view.gameFallbackTitle(gameId) : `Game ${String(gameId || '').slice(0, 4)}…`;
+      }
+      return title + (suffix || '');
     }
     function renderPageTitle(suffix) {
       const el = document.getElementById('pageTitle');
@@ -6352,7 +6376,8 @@
         // timeline already holds the settlement this page is drawing, so it is
         // handed to the same reconstruction `storeFromRows` performs server-side.
         const row = turnTimeline.get(turn) || timelineFloorRow(turn);
-        return view.replayFrameAtSeq(events, last.seq, (row && row.game_state) || null);
+        const settlement = (row && row.game_state) || null;
+        return withBoardNames(view.replayFrameAtSeq(events, last.seq, settlement), settlement);
       } catch (e) {
         console.error('replay fold unavailable:', e && e.message ? e.message : e);
         return null;
