@@ -3660,6 +3660,13 @@ const BoardRenderer = (function () {
       if (moveState.selectedMove === (move.key ?? move.direction))
         button.className += " selected";
 
+      // The cell this candidate stands on, named in BOARD coordinates. The
+      // button is positioned in pixels, and a pixel is not something a gate
+      // can read back: with the cell on the element, "what does the overlay
+      // say this unit may do" is answerable without inverting the layout.
+      button.dataset.cell = `${move.position.x},${move.position.y}`;
+      button.dataset.candidate = String(move.key ?? move.direction ?? '');
+
       const x = move.position.x * displayCellSize;
       const y = (board.height - 1 - move.position.y) * displayCellSize;
       button.style.left = x + "px";

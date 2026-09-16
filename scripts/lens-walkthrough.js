@@ -1601,6 +1601,119 @@ async function main() {
     updateTurnClock(null, null);
   });
 
+  // ── THE SELECTION-SYNC DRILL ────────────────────────────────────────────
+  //
+  // THE DEFECT THIS PINS: a unit stayed selected across a turn boundary and
+  // lost its candidate interface — the overlay emptied and never came back
+  // while the unit remained selected, because the affordances were painted by
+  // whichever message happened to remember to paint them (and because the
+  // frame the wire published for a snake carried no enumeration at all).
+  //
+  // The affordances are now DERIVED, once per render, from present state. So
+  // this drill states present state and reads the derived picture back: select
+  // a unit, step a turn, and require the overlay's cells to BE this turn's
+  // `candidatesOf(unit)` — not merely non-empty — with the rail still on the
+  // same unit. Then it takes the unit off the board and requires the selection
+  // to clear with a reason the operator can read.
+  at = 'selection';
+  const selsync = [];
+  const ssCheck = (name, ok, saw) => {
+    selsync.push({ step: name, ok: !!ok, saw });
+    console.log(`  ${ok ? '✓' : '✗'} selection/${name}${ok ? '' : ` — saw: ${JSON.stringify(saw)}`}`);
+  };
+
+  const affordances = () =>
+    page.evaluate(() => {
+      const unit = typeof selectedSnakeId === 'undefined' ? null : selectedSnakeId;
+      const snake = unit ? (currentGameState?.board?.snakes || []).find((s) => s.id === unit) : null;
+      return {
+        unit,
+        name: snake ? snake.name : null,
+        turn: currentGameState ? currentGameState.turn : null,
+        overlay: [...document.querySelectorAll('#boardOverlay .cell-button')]
+          .map((b) => b.dataset.cell)
+          .sort(),
+        candidates: unit
+          ? candidatesOf(unit).map((c) => `${c.dest.x},${c.dest.y}`).sort()
+          : [],
+        rail: (document.getElementById('selectedSnakeName') || {}).textContent || null,
+        notice: (document.getElementById('transientNotice') || {}).textContent || null,
+      };
+    });
+
+  await focusUnit(page, 0);
+  const selBefore = await affordances();
+  ssCheck(
+    'a selected unit draws exactly its candidate cells',
+    !!selBefore.unit &&
+      selBefore.overlay.length > 0 &&
+      JSON.stringify(selBefore.overlay) === JSON.stringify(selBefore.candidates),
+    selBefore
+  );
+
+  at = 'selection/step';
+  await step();
+  await sleep(WAIT);
+  const selAfter = await affordances();
+  ssCheck('the turn advanced', selAfter.turn > selBefore.turn, {
+    was: selBefore.turn,
+    now: selAfter.turn,
+  });
+  ssCheck('the selection survives the turn', selAfter.unit === selBefore.unit, {
+    was: selBefore.unit,
+    now: selAfter.unit,
+  });
+  ssCheck(
+    "the overlay is the NEW turn's enumeration",
+    selAfter.overlay.length > 0 &&
+      JSON.stringify(selAfter.overlay) === JSON.stringify(selAfter.candidates) &&
+      JSON.stringify(selAfter.overlay) !== JSON.stringify(selBefore.overlay),
+    { overlay: selAfter.overlay, candidates: selAfter.candidates, before: selBefore.overlay }
+  );
+  ssCheck(
+    'the rail still targets the unit',
+    !!selAfter.name && (selAfter.rail || '').includes(selAfter.name),
+    { rail: selAfter.rail, name: selAfter.name }
+  );
+  await shot(page, 'selection-after-turn', 'the selected unit still has its candidate moves one turn on');
+
+  // A UNIT THAT DIED AT THE BOUNDARY. The input is the board, so the drill
+  // states a board the unit is not on and reads back what the surface derives
+  // from it — the one thing a selection may not do is outlive its unit in
+  // silence.
+  at = 'selection/death';
+  const death = await page.evaluate(() => {
+    const unit = selectedSnakeId;
+    const name = (currentGameState.board.snakes.find((s) => s.id === unit) || {}).name || unit;
+    currentGameState = {
+      ...currentGameState,
+      board: {
+        ...currentGameState.board,
+        snakes: currentGameState.board.snakes.filter((s) => s.id !== unit),
+      },
+    };
+    runScheduledRender();
+    return {
+      unit,
+      name,
+      selected: selectedSnakeId,
+      overlay: document.querySelectorAll('#boardOverlay .cell-button').length,
+      notice: (document.getElementById('transientNotice') || {}).textContent || null,
+      panel: document.getElementById('selectionUI').style.display,
+    };
+  });
+  ssCheck('a unit that left the board is deselected', death.selected === null && death.overlay === 0, death);
+  ssCheck(
+    'and the operator is told why',
+    (death.notice || '').includes(death.name) && /selection cleared/i.test(death.notice || ''),
+    death
+  );
+  report.notes.selection = selsync;
+  // Put the live board back under the page before the next drill reads it.
+  await step();
+  await sleep(WAIT);
+  await focusUnit(page, 0);
+
   // ── THE REVIEW DRILL ────────────────────────────────────────────────────
   //
   // The other end of the product: not the operator inside a turn but the owner
@@ -2107,6 +2220,7 @@ async function main() {
     ...(report.notes.tour || []).map((d) => ({ ...d, drill: 'tour' })),
     ...(report.notes.scheme || []).map((d) => ({ ...d, drill: 'scheme' })),
     ...(report.notes.review || []).map((d) => ({ ...d, drill: 'review' })),
+    ...(report.notes.selection || []).map((d) => ({ ...d, drill: 'selection' })),
     ...(report.notes.motion || []).map((d) => ({ ...d, drill: 'motion' })),
     ...(report.notes.prefs || []).map((d) => ({ ...d, drill: 'prefs' })),
   ].filter((d) => !d.ok);
