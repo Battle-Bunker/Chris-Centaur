@@ -8,6 +8,8 @@
  */
 
 import { UnitConfig, UnitMaxEnergy, UnitType, UnitTypeConfig } from "@shared/types/Game"
+import { UNIT_TYPES, unitConfigField } from "./unitConfigSchema"
+import type { UnitConfigFieldSchema } from "./unitConfigSchema"
 
 /**
  * The per-unit-type configuration group, and the ONE place a game document of
@@ -23,47 +25,40 @@ import { UnitConfig, UnitMaxEnergy, UnitType, UnitTypeConfig } from "@shared/typ
  * `maxEnergyPerUnit` map and a single global `foodEnergy`. They are mapped
  * here, ON READ, into the one shape; nothing writes them any more.
  *
- * The wire types carry no runtime code, so the defaults and the indexing live
- * HERE, in the engine, where the rules that read them are — and travel with it
- * when it is vendored. A caller outside the engine (board placement, the
- * lobby) reads the same function; there is no second table of defaults.
+ * The defaults and the bounds are NOT restated here: they come from the one
+ * schema, `engine/unitConfigSchema.ts`, which the lobby's controls and the
+ * generated Firestore rules block are also built from. What lives here is the
+ * indexing by kind and the reader — the engine-facing half. A caller outside
+ * the engine (board placement, the lobby) reads the same function; there is no
+ * second table of defaults anywhere.
  */
 
-/** Every unit kind there is, in lobby order. */
-export const UNIT_TYPES: UnitType[] = [
-  "snake",
-  "pawn",
-  "knight",
-  "bishop",
-  "rook",
-  "queen",
-  "king",
-]
+/**
+ * Every unit kind there is, in lobby order, and the three fields a kind is
+ * configured with — both from the ONE schema (`engine/unitConfigSchema.ts`).
+ * The numbers below are read out of it; none of them is restated here.
+ */
+export { UNIT_TYPES }
+
+const defaultOf = (key: UnitConfigFieldSchema["key"], type: UnitType): number =>
+  unitConfigField(key).defaults[type]
 
 /** Energy a kind holds when its group names no maximum. */
-export const DEFAULT_MAX_ENERGY = 100
+export const DEFAULT_MAX_ENERGY = defaultOf("maxEnergy", "snake")
 
 /**
  * Energy one food replenishes when a group names no amount — the same number
  * as the default maximum, so an unconfigured game plays the rule food has
  * always played: one meal, a full tank, one weight.
  */
-export const DEFAULT_FOOD_ENERGY = 100
+export const DEFAULT_FOOD_ENERGY = defaultOf("foodEnergy", "snake")
 
 /**
  * The weight a kind spawns at when its group names none: a snake spawns as a
- * stacked triple, every chess piece as the single square it stands on. This is
- * the shipped board, written down as the table it always was.
+ * stacked triple, every chess piece as the single square it stands on.
  */
-export const DEFAULT_STARTING_WEIGHT: { [K in UnitType]: number } = {
-  snake: 3,
-  pawn: 1,
-  knight: 1,
-  bishop: 1,
-  rook: 1,
-  queen: 1,
-  king: 1,
-}
+export const DEFAULT_STARTING_WEIGHT: { [K in UnitType]: number } =
+  unitConfigField("startingWeight").defaults
 
 /** One kind's configuration with every default filled in. */
 export interface ResolvedUnitTypeConfig {

@@ -30,6 +30,7 @@ Copy exactly these, together, keeping their relative layout:
 | `settlePartial.ts` | **The same turn with some units' moves unknown.** `settleTurn`'s phases over a board where some movers are held, plus the ledger of every point a concrete world could differ at. A mode of the one engine, not a second one. |
 | `unitConfig.ts` | **The per-unit-type configuration group**: the defaults, the indexing by kind, and the one reader that folds an older document's `maxEnergyPerUnit`/`foodEnergy` into the group. The wire types carry no runtime code, so the numbers a kind is configured with live here — and the board placement that CREATES a unit reads its starting weight from the same function. |
 | `claims.ts` | What a held unit could be doing: where it could be at each sub-step, how strong it could be, and whether it could be gone — derived from the grammar through `queries.ts`. |
+| `unitConfigSchema.ts` | **The one schema of that group**: for each of the three fields, its key, label, help text, integer bounds and per-kind default, plus the patch a lobby edit sends. `unitConfig.ts` takes its defaults from here, the lobby generates its controls from here, and `firestore.rules` has its `isValidUnitTypeConfig`/`isValidUnitConfig` block GENERATED from here by `scripts/gen-firestore-rules.mjs` — so the bounds a client may write and the bounds the database enforces cannot drift apart. Data and `import type` only, so a plain Node script can load it. |
 | `VENDOR.md` | This file. |
 
 Plus the one type module they depend on:
