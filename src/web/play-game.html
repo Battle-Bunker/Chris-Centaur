@@ -3617,6 +3617,7 @@
           }
           if (msg.selections) {
             selections = msg.selections;
+            selectionsTick = ++uiTick;
           }
           if (msg.owners) {
             owners = msg.owners;
@@ -3659,6 +3660,7 @@
           turnExpiryTime = msg.turnExpiryTime || null;
           if (msg.selections) {
             selections = msg.selections;
+            selectionsTick = ++uiTick;
           }
           if (msg.owners) {
             owners = msg.owners;
@@ -3691,9 +3693,6 @@
             startTurnTimer();
             scheduleRender();
             renderSnakeInfo();
-            if (selectedSnakeId) {
-              updateMoveControls();
-            }
           }
           // While viewing history, the slider range keeps growing with
           // liveMaxTurn (set above); cached old turns stay valid, and a newer
@@ -3703,8 +3702,18 @@
 
         case 'snake-turn-update': {
           const snakeId = msg.snakeId;
+          // The frame carries no commit flags, so a restatement of the SAME
+          // turn must not erase them; a frame for a new turn resets them,
+          // because nothing is committed on a turn that just began.
+          const priorCs = controlledSnakeTurnData[snakeId];
+          const priorTurn = priorCs?.turnData?.turn ?? priorCs?.turnData?.gameState?.turn ?? null;
+          const sameTurn = priorTurn != null && priorTurn === msg.turn;
           controlledSnakeTurnData[snakeId] = {
             turnData: {
+              // THE TURN THIS ENUMERATION IS ABOUT. Candidates are only ever
+              // this unit's affordances on the board they were asked about —
+              // see presentTurnDataOf.
+              turn: msg.turn,
               // THE UNIT'S CANDIDATE MOVES, as the server's one enumeration
               // (`ActiveGameManager.getUnitCandidates`, the engine's
               // `legalActions` for THIS unit) produced them. The page adds
@@ -3714,8 +3723,8 @@
               botRecommendation: msg.botRecommendation,
               timestamp: msg.timestamp,
             },
-            moveCommitted: msg.moveCommitted,
-            committedMove: msg.committedMove,
+            moveCommitted: sameTurn ? (msg.moveCommitted ?? priorCs?.moveCommitted ?? false) : false,
+            committedMove: sameTurn ? (msg.committedMove ?? priorCs?.committedMove ?? null) : null,
           };
 
           // This is the only per-snake update that always fires when a snake's
@@ -3735,10 +3744,6 @@
             stagedMoves = msg.stagedMoves;
           }
 
-          if (snakeId === selectedSnakeId) {
-            setupMoveStateForSnake(snakeId);
-            updateMoveControls();
-          }
           scheduleRender();
           break;
         }
@@ -3751,6 +3756,7 @@
               // (de)selection.
             }
             selectedSnakeId = msg.snakeId;
+            selectedTick = ++uiTick;
               if (msg.turnData) {
               controlledSnakeTurnData[msg.snakeId] = {
                 turnData: msg.turnData,
@@ -3762,7 +3768,9 @@
             // Candidate keys are strings; a piece's staged move arrives as a
             // numeric destination index, so normalize to the key space.
             userSelectedMove = msg.stagedMove != null ? String(msg.stagedMove) : null;
-            setupMoveStateForSnake(msg.snakeId);
+            // No local rebuild here: the one derived sync runs on the frame
+            // this schedules, off the same present state every other input
+            // feeds. A selection is an input to it, not a second painter.
             showSelectionUI();
             scheduleRender();
           }
@@ -3779,6 +3787,7 @@
 
         case 'selections-update':
           selections = msg.selections || {};
+          selectionsTick = ++uiTick;
           connectedUsers = msg.connectedUsers || [];
           if (msg.owners) {
             owners = msg.owners;
@@ -3799,20 +3808,11 @@
           scheduleRender();
           renderSnakeInfo();
 
-          if (selectedSnakeId) {
-            const sel = selections[selectedSnakeId];
-            if (!sel || (sel.userId !== userId)) {
-              // We've been deselected (or someone else took over). Drop our
-              // local input state but leave the snake's goto/near targets
-              // alone — they belong to the snake, not the user, and keep
-              // biasing its moves for whoever now controls it.
-              selectedSnakeId = null;
-              moveState = null;
-              moveSubmitted = false;
-              userSelectedMove = null;
-              hideSelectionUI();
-            }
-          }
+          // Losing the seat is handled where every other input to the
+          // selection is — syncSelectionAffordances, on the frame this
+          // schedules. The snake's goto/near targets are left alone either
+          // way: they belong to the snake, not the user, and keep biasing its
+          // moves for whoever now controls it.
           break;
 
         case 'selection-contested':
@@ -3824,11 +3824,7 @@
           if (selectedSnakeId === msg.snakeId) {
             // Lost selection. The snake's goto/near targets stay on the
             // server (the new controller inherits them). Clear local state only.
-            selectedSnakeId = null;
-            moveState = null;
-            moveSubmitted = false;
-            userSelectedMove = null;
-            hideSelectionUI();
+            dropSelection('was taken by another operator');
           }
           break;
 
@@ -3864,12 +3860,6 @@
             // its double (committed) arrow right away, for every viewer.
             if (msg.stagedMoves) {
               stagedMoves = msg.stagedMoves;
-            }
-            if (msg.snakeId === selectedSnakeId) {
-              moveSubmitted = true;
-              // Re-root the candidate set at the projected head.
-              setupMoveStateForSnake(msg.snakeId);
-              updateMoveControls();
             }
             scheduleRender();
           }
@@ -4065,17 +4055,37 @@
      * reason to invent four.
      */
     function candidatesOf(unitId) {
-      return controlledSnakeTurnData[unitId]?.turnData?.candidates || [];
+      return presentTurnDataOf(unitId)?.candidates || [];
+    }
+
+    /**
+     * THAT UNIT'S TURN DATA, IF IT IS ABOUT THE BOARD WE ARE LOOKING AT.
+     *
+     * An enumeration is stamped for the turn it was asked about. Once the
+     * board has moved on, last turn's cells are last turn's cells — drawing
+     * them as this unit's candidates would be a picture of a board that is
+     * gone, and staging from them would order a move that was never offered.
+     * So a turn data whose turn is not the board's turn is ABSENT, which the
+     * rail says out loud ("waiting for this unit's candidate moves") rather
+     * than papering over with stale ink.
+     */
+    function presentTurnDataOf(unitId) {
+      const td = controlledSnakeTurnData[unitId]?.turnData;
+      if (!td) return null;
+      const stamped = td.turn ?? td.gameState?.turn ?? null;
+      const boardTurn = currentGameState?.turn ?? null;
+      if (stamped != null && boardTurn != null && stamped !== boardTurn) return null;
+      return td;
     }
 
     function setupMoveStateForSnake(snakeId) {
       const csData = controlledSnakeTurnData[snakeId];
-      if (!csData || !csData.turnData || !currentGameState) {
+      const td = presentTurnDataOf(snakeId);
+      if (!csData || !td || !currentGameState) {
         moveState = null;
         return;
       }
 
-      const td = csData.turnData;
       const snake = currentGameState.board.snakes.find(s => s.id === snakeId);
       if (!snake) {
         moveState = null;
@@ -4122,6 +4132,121 @@
           }
         }
       }
+    }
+
+    /**
+     * THE ONE DERIVED SYNC: what the selected unit can do NOW.
+     *
+     * Everything a selected unit affords — the candidate overlay on the board,
+     * the rail's candidate list, the keyboard cursor, the stage line — is
+     * derived HERE, from four present-state inputs and nothing else:
+     *
+     *   · the board          `currentGameState`
+     *   · the enumeration    `candidatesOf(selectedSnakeId)`, stamped for this turn
+     *   · the selection      `selectedSnakeId` / `selections`
+     *   · what is staged     `stagedMoves`, `userSelectedMove`, the commit flag
+     *
+     * It runs on EVERY render pass, and every one of those inputs arrives on a
+     * message that schedules a render — so the affordances cannot be missed by
+     * a message that forgot to repaint them. Before this they could be: the
+     * candidate interface existed only where three handlers happened to call
+     * `setupMoveStateForSnake`, so whatever those three read at the moment they
+     * ran WAS the interface until the next selection event. That is what let
+     * the wire defect beside this one (a snake's published turn data carrying
+     * no enumeration — see `ActiveGameManager.setBotRecommendation`) erase a
+     * still-selected unit's candidate moves for the rest of the game: one bad
+     * input, painted once, with nothing downstream ever recomputing it.
+     *
+     * A SELECTION SURVIVES A TURN. Nothing here drops it because the clock
+     * moved; it is dropped when the unit stops being ours to command — it died,
+     * or the seat went to somebody else — and then the operator is told which.
+     *
+     * Rebuilds are memoised on a signature of those inputs, so a render that
+     * changed none of them leaves the cursor exactly where the operator put it.
+     */
+    let affordanceKey = null;
+    // A monotonic tick so "has a selections snapshot landed since we took this
+    // seat?" is answerable without timestamps that can tie.
+    let uiTick = 0;
+    let selectedTick = 0;
+    let selectionsTick = 0;
+
+    function affordanceSignature() {
+      if (!selectedSnakeId) return 'none';
+      const csd = controlledSnakeTurnData[selectedSnakeId] || {};
+      const staged = stagedMoves[selectedSnakeId];
+      const td = presentTurnDataOf(selectedSnakeId);
+      return JSON.stringify([
+        selectedSnakeId,
+        currentGameState?.turn ?? null,
+        !!getSelectedSnake(),
+        td ? (td.timestamp ?? null) : null,
+        td ? candidatesOf(selectedSnakeId).map((c) => `${c.move}:${c.kind}`) : null,
+        !!csd.moveCommitted,
+        csd.committedMove ?? null,
+        staged ? (staged.requestedMove ?? staged.move ?? null) : null,
+        userSelectedMove,
+        viewMode,
+      ]);
+    }
+
+    /** Drop a selection we can no longer hold, and SAY WHY: a unit that
+     *  vanishes out of the rail with no sentence is indistinguishable from the
+     *  interface breaking, which is the complaint this whole file answers. */
+    function dropSelection(reason) {
+      if (!selectedSnakeId) return;
+      const unitId = selectedSnakeId;
+      const name = snakeLastSeen.get(unitId)?.snake?.name || unitId;
+      selectedSnakeId = null;
+      moveState = null;
+      moveSubmitted = false;
+      userSelectedMove = null;
+      affordanceKey = null;
+      hideSelectionUI();
+      // The reason goes where a notice goes. The panel that used to hold the
+      // sentence is the panel we just hid, so saying it there would be saying
+      // it to nobody.
+      showBannerNotice(`${name} \u2014 ${reason}; selection cleared`);
+    }
+
+    function syncSelectionAffordances() {
+      if (selectedSnakeId) {
+        // THE UNIT ITSELF. Gone from the present board = dead, and a dead unit
+        // affords nothing; the roster still remembers it, so it can be named.
+        if (currentGameState?.board?.snakes && !getSelectedSnake()) {
+          dropSelection('is no longer on the board');
+        } else {
+          // THE SEAT. Checked only against a selections snapshot that landed
+          // AFTER we took it — an older snapshot simply has not heard of our
+          // claim yet, and must not be read as a refusal of it.
+          const sel = selections[selectedSnakeId];
+          if (sel && sel.userId !== userId) {
+            const who = (connectedUsers || []).find((u) => u.userId === sel.userId);
+            dropSelection(`is now controlled by ${who?.name || 'another operator'}`);
+          } else if (!sel && selectionsTick > selectedTick) {
+            dropSelection('is no longer selected');
+          }
+        }
+      }
+
+      const key = affordanceSignature();
+      if (key === affordanceKey) return;
+      affordanceKey = key;
+
+      if (!selectedSnakeId) {
+        moveState = null;
+        moveSubmitted = false;
+        return;
+      }
+
+      const prev = moveState;
+      setupMoveStateForSnake(selectedSnakeId);
+      // The keyboard cursor is the operator's, not the turn's: carry its axis
+      // memory across a rebuild that landed on the same candidate.
+      if (prev && moveState && prev.keyNav && prev.selectedMove === moveState.selectedMove) {
+        moveState.keyNav = prev.keyNav;
+      }
+      updateMoveControls();
     }
 
     function showSelectionUI() {
@@ -4258,6 +4383,15 @@
       // returns early and the board is frozen for the rest of the session.
       renderScheduled = false;
       if (renderFallbackTimer) { clearTimeout(renderFallbackTimer); renderFallbackTimer = null; }
+      // WHAT THE SELECTED UNIT CAN DO NOW, derived before anything is drawn —
+      // see syncSelectionAffordances. Every input that can change it schedules
+      // a render, so this is the one place the affordances are computed and no
+      // message has to remember to repaint them.
+      try {
+        syncSelectionAffordances();
+      } catch (e) {
+        console.error('syncSelectionAffordances failed:', e);
+      }
       try {
         renderGameBoard();
       } catch (e) {

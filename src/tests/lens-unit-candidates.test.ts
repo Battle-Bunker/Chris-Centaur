@@ -173,6 +173,49 @@ describe('a unit is offered its own moves, and the engine says which they are', 
     expect(offered.every((c) => c.kind === 'move')).toBe(true);
   });
 
+  /**
+   * THE FRAME THAT GOES OUT IS THE FRAME THAT WAS BOUND.
+   *
+   * `bindTurnData` stamping the enumeration onto what the manager STORES is
+   * only half an invariant: the defect this pins is that the per-snake
+   * broadcast published the CALLER's turn data instead, which carries no
+   * candidates at all. The page then replaced a selected unit's candidate list
+   * with an empty one on every turn boundary, and the candidate interface for
+   * a still-selected unit disappeared for the rest of the game.
+   *
+   * So the assertion is on the notification, not on the store: whatever a
+   * transport hands in, what subscribers are told carries this unit's own
+   * enumeration for this board.
+   */
+  test('the published turn-update frame carries the unit\'s enumeration', () => {
+    const seen: { snakeId: string; candidates: unknown[] }[] = [];
+    mgr.onTurnUpdate((_gameId, snakeId, turnData) => {
+      seen.push({ snakeId, candidates: turnData.candidates ?? [] });
+    });
+
+    for (const kind of ['snake', 'knight'] as const) {
+      const unit = ROSTER.find((r) => r.kind === kind)!;
+      const gs = boardState(gameId, unit.id);
+      const expected = mgr.getUnitCandidates(gameId, unit.id);
+      expect(expected.length).toBeGreaterThan(0);
+
+      seen.length = 0;
+      // A transport handing in turn data WITHOUT candidates — exactly what the
+      // decision path does.
+      mgr.setBotRecommendation(gameId, unit.id, expected[0].move, {
+        gameState: gs,
+        moveEvaluations: [],
+        territoryCells: {},
+        botRecommendation: expected[0].move,
+        timestamp: Date.now(),
+      });
+
+      const frame = seen.find((f) => f.snakeId === unit.id);
+      expect(frame).toBeDefined();
+      expect(frame!.candidates).toEqual(expected);
+    }
+  });
+
   test('a queen is offered rays, so the page cannot be indexing a fixed fan', () => {
     const queen = ROSTER.find((r) => r.kind === 'queen')!;
     const offered = mgr.getUnitCandidates(gameId, queen.id);

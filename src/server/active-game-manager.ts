@@ -4065,7 +4065,7 @@ export class ActiveGameManager {
     // move matrix — the UI reads the same TurnData shape for both, so a
     // recommendation arriving for a piece rebuilds the candidate rows here the
     // way updatePieceTurn does rather than publishing whatever the caller had.
-    controlled.latestTurnData = this.bindTurnData(
+    const published = this.bindTurnData(
       gameId,
       snakeId,
       this.isPieceUnit(controlled)
@@ -4076,6 +4076,7 @@ export class ActiveGameManager {
           }
         : turnData
     );
+    controlled.latestTurnData = published;
     controlled.botRecommendation = move;
     // Lift the board-wide Voronoi grids off this snake's decision onto the
     // GAME, where every unit's views can read them.
@@ -4122,7 +4123,14 @@ export class ActiveGameManager {
     if (boardUpdated) {
       this.notifyBoardUpdate(gameId, turnData.gameState);
     }
-    this.notifyTurnUpdate(gameId, snakeId, turnData);
+    // THE FRAME THAT GOES OUT IS THE BOUND ONE. `bindTurnData` stamps the
+    // unit's enumeration onto what it stores; broadcasting the CALLER's object
+    // instead published a snake's turn data with no candidates on it at all
+    // (`candidates: []` on the wire), so a selected unit lost its candidate
+    // moves the moment its next turn landed — the store held the enumeration
+    // and the wire dropped it. Publish what was bound, or the invariant only
+    // holds where nobody is looking.
+    this.notifyTurnUpdate(gameId, snakeId, published);
   }
 
   // Stage a user's manual selection as the snake's next move. This is the
