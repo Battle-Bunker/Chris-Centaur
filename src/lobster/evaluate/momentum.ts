@@ -52,7 +52,7 @@
  * a unit with a full tank that is true — every square it can reach it can
  * still reach next turn, so declining to act buys it nothing at all. For a
  * unit nearly out of health it is false: standing still buys the only thing it
- * has left, because health is a movement budget that a `stayLegal` kind may
+ * has left, because energy is a movement budget that a piece may
  * decline to spend (`./energy.ts`, and `budgetShare`'s own argument in
  * `./features.ts`). Charging a full anti-dither penalty there prices the same
  * fact twice and in opposite directions: `energy` charges the move for the
@@ -77,29 +77,29 @@
  * with it.
  */
 
-import { profileOf } from '../../partial-engine/index';
+import { isPieceType } from '../../engine-vendor/engine/moveGrammar';
 import type { EngineSubstrate } from '../substrate';
 import type { UnitId } from '../contracts';
-import { type Feature, bound, point } from './bound';
+import { type Feature, ourUnitTerm } from './bound';
 import type { EvalContext, Standing } from './features';
+import { perBoard } from './memo';
 
 /** Per substrate: the cell each unit occupied BEFORE its last move. */
 const CAME_FROM = new WeakMap<EngineSubstrate, ReadonlyMap<UnitId, number>>();
 
 function cameFrom(sub: EngineSubstrate): ReadonlyMap<UnitId, number> {
-  const hit = CAME_FROM.get(sub);
-  if (hit !== undefined) return hit;
-  const out = new Map<UnitId, number>();
-  const width = sub.grid.width;
-  for (const marshalled of sub.marshalled.units) {
-    const unit = sub.unitOfWireId(marshalled.id);
-    if (unit === undefined) continue;
-    const { dx, dy } = marshalled.orientation;
-    if (dx === 0 && dy === 0) continue;
-    out.set(unit.unitId, (unit.cells[0] as number) - (dy * width + dx));
-  }
-  CAME_FROM.set(sub, out);
-  return out;
+  return perBoard(CAME_FROM, sub, () => {
+    const out = new Map<UnitId, number>();
+    const width = sub.grid.width;
+    for (const marshalled of sub.marshalled.units) {
+      const unit = sub.unitOfWireId(marshalled.id);
+      if (unit === undefined) continue;
+      const { dx, dy } = marshalled.orientation;
+      if (dx === 0 && dy === 0) continue;
+      out.set(unit.unitId, (unit.cells[0] as number) - (dy * width + dx));
+    }
+    return out;
+  });
 }
 
 /** Cost of landing back where you came from. */
@@ -115,10 +115,9 @@ function costOf(ctx: EvalContext, s: Standing): number {
     // A trail unit has no stay in its grammar, so an unchanged cell for one of
     // those is not idleness — it is a reading of a unit that never moved
     // because it was never asked to. Only a kind that CAN decline is charged.
-    if (!profileOf(unit.kind).stayLegal) return 0;
-    const config = ctx.sub.engine.config;
-    const cap = Math.max(1, config.maxHealthPerKind?.[unit.kind] ?? config.maxHealth);
-    return IDLE_COST * Math.min(1, Math.max(0, unit.health / cap));
+    if (!isPieceType(unit.type)) return 0;
+    const cap = Math.max(1, ctx.sub.maxEnergyOf(unit.type));
+    return IDLE_COST * Math.min(1, Math.max(0, unit.energy / cap));
   }
   const came = cameFrom(ctx.sub).get(s.unitId);
   return came !== undefined && s.cell === came ? REVERSAL_COST : 0;
@@ -143,23 +142,12 @@ export const momentumFeature: Feature<EvalContext> = {
     dischargeable: true,
   },
   evaluate(ctx) {
-    let worst = 0;
-    let best = 0;
-    let ours = 0;
-    for (const s of ctx.standing) {
-      if (s.team !== ctx.asTeam || s.held) continue;
-      ours++;
-      const cost = costOf(ctx, s);
-      if (cost === 0) continue;
-      // Charged where the unit is ALIVE to have made the move. Our best world
-      // keeps more units standing, so it carries at least as much cost — hence
-      // it is the LO endpoint of a term that is never positive.
-      if (s.bestAlive) worst -= cost;
-      if (s.worstAlive) best -= cost;
-    }
-    if (ours === 0) return point(0);
-    const lo = worst / ours;
-    const hi = best / ours;
-    return bound(Math.min(lo, hi), (lo + hi) / 2, Math.max(lo, hi));
+    // Charged where the unit is ALIVE to have made the move. Our best world
+    // keeps more units standing, so it carries at least as much cost — hence
+    // it is the LO endpoint of a term that is never positive.
+    return ourUnitTerm(ctx, (s) => {
+      const c = costOf(ctx, s);
+      return [-c, -c];
+    });
   },
 };

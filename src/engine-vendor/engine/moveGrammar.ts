@@ -37,6 +37,21 @@ export const leavesTrail = (type: UnitType): boolean => type === "snake"
 /** A jump crosses no edge, so a knight can never contest one. */
 export const traversesEdges = (type: UnitType): boolean => type !== "knight"
 
+/**
+ * Whether a kind's grammar reads anything but the two squares and the board's
+ * dimensions. Only a pawn's does, and it reads BOTH of the things there are to
+ * read: its facing (its step is the way it points, its side squares are turns)
+ * and the board's contents (its diagonal is legal only onto food or a body).
+ *
+ * Every other kind's answer is a pure function of origin, destination and the
+ * board's shape — the same answer whichever way the unit is turned and whoever
+ * is standing where. A caller REMEMBERING the grammar's answers reads this to
+ * find out what it must key them by: `claims.ts`'s dilation asks the same
+ * question of the same square from four facings and against two boards, and
+ * for six kinds in seven those are one question, not eight.
+ */
+export const readsFacingAndContents = (type: UnitType): boolean => type === "pawn"
+
 export const toXY = (index: number, boardWidth: number): { x: number; y: number } => ({
   x: index % boardWidth,
   y: Math.floor(index / boardWidth),
@@ -168,19 +183,62 @@ export const planUnitAction = (
   boardWidth: number,
   boardHeight: number,
   orientation: Orientation,
-  pawnTargets?: Set<number>,
+  pawnTargets?: ReadonlySet<number>,
 ): UnitAction | null => {
   if (!Number.isInteger(dest) || dest < 0 || dest >= boardWidth * boardHeight) return null
-  const o = toXY(origin, boardWidth)
-  const d = toXY(dest, boardWidth)
-  const dx = d.x - o.x
-  const dy = d.y - o.y
+  // Read as scalars rather than through `toXY`. This is the innermost call of
+  // every query in the module — a board sweep per unit per turn — and the two
+  // coordinate objects it used to allocate here were the module's largest
+  // source of garbage, for arithmetic that fits in four numbers.
+  return planFromCoords(
+    type,
+    origin,
+    origin % boardWidth,
+    Math.floor(origin / boardWidth),
+    dest,
+    dest % boardWidth,
+    Math.floor(dest / boardWidth),
+    boardWidth,
+    boardHeight,
+    orientation,
+    pawnTargets,
+  )
+}
+
+/**
+ * The grammar with both squares' coordinates ALREADY IN HAND — the same rule
+ * as `planUnitAction`, which is now this function plus the four divisions that
+ * derive them from two indices.
+ *
+ * Internal to the module, and it exists for one caller: the board sweep in
+ * `queries.ts::legalActions`, which asks the grammar about every cell of the
+ * board from a FIXED origin. Two of those four divisions are constant across
+ * such a sweep and the other two are the loop counters, so the sweep pays none
+ * of them; over the corpus the sweep costs a third less. The caller is
+ * responsible for what the wrapper checks — an integer destination on the
+ * board, and coordinates that agree with it.
+ */
+export const planFromCoords = (
+  type: UnitType,
+  origin: number,
+  ox: number,
+  oy: number,
+  dest: number,
+  dxCell: number,
+  dyCell: number,
+  boardWidth: number,
+  boardHeight: number,
+  orientation: Orientation,
+  pawnTargets?: ReadonlySet<number>,
+): UnitAction | null => {
+  const dx = dxCell - ox
+  const dy = dyCell - oy
   const adx = Math.abs(dx)
   const ady = Math.abs(dy)
   // Origins are always interior and the interior is convex, so a straight ray
   // between interior squares never touches the perimeter wall — only the
   // destination needs the check.
-  const interior = isInterior(d.x, d.y, boardWidth, boardHeight)
+  const interior = isInterior(dxCell, dyCell, boardWidth, boardHeight)
 
   // Trail units: one orthogonal step, walls included. They have no "stay":
   // staging their own square is not a move, so the default (continue straight)
@@ -200,15 +258,15 @@ export const planUnitAction = (
       return interior && Math.max(adx, ady) === 1 ? { kind: "move", path: [dest] } : null
     case "rook":
       return interior && (dx === 0) !== (dy === 0)
-        ? { kind: "move", path: rayPath(o, d, boardWidth) }
+        ? { kind: "move", path: rayPath(ox, oy, dx, dy, boardWidth) }
         : null
     case "bishop":
       return interior && adx === ady && adx > 0
-        ? { kind: "move", path: rayPath(o, d, boardWidth) }
+        ? { kind: "move", path: rayPath(ox, oy, dx, dy, boardWidth) }
         : null
     case "queen":
       return interior && ((dx === 0) !== (dy === 0) || (adx === ady && adx > 0))
-        ? { kind: "move", path: rayPath(o, d, boardWidth) }
+        ? { kind: "move", path: rayPath(ox, oy, dx, dy, boardWidth) }
         : null
     case "pawn": {
       if (dx === orientation.dx && dy === orientation.dy) {
@@ -257,13 +315,19 @@ export const defaultAction = (
   return { kind: "move", path: [toIndex(nx, ny, boardWidth)] }
 }
 
-const rayPath = (o: { x: number; y: number }, d: { x: number; y: number }, boardWidth: number): number[] => {
-  const steps = Math.max(Math.abs(d.x - o.x), Math.abs(d.y - o.y))
-  const sx = Math.sign(d.x - o.x)
-  const sy = Math.sign(d.y - o.y)
-  const path: number[] = []
+const rayPath = (
+  ox: number,
+  oy: number,
+  dx: number,
+  dy: number,
+  boardWidth: number,
+): number[] => {
+  const steps = Math.max(Math.abs(dx), Math.abs(dy))
+  const sx = Math.sign(dx)
+  const sy = Math.sign(dy)
+  const path: number[] = new Array(steps)
   for (let i = 1; i <= steps; i++) {
-    path.push(toIndex(o.x + sx * i, o.y + sy * i, boardWidth))
+    path[i - 1] = toIndex(ox + sx * i, oy + sy * i, boardWidth)
   }
   return path
 }

@@ -78,30 +78,133 @@ export function basisKeyOf(assumptions: ReadonlyArray<Assumption>): BasisKey {
   return assumptions.map(assumptionKey).sort().join("|");
 }
 
+/**
+ * NORMALISATION IS IDEMPOTENT, AND THAT IS WORTH CACHING.
+ *
+ * `makeScoreBounds` normalises its assumptions and its ledger on every call,
+ * and it is called 157 240 times on `mixed 20 1 --nodes` — with the SAME
+ * `basis` array object every time (the bank's basis is fixed for the whole
+ * decision) and with a ledger `ledgerOf` has already normalised. Both are
+ * therefore functions of an array object that has been seen before.
+ *
+ * The caches below are `WeakMap`s from the input array to its normalised
+ * form, and every output is registered as its own normal form so
+ * re-normalising a normalised array is a lookup. Nothing about the RESULT
+ * changes — same dedup, same order, same contents — so a bound's identity is
+ * untouched; only the recomputation goes away. Sound because both arrays are
+ * `ReadonlyArray` values that nothing in this layer mutates after handing
+ * them over.
+ */
+const assumptionNorms = new WeakMap<object, ReadonlyArray<Assumption>>();
+const ledgerNorms = new WeakMap<object, ReadonlyArray<LedgerEntry>>();
+
 /** Deduplicated, canonically ordered — so the basis key is stable. */
 export function normalizeAssumptions(
   assumptions: ReadonlyArray<Assumption>,
 ): ReadonlyArray<Assumption> {
+  const cached = assumptionNorms.get(assumptions as object);
+  if (cached !== undefined) return cached;
   const seen = new Map<string, Assumption>();
   for (const a of assumptions) {
     const k = assumptionKey(a);
     if (!seen.has(k)) seen.set(k, a);
   }
-  return [...seen.entries()].sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).map((e) => e[1]);
+  const out = [...seen.entries()]
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map((e) => e[1]);
+  assumptionNorms.set(assumptions as object, out);
+  assumptionNorms.set(out as object, out);
+  return out;
 }
 
-export function unionAssumptions(
-  ...groups: ReadonlyArray<ReadonlyArray<Assumption>>
+const NO_ASSUMPTIONS: ReadonlyArray<Assumption> = [];
+
+/**
+ * THE BASIS UNION'S COMMON SHAPE, WITHOUT THE COPY — the same argument
+ * `unionLedgers` makes below, applied to the other half of a bound's identity.
+ *
+ * Every branch of one price carries THE SAME basis array object (the bank's
+ * `input.basis`, passed through `makeScoreBounds` unchanged), so a backup over
+ * n children concatenated n copies of one array and re-normalised the result
+ * on every node of the ladder. Handing the one distinct group to
+ * `normalizeAssumptions` is the same answer — dedup and order are idempotent,
+ * and a union with the empty set is the set — and it hits the normal-form
+ * memo instead of rebuilding. Two or more distinct groups take the old path.
+ */
+function unionOfAssumptionGroups(
+  groups: ReadonlyArray<ReadonlyArray<Assumption>>,
 ): ReadonlyArray<Assumption> {
+  let only: ReadonlyArray<Assumption> | null = null;
+  let distinct = 0;
+  for (const g of groups) {
+    if (g.length === 0) continue;
+    if (only === g) continue;
+    if (only !== null) {
+      distinct = 2;
+      break;
+    }
+    only = g;
+    distinct = 1;
+  }
+  if (distinct === 0) return NO_ASSUMPTIONS;
+  if (distinct === 1) return normalizeAssumptions(only as ReadonlyArray<Assumption>);
   const all: Assumption[] = [];
   for (const g of groups) all.push(...g);
   return normalizeAssumptions(all);
 }
 
+export function unionAssumptions(
+  ...groups: ReadonlyArray<ReadonlyArray<Assumption>>
+): ReadonlyArray<Assumption> {
+  return unionOfAssumptionGroups(groups);
+}
+
+/** The union of every child's basis — `unionAssumptions` without the map and
+ *  the spread, on a path that runs once per backup node. */
+function unionChildAssumptions(children: ReadonlyArray<ScoreBounds>): ReadonlyArray<Assumption> {
+  let only: ReadonlyArray<Assumption> | null = null;
+  let distinct = 0;
+  for (const c of children) {
+    const g = c.assumptions;
+    if (g.length === 0) continue;
+    if (only === g) continue;
+    if (only !== null) {
+      distinct = 2;
+      break;
+    }
+    only = g;
+    distinct = 1;
+  }
+  if (distinct === 0) return NO_ASSUMPTIONS;
+  if (distinct === 1) return normalizeAssumptions(only as ReadonlyArray<Assumption>);
+  const all: Assumption[] = [];
+  for (const c of children) all.push(...c.assumptions);
+  return normalizeAssumptions(all);
+}
+
 // --------------------------------------------------------------- the ledger
 
+/**
+ * ONE KEY PER ENTRY OBJECT. A ledger entry is an immutable value the
+ * translation (`ledger.ts`) builds once per settlement and then hands to every
+ * bound taken off that settlement, so the same object is keyed again on every
+ * normalisation it takes part in — measured at roughly a million key builds on
+ * `mixed 20 1 --nodes`. A `WeakMap` from the entry, so it dies with it.
+ */
+const entryKeys = new WeakMap<object, string>();
+
 export function ledgerKey(e: LedgerEntry): string {
-  return `${e.unitId}:${e.cell}:${e.subStep}:${e.polarity}`;
+  // The translation mints its entries with the key already on them (see
+  // `LedgerEntry.canonicalKey`): the backup's ledger merge asks for a key once
+  // per entry per union, and this was measured at 2.8% of the kernel's own
+  // decision time as pure ephemeron traffic. Same string either way.
+  const own = e.canonicalKey;
+  if (own !== undefined) return own;
+  const hit = entryKeys.get(e as object);
+  if (hit !== undefined) return hit;
+  const made = `${e.unitId}:${e.cell}:${e.subStep}:${e.polarity}`;
+  entryKeys.set(e as object, made);
+  return made;
 }
 
 export function normalizeLedger(entries: ReadonlyArray<LedgerEntry>): ReadonlyArray<LedgerEntry> {
@@ -111,24 +214,115 @@ export function normalizeLedger(entries: ReadonlyArray<LedgerEntry>): ReadonlyAr
   // sorting the KEYS costs one array rather than an array of pairs plus a map.
   // The order is unchanged — it is part of a bound's identity.
   if (entries.length <= 1) return entries;
+  const cached = ledgerNorms.get(entries as object);
+  if (cached !== undefined) return cached;
   const seen = new Map<string, LedgerEntry>();
   for (const e of entries) {
     const k = ledgerKey(e);
     if (!seen.has(k)) seen.set(k, e);
   }
-  if (seen.size === 1) return [...seen.values()];
-  const keys = [...seen.keys()].sort();
-  const out: LedgerEntry[] = new Array<LedgerEntry>(keys.length);
-  for (let i = 0; i < keys.length; i++) out[i] = seen.get(keys[i] as string) as LedgerEntry;
+  const out: LedgerEntry[] =
+    seen.size === 1 ? [...seen.values()] : new Array<LedgerEntry>(seen.size);
+  if (seen.size !== 1) {
+    const keys = [...seen.keys()].sort();
+    for (let i = 0; i < keys.length; i++) out[i] = seen.get(keys[i] as string) as LedgerEntry;
+  }
+  ledgerNorms.set(entries as object, out);
+  ledgerNorms.set(out as object, out);
   return out;
 }
+
+const NO_LEDGER: ReadonlyArray<LedgerEntry> = [];
 
 export function unionLedgers(
   ...groups: ReadonlyArray<ReadonlyArray<LedgerEntry>>
 ): ReadonlyArray<LedgerEntry> {
+  // THE BACKUP'S COMMON SHAPE, WITHOUT THE COPY. A max/min backup unions the
+  // ledger of the child that justified the floor with the ledger of the child
+  // that justified the ceiling, and those are USUALLY the same child or one of
+  // them is empty. Concatenating and re-normalising then rebuilds, key by key,
+  // an array that already exists in its normal form — and `normalizeLedger`
+  // memoises normal forms, so handing it the one distinct group is both the
+  // same answer (dedup and order are idempotent; a union with the empty set is
+  // the set) and a lookup. Two or more distinct groups take the old path.
+  let only: ReadonlyArray<LedgerEntry> | null = null;
+  let distinct = 0;
+  for (const g of groups) {
+    if (g.length === 0) continue;
+    if (only === g) continue;
+    if (only !== null) {
+      distinct = 2;
+      break;
+    }
+    only = g;
+    distinct = 1;
+  }
+  if (distinct === 0) return NO_LEDGER;
+  if (distinct === 1) return normalizeLedger(only as ReadonlyArray<LedgerEntry>);
+  // TWO NORMAL FORMS UNION BY MERGING, NOT BY SORTING.
+  //
+  // A normalised ledger is deduplicated and ascending in `ledgerKey`, and the
+  // groups a backup unions are exactly that — they came off child bounds, and
+  // `makeScoreBounds` normalises everything it stores. Concatenating them and
+  // re-normalising then paid for a `Map` of every entry and a sort of every
+  // key to rebuild an order both inputs already had: 26 718 rebuilds over
+  // 443 986 entries on `mixed 20 1 --nodes`.
+  //
+  // The merge below is the same answer entry for entry. Ascending order is
+  // what the sort produced; and on a duplicate key it keeps the entry from
+  // the EARLIER group, which is what `Map.set`-if-absent over the
+  // concatenation kept. Groups that are not in normal form (a caller handing
+  // over a raw array) take the old path unchanged.
+  let merged: ReadonlyArray<LedgerEntry> | null = null;
+  for (const g of groups) {
+    if (g.length === 0) continue;
+    if (!isNormalForm(g)) {
+      merged = null;
+      break;
+    }
+    merged = merged === null ? g : mergeNormalForms(merged, g);
+  }
+  if (merged !== null) return merged;
   const all: LedgerEntry[] = [];
   for (const g of groups) all.push(...g);
   return normalizeLedger(all);
+}
+
+/** Whether this array IS its own normal form — trivially so below two
+ *  entries, and otherwise because `normalizeLedger` minted it. */
+function isNormalForm(g: ReadonlyArray<LedgerEntry>): boolean {
+  return g.length <= 1 || ledgerNorms.get(g as object) === g;
+}
+
+/** Two ascending, deduplicated ledgers into one — earlier group wins a tie. */
+function mergeNormalForms(
+  a: ReadonlyArray<LedgerEntry>,
+  b: ReadonlyArray<LedgerEntry>,
+): ReadonlyArray<LedgerEntry> {
+  const out: LedgerEntry[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const ea = a[i] as LedgerEntry;
+    const eb = b[j] as LedgerEntry;
+    const ka = ledgerKey(ea);
+    const kb = ledgerKey(eb);
+    if (ka === kb) {
+      out.push(ea);
+      i++;
+      j++;
+    } else if (ka < kb) {
+      out.push(ea);
+      i++;
+    } else {
+      out.push(eb);
+      j++;
+    }
+  }
+  while (i < a.length) out.push(a[i++] as LedgerEntry);
+  while (j < b.length) out.push(b[j++] as LedgerEntry);
+  ledgerNorms.set(out as object, out);
+  return out;
 }
 
 // --------------------------------------------------------------- the bounds
@@ -241,7 +435,7 @@ export function backupMax(children: ReadonlyArray<ScoreBounds>, note = "backupMa
       justifier(children, (b) => b.worst, worst).ledger,
       justifier(children, (b) => b.best, best).ledger,
     ),
-    assumptions: unionAssumptions(...children.map((c) => c.assumptions)),
+    assumptions: unionChildAssumptions(children),
     note,
   });
 }
@@ -262,7 +456,7 @@ export function backupMin(children: ReadonlyArray<ScoreBounds>, note = "backupMi
       justifier(children, (b) => b.worst, worst).ledger,
       justifier(children, (b) => b.best, best).ledger,
     ),
-    assumptions: unionAssumptions(...children.map((c) => c.assumptions)),
+    assumptions: unionChildAssumptions(children),
     note,
   });
 }

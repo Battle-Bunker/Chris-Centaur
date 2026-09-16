@@ -9,6 +9,18 @@
  */
 
 import type { Bound, EmitRecord, JointPlan, KernelInput, Pin } from "../lobster/contracts"
+import type { LensEvent } from "../lens/types"
+import { channelPolicyFor } from "../lobster/postures"
+
+/** THE REPORT NO LONGER CARRIES THE SEQUENCES (04 §5.2 #11): a posture flip
+ *  and a basis change are moments on a timeline, so they are `LensEvent`s and
+ *  the assertions that used to read `postureFlips` / `basisHistory` read the
+ *  frames instead. The sink is attached only by the tests that look at it —
+ *  every other test in this file runs with `KernelInput.lens` undefined, which
+ *  is also the state gate 7(ii) measures. */
+const framesOf = (into: LensEvent[]) => (e: LensEvent): void => {
+  into.push(e)
+}
 import {
   DEFAULT_KERNEL_OPTIONS,
   LobsterKernel,
@@ -411,12 +423,12 @@ describe("constraint epochs", () => {
       step({ plan: P2, worst: 400, best: 500 }),
       step({ plan: P2, worst: 401, best: 402 }),
     ])
+    const frames: LensEvent[] = []
     const out = await collect(
-      r.kernel.decide(r.input()),
+      r.kernel.decide(r.input({ lens: framesOf(frames) })),
       // Let epoch 0 prove its floor first, then constrain it.
       pinAfter(r.kernel, { unitId: 2, to: 77, tentative: false }, 1),
     )
-    const rep = reportOf(r.kernel)
     const epoch0 = out.filter((rec) => rec.epoch === 0)
     const epoch1 = out.filter((rec) => rec.epoch === 1)
     expect(epoch0.some((rec) => rec.lo === 400)).toBe(true)
@@ -427,9 +439,10 @@ describe("constraint epochs", () => {
     // Within epoch 1 the ratchet is in force again, on its own floor.
     const los = epoch1.map((rec) => rec.lo)
     expect(los).toEqual([...los].sort((a, b) => a - b))
-    // Each basis carries its own floor; none is ever read by another.
-    const floors = rep.basisHistory.map((b) => b.epoch)
-    expect(new Set(floors).size).toBeGreaterThan(1)
+    // Each basis carries its own floor; none is ever read by another. The
+    // partition frames are the epoch sequence, with the pin that caused each.
+    const epochs = frames.filter((e) => e.kind === "partition").map((e) => e.epoch)
+    expect(new Set(epochs).size).toBeGreaterThan(1)
   })
 
   it("does not start an epoch for a tentative pin, and never puts one on the wire", async () => {
@@ -608,8 +621,13 @@ describe("the pin-context cache (tier 3: context-exclusive)", () => {
     void clock
     await collect(r.kernel.decide(r.input()))
     const rep = reportOf(r.kernel)
-    expect(rep.leverOrderBinding).toBe(true)
-    expect(rep.levers.some((l) => l.kind === "catchup")).toBe(true)
+    // The lever surface bound the order — `refine` ran rather than `improve` —
+    // and the lever the VOC picked was a catch-up, which is the only lever
+    // that invalidates a citing context. (`levers` and `leverOrderBinding`
+    // left the report with 04 §5.2 #11: both were structurally constant in
+    // production, where no core exposes a refinement view at all.)
+    expect(rep.refineCalls).toBeGreaterThan(0)
+    expect(rep.improveCalls).toBe(0)
     expect(rep.cache.invalidations).toBeGreaterThan(0)
   })
 })
@@ -627,15 +645,17 @@ describe("postures on the wire", () => {
       { deadBelow: CLIFF },
       { baseline: P1 },
     )
-    await collect(r.kernel.decide(r.input()))
+    const frames: LensEvent[] = []
+    await collect(r.kernel.decide(r.input({ lens: framesOf(frames) })))
     const rep = reportOf(r.kernel)
-    expect(rep.postureFlips.map((f) => f.to)).toContain("FOGGED-VACUOUS")
+    const flips = frames.filter((e) => e.kind === "posture")
+    expect(flips.map((f) => (f as { to: string }).to)).toContain("FOGGED-VACUOUS")
     const late = rep.journal[rep.journal.length - 1]
     expect(late.posture).toBe("FOGGED-VACUOUS")
     expect(late.assumptions).toContainEqual({ kind: "posture", posture: "FOGGED-VACUOUS" })
     // A posture flip opens a new basis: the ratchet never compares across
     // channels (the leading channel changed underneath it).
-    expect(rep.basisHistory.some((b) => b.posture === "SIGHTED")).toBe(true)
+    expect(flips.map((f) => (f as { from: string }).from)).toContain("SIGHTED")
   })
 
   it("keeps est off every adjudication it does not own", async () => {
@@ -776,9 +796,12 @@ describe("FOGGED-VACUOUS on the wire", () => {
         })),
       },
     )
-    const out = await collect(r.kernel.decide(r.input()))
-    const rep = reportOf(r.kernel)
-    expect(rep.postureFlips.map((f) => f.to)).toContain("FOGGED-VACUOUS")
+    const frames: LensEvent[] = []
+    const out = await collect(r.kernel.decide(r.input({ lens: framesOf(frames) })))
+    const flips = frames.filter(
+      (e) => e.kind === "posture",
+    ) as ReadonlyArray<Extract<LensEvent, { kind: "posture" }>>
+    expect(flips.map((f) => f.to)).toContain("FOGGED-VACUOUS")
     const vacuous = out.filter((rec) => rec.posture === "FOGGED-VACUOUS")
     expect(vacuous.length).toBeGreaterThan(1)
     // The staged plan moved along the gradient…
@@ -787,9 +810,57 @@ describe("FOGGED-VACUOUS on the wire", () => {
     const channel = vacuous.map((rec) => rec.est)
     expect(channel).toEqual([...channel].sort((a, b) => a - b))
     for (const rec of vacuous) expect(rec.lo).toBe(-1000)
-    // The basis that led with est is on the record as having done so.
-    expect(rep.basisHistory.some((b) => b.channel === "est")).toBe(true)
-    expect(rep.basisHistory.some((b) => b.channel === "lo")).toBe(true)
+    // The basis that led with est is on the timeline as having done so — and
+    // the flip that opened it left a basis that led with lo, which is the pair
+    // the ratchet must never compare across.
+    expect(flips.some((f) => f.channel === "est")).toBe(true)
+    expect(flips.some((f) => channelPolicyFor(f.from).orderBy === "lo")).toBe(true)
+  })
+})
+
+describe("the ratchet's basis carries the horizon coordinate (06 F-8)", () => {
+  const cloudDead = [ledgerEntry(9)]
+
+  it("ends the est basis where the horizon changes, instead of reading a retraction", async () => {
+    // Under FOGGED-VACUOUS the ratcheted value IS the clamped est, and est is a
+    // summary AT a horizon. Here the deeper reading's est is LOWER than the
+    // shallow one the basis is standing on — which is not a retraction, it is
+    // an answer to a different question — so the basis ends and the deeper
+    // reading takes the wire. Without the coordinate the gate reads it as a
+    // broken refinement lattice and refuses it forever.
+    const ests = new Map<string, number>([
+      [planKey(P1), -900],
+      [planKey(P2), -500],
+      [planKey(P3), -700],
+    ])
+    const r = rig(
+      [
+        step({ plan: P1, worst: -1000, best: 40, ledger: cloudDead, horizon: 1 }),
+        step({ plan: P2, worst: -1000, best: 35, ledger: cloudDead, horizon: 1 }),
+        step({ plan: P3, worst: -1000, best: 30, ledger: cloudDead, horizon: 2 }),
+      ],
+      { switchMargin: 1, deadBelow: CLIFF },
+      {
+        baseline: P1,
+        evaluator: new StubEvaluator((p: JointPlan) => ({
+          lo: -1000,
+          est: ests.get(planKey(p)) ?? -1000,
+          hi: 40,
+        })),
+      }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    const vacuous = out.filter((rec) => rec.posture === "FOGGED-VACUOUS")
+    expect(vacuous.length).toBeGreaterThan(1)
+    const last = vacuous[vacuous.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    expect(last.horizon).toBe(2)
+    // It landed because the basis ended, not because the ratchet was waived:
+    // nothing was refused as a retraction on the way.
+    expect(reportOf(r.kernel).refusals["ratchet-floor"]).toBe(0)
+    // And the floor never weakened — `lo` keeps its own basis-scoped floor
+    // underneath whatever the leading channel does.
+    for (const rec of vacuous) expect(rec.lo).toBe(-1000)
   })
 })
 
@@ -914,6 +985,82 @@ describe("the operator's queue: arrival, survival, and the two frozen gates", ()
     const afterRung0 = out.slice(1)
     expect(afterRung0.length).toBeGreaterThan(0)
     for (const rec of afterRung0) expect(rec.plan.get(2)?.to).toBe(77)
+  })
+})
+
+describe("the horizon field has one meaning (06 F-2, F-3)", () => {
+  it("stamps the PLAN's horizon, not the slice's view", async () => {
+    // The old `absorb` read `run.lastView?.horizon` — the view's leader's depth
+    // — and wrote it onto every plan the slice happened to absorb, while
+    // `deepen` names ONE plan. Here the view claims horizon 7 and the returned
+    // reading claims nothing, so the honest answer is 1 and the leak is 7.
+    const viewOf = (): LeverView => ({
+      candidates: [],
+      leaderIdx: -1,
+      slack: 0,
+      horizon: 7,
+      depthMax: 1,
+      units: [],
+      interiorCells: 0,
+      epsilon: 0,
+      round: 0,
+    })
+    const script = [step({ plan: P2, worst: 10, best: 20 })]
+    const r = rig(
+      script,
+      {},
+      { core: (c) => new ScriptedRefinerCore(c, script, viewOf, { baseline: P1 }) }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    expect(reportOf(r.kernel).leverOrderBinding).toBe(true)
+    expect(out.every((rec) => rec.horizon === 1)).toBe(true)
+  })
+
+  it("reports the STAGED row's horizon, not the table's shallowest", async () => {
+    // `stageAndGate` used to pass `min over rows` while the forced path passed
+    // the staged row's own, so one field meant two things on two paths into it.
+    // The table here is shallowest at 1 and the row that reaches the wire was
+    // proved at 3; the emission is about the plan on the wire.
+    const r = rig([
+      step({ plan: P2, worst: 1, best: 9, horizon: 1 }),
+      step({ plan: P3, worst: 5, best: 6, horizon: 3 }),
+    ])
+    const out = await collect(r.kernel.decide(r.input()))
+    const last = out[out.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    expect(last.horizon).toBe(3)
+    // The shallow rival is still in the table — this is not "the table went
+    // deep", it is "the staged row did".
+    expect(out.some((rec) => rec.horizon === 1)).toBe(true)
+  })
+})
+
+describe("root slack is a rival quantity (06 F-9)", () => {
+  it("reports max_R(R.hi − L.lo) from `run.plans`, with no lever surface at all", async () => {
+    // THE RIVAL SET WAS NEVER MISSING. `rows()` builds its table from
+    // `run.plans` whether or not a refiner exists, so the rivals are in hand on
+    // every decision; the old guard asked `run.lastView !== null`, which has
+    // never been true in production, and the field silently degraded to the
+    // leader's own bound gap — a different quantity wearing the same name.
+    const wide = new StubEvaluator(() => ({ lo: -2, est: 0, hi: 0 }))
+    const r = rig(
+      [
+        step({ plan: P2, worst: 1, best: 9 }), // the loose rival nobody refuted
+        step({ plan: P3, worst: 5, best: 6 }), // the leader, on a tight bracket
+      ],
+      {},
+      { evaluator: wide }
+    )
+    const out = await collect(r.kernel.decide(r.input()))
+    // No refiner: the lever order was advisory, and slack is real regardless.
+    expect(reportOf(r.kernel).leverOrderBinding).toBe(false)
+    const last = out[out.length - 1]
+    expect(planKey(last.plan)).toBe(planKey(P3))
+    // P2's ceiling is 9 and the leader's floor is 5: four points of the
+    // decision are still open. The leader's own gap is 1, and reporting that
+    // would say the decision is nearly settled when it is not.
+    expect(last.slack).toBe(4)
+    expect(last.hi - last.lo).toBe(1)
   })
 })
 

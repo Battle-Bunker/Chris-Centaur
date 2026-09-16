@@ -1,7 +1,10 @@
-import { eq, sql } from 'drizzle-orm';
-import { db, dbConfigured } from '../database/db';
-import { transientDelay } from '../server/activity-controller';
-import { commandEvents, commandTurnStates } from '../database/schema';
+import { and, gte, lte, sql } from 'drizzle-orm';
+import { db } from '../database/db';
+import { turnEvents } from '../database/schema';
+import { encodeEventRow } from '../lens/store';
+import { writeEventRows } from '../lens/store/persistence';
+import { WriteQueue } from './write-queue';
+import type { SelectionPayload, TurnEvent, TurnEventRow } from '../lens/types';
 
 // The operator identity attached to commands: the enrolled player who issued
 // the command, with the stable per-game colour their commands render in.
@@ -11,75 +14,65 @@ export interface OperatorRef {
   color: string;
 }
 
-// One command event as handed to logEvent. `turn` is the board turn that was
-// current when the command was issued; `operator` is null for system events
-// (e.g. a goto queue shifting on arrival).
-export interface CommandEventEntry {
-  gameId: string;
-  snakeId: string | null;
-  turn: number;
-  eventType: string;
-  operator: OperatorRef | null;
-  payload: unknown;
-}
-
-// Compact pre-serialized rows (same pattern as DecisionLogger): only
-// primitives + already-stringified JSON, so the source object graphs are
-// GC-eligible the moment logEvent/logTurnState returns.
-interface SerializedEvent {
-  gameId: string;
-  snakeId: string | null;
-  turn: number;
-  eventType: string;
-  operatorId: string | null;
-  operatorName: string | null;
-  operatorColor: string | null;
-  payloadJson: string | null;
+interface QueueItem {
+  row: TurnEventRow;
+  /**
+   * Whether losing this row costs anything. See `write-queue.ts`'s drop
+   * preference: only an ATTENTION tick is droppable. Everything else is a
+   * fact about what happened, and the `seq` sequence it sits in is asserted
+   * gapless.
+   */
+  droppable: boolean;
   retries: number;
 }
-
-interface SerializedTurnState {
-  gameId: string;
-  turn: number;
-  stateJson: string;
-  retries: number;
-}
-
-type QueueItem =
-  | { kind: 'event'; row: SerializedEvent }
-  | { kind: 'turnState'; row: SerializedTurnState };
-
-const BATCH_SIZE = 100;
 
 /**
- * Async, non-blocking writer for operator command events and per-turn command
- * state snapshots (see the schema comments on command_events /
- * command_turn_states). Mirrors DecisionLogger's queue-worker design: enqueue
- * is synchronous and never throws into the game path; a background loop
- * batches inserts with per-row retry fallback. Does NOT own the pg pool —
- * shutdown() only flushes.
+ * The `turn_events` writer.
+ *
+ * The manager assigns `seq`; this class only gets the row to Postgres. It
+ * keeps the queue-worker design the old command log had — a synchronous,
+ * exception-free enqueue that never throws into the game path, and a
+ * background loop that batches inserts with per-row retry fallback — because
+ * that discipline was never the problem. What changed underneath it is the
+ * SHAPE: one event log with a total order and operator attribution on every
+ * row, in place of `command_events` beside a `command_turn_states` snapshot of
+ * the live broadcast shape. The snapshot was a copy of a fold's OUTPUT kept
+ * next to the inputs that generate it, with nothing able to regenerate it;
+ * folding `turn_events` is what replaces it, and the fold is the same function
+ * the live client runs, so it cannot drift from the live path either.
+ *
+ * Does NOT own the pg pool — `shutdown()` only flushes.
  */
 export class CommandLogger {
   private static instance: CommandLogger;
 
-  private readonly MAX_QUEUE_SIZE = 20000;
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY_MS = 100;
-  private queue: QueueItem[] = [];
-  private droppedCount = 0;
-  // O(1) support for the drop preference in enqueue(): how many queued items
-  // are droppable (kind !== 'turnState'), and the index below which the queue
-  // is known to hold only turn-state items, so the drop scan never re-reads
-  // that prefix. Invariant: queue[i].kind === 'turnState' for all i < dropScanFrom.
-  private droppableCount = 0;
-  private dropScanFrom = 0;
+  private readonly wq: WriteQueue<QueueItem>;
 
-  private workerRunning = true;
-  private workerPromise: Promise<void>;
-  private wakeup: (() => void) | null = null;
-
-  private constructor() {
-    this.workerPromise = this.runWorkerLoop();
+  private constructor(maxQueue = 20000) {
+    this.wq = new WriteQueue<QueueItem>({
+      name: 'CommandLogger',
+      maxQueue,
+      droppable: item => item.droppable,
+      describe: item => `${item.row.kind} at ${item.row.gameId}:${item.row.turn}:${item.row.seq}`,
+      // ONE bulk insert per batch, falling back to per-row retry only when the
+      // bulk insert throws — `turn_events` has no cross-row foreign keys
+      // within a batch, so there is no ordering requirement to preserve.
+      flush: async (batch, retry) => {
+        try {
+          await writeEventRows(batch.map(i => i.row));
+        } catch (error) {
+          console.warn(
+            `[CommandLogger] Batch event insert failed (${batch.length} rows), falling back to per-row retry:`,
+            (error as Error).message
+          );
+          for (const item of batch) {
+            await retry(item);
+          }
+        }
+      },
+      write: item => writeEventRows([item.row]),
+      shutdownMs: 2000,
+    });
   }
 
   public static getInstance(): CommandLogger {
@@ -89,251 +82,126 @@ export class CommandLogger {
     return CommandLogger.instance;
   }
 
-  public logEvent(entry: CommandEventEntry): void {
-    let payloadJson: string | null = null;
+  /**
+   * Append one already-sequenced event. The caller is the ONE writer for its
+   * `(gameId, turn)`; nothing here assigns or reorders anything, because a
+   * second opinion about `seq` is precisely the failure the single writer
+   * exists to prevent.
+   */
+  public logEvent(event: TurnEvent): void {
+    let row: TurnEventRow;
     try {
-      payloadJson = entry.payload === undefined ? null : JSON.stringify(entry.payload);
+      row = encodeEventRow(event);
+      // Serialise once, here, so a payload that cannot be stored is caught at
+      // the game path's doorstep rather than in the worker three batches later.
+      JSON.stringify(row.payload);
     } catch (e) {
-      console.error('[CommandLogger] Failed to serialize event payload, logging without it:', e);
-    }
-    this.enqueue({
-      kind: 'event',
-      row: {
-        gameId: entry.gameId,
-        snakeId: entry.snakeId,
-        turn: entry.turn,
-        eventType: entry.eventType,
-        operatorId: entry.operator?.userId ?? null,
-        operatorName: entry.operator?.name ?? null,
-        operatorColor: entry.operator?.color ?? null,
-        payloadJson,
-        retries: 0,
-      },
-    });
-  }
-
-  public logTurnState(gameId: string, turn: number, state: unknown): void {
-    let stateJson: string;
-    try {
-      stateJson = JSON.stringify(state);
-    } catch (e) {
-      console.error('[CommandLogger] Failed to serialize turn state, dropping:', e);
+      console.error('[CommandLogger] Failed to serialize event, dropping:', e);
       return;
     }
-    this.enqueue({ kind: 'turnState', row: { gameId, turn, stateJson, retries: 0 } });
+    this.wq.enqueue({ row, droppable: isAttention(event), retries: 0 });
   }
 
-  // When full, prefer dropping the oldest non-turnState item (same preference
-  // as DecisionLogger): turn-state snapshots are captured once per turn and
-  // never re-delivered, so losing one punches a permanent hole in the replay's
-  // command overlays, while a dropped command event costs one audit row.
-  private enqueue(item: QueueItem): void {
-    // No database configured: skip persistence entirely (announced once at
-    // boot by db.ts) instead of queueing rows destined for per-row retry spam
-    // against a socket that can never connect.
-    if (!dbConfigured) return;
-    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      let dropIdx = 0;
-      if (this.droppableCount > 0) {
-        // Amortized O(1): everything before dropScanFrom is turn-state, so
-        // resume the scan there; droppableCount > 0 guarantees a hit.
-        let i = this.dropScanFrom;
-        while (this.queue[i].kind === 'turnState') i++;
-        dropIdx = i;
-        this.dropScanFrom = i;
-      }
-      const dropped = this.queue.splice(dropIdx, 1)[0];
-      if (dropped.kind !== 'turnState') this.droppableCount--;
-      if (dropIdx < this.dropScanFrom) this.dropScanFrom--;
-      this.droppedCount++;
-      if (this.droppedCount % 100 === 0) {
-        console.warn(`[CommandLogger] Queue full! Dropped ${this.droppedCount} total entries. Last dropped: kind=${dropped.kind}`);
-      }
-    }
-    this.queue.push(item);
-    if (item.kind !== 'turnState') this.droppableCount++;
-    this.signalWakeup();
-  }
-
-  private signalWakeup(): void {
-    if (this.wakeup) {
-      const w = this.wakeup;
-      this.wakeup = null;
-      w();
-    }
-  }
-
-  private waitForWork(): Promise<void> {
-    return new Promise<void>(resolve => {
-      this.wakeup = resolve;
-    });
-  }
-
-  private async runWorkerLoop(): Promise<void> {
-    while (this.workerRunning || this.queue.length > 0) {
-      if (this.queue.length === 0) {
-        if (!this.workerRunning) break;
-        await this.waitForWork();
-        continue;
-      }
-
-      const batch = this.queue.splice(0, BATCH_SIZE);
-      this.dropScanFrom = Math.max(0, this.dropScanFrom - batch.length);
-      const events = batch
-        .filter((i): i is { kind: 'event'; row: SerializedEvent } => i.kind === 'event')
-        .map(i => i.row);
-      const states = batch
-        .filter((i): i is { kind: 'turnState'; row: SerializedTurnState } => i.kind === 'turnState')
-        .map(i => i.row);
-      this.droppableCount -= events.length;
-
-      if (events.length > 0) {
-        try {
-          await this.insertEvents(events);
-        } catch (error) {
-          console.warn(`[CommandLogger] Batch event insert failed (${events.length} rows), falling back to per-row retry:`, (error as Error).message);
-          for (const row of events) {
-            await this.withRetry(() => this.insertEvents([row]), row, 'event');
-          }
-        }
-      }
-
-      for (const row of states) {
-        await this.withRetry(() => this.insertTurnState(row), row, 'turnState');
-      }
-    }
-  }
-
-  private async insertEvents(rows: SerializedEvent[]): Promise<void> {
-    if (rows.length === 0) return;
-    await db.insert(commandEvents).values(
-      rows.map(r => ({
-        gameId: r.gameId,
-        snakeId: r.snakeId,
-        turn: r.turn,
-        eventType: r.eventType,
-        operatorId: r.operatorId,
-        operatorName: r.operatorName,
-        operatorColor: r.operatorColor,
-        payload: r.payloadJson === null ? null : sql`${r.payloadJson}::jsonb`,
-      })),
-    );
-  }
-
-  private async insertTurnState(row: SerializedTurnState): Promise<void> {
-    // A turn resolves exactly once per game, but process restarts / replayed
-    // snapshots must never poison the queue — first write wins.
-    await db
-      .insert(commandTurnStates)
-      .values({
-        gameId: row.gameId,
-        turn: row.turn,
-        state: sql`${row.stateJson}::jsonb`,
-      })
-      .onConflictDoNothing();
-  }
-
-  private async withRetry(
-    op: () => Promise<void>,
-    row: { retries: number; gameId: string; turn: number },
-    label: string
-  ): Promise<void> {
-    while (true) {
-      try {
-        await op();
-        return;
-      } catch (error) {
-        row.retries++;
-        if (row.retries > this.MAX_RETRIES) {
-          console.error(`[CommandLogger] Failed to write ${label} after ${this.MAX_RETRIES} retries for game ${row.gameId}, turn ${row.turn}:`, error);
-          this.droppedCount++;
-          return;
-        }
-        const delay = this.RETRY_DELAY_MS * Math.pow(2, row.retries - 1) * (0.5 + Math.random() * 0.5);
-        await transientDelay(delay);
-      }
-    }
-  }
-
-  // Everything the history viewer needs for one game: the raw command events
-  // in issue order, and the per-turn command-state snapshots keyed by the
-  // board turn they describe the END of.
+  /**
+   * One game's operator-visible history: every event an operator authored, in
+   * `(turn, seq)` order, with the identity that authored it.
+   *
+   * `command_turn_states` used to ride along here as a per-turn snapshot the
+   * history viewer fed straight into the live render paths. It is gone: the
+   * client folds these events through the same reducer the live client uses,
+   * which is a stronger form of the same intent — the same state machine over
+   * the same event type, rather than two representations of one state that
+   * disagree on a schedule.
+   */
   public async getGameCommands(gameId: string): Promise<{
     events: Array<{
-      id: number;
-      timestamp: Date | string;
+      id: string;
       turn: number;
-      snake_id: string | null;
-      event_type: string;
+      seq: number;
+      kind: string;
+      at_wall: number;
+      unit: string | null;
       operator: OperatorRef | null;
       payload: unknown;
     }>;
-    turnStates: { [turn: number]: unknown };
   }> {
     try {
-      const [eventRows, stateRows] = await Promise.all([
-        db
-          .select({
-            id: commandEvents.id,
-            timestamp: commandEvents.timestamp,
-            turn: commandEvents.turn,
-            snakeId: commandEvents.snakeId,
-            eventType: commandEvents.eventType,
-            operatorId: commandEvents.operatorId,
-            operatorName: commandEvents.operatorName,
-            operatorColor: commandEvents.operatorColor,
-            payload: commandEvents.payload,
-          })
-          .from(commandEvents)
-          .where(eq(commandEvents.gameId, gameId))
-          .orderBy(commandEvents.id),
-        db
-          .select({
-            turn: commandTurnStates.turn,
-            state: commandTurnStates.state,
-          })
-          .from(commandTurnStates)
-          .where(eq(commandTurnStates.gameId, gameId))
-          .orderBy(commandTurnStates.turn),
-      ]);
+      const rows = await db
+        .select({
+          turn: turnEvents.turn,
+          seq: turnEvents.seq,
+          kind: turnEvents.kind,
+          atWall: turnEvents.atWall,
+          actorKind: turnEvents.actorKind,
+          actorId: turnEvents.actorId,
+          actorName: turnEvents.actorName,
+          actorColor: turnEvents.actorColor,
+          unitKey: turnEvents.unitKey,
+          payload: turnEvents.payload,
+        })
+        .from(turnEvents)
+        .where(sql`${turnEvents.gameId} = ${gameId} AND ${turnEvents.actorKind} = 'operator'`)
+        .orderBy(turnEvents.turn, turnEvents.seq);
 
-      const turnStates: { [turn: number]: unknown } = {};
-      for (const row of stateRows) {
-        turnStates[row.turn] = row.state;
-      }
       return {
-        events: eventRows.map(r => ({
-          id: r.id,
-          timestamp: r.timestamp,
+        events: rows.map(r => ({
+          id: `${gameId}:${r.turn}:${r.seq}`,
           turn: r.turn,
-          snake_id: r.snakeId,
-          event_type: r.eventType,
-          operator: r.operatorId
-            ? { userId: r.operatorId, name: r.operatorName || 'Player', color: r.operatorColor || '#888888' }
+          seq: r.seq,
+          kind: r.kind,
+          at_wall: r.atWall,
+          unit: r.unitKey,
+          operator: r.actorId
+            ? {
+                userId: r.actorId,
+                name: r.actorName || 'Player',
+                color: r.actorColor || '#888888',
+              }
             : null,
           payload: r.payload,
         })),
-        turnStates,
       };
     } catch (error) {
-      console.error('[CommandLogger] Failed to query game commands:', error);
-      return { events: [], turnStates: {} };
+      console.error('[CommandLogger] Failed to query game events:', error);
+      return { events: [] };
     }
   }
 
-  public async clearOldCommands(daysToKeep: number = 7): Promise<void> {
+  /**
+   * The hot window's floor. `turn_events` is hot for 30 days and then folded
+   * to a per-turn digest (04 §4.3) — this is the crude form of that fold, and
+   * it is safe to run because the board (`turn_boards`) and the basis
+   * (`decisions`) are retained forever: what it removes is latency, not the
+   * turn.
+   */
+  public async clearOldEvents(daysToKeep: number = 7): Promise<void> {
     try {
-      await db.execute(sql`
-        DELETE FROM command_events
-        WHERE timestamp < NOW() - (${daysToKeep} * INTERVAL '1 day')
-      `);
-      await db.execute(sql`
-        DELETE FROM command_turn_states
-        WHERE created_at < NOW() - (${daysToKeep} * INTERVAL '1 day')
-      `);
-      console.log(`[CommandLogger] Cleared command logs older than ${daysToKeep} days`);
+      const floor = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
+      await db.delete(turnEvents).where(lte(turnEvents.atWall, floor));
+      console.log(`[CommandLogger] Cleared turn events older than ${daysToKeep} days`);
     } catch (error) {
-      console.error('[CommandLogger] Failed to clear old command logs:', error);
+      console.error('[CommandLogger] Failed to clear old turn events:', error);
+    }
+  }
+
+  /** One turn's events, oldest first. The replay source's read path. */
+  public async getTurnEvents(gameId: string, fromTurn: number, toTurn: number): Promise<unknown[]> {
+    try {
+      const rows = await db
+        .select({ payload: turnEvents.payload })
+        .from(turnEvents)
+        .where(
+          and(
+            sql`${turnEvents.gameId} = ${gameId}`,
+            gte(turnEvents.turn, fromTurn),
+            lte(turnEvents.turn, toTurn)
+          )
+        )
+        .orderBy(turnEvents.turn, turnEvents.seq);
+      return rows.map(r => r.payload);
+    } catch (error) {
+      console.error('[CommandLogger] Failed to query turn events:', error);
+      return [];
     }
   }
 
@@ -345,22 +213,14 @@ export class CommandLogger {
   // bounded shutdown-flush): an unreachable database must cost seconds, not
   // minutes, of shutdown time.
   public async shutdown(timeoutMs = 2000): Promise<void> {
-    console.log(`[CommandLogger] Shutting down, flushing ${this.queue.length} queued entries...`);
-    this.workerRunning = false;
-    this.signalWakeup();
-    const flushed = await Promise.race([
-      this.workerPromise.then(() => true),
-      transientDelay(timeoutMs).then(() => false),
-    ]);
-    if (!flushed) {
-      console.warn(
-        `[CommandLogger] Shutdown flush deadline (${timeoutMs}ms) reached; ` +
-        `dropping ${this.queue.length} unflushed entries.`
-      );
-      return;
-    }
-    if (this.droppedCount > 0) {
-      console.warn(`[CommandLogger] Shutdown complete. Total dropped entries: ${this.droppedCount}`);
-    }
+    await this.wq.shutdown(timeoutMs);
   }
+}
+
+/** An attention tick: focus and candidate hover ride `selection` with
+ *  `hover: true` rather than being a kind of their own. They fund compute, so
+ *  they must reach the kernel; they are numerous and low-grade, so they are
+ *  the one thing a full queue may throw away. */
+function isAttention(event: TurnEvent): boolean {
+  return event.kind === 'selection' && (event.payload as SelectionPayload).hover === true;
 }

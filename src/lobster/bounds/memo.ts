@@ -13,24 +13,18 @@
  * path-sensitive key plus the scoring team, so the evaluator's internal
  * resolve is a hit on the entry the bank's call filled.
  *
- * THE SLAB CONTRACT, MEMOIZED. A cached resolution's slab stays BORROWED for
- * as long as the entry lives, because a later hit may hand it to an evaluator
- * that reads live unit views off it. The memo therefore owns the release:
- * an evicted entry's slab goes back at once, and `release()` returns every
- * cached slab — WITHOUT releasing the inner substrate, which the memo borrows
- * and never owns (a modelled sibling wrapped by `withModelled` releases
- * itself; a released sibling's release is a no-op by the sibling contract).
- * The bank calls `release()` when it closes, so `outstanding()` returns to
- * its between-decisions baseline the moment a search call ends.
+ * NOTHING IS BORROWED ANY MORE. A settlement is a plain value — settlement
+ * allocates per call and owns no arena — so an entry is dropped by forgetting
+ * it, and eviction has nothing to hand back. What survives is the BUDGET: the
+ * cache is bounded because a decision at 26 units prices tens of thousands of
+ * plans and a settlement is not small.
  *
- * ONE BUDGET, NOT ONE PER VIEW. `capacity` is a SLAB budget, and slabs come
- * from one arena: a memo whose children each kept their own capacity-sized
- * cache had a real ceiling of `capacity × views`, which measured 9754
- * outstanding slabs at 26 units against a nominal 4096 — 27 MB of ArrayBuffer
- * per engine, over the process cap once a few geometries are live. The store
- * below is SHARED down the whole family: every view writes into it, eviction
- * is global and oldest-first, and each entry remembers which substrate owes
- * its slab back. `stats.slabs` and `stats.peakSlabs` are what a soak reads.
+ * ONE BUDGET, NOT ONE PER VIEW. A memo whose children each kept their own
+ * capacity-sized cache had a real ceiling of `capacity × views`, which
+ * measured 9754 retained resolutions at 26 units against a nominal 4096. The
+ * store below is SHARED down the whole family: every view writes into it and
+ * eviction is global and oldest-first. `stats.retained` and `stats.peak` are
+ * what a soak reads.
  *
  * It is a PROXY, not a subclass, and that is deliberate. A substrate is
  * allowed to carry capabilities beyond the pinned interface, and a
@@ -45,17 +39,17 @@
  */
 
 import type { BoundedResolution, JointPlan, Substrate } from "../contracts";
-import { planKey } from "./plan";
+import { KeyedPlan, planKey } from "./plan";
 
 export interface MemoStats {
   /** Real engine resolutions — the number the budget is denominated in. */
   readonly resolutions: number;
   readonly hits: number;
-  /** Cached resolutions holding a slab RIGHT NOW, across every view. */
-  readonly slabs: number;
+  /** Resolutions retained RIGHT NOW, across every view. */
+  readonly retained: number;
   /** The high-water mark of the above, for the soak. */
-  readonly peakSlabs: number;
-  /** The shared ceiling `slabs` is held under. */
+  readonly peak: number;
+  /** The shared ceiling `retained` is held under. */
   readonly capacity: number;
 }
 
@@ -66,8 +60,6 @@ export interface MemoizedSubstrate extends Substrate {
 
 interface Entry {
   readonly resolution: BoundedResolution;
-  /** Who to hand the slab back to. A sibling's slabs are the sibling's. */
-  readonly owner: Substrate;
 }
 
 /** The family's shared cache: one budget, one eviction order. */
@@ -96,16 +88,52 @@ function wrap(
     while (store.entries.size > store.capacity) {
       const oldest = store.entries.keys().next();
       if (oldest.done) return;
-      const evicted = store.entries.get(oldest.value);
       store.entries.delete(oldest.value);
-      // Cheapest sound eviction: drop the oldest insertion and return its slab
-      // at once, to whichever view actually borrowed it.
-      if (evicted !== undefined) evicted.owner.releaseResolution(evicted.resolution.resolution);
     }
   };
 
+  /**
+   * THIS VIEW'S COMPOSITE KEY, PER PLAN OBJECT.
+   *
+   * Every branch asks this door twice with the SAME plan object — once from
+   * `priceBranch` for the bounded resolve, and once from the evaluator's
+   * `withResolution` below it — and both calls rebuilt a ~120-character key by
+   * concatenating the view prefix, the frame and the plan key. The `WeakMap`
+   * is per view (it is a closure field, and the prefix is fixed for the life
+   * of the closure), so the string it holds is exactly the key that view would
+   * have built, and the frame is checked because the same plan is priced from
+   * more than one frame in the harness.
+   */
+  const composed = new WeakMap<object, { team: number; key: string }>();
+  /** This view's half of a `KeyedPlan.slotTag`. `asTeam` is a team index, so
+   *  a thousand of them per view is room the roster will never use. */
+  const slotBase = viewId * 1024;
+
+  const keyFor = (plan: JointPlan, asTeam: number): string => {
+    // A plan built by `withMove`/`withMoves` carries the slot itself, so the
+    // composite key costs a property load rather than an ephemeron lookup —
+    // and the SAME STRING OBJECT comes back every time, which is what makes
+    // the `store.entries` lookup below hash it once instead of once per call.
+    // Measured at 4.6% (`keyFor`) plus 3.2% (`resolveBoundedFor`) of the
+    // kernel's decision time before this. Anything else — a literal `new Map`,
+    // a test fixture — keeps the WeakMap.
+    if (plan instanceof KeyedPlan) {
+      const tag = slotBase + asTeam;
+      if (plan.slotTag === tag) return plan.slotKey as string;
+      const built = `${prefix}${asTeam}#${planKey(plan)}`;
+      plan.slotTag = tag;
+      plan.slotKey = built;
+      return built;
+    }
+    const hit = composed.get(plan as object);
+    if (hit !== undefined && hit.team === asTeam) return hit.key;
+    const made = `${prefix}${asTeam}#${planKey(plan)}`;
+    composed.set(plan as object, { team: asTeam, key: made });
+    return made;
+  };
+
   const resolveBoundedFor = (plan: JointPlan, asTeam: number): BoundedResolution => {
-    const key = `${prefix}${asTeam}#${planKey(plan)}`;
+    const key = keyFor(plan, asTeam);
     const hit = store.entries.get(key);
     if (hit !== undefined) {
       store.hits++;
@@ -113,35 +141,23 @@ function wrap(
     }
     store.misses++;
     const value = inner.resolveBoundedFor(plan, asTeam);
-    store.entries.set(key, { resolution: value, owner: inner });
+    store.entries.set(key, { resolution: value });
     evict();
     if (store.entries.size > store.peak) store.peak = store.entries.size;
     return value;
   };
 
-  // The evaluator's door, served from the same cache — and NEVER releasing,
-  // because the memo owns the cached slab for the entry's whole life.
+  // The evaluator's door, served from the same cache.
   const withResolution = <T>(
     plan: JointPlan,
     asTeam: number,
     fn: (r: BoundedResolution) => T,
   ): T => fn(resolveBoundedFor(plan, asTeam));
 
-  // A caller that releases a resolution the memo still caches would free a
-  // slab a later hit hands back out. Releases are deferred to eviction and to
-  // release(); a resolution the memo has never seen is passed through.
-  const releaseResolution = (resolution: BoundedResolution["resolution"]): void => {
-    for (const entry of store.entries.values()) {
-      if (entry.resolution.resolution === resolution) return;
-    }
-    inner.releaseResolution(resolution);
-  };
-
   const release = (): void => {
-    for (const [key, entry] of [...store.entries]) {
+    for (const key of [...store.entries.keys()]) {
       if (!key.startsWith(prefix)) continue;
       store.entries.delete(key);
-      entry.owner.releaseResolution(entry.resolution.resolution);
     }
     // The decision's own substrate is BORROWED, never owned: the decision that
     // built it releases it, and this memo returns only what it cached. A
@@ -163,12 +179,29 @@ function wrap(
   const withModelled =
     typeof inner.withModelled === "function"
       ? (modelled: ReadonlyArray<number>): Substrate =>
-          // Children share the parent's counters AND its slab budget, so the
+          // Children share the parent's counters AND its budget, so the
           // budget sees ONE number for the whole decision rather than one per
           // hold configuration. The child wrap OWNS its sibling: releasing the
           // view releases the sibling.
           wrap(inner.withModelled(modelled), store, ++store.nextView, true)
       : undefined;
+
+  /**
+   * FORWARDED METHODS, BOUND ONCE.
+   *
+   * The `get` trap below runs on EVERY property access the evaluator, the
+   * bank and the search make through the wrapper — measured at 2.9% of total
+   * self time on `mixed 20 1 --nodes`, and the `.bind()` in the default arm
+   * allocated a fresh function object on every one of them, which is pure
+   * garbage on the hottest path in the system. A method is a prototype
+   * function and the bind target is the one `inner` this closure captured, so
+   * the bound wrapper is a constant: build it once, keep it here.
+   *
+   * ONLY functions are cached. Data properties (`released`, and anything a
+   * substrate exposes as a field) still go through `Reflect.get` on every
+   * read, because their VALUES move and a cached one would be a stale answer.
+   */
+  const forwarded = new Map<PropertyKey, (...a: never[]) => unknown>();
 
   return new Proxy(inner, {
     get(target, prop, receiver): unknown {
@@ -177,8 +210,6 @@ function wrap(
           return resolveBoundedFor;
         case "withResolution":
           return withResolution;
-        case "releaseResolution":
-          return releaseResolution;
         case "release":
           return release;
         case "resetStats":
@@ -187,17 +218,22 @@ function wrap(
           return {
             resolutions: store.misses,
             hits: store.hits,
-            slabs: store.entries.size,
-            peakSlabs: store.peak,
+            retained: store.entries.size,
+            peak: store.peak,
             capacity: store.capacity,
           } satisfies MemoStats;
         case "withModelled":
           return withModelled;
         default: {
+          const bound = forwarded.get(prop);
+          if (bound !== undefined) return bound;
           const value = Reflect.get(target, prop, receiver);
           // Bind so a forwarded method still sees the real substrate as
           // `this` — a proxy receiver would miss its private fields.
-          return typeof value === "function" ? (value as (...a: never[]) => unknown).bind(target) : value;
+          if (typeof value !== "function") return value;
+          const made = (value as (...a: never[]) => unknown).bind(target);
+          forwarded.set(prop, made);
+          return made;
         }
       }
     },

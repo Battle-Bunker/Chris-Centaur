@@ -12,6 +12,7 @@
  */
 
 import type { Board as ApiBoard, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import { piece as sharedPiece } from './board-fixtures';
 import type { PinEvent, UnitId } from '../lobster/contracts';
 import type { KernelReport } from '../lobster/kernel';
 import { clearGeometryCache, makeSubstrate } from '../lobster/substrate';
@@ -32,25 +33,10 @@ class StepClock {
   };
 }
 
-function makeSnakeUnit(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
+// Local adapter: this file's `piece` takes `teamID` as a fifth positional,
+// not in `extra` — see SIMPLIFY-PLAN-3.md item 1.
 const piece = (id: string, at: Coord, unitType: string, weight: number, teamID: string): Snake =>
-  makeSnakeUnit(id, [at], { unitType, length: weight, teamID } as Partial<Snake>);
+  sharedPiece(id, at, unitType, weight, { teamID });
 
 const board = (): ApiBoard =>
   ({
@@ -92,7 +78,6 @@ function fakePorts(registry: ReadonlyArray<string>): FakePorts {
       };
     },
     pinSnakeIdOf: (_g, unitId) => registry[unitId] ?? null,
-    logDecision: () => undefined,
     now: () => WALL,
     monotonic: clock.now,
     log: () => undefined,
@@ -310,6 +295,10 @@ describe('the turn boundary discards the operator state, silently and completely
       invalidations: 0,
       evictions: 0,
       creates: 1,
+      // [CHANGE 2]'s counter, shipped with the change it defends: this turn
+      // had no epoch, so nothing went looking for a hover to promote.
+      promotionAttempts: 0,
+      promotions: 0,
     });
   }, 60_000);
 });

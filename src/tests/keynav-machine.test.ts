@@ -20,24 +20,25 @@
  *     resets the axis to the wire orientation;
  *   - pawn keys resolve through one table: forward, rotations, diagonal
  *     chords, retract-to-hold;
- *   - the axis rings derive from the same per-type legal orientation sets as the
- *     engine (legalOrientations in src/logic/piece-moves.ts).
+ *   - the axis ring is DERIVED FROM THE UNIT'S OWN CANDIDATE OFFSETS
+ *     (`ringOf`), never from a per-type table in the client: these tests build
+ *     each ring the way the page does, out of the offsets the engine's own
+ *     orientation sets describe (legalOrientations in
+ *     src/logic/staging-legality.ts).
  */
-import { legalOrientations } from '../logic/piece-moves';
+import { legalOrientations } from '../logic/staging-legality';
+import type { UnitType } from '@shared/types/Game';
 
 const {
-  ORTHO_AXES,
-  DIAG_AXES,
-  ALL_AXES,
-  KNIGHT_AXES,
   NUMPAD_ORDER,
   arrowStep,
   numpadStep,
   pawnStep,
+  axisOf,
+  ringOf,
   deriveFromOffset,
   orientationOf,
   seedNav,
-  ringFor,
   numpadAxisFor,
 } = require('../web/keynav-machine.js');
 
@@ -46,6 +47,18 @@ type NavState = { axis: Axis | null; distance: number };
 type StepResult = { ok: boolean; axis?: Axis; distance?: number };
 
 const akey = (a: Axis) => `${a.dx},${a.dy}`;
+
+// A unit's axis ring the way the PAGE builds it: out of the offsets of the
+// candidates it was handed, with no per-type table anywhere in the client.
+// The offsets here are the engine's own orientation set for the type, which is
+// the shape `legalActions` hands the server one step out.
+const ringForType = (type: string | undefined) =>
+  ringOf(legalOrientations((type ?? 'snake') as UnitType).map((f) => ({ dx: f.dx, dy: -f.dy || 0 })));
+
+const ORTHO_AXES = ringForType('rook');
+const DIAG_AXES = ringForType('bishop');
+const ALL_AXES = ringForType('queen');
+const KNIGHT_AXES = ringForType('knight');
 
 // Context builder: per-axis reach comes from `dist` (keyed "dx,dy"), falling
 // back to `defaultDist` (0 = axis illegal). `orientation` is the unit's wire
@@ -57,14 +70,15 @@ function makeCtx(
     defaultDist?: number;
     canHold?: boolean;
     orientation?: Axis;
+    ring?: Axis[];
   } = {}
 ) {
   return {
-    ring: ringFor(unitType),
+    ring: opts.ring ?? ringForType(unitType),
     maxDist: (a: Axis) =>
       opts.dist && akey(a) in opts.dist ? opts.dist[akey(a)] : (opts.defaultDist ?? 0),
     canHold: opts.canHold ?? true,
-    axisFor: (digit: number) => numpadAxisFor(unitType, digit),
+    axisFor: (digit: number) => numpadAxisFor(digit, opts.ring ?? ringForType(unitType)),
     orientation: opts.orientation ?? { dx: 0, dy: 1 },
   };
 }
@@ -92,33 +106,40 @@ describe('axis rings derive from the engine orientation sets', () => {
     ['king', ALL_AXES],
     ['knight', KNIGHT_AXES],
   ])('%s ring = legalOrientations y-flipped, sorted clockwise from up', (type, ring) => {
-    const derived = legalOrientations(type as string)
+    const derived = legalOrientations(type as UnitType)
       .map((f) => ({ dx: f.dx, dy: -f.dy || 0 }))
       .sort((a, b) => cwFromUp(a) - cwFromUp(b));
     expect(ring).toEqual(derived);
   });
 
-  test('unit type → axis ring mapping (unknown types face orthogonally)', () => {
-    expect(ringFor('queen')).toBe(ALL_AXES);
-    expect(ringFor('king')).toBe(ALL_AXES);
-    expect(ringFor('rook')).toBe(ORTHO_AXES);
-    expect(ringFor(undefined)).toBe(ORTHO_AXES); // snakes
-    expect(ringFor('bishop').map(akey)).toEqual(['1,1', '1,-1', '-1,-1', '-1,1']);
-    expect(ringFor('knight')).toHaveLength(8);
+  test('the ring is the candidate offsets, gcd-reduced and deduped', () => {
+    // A slider is handed its whole ray; the ring is four axes, not twelve.
+    expect(
+      ringOf([
+        { dx: 1, dy: 0 }, { dx: 2, dy: 0 }, { dx: 3, dy: 0 },
+        { dx: 0, dy: -1 }, { dx: 0, dy: -2 },
+      ]).map(akey)
+    ).toEqual(['1,0', '0,-1']);
+    // A knight's L is its own primitive: 1 and 2 are coprime.
+    expect(axisOf(1, 2)).toEqual({ axis: { dx: 1, dy: 2 }, distance: 1 });
+    expect(axisOf(0, -4)).toEqual({ axis: { dx: 0, dy: -1 }, distance: 4 });
+    expect(ringForType(undefined).map(akey)).toEqual(ORTHO_AXES.map(akey)); // snakes
+    expect(DIAG_AXES.map(akey)).toEqual(['1,1', '1,-1', '-1,-1', '-1,1']);
+    expect(KNIGHT_AXES).toHaveLength(8);
   });
 
   test('every ring is clockwise: NUMPAD_ORDER indexes it as a compass', () => {
     // 8 up, 9 up-right, 6 right, … — the compass digits read the ring in
     // ring order.
     expect(NUMPAD_ORDER).toEqual([8, 9, 6, 3, 2, 1, 4, 7]);
-    expect(numpadAxisFor('queen', 8)).toEqual({ dx: 0, dy: 1 });
-    expect(numpadAxisFor('queen', 9)).toEqual({ dx: 1, dy: 1 });
-    expect(numpadAxisFor('queen', 6)).toEqual({ dx: 1, dy: 0 });
-    expect(numpadAxisFor('queen', 3)).toEqual({ dx: 1, dy: -1 });
-    expect(numpadAxisFor('queen', 2)).toEqual({ dx: 0, dy: -1 });
-    expect(numpadAxisFor('queen', 1)).toEqual({ dx: -1, dy: -1 });
-    expect(numpadAxisFor('queen', 4)).toEqual({ dx: -1, dy: 0 });
-    expect(numpadAxisFor('queen', 7)).toEqual({ dx: -1, dy: 1 });
+    expect(numpadAxisFor(8, ringForType('queen'))).toEqual({ dx: 0, dy: 1 });
+    expect(numpadAxisFor(9, ringForType('queen'))).toEqual({ dx: 1, dy: 1 });
+    expect(numpadAxisFor(6, ringForType('queen'))).toEqual({ dx: 1, dy: 0 });
+    expect(numpadAxisFor(3, ringForType('queen'))).toEqual({ dx: 1, dy: -1 });
+    expect(numpadAxisFor(2, ringForType('queen'))).toEqual({ dx: 0, dy: -1 });
+    expect(numpadAxisFor(1, ringForType('queen'))).toEqual({ dx: -1, dy: -1 });
+    expect(numpadAxisFor(4, ringForType('queen'))).toEqual({ dx: -1, dy: 0 });
+    expect(numpadAxisFor(7, ringForType('queen'))).toEqual({ dx: -1, dy: 1 });
   });
 
   test('knight numpad anchoring: the derived map matches the pinned values', () => {
@@ -135,7 +156,7 @@ describe('axis rings derive from the engine orientation sets', () => {
       1: { dx: -2, dy: -1 },
     };
     for (const [digit, axis] of Object.entries(pinned)) {
-      expect(numpadAxisFor('knight', Number(digit))).toEqual(axis);
+      expect(numpadAxisFor(Number(digit), ringForType('knight'))).toEqual(axis);
     }
   });
 
@@ -143,8 +164,8 @@ describe('axis rings derive from the engine orientation sets', () => {
     const opposite: Record<number, number> = { 8: 2, 9: 1, 6: 4, 3: 7, 2: 8, 1: 9, 4: 6, 7: 3 };
     for (const type of ['queen', 'knight']) {
       for (const [digit, opp] of Object.entries(opposite)) {
-        const a = numpadAxisFor(type, Number(digit));
-        const b = numpadAxisFor(type, Number(opp));
+        const a = numpadAxisFor(Number(digit), ringForType(type));
+        const b = numpadAxisFor(Number(opp), ringForType(type));
         expect({ dx: -a.dx || 0, dy: -a.dy || 0 }).toEqual(b);
       }
     }
@@ -165,13 +186,13 @@ describe('orientationOf: wire orientation → api axis', () => {
 
 describe('deriveFromOffset', () => {
   test('slider offset collapses to unit axis + Chebyshev distance', () => {
-    expect(deriveFromOffset('queen', 3, 3, null)).toEqual({ axis: { dx: 1, dy: 1 }, distance: 3 });
-    expect(deriveFromOffset('rook', 0, -4, null)).toEqual({ axis: { dx: 0, dy: -1 }, distance: 4 });
+    expect(deriveFromOffset(3, 3, null)).toEqual({ axis: { dx: 1, dy: 1 }, distance: 3 });
+    expect(deriveFromOffset(0, -4, null)).toEqual({ axis: { dx: 0, dy: -1 }, distance: 4 });
   });
 
   test('knight offset is its own axis at distance 1', () => {
-    expect(deriveFromOffset('knight', 1, 2, null)).toEqual({ axis: { dx: 1, dy: 2 }, distance: 1 });
-    expect(deriveFromOffset('knight', -2, -1, null)).toEqual({
+    expect(deriveFromOffset(1, 2, null)).toEqual({ axis: { dx: 1, dy: 2 }, distance: 1 });
+    expect(deriveFromOffset(-2, -1, null)).toEqual({
       axis: { dx: -2, dy: -1 },
       distance: 1,
     });
@@ -179,8 +200,8 @@ describe('deriveFromOffset', () => {
 
   test('zero offset (hold) keeps a previous axis as memory, else no axis', () => {
     const prev = { dx: 1, dy: -1 };
-    expect(deriveFromOffset('queen', 0, 0, prev)).toEqual({ axis: prev, distance: 0 });
-    expect(deriveFromOffset('queen', 0, 0, null)).toEqual({ axis: null, distance: 0 });
+    expect(deriveFromOffset(0, 0, prev)).toEqual({ axis: prev, distance: 0 });
+    expect(deriveFromOffset(0, 0, null)).toEqual({ axis: null, distance: 0 });
   });
 });
 
@@ -251,11 +272,17 @@ describe('arrow Left/Right rotate the legal axis ring', () => {
     expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx).ok).toBe(false);
   });
 
-  test('an off-ring current axis is impossible and throws (plain assertion, no recovery)', () => {
-    // Bishop on an orthogonal axis: no code path can produce this state.
+  test('an off-ring current axis walks on from where its bearing sits', () => {
+    // The ring is the unit's LIVE candidates, so it is allowed to be smaller
+    // than the unit's reach — a seeded orientation whose candidate is blocked
+    // is off-ring, and that is an ordinary turn, not a broken invariant. The
+    // walk resumes at the first ring axis clockwise of the bearing it holds.
     const ctx = makeCtx('bishop', { defaultDist: 2 });
-    expect(() => arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx)).toThrow(
-      'off the legal axis ring'
+    expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'right', ctx)).toEqual(
+      okStep({ dx: 1, dy: 1 }, 1)
+    );
+    expect(arrowStep(nav({ dx: 0, dy: 1 }, 1), 'left', ctx)).toEqual(
+      okStep({ dx: -1, dy: 1 }, 1)
     );
   });
 });

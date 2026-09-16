@@ -17,6 +17,7 @@ import { ActiveGameManager } from '../server/active-game-manager';
 import { GameState, Snake, Coord, CentaurMove, Direction } from '../types/battlesnake';
 import { apiCoordToIndex, toApiCoord } from '../firebase/translate';
 import { DEFAULT_CONFIG } from '../config/game-config';
+import { makeGameState as makeGameStateBase } from './board-fixtures';
 
 // Piece commands flow through the same command-event log as snake commands;
 // mock the logger so no DB writes leak out of the unit tests (same pattern as
@@ -73,13 +74,10 @@ function makeGameState(
   food: Coord[] = [],
   hazards: Coord[] = []
 ): GameState {
-  const you = snakes.find((s) => s.id === youId)!;
-  return {
+  return makeGameStateBase(gameId, turn, snakes, youId, {
     game: { id: gameId, ruleset: { name: 'teamsnek', version: 'v1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
-    turn,
     board: { width: 11, height: 11, food, hazards, snakes },
-    you,
-  };
+  });
 }
 
 interface Published {
@@ -507,7 +505,6 @@ describe('Chess-piece staging (numeric destinations through the goto intent)', (
       gameState: gsSnake,
       moveEvaluations: [],
       territoryCells: {},
-      safeMoves: ['up', 'down', 'left', 'right'],
       botRecommendation: 'right',
       timestamp: Date.now(),
     });
@@ -592,7 +589,6 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const stay = fullIdx({ x: 5, y: 5 });
     for (const e of evals) {
       expect(typeof e.move).toBe('number');
-      expect(e.numStates).toBe(0);
       expect(e.dest).toBeDefined();
       expect(e.kind).toBe(e.move === stay ? 'stay' : 'move');
       // No waypoint is active, so the projected health cost — squares
@@ -624,7 +620,6 @@ describe('Generalized candidate UI: stub evaluations, numeric manual staging, ro
     const stayEval = evals.find((e) => e.move === stay)!;
     expect(stayEval.dest).toEqual({ x: 5, y: 5 });
     // Other turn-data fields keep the snake contract shape.
-    expect(cs.latestTurnData!.safeMoves).toEqual([]);
     expect(cs.latestTurnData!.botRecommendation).toBeNull();
 
     // The previously-missing broadcast: the piece's turn intake notifies.

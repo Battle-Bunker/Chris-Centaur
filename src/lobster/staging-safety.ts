@@ -4,15 +4,15 @@
  *
  * ── WHY THIS FILE EXISTS ───────────────────────────────────────────────────
  *
- * `RiskAssessor.assessPath` states its own contract in its header:
+ * `pathrisk.assessPath` inherits the contract the risk fold stated:
  *
  *   "Encounters fold in the engine's own adjudication tier order (edge -> wall
  *    -> self -> arrival -> body — WALLS AND SELF-COLLISIONS ARE THE MOVER'S OWN
  *    DETERMINISTIC FACTS AND ARE ASSUMED PRE-FILTERED BY THE CALLER'S PATH
  *    LEGALITY; what folds here is the risk overlay)."
  *
- * The risk layer is a reading of the CLAIM FIELD — the units this decision
- * holds frozen. Our own units are MODELLED, so they contribute no claim slot,
+ * The risk fold is a reading of the SETTLEMENT — and the settlement is run with
+ * our own units modelled, so nothing in it stands in our own way. Our own units are MODELLED, so they contribute no claim slot,
  * so `entriesAt` returns nothing at our own body cells; and the perimeter is
  * terrain, which the fold reads only for hazard damage. Both classes therefore
  * come back `NO_RISK` and are assessed `safe`.
@@ -32,7 +32,7 @@
  * the terrain — position-independent, no other unit's choice in it, no
  * resolution, no search. It re-implements no rule: `certainlySelfFatal` is a
  * statement about the mover's own body and the terrain's own wall board, and
- * `killsOwnKing` asks the resolver's own comparator (`cmpLex`) who wins.
+ * `killsOwnKing` asks the rule's own comparator (`outranks`) who wins.
  *
  * ── WHAT IS AND IS NOT CERTAIN ─────────────────────────────────────────────
  *
@@ -68,8 +68,8 @@
  * mover that would sever is not refused.
  *
  * A wall cell kills whatever enters it, and only a trail unit can even stage
- * one (`profile.mayEnterWall`); a piece's off-board destination is not
- * enumerated at all.
+ * one — `legalTargets` offers a wall to a trail unit and to nothing else, and a
+ * piece's off-board destination is not a legal target at all.
  *
  * `killsOwnKing` is DIFFERENT and is labelled differently: it is certain only
  * while the king stands where it stands. The king may move. That makes it a
@@ -77,7 +77,8 @@
  * kept out of `certainlySelfFatal` for that reason.
  */
 
-import { bbTest, cmpLex, profileOf, scalarOf } from '../partial-engine/index';
+import { leavesTrail } from '../engine-vendor/engine/moveGrammar';
+import { outranks } from '../engine-vendor/engine/turnEngine';
 import type { EngineSubstrate, SubstrateUnit } from './substrate';
 import type { Candidate, CellIndex } from './contracts';
 
@@ -193,7 +194,7 @@ export function stagingSafety(): StagingSafety {
  * rules rather than inspecting wire types.
  */
 export function boardBearsPiece(sub: EngineSubstrate): boolean {
-  return sub.roster().some((unit) => !profileOf(unit.kind).leavesTrail);
+  return sub.roster().some((unit) => !leavesTrail(unit.type));
 }
 
 /**
@@ -261,21 +262,20 @@ export function certainlySelfFatal(
   candidate: Candidate
 ): SelfFatalKind | null {
   if (candidate.path.length === 0) return null; // a stay enters nothing
-  const profile = profileOf(unit.kind);
+  const trail = leavesTrail(unit.type);
 
-  // WALL. Only a kind that may stage one can have one enumerated; every cell of
-  // the path is tested because a ray that crosses the perimeter is the same
-  // death wherever on the ray it happens.
-  if (profile.mayEnterWall) {
-    for (const cell of candidate.path) {
-      if (bbTest(sub.terrain.wall, cell)) return 'wall';
-    }
+  // WALL. Only a trail unit can have one enumerated at all — a piece's
+  // off-board destination is not a legal target — and every cell of the path is
+  // tested because a ray that crosses the perimeter is the same death wherever
+  // on the ray it happens.
+  for (const cell of candidate.path) {
+    if (sub.isWall(cell)) return 'wall';
   }
 
   // OWN BODY. `cells[1 .. len-2]` is occupied next turn in every world: the body
   // shifts by one and only the tail vacates. Index 0 is the mover's own head,
   // which a trail unit cannot stage.
-  if (profile.leavesTrail && unit.cells.length >= 3) {
+  if (trail && unit.cells.length >= 3) {
     const last = unit.cells.length - 2;
     for (let i = 1; i <= last; i++) {
       if (candidate.path.includes(unit.cells[i] as CellIndex)) return 'own-body';
@@ -316,7 +316,7 @@ export function allyBodyCollision(
   for (const other of sub.roster()) {
     if (other.unitId === unit.unitId) continue;
     if (other.team !== unit.team || !modelled.has(other.unitId)) continue;
-    if (!profileOf(other.kind).leavesTrail) continue;
+    if (!leavesTrail(other.type)) continue;
     // A strictly higher tier SEVERS the body and lives (risk.ts bodyOutcome).
     if (unit.tier > other.tier) continue;
     const last = other.cells.length - 2; // the tail vacates
@@ -334,7 +334,7 @@ export function allyBodyCollision(
  * The rules give a king no friendly-fire exemption and spawn it at the lightest
  * weight on the board, so any team-mate that reaches its cell and wins-or-ties
  * the contest ends the whole team on the spot. Whether the mover wins is asked
- * of the RESOLVER'S OWN comparator, not restated here: `cmpLex(mover, king) >= 0`
+ * of the RESOLVER'S OWN comparator, not restated here: `!outranks(king, mover)`
  * is precisely the condition under which `headOutcome` reports the defender
  * defeated (a tie kills everyone, the king included).
  *
@@ -350,12 +350,14 @@ export function killsOwnKing(
 ): boolean {
   if (unit.isKing || candidate.path.length === 0) return false;
   if (!sub.regicideTeamNumbers().has(unit.team)) return false;
-  const mover = scalarOf(unit.tier, unit.weight);
+  const mover = { tier: unit.tier, weight: unit.weight };
   for (const other of sub.roster()) {
     if (!other.isKing || other.team !== unit.team || other.unitId === unit.unitId) continue;
     const seat = other.cells[0] as CellIndex;
     if (!candidate.path.includes(seat)) continue;
-    if (cmpLex(mover, scalarOf(other.tier, other.weight)) >= 0) return true;
+    // Wins-or-ties, asked of the rule: the king survives only if it strictly
+    // outranks the mover, because a tie kills everyone in it.
+    if (!outranks({ tier: other.tier, weight: other.weight }, mover)) return true;
   }
   return false;
 }

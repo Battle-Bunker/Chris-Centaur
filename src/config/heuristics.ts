@@ -4,21 +4,24 @@
  * slider range and copy, and which config-page section it renders under.
  *
  * Everything else is DERIVED from this table:
- *  - `HeuristicWeights` / `WeightedScores` / `HeuristicStats` types
- *    (board-evaluator re-exports them),
- *  - the BoardEvaluator default weights and its weighted-sum loops,
+ *  - `HeuristicWeights` / `WeightedScores` types,
  *  - `DEFAULT_CONFIG`'s heuristic half (config/game-config.ts),
- *  - the decision-engine `DecisionConfig['weights']` shape,
- *  - the strategy's config→weights extraction and per-move breakdown,
+ *  - the per-move breakdown a decision row carries,
  *  - the /api/config UI metadata that config.html renders its sliders from.
  *
- * Adding a heuristic = adding ONE entry here (plus computing its stat in
- * board-evaluator). Do not re-list heuristic names anywhere else.
+ * WHAT IS LEFT, AND WHY IT IS SO SHORT. This table used to carry the whole
+ * legacy board evaluator's matrix — territory, space, food, aggression, the
+ * h2h and piece-threat risks, the trapped veto — because that evaluator read
+ * every one of them. It is gone, and so are they: the search scores through
+ * `src/lobster/evaluate/`, whose criterion profiles are its own and are not
+ * operator sliders. What remains is the set the PIECE candidate scorer and
+ * the waypoint re-bias in `server/active-game-manager.ts` actually read, plus
+ * the non-heuristic runtime settings below. A weight nothing reads is a
+ * slider that lies.
  *
- * ORDER MATTERS: registry order is the total-score summation order (float
- * addition is not associative, and exact-value tests depend on the current
- * order) and the within-section order of the config page's sliders. Append
- * new keys at the end of their conceptual group rather than re-sorting.
+ * ORDER MATTERS: registry order is the within-section order of the config
+ * page's sliders. Append new keys at the end of their conceptual group rather
+ * than re-sorting.
  */
 
 export interface UiRange {
@@ -41,100 +44,6 @@ export interface HeuristicSpec {
 }
 
 export const HEURISTICS = {
-  // ── My snake ─────────────────────────────────────────────────────────────
-  myLength: {
-    default: 10.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'My Length Weight',
-    description: "Value of your snake's length (survival priority)",
-    section: 'snake',
-  },
-  myTerritory: {
-    default: 1.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'My Territory Weight',
-    description: 'Value of held Voronoi territory: ground you reach before every other snake and that no chess piece could take off you',
-    section: 'snake',
-  },
-  myControlledFood: {
-    default: 10.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'My Controlled Food Weight',
-    description: 'Value of food within your territory',
-    section: 'snake',
-  },
-  myControlledFertile: {
-    default: 2.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'My Controlled Fertile Ground Weight',
-    description: 'Value of fertile tiles within your territory',
-    section: 'snake',
-  },
-
-  // ── Team ─────────────────────────────────────────────────────────────────
-  teamLength: {
-    default: 10.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'Team Length Weight',
-    description: 'Combined team survival value',
-    section: 'team',
-  },
-  teamTerritory: {
-    default: 1.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'Team Territory Weight',
-    description: 'Total team-controlled territory',
-    section: 'team',
-  },
-  teamControlledFood: {
-    default: 10.0,
-    uiRange: { min: 0, max: 100, step: 0.5 },
-    label: 'Team Controlled Food Weight',
-    description: 'Food controlled by teammates',
-    section: 'team',
-  },
-
-  // ── Food / proximity ─────────────────────────────────────────────────────
-  foodProximity: {
-    default: 50.0,
-    uiRange: { min: 0, max: 200, step: 1 },
-    label: 'Food Proximity Weight',
-    description: 'Attraction to nearby food (normalized [0,1], zeroed when eating)',
-    section: 'food',
-  },
-  foodEaten: {
-    default: 200.0,
-    uiRange: { min: 0, max: 500, step: 10 },
-    label: 'Food Eaten Weight',
-    description: 'Direct reward for actually eating food (overrides proximity)',
-    section: 'food',
-  },
-
-  // ── Enemy (currently zero-weighted but tracked) ──────────────────────────
-  enemyTerritory: {
-    default: 0,
-    uiRange: { min: -100, max: 100, step: 1 },
-    label: 'Enemy Territory Weight',
-    description: 'Value of enemy-controlled territory',
-    section: 'combat',
-  },
-  enemyLength: {
-    default: 0,
-    uiRange: { min: -100, max: 100, step: 1 },
-    label: 'Enemy Length Weight',
-    description: 'Value of enemy snake lengths',
-    section: 'combat',
-  },
-
-  // ── Safety ───────────────────────────────────────────────────────────────
-  edgePenalty: {
-    default: 50.0,
-    uiRange: { min: 0, max: 200, step: 5 },
-    label: 'Edge Penalty Weight',
-    description: 'Penalty for being on board edges',
-    section: 'safety',
-  },
-
   // ── Health loss (drives NATURAL hazard avoidance — no hazard-specific
   // heuristic exists anywhere else). The stat is the shared projected health
   // COST of the candidate move (movementCost + hazardDamage × hazard squares
@@ -166,32 +75,6 @@ export const HEURISTICS = {
     section: 'safety',
   },
 
-  // ── Space detection ──────────────────────────────────────────────────────
-  selfSpace: {
-    default: 120,
-    uiRange: { min: -200, max: 200, step: 1 },
-    label: 'Self Space Weight',
-    description:
-      'Continuous survival room from the contest-aware conservative region (cells we win the ' +
-      'Voronoi race for). sqrt-scaled and length-normalised: room equal to our body length ' +
-      'scores 1.0, 4× → 2.0, ¼ → 0.5.',
-    section: 'space',
-  },
-  alliesEnoughSpace: {
-    default: 15.0,
-    uiRange: { min: -50, max: 50, step: 1 },
-    label: 'Allies Enough Space Weight',
-    description: 'Allies having space (positive = good teamwork)',
-    section: 'space',
-  },
-  opponentsEnoughSpace: {
-    default: -15.0,
-    uiRange: { min: -50, max: 50, step: 1 },
-    label: 'Opponents Enough Space Weight',
-    description: 'Opponents having space (negative = encourage trapping)',
-    section: 'space',
-  },
-
   // ── Life/death ───────────────────────────────────────────────────────────
   // The stat is now really computed: the number of ENEMY units the candidate
   // move destroys, read off the same contest the cost projection already
@@ -212,46 +95,6 @@ export const HEURISTICS = {
     uiRange: { min: -1000, max: 0, step: 10 },
     label: 'Deaths Weight',
     description: 'Penalty for your snake dying (negative)',
-    section: 'combat',
-  },
-
-  // ── Head-to-head risk ────────────────────────────────────────────────────
-  enemyH2HRisk: {
-    default: -100,
-    uiRange: { min: -500, max: 0, step: 5 },
-    label: 'Enemy H2H Risk Weight',
-    description: 'Penalty for head-to-head collision risk with enemies (negative)',
-    section: 'combat',
-  },
-  allyH2HRisk: {
-    default: -50,
-    uiRange: { min: -500, max: 0, step: 5 },
-    label: 'Ally H2H Risk Weight',
-    description: 'Penalty for head-to-head collision risk with allies (negative)',
-    section: 'combat',
-  },
-
-  // ── Chess-piece threat (the piece counterpart of h2h risk). Deliberately
-  // moderate — comparable to the h2h weights: a threatened square is a
-  // deterrent, not a paralyzer (the piece may not move at all, and an
-  // equal-weight attack trades the piece too). ─────────────────────────────
-  enemyPieceThreat: {
-    default: -100,
-    uiRange: { min: -500, max: 0, step: 5 },
-    label: 'Enemy Piece Threat Weight',
-    description:
-      'Penalty for landing on a square an enemy chess piece could reach next turn when the ' +
-      'contest there would kill us (higher-tier piece, or equal tier and at least our ' +
-      'weight). Moderate by design — the piece may not move (negative).',
-    section: 'combat',
-  },
-  allyPieceThreat: {
-    default: -50,
-    uiRange: { min: -500, max: 0, step: 5 },
-    label: 'Ally Piece Threat Weight',
-    description:
-      'Penalty for landing on a square one of our own chess pieces could reach next turn — ' +
-      'like ally h2h risk, we never want the trade regardless of who survives it (negative)',
     section: 'combat',
   },
 
@@ -282,33 +125,6 @@ export const HEURISTICS = {
       'Shift-click target — approach without ever arriving (the bonus peaks one square ' +
       'away and is zero on the target). Same bounded ramp as Goto; default 250, slightly weaker.',
     section: 'combat',
-  },
-
-  // ── Offensive aggression (conservative: max stat 2 → max +50, far below
-  // the death penalty of -500, so survival always dominates aggression) ─────
-  aggression: {
-    default: 25,
-    uiRange: { min: 0, max: 200, step: 1 },
-    label: 'Aggression Weight',
-    description:
-      'Reward for hunting enemies we strictly out-invulnerate — closing in on or landing ' +
-      'on their head/body. Kept conservative so survival always dominates.',
-    section: 'aggression',
-  },
-
-  // ── Hard trap survival: a clearly-fatal pocket is effectively a death, so
-  // this dominates every non-survival heuristic. The candidate-level veto in
-  // the decision engine is the hard guarantee; this weight ensures the signal
-  // also dominates scoring when a veto is not possible. ────────────────────
-  trapped: {
-    default: -600,
-    uiRange: { min: -2000, max: 0, step: 10 },
-    label: 'Trapped Penalty',
-    description:
-      'Strongly-negative penalty for moving into a clearly-fatal dead-end pocket — one ' +
-      'where we can neither chase our own tail nor fit our length. A hard candidate-level ' +
-      'veto also blocks such moves whenever a safe alternative exists.',
-    section: 'aggression',
   },
 
   // ── Friendly fire. The engine's contests have NO friendly exemption
@@ -422,13 +238,8 @@ export interface ConfigUiSection {
 }
 
 const CONFIG_SECTIONS: Array<{ id: string; emoji: string; title: string }> = [
-  { id: 'snake', emoji: '🐍', title: 'Snake Heuristics' },
-  { id: 'team', emoji: '👥', title: 'Team Heuristics' },
   { id: 'combat', emoji: '⚔️', title: 'Combat Heuristics' },
-  { id: 'food', emoji: '🍎', title: 'Food & Proximity' },
   { id: 'safety', emoji: '🛡️', title: 'Safety Heuristics' },
-  { id: 'space', emoji: '🎯', title: 'Enhanced Space Detection' },
-  { id: 'aggression', emoji: '⚔️', title: 'Offensive Aggression' },
   { id: 'centaur', emoji: '🎮', title: 'Centaur Play Mode' },
   { id: 'simulation', emoji: '⚙️', title: 'Simulation Parameters' },
 ];

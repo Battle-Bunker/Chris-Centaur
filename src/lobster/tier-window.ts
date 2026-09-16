@@ -14,17 +14,17 @@
  *
  * ── WHY IT IS A SEPARATE READING FROM THE CLOUD BOUNDS ─────────────────────
  *
- * `FieldSlot.bounds` carries a tier INTERVAL — what the tier could become over
- * the turns a unit has been frozen, including what a reachable potion could do
- * to it. That interval is the right input to a score bound and the wrong input
- * to a safety verdict: on a potion-dense board almost every unit's ceiling sits
- * one above its held tier, so a filter keyed on `bounds.tierMax` flags
- * everything and discriminates nothing.
+ * A `Claim` carries a tier INTERVAL — what the tier could become over the turns
+ * a unit has been unobserved, including what a reachable potion could do to it.
+ * That interval is the right input to a score bound and the wrong input to a
+ * safety verdict: on a potion-dense board almost every unit's ceiling sits one
+ * above its held tier, so a filter keyed on `tierMax` flags everything and
+ * discriminates nothing.
  *
- * This layer reads the HELD tier instead — `record.tier`, lapsed at
- * `record.tierExpiresAtTurn` — which is a fact about the arrival turn, exact
- * for enemies as well as for ourselves, and identically zero on a board with
- * no potions. That last property is the reason the whole layer is free where
+ * This layer reads `Claim.tierAtArrival` instead — the scalar tier the engine
+ * says the unit carries into the settled turn if nothing it could reach moved
+ * it — which is a fact about the arrival turn, exact for enemies as well as for
+ * ourselves, and identically zero on a board with no potions. That last property is the reason the whole layer is free where
  * it should be free: with `invulnerabilityPotionEnabled` off, no unit ever
  * outranks another, every threat set is empty, and nothing below changes a
  * single decision.
@@ -58,32 +58,14 @@
  * living allies to gain anything, all fall out of one reading.
  */
 
-import { bbTest, headSubStepLBOf } from '../partial-engine/index';
-import type { Board, CloudField, FieldSlot, Grid } from '../partial-engine/index';
+import { NEVER } from '../engine-vendor/engine/claims';
+import type { Claim } from '../engine-vendor/engine/claims';
 import type { EngineSubstrate, SubstrateUnit } from './substrate';
 import type { CellIndex } from './contracts';
 
-/**
- * The invulnerability tier a claim still carries at an absolute turn.
- *
- * The mirror of `evaluate/territory.ts`'s `tierAtTurn`, kept in its own file
- * because this one reads a `FrozenRecord` and that one reads a scored subject.
- * The expiry is EXCLUSIVE — `tierExpiresAtTurn` is the first turn at which the
- * tier no longer governs — and the conversion from the wire's inclusive figure
- * happens once, in `marshalBoard`.
- */
-export function heldTierAt(
-  record: { readonly tier: number; readonly tierExpiresAtTurn?: number | null },
-  turn: number
-): number {
-  const expiry = record.tierExpiresAtTurn ?? null;
-  if (expiry !== null && turn >= expiry) return 0;
-  return record.tier;
-}
-
 /** One claim that outranks the subject at the arrival turn. */
 export interface TierThreat {
-  readonly slot: FieldSlot;
+  readonly claim: Claim;
   /** The tier it actually holds at the arrival turn — strictly above ours. */
   readonly tier: number;
   /**
@@ -133,16 +115,18 @@ const NO_THREATS: ReadonlyArray<TierThreat> = [];
  * killing its own collector.
  */
 export function exposureOf(sub: EngineSubstrate, unit: SubstrateUnit): TierExposure {
-  const arrivalTurn = sub.turn + 1;
-  const ownTier = heldTierAt(unit, arrivalTurn);
+  const arrivalTurn = sub.arrivalTurn;
+  // `SubstrateUnit.tier` is already exact at the arrival turn — the
+  // marshalling has lapsed it — so there is nothing left to derive here.
+  const ownTier = unit.tier;
   // What a pickup would leave this unit at is settlement's answer, asked once
   // per unit and only where a pickup is possible at all. On a board with
   // potions off, or none on it, there is nothing to ask and nothing to pay for.
   const tierAfterPickup = pickupPossible(sub)
     ? sub.tiersAfterPickupBy(unit.unitId).get(unit.unitId) ?? ownTier
     : null;
-  const field = sub.claimField();
-  if (field.isEmpty) {
+  const claims = sub.claimsOf();
+  if (claims.length === 0) {
     return {
       arrivalTurn,
       ownTier,
@@ -154,17 +138,17 @@ export function exposureOf(sub: EngineSubstrate, unit: SubstrateUnit): TierExpos
 
   const threats: TierThreat[] = [];
   const afterPickup: TierThreat[] = [];
-  for (const slot of field.slots) {
-    if (slot.record.unitId === unit.unitId) continue;
-    if (slot.cloud.certainlyGone) continue;
-    const tier = heldTierAt(slot.record, arrivalTurn);
-    // Weight is compared at the claim's CEILING: a frozen unit may have eaten.
+  for (const claim of claims) {
+    if (claim.id === unit.wireId) continue;
+    if (claim.certainlyGone) continue;
+    const tier = claim.tierAtArrival;
+    // Weight is compared at the claim's CEILING: a held unit may have eaten.
     // Under-reading it here would call a loss "decisive" that weight alone
     // would also have produced.
-    const decisive = unit.weight >= slot.bounds.weightMax;
-    if (tier > ownTier) threats.push({ slot, tier, decisive });
+    const decisive = unit.weight >= claim.weightMax;
+    if (tier > ownTier) threats.push({ claim, tier, decisive });
     if (tierAfterPickup !== null && tier > tierAfterPickup) {
-      afterPickup.push({ slot, tier, decisive });
+      afterPickup.push({ claim, tier, decisive });
     }
   }
   return {
@@ -194,25 +178,18 @@ function pickupPossible(sub: EngineSubstrate): boolean {
  * cells would flag every enemy trail on the board as a tier problem, which is
  * both wrong and ruinous.
  *
- * The head role carries the engine's own sub-step lower bound, so a threat
- * that cannot arrive before sub-step 3 is not cited against a mover crossing
- * at sub-step 2 — the same gate `RiskAssessor.rolesFor` applies, read through
- * the same helper rather than re-derived.
+ * The head role carries the engine's own `earliestSubStep`, so a threat that
+ * cannot arrive before sub-step 3 is not cited against a mover crossing at
+ * sub-step 2 — the claim's own gate, read rather than re-derived.
  */
-function threatReaches(grid: Grid, threat: TierThreat, cell: CellIndex, subStep: number): boolean {
-  const cloud = threat.slot.cloud;
-  if (bbTest(cloud.headPossible as Board, cell)) {
-    if (
-      !cloud.subStepBoundsApply ||
-      (headSubStepLBOf(cloud, grid)[cell] as number) <= subStep
-    ) {
-      return true;
-    }
-  }
+function threatReaches(threat: TierThreat, cell: CellIndex, subStep: number): boolean {
+  const claim = threat.claim;
+  const earliest = claim.earliestSubStep[cell];
+  if (earliest !== undefined && earliest !== NEVER && earliest <= subStep) return true;
   // A claim that might have DIED anywhere it has been leaves a durable pile
   // there, and a pile keeps contesting at its frozen strength for the rest of
   // the turn — including its tier.
-  if (cloud.deathPossible && bbTest(cloud.everPossible as Board, cell)) return true;
+  if (claim.deathPossible && claim.everPossible.includes(cell)) return true;
   return false;
 }
 
@@ -241,14 +218,12 @@ export const tierGradeRank = (g: TierGrade): number => GRADE_RANK[g];
  * resting cell, because standing still is not the same as being unreachable.
  */
 export function gradePath(
-  sub: EngineSubstrate,
   exposure: TierExposure,
   origin: CellIndex,
   path: ReadonlyArray<CellIndex>,
   threats: ReadonlyArray<TierThreat> = exposure.threats
 ): TierGrade {
   if (threats.length === 0) return 'clear';
-  const grid = sub.grid;
   let grade: TierGrade = 'clear';
   const cells = path.length === 0 ? [origin] : path;
   for (let i = 0; i < cells.length; i++) {
@@ -256,7 +231,7 @@ export function gradePath(
     // A stay is a whole-turn question: the unit is there for every sub-step.
     const subStep = path.length === 0 ? Number.MAX_SAFE_INTEGER : i + 1;
     for (const threat of threats) {
-      if (!threatReaches(grid, threat, cell, subStep)) continue;
+      if (!threatReaches(threat, cell, subStep)) continue;
       if (threat.decisive) return 'decisive';
       grade = 'exposed';
     }
@@ -342,7 +317,7 @@ export function selfDebuffOf(
   if (exposure.threatsAfterPickup.length > 0) {
     for (const cell of landing) {
       if (!sub.potionAt(cell)) continue;
-      if (gradePath(sub, exposure, cell, [], exposure.threatsAfterPickup) !== 'clear') {
+      if (gradePath(exposure, cell, [], exposure.threatsAfterPickup) !== 'clear') {
         return 'exposed';
       }
     }
@@ -363,22 +338,12 @@ export function selfDebuffOf(
  */
 function anyAllyGains(sub: EngineSubstrate, unit: SubstrateUnit): boolean {
   const after = sub.tiersAfterPickupBy(unit.unitId);
-  const arrivalTurn = sub.turn + 1;
   for (const other of sub.roster()) {
     if (other.unitId === unit.unitId) continue;
     if (other.team !== unit.team) continue;
     const settled = after.get(other.unitId);
     if (settled === undefined) continue;
-    if (settled > heldTierAt(other, arrivalTurn)) return true;
-  }
-  return false;
-}
-
-/** Does this field carry any live tier at all? A cheap whole-decision gate. */
-export function fieldHasTier(field: CloudField, arrivalTurn: number): boolean {
-  if (field.isEmpty) return false;
-  for (const slot of field.slots) {
-    if (heldTierAt(slot.record, arrivalTurn) !== 0) return true;
+    if (settled > other.tier) return true;
   }
   return false;
 }

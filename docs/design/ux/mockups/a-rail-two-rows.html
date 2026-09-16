@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mockup A — rail beside the board, two full-size rows</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ink: #e0e0e0; --ink-dim: #9a9a9a; --ink-faint: #7d7d7d;
+    --panel: #2a2a2a; --panel-2: #232323; --line: #3a3a3a;
+    --lens: #B39DFF; --foil: #4DB6AC; --warn: #FF8A65; --fixed: #9A9A9A;
+    --ours: #81c784; --clock-hi: #eaeaea; --clock-lo: #6a6a6a;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a1a; color: var(--ink); width: 1500px; height: 950px; overflow: hidden;
+  }
+  .header {
+    height: 44px; background: #2a2a2a; border-bottom: 1px solid #444;
+    display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 13px;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  #latency-mount {
+    margin-left: auto; font-size: 11px; color: var(--ink-faint);
+    border: 1px dashed #555; border-radius: 4px; padding: 2px 8px;
+  }
+  .page { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0 20px; padding: 14px; }
+
+  /* ── the board block ─────────────────────────────────────────────────── */
+  .board-block { background: var(--panel); border-radius: 8px; padding: 12px; }
+  .board-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .turn { font-size: 16px; font-weight: 700; }
+  .board-head .spacer { margin-left: auto; }
+  .clock-digits { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: #ddd; }
+  /* THE TURN CLOCK IS A SHAPE ON THE BOARD'S EDGE. Peripheral vision reads
+     brightness, size and motion — not text — so the deadline is a depleting
+     bar welded to the top of the board, and the digits are the secondary
+     read. The tick mark is the LAST SAFE PRESS (deadline − RTT/2), which is
+     ux-latency's number rendered in the shape this design leaves for it. */
+  .clock-rail { position: relative; height: 10px; background: #141414; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .clock-fill { position: absolute; inset: 0 38% 0 0; background: linear-gradient(90deg, var(--clock-lo), var(--clock-hi)); }
+  .clock-mark { position: absolute; top: 0; bottom: 0; left: 55%; width: 2px; background: #1a1a1a; }
+  .clock-mark::after {
+    content: 'last safe press'; position: absolute; top: 11px; left: 4px;
+    font-size: 9px; color: var(--ink-faint); white-space: nowrap;
+  }
+  .board {
+    width: 550px; height: 550px; display: grid;
+    grid-template-columns: repeat(11, 50px); grid-template-rows: repeat(11, 50px);
+    background: #fff; border: 2px solid #888; border-top: none; position: relative;
+  }
+  .cell { border: 1px solid #e6e6e6; position: relative; }
+  .u {
+    position: absolute; inset: 6px; border-radius: 5px; display: flex;
+    align-items: center; justify-content: center; font-weight: 700; font-size: 15px; color: #111;
+  }
+  .u.red { background: #ffb3b3; } .u.blue { background: #a9c8ff; } .u.green { background: #a8e0b0; }
+  .chip {
+    position: absolute; top: -4px; right: -4px; font-size: 9px; line-height: 12px;
+    padding: 0 3px; border-radius: 6px; background: #fff; border: 1px solid var(--lens);
+    color: #5a37b8; font-weight: 700;
+  }
+  .chip.fixed { border-color: #777; color: #444; }
+  .arrow { position: absolute; font-size: 26px; line-height: 1; font-weight: 700; }
+  .arrow.staged { color: #2e7d32; }
+  .arrow.implied { color: #7B4FE0; }
+  .arrow.foil { color: #00897B; }
+  .tether { position: absolute; border-top: 1px dashed rgba(123,79,224,.55); transform-origin: 0 0; }
+  .wash { position: absolute; background: rgba(123,79,224,.08); }
+
+  .roster { display: flex; gap: 10px; margin-top: 12px; }
+  .team { flex: 1; background: var(--panel); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+  .team b { display: block; font-size: 11px; letter-spacing: .05em; margin-bottom: 4px; }
+  .team.ours b { color: var(--ours); } .team.them b { color: #e57373; }
+  .team .row { display: flex; gap: 6px; color: var(--ink-dim); padding: 1px 0; }
+  .team .row .mark { width: 14px; text-align: center; }
+
+  /* ── the rail ────────────────────────────────────────────────────────── */
+  .rail { display: flex; flex-direction: column; gap: 8px; }
+  .panel { background: var(--panel); border-radius: 8px; padding: 9px 11px; }
+  .head {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--lens);
+    display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px;
+  }
+  .head .of { color: var(--ink-faint); font-weight: 600; letter-spacing: .02em; }
+
+  /* 1 — THE STAGE LINE. What the bot is about to do, one line, 15px, top of
+     the rail: the answer to the only question an operator has every turn. */
+  .stage { background: #22262b; border-left: 3px solid var(--ours); }
+  .stage .line { font-size: 15px; line-height: 1.35; color: #fff; font-weight: 600; }
+  .stage .line .mv { white-space: nowrap; }
+  .stage .line .by { color: var(--ink-dim); font-weight: 400; font-size: 12px; }
+  /* 2 — UNFINISHED BUSINESS. One number per state, each with its own glyph,
+     each clickable and keyed. Counts only what the page KNOWS. */
+  .biz { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+  .biz span {
+    font-size: 11px; padding: 1px 7px; border-radius: 9px; border: 1px solid #4a4a4a;
+    color: var(--ink-dim); font-variant-numeric: tabular-nums;
+  }
+  .biz .free { border-color: var(--warn); color: var(--warn); }
+
+  .focus-line { font-size: 13px; color: #eee; display: flex; align-items: baseline; }
+  .focus-line b { font-size: 14px; margin-right: 6px; }
+  .focus-line .cl { margin-left: auto; color: var(--lens); }
+  .sub { font-size: 11px; color: var(--ink-faint); }
+
+  /* 3 — THE DECISION. Two full-size rows: what it will do, and what it nearly
+     did. Everything below them is one line each and one key away. */
+  .row2 { border: 1px solid #45405c; border-radius: 6px; padding: 7px 8px; margin-bottom: 6px; background: #262233; }
+  .row2.foilrow { border-style: dashed; border-color: #2f5b57; background: #202a29; }
+  .row2 .rank { font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--lens); }
+  .row2.foilrow .rank { color: var(--foil); }
+  .row2 .assign { font-size: 14px; margin: 3px 0 5px; }
+  .row2 .assign .mv { white-space: nowrap; }
+  .row2 .why { font-size: 11px; color: #9FC6C0; }
+  /* THE BAND. A bracket is a span with a marked incumbent, never `0.00…10.00`
+     text; an unproved top end is drawn OPEN (the arrow), never as a number. */
+  .band { position: relative; height: 12px; background: #171717; border-radius: 2px; margin: 4px 0; }
+  .band .span { position: absolute; top: 2px; bottom: 2px; background: rgba(179,157,255,.5); border-radius: 2px; }
+  .band.foilband .span { background: rgba(77,182,172,.45); }
+  .band .tick { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
+  .band .open { position: absolute; top: -1px; font-size: 11px; color: var(--ink-dim); }
+  .band .lab { position: absolute; right: 4px; top: -1px; font-size: 10px; color: var(--ink-faint); }
+  .rows-more { font-size: 12px; }
+  .rows-more div {
+    display: flex; gap: 8px; padding: 2px 4px; border-bottom: 1px solid var(--line); color: var(--ink-dim);
+  }
+  .rows-more .r { color: var(--ink-faint); width: 18px; }
+  .rows-more .g { color: var(--ink-faint); }
+  .depth { display: inline-block; width: 34px; height: 6px; background: #333; border-radius: 2px; vertical-align: middle; }
+  .depth i { display: block; height: 6px; width: 33%; background: #6f6f6f; border-radius: 2px; }
+
+  /* 4 — ONE AFFORDANCE LANGUAGE. Glyph, verb, key, state — the same shape for
+     pin, lock, hold, goto, release and widen, wherever they appear. */
+  .affs { display: flex; flex-wrap: wrap; gap: 5px; }
+  .aff {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+    border: 1px solid #4a4a4a; border-radius: 4px; padding: 2px 7px; color: var(--ink-dim);
+  }
+  .aff k {
+    font-family: ui-monospace, monospace; font-size: 10px; background: #33373b;
+    border: 1px solid #55595e; border-radius: 3px; padding: 0 4px; color: #fff;
+  }
+  .aff.primary { border-color: var(--lens); color: #fff; }
+  .aff.undo { border-color: var(--ours); color: #cfe9d1; }
+  .aff.off { opacity: .5; }
+  .cheat { font-size: 10px; color: var(--ink-faint); line-height: 1.7; }
+  .cheat k {
+    font-family: ui-monospace, monospace; background: #303030; border: 1px solid #4a4a4a;
+    border-radius: 3px; padding: 0 3px; color: #ccc; margin-right: 2px;
+  }
+  .lane { display: flex; align-items: center; gap: 6px; height: 13px; }
+  .lane .nm { width: 46px; font-size: 9px; color: #666; }
+  .lane .tr { position: relative; flex: 1; height: 13px; }
+  .lane .t { position: absolute; font-size: 9px; color: #888; transform: translateX(-50%); }
+  .prov { font-size: 10px; color: #6f6f6f; }
+  .note { position: absolute; font-size: 11px; color: var(--lens); }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Centaur · lens-walk</h1>
+    <span style="color:var(--ink-faint);font-size:12px">operator Ada</span>
+    <div id="latency-mount">latency-mount (ux-latency)</div>
+  </div>
+
+  <div class="page">
+    <div>
+      <div class="board-block">
+        <div class="board-head">
+          <span class="turn">Turn 41</span>
+          <span class="sub">red · 3 of 3 alive</span>
+          <span class="spacer"></span>
+          <span class="clock-digits">0.9s</span>
+        </div>
+        <div class="clock-rail">
+          <div class="clock-fill"></div>
+          <div class="clock-mark"></div>
+        </div>
+        <div class="board" id="board"></div>
+      </div>
+
+      <div class="roster">
+        <div class="team ours">
+          <b>● RED — ours · 5</b>
+          <div class="row"><span class="mark">▸</span>A snake · staged →108 · <span style="color:var(--lens)">cluster α</span></div>
+          <div class="row"><span class="mark">🔒</span>B pawn · held (Ben)</div>
+          <div class="row"><span class="mark">·</span>C knight · staged →118 · <span style="color:var(--lens)">cluster α</span></div>
+        </div>
+        <div class="team them"><b>BLUE · 5</b><div class="row">3 units</div></div>
+        <div class="team them"><b>GREEN · 4</b><div class="row">3 units</div></div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <!-- 1 + 2: the glance layer -->
+      <section class="panel stage">
+        <div class="line">
+          Bot stages <span class="mv">A&nbsp;→&nbsp;108</span> · <span class="mv">C&nbsp;→&nbsp;118</span> · <span class="mv">B&nbsp;holds</span>
+          <span class="by">— rank 1 of cluster α, 2 free</span>
+        </div>
+        <div class="biz">
+          <span>3 units</span><span>● 2 staged</span><span class="free">◦ 1 unplanned</span>
+          <span>🔒 1 held</span><span>⌛ 0.9s</span>
+        </div>
+      </section>
+
+      <!-- 3: the decision -->
+      <section class="panel">
+        <div class="focus-line"><b>A</b> snake · hp 98 · wt 3 <span class="cl">cluster α (2)</span></div>
+        <div class="sub">free · 2 of 2 free · candidate <b style="color:#ddd">→108</b> (incumbent) · <span style="color:var(--ink-dim)">3 candidates, 1 priced</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="head">DECISION <span class="of">cluster α · given A→108 · seq 29</span></div>
+
+        <div class="row2">
+          <div class="rank">▸ 1 · WOULD BE STAGED</div>
+          <div class="assign"><span class="mv">A→108</span> · <span class="mv">C→118</span></div>
+          <div class="band">
+            <div class="span" style="left:14%;right:8%"></div>
+            <div class="tick" style="left:34%"></div>
+            <div class="open" style="right:2px">▸</div>
+            <div class="lab">floor −51.6 · open above</div>
+          </div>
+          <div class="why">leads on the proved floor · h1 <span class="depth"><i></i></span> Q 0/33 replies</div>
+        </div>
+
+        <div class="row2 foilrow">
+          <div class="rank">◇ 2 · THE FOIL — what it nearly did</div>
+          <div class="assign"><span class="mv">A→108</span> · <span class="mv" style="color:var(--foil)">C→122</span></div>
+          <div class="band foilband">
+            <div class="span" style="left:11%;right:8%"></div>
+            <div class="tick" style="left:28%"></div>
+            <div class="lab">unsealed — the barrier has not run</div>
+          </div>
+          <div class="why">differs on <b>C</b> only · <span style="color:var(--ink-faint)">no margin: neither row was priced</span></div>
+        </div>
+
+        <div class="rows-more">
+          <div><span class="r">3</span><span>A→108 · C→133</span><span class="g" style="margin-left:auto">unsealed</span></div>
+          <div><span class="r">4</span><span>A→108 · C→144</span><span class="g" style="margin-left:auto">unsealed</span></div>
+          <div><span class="r">5</span><span>A→108 · C→108</span><span class="g" style="margin-left:auto">unsealed</span></div>
+        </div>
+        <div class="sub" style="margin-top:5px">
+          conditional list · 5 retained for α · <kbd>[</kbd> <kbd>]</kbd> walk · <kbd>B</kbd> price this row
+        </div>
+      </section>
+
+      <!-- 4: one affordance language, always in the same place -->
+      <section class="panel">
+        <div class="head">CONTROLS <span class="of">focused unit A</span></div>
+        <div class="affs">
+          <span class="aff primary">⦿ lock <k>Space</k> pins 1 of 2</span>
+          <span class="aff undo">↺ undo <k>U</k></span>
+          <span class="aff">⛨ hold <k>H</k></span>
+          <span class="aff off">◎ goto <k>right-click</k></span>
+          <span class="aff off">◉ near <k>ctrl-click</k></span>
+          <span class="aff off">✕ clear <k>Del</k></span>
+        </div>
+        <div class="sub" style="margin-top:6px">
+          lock stages <b>exactly the row above</b> · 1 pin, yours · reversible with <kbd>U</kbd>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="head">KEYS <span class="of">scheme: default · <span style="color:var(--ink-dim)">bracket · vim · left-hand</span></span></div>
+        <div class="cheat">
+          <k>[</k><k>]</k> rank &nbsp; <k>F</k> foil &nbsp; <k>B</k> breakdown &nbsp; <k>,</k><k>.</k> timeline &nbsp;
+          <k>N</k> now &nbsp; <k>U</k> undo &nbsp; <k>Space</k> lock &nbsp; <k>Ctrl+/</k> all
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="lane"><span class="nm">kernel</span><span class="tr">
+          <span class="t" style="left:4%">▲</span><span class="t" style="left:16%">▲</span><span class="t" style="left:31%">▲</span>
+          <span class="t" style="left:48%">▲</span><span class="t" style="left:63%">▲</span><span class="t" style="left:81%">▲</span></span></div>
+        <div class="lane"><span class="nm">operator</span><span class="tr">
+          <span class="t" style="left:22%;color:var(--lens)">●</span><span class="t" style="left:57%;color:var(--lens)">●</span></span></div>
+        <div class="lane"><span class="nm">staging</span><span class="tr"><span class="t" style="left:36%">┆</span></span></div>
+        <div class="prov" style="margin-top:4px">seq 29 · 30/30 · LIVE · lobster-local · eval:7f5b86c4 · e28 · 2q</div>
+      </section>
+    </div>
+  </div>
+
+<script>
+// The board is drawn from a tiny fixture so the mockup is one file and no
+// build: 11×11, the same MIXED scenario the walkthrough plays.
+const UNITS = [
+  { x: 1, y: 8, t: 'red',   l: 'A', chip: 'α', arrow: '↑', kind: 'staged' },
+  { x: 2, y: 8, t: 'red',   l: 'C', chip: 'α', arrow: '→', kind: 'implied' },
+  { x: 3, y: 6, t: 'red',   l: 'B', chip: '🔒', fixed: true },
+  { x: 6, y: 2, t: 'blue',  l: 'A' }, { x: 7, y: 3, t: 'blue', l: 'B' },
+  { x: 9, y: 5, t: 'green', l: 'A' }, { x: 8, y: 9, t: 'green', l: 'C' },
+];
+const board = document.getElementById('board');
+for (let r = 0; r < 11; r++) for (let c = 0; c < 11; c++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const u = UNITS.find((u) => u.x === c && u.y === r);
+  if (u) {
+    const wash = u.chip === 'α' ? '<div class="wash" style="inset:0"></div>' : '';
+    cell.innerHTML = wash +
+      `<div class="u ${u.t}">${u.l}${u.chip ? `<span class="chip ${u.fixed ? 'fixed' : ''}">${u.chip}</span>` : ''}</div>` +
+      (u.arrow ? `<div class="arrow ${u.kind}" style="left:${u.arrow === '→' ? 34 : 14}px;top:${u.arrow === '→' ? 12 : -8}px">${u.arrow}</div>` : '');
+  }
+  board.appendChild(cell);
+}
+</script>
+</body>
+</html>

@@ -48,7 +48,14 @@ import { createHash } from 'crypto';
 import type { CandidateKnobs } from '../lobster/candidates';
 import type { CriterionProfile } from '../lobster/evaluate/calibration';
 import type { StagingSafety } from '../lobster/staging-safety';
-import type { CentaurEngineKind } from './centaur-engine';
+
+/**
+ * The decision engine a bot runs on. There is exactly one, and the field is
+ * kept rather than dropped because it is part of a bot's HASHED identity:
+ * removing it would re-id every bot ever written to a decision row, which is
+ * the one thing `botIdOf` exists to make impossible.
+ */
+export type CentaurEngineKind = 'lobster';
 
 /** The pair stamped on every decision row and on the turn data the UI reads. */
 export interface BotIdentity {

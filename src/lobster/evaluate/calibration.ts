@@ -63,7 +63,7 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    */
   room: 3,
   /** Health as a movement budget, not a clock. */
-  healthEconomy: 0.5,
+  energyEconomy: 0.5,
   /** The king-weight margin (specialist row 2). Deliberately small. */
   kingMargin: 0.25,
   /**
@@ -137,6 +137,28 @@ export const DEFAULT_WEIGHTS: Readonly<Record<string, number>> = {
    * `./energy.ts`.
    */
   energy: 8,
+  /**
+   * The pickup trade. TWO, matching `tier`, and for the same reasons plus one
+   * of its own:
+   *
+   * · the term's range is [−2, 1] by construction — the collector's peril is a
+   *   share in [0, 1] scaled by `PERIL_WEIGHT`, each ally's profit is a share
+   *   in [0, 1], and the whole sum is divided by our unit count — so `2 × 2`
+   *   sits well inside the cliff ceiling of `10 × lightest unit weight` and can
+   *   never buy or sell a unit's life;
+   * · it must be able to OUTWEIGH `tier` on the same pickup, or the fold could
+   *   never decline one: `tier` prices the +1 an ally gains at its own cell and
+   *   nothing else about the trade, and at equal weight a term whose peril half
+   *   reaches 2 covers a `tier` credit that reaches 1;
+   * · and it sits under `contest` (3) and `food` (4) like everything else that
+   *   orders moves: a unit does not walk into a lost square, or past a meal it
+   *   needs, to arrange a window for somebody else.
+   *
+   * Identically zero on a board with potions off or none standing, and zero
+   * again on any plan that collects nothing — so it is dark on every scenario
+   * but `potions`. See `./potion.ts`.
+   */
+  potion: 2,
 };
 
 /**
@@ -239,7 +261,7 @@ export interface CriterionProfile {
    * bind, for kinds that may DECLINE to spend it (`stayLegal`). `undefined`
    * keeps the linear reading for every kind — today's behaviour.
    */
-  readonly healthReserveRatio?: number;
+  readonly energyReserveRatio?: number;
 }
 
 /** What a piece's next-turn command set is counted for, and for whom. */
@@ -265,7 +287,7 @@ export interface CommandKnobs {
    * +2.2 points [-4.0, +8.3], its deaths by 0.00 per block [-0.375, +0.375],
    * and placement by +0.052 [-0.104, +0.188] — i.e. the flag is close to inert
    * and what signal there is points the other way. The king's real activation
-   * under this profile comes from `healthReserveRatio`, which applies to every
+   * under this profile comes from `energyReserveRatio`, which applies to every
    * stay-legal kind: its stay share falls 80.4% -> 59.3% with THIS flag already
    * off.
    *
@@ -290,11 +312,11 @@ export interface CommandKnobs {
  * sweeping ONE piece across its own legal options with the joint context fixed:
  *
  *   the weighted spread of `reach` over a slider's own options   0.0000–0.0076
- *   the weighted spread of `healthEconomy` over the same options 0.2300–0.3700
+ *   the weighted spread of `energyEconomy` over the same options 0.2300–0.3700
  *
  * Inside the material-tie class — which is exactly the class `est` orders — the
  * median spread of `reach` is ZERO for the rook, the knight, the king and the
- * pawn and ONE BOARD CELL for the queen, while `healthEconomy` spreads
+ * pawn and ONE BOARD CELL for the queen, while `energyEconomy` spreads
  * 0.030–0.045. Read directly off the partition: `ours` and `theirs` do not move
  * by a single cell across all 71 of a queen's legal actions.
  *
@@ -302,7 +324,7 @@ export interface CommandKnobs {
  * where `arrival_p(c) ≤ D(c)`, and a slider's arrival is ≤ 2 turns to nearly
  * every cell FROM ANYWHERE — so the displacement set is saturated and carries
  * no gradient in the slider's own position. `room` is plane 1 only, so it is
- * identically zero for a piece. That leaves `healthEconomy` as the ONLY term
+ * identically zero for a piece. That leaves `energyEconomy` as the ONLY term
  * with dynamic range over a slider's move, and it is a linear travel tax: the
  * territory profile's est-argmax is the shortest-travel option among material
  * ties in 73–96% of positions. The evaluator is not indifferent to slider
@@ -314,7 +336,7 @@ export interface CommandKnobs {
  *   1. `command` — the gradient plane 2 structurally cannot carry. A piece is
  *      worth the CONTESTED ground it can act on next turn plus the food it can
  *      take, which is position-dependent where arrival-by-D is not.
- *   2. `healthReserveRatio` — health is a movement budget for a kind that may
+ *   2. `energyReserveRatio` — health is a movement budget for a kind that may
  *      decline to spend it, and a budget's marginal value rises as it runs out.
  *      A linear `health/max` prices the 98th health point exactly like the 2nd,
  *      which is what turned a survival term into a travel tax. Below the
@@ -326,6 +348,34 @@ export interface CommandKnobs {
  * `src/tests/territory-slider.test.ts`.
  */
 export const COMMAND_KNOBS: CommandKnobs = { ground: 1, food: 20, royal: false };
+
+/**
+ * THERE IS NO `mobility` KNOB, AND THE ABSENCE IS A MEASUREMENT — BEHAVIOUR-AUDIT
+ * D2. A third addend paying the command set's own cardinality `|F_u|` was built
+ * exactly as D2's rule states it, swept at 0.25, 0.5 and 1 over `mixed` seeds 1-6
+ * and `potions` seeds 1-3, and taken at no dose. It does what it was built to do —
+ * the parked share falls at every dose and `longestPark` roughly halves — and it
+ * pays for it in the one currency the owner's rule will not spend: `mixed`
+ * bodyBlock deaths of PIECES go 0 -> 1 -> 3 -> 3 with the dose while the snakes'
+ * own body deaths stay flat, because the cardinality is intersected with nothing
+ * and so knows nothing about what is standing on the cells it counts. See D2's
+ * STATUS section for the dose table; do not re-derive it from the prediction.
+ *
+ * THE MASKED INDICATOR FORM WAS THEN BUILT AND REFUSED TOO — BEHAVIOUR-AUDIT-2
+ * P1. `m_u ∈ {0, 1}`, read from `queries.legalActions` so it is masked by the
+ * perimeter, by occupancy and by the pawn-target set, at `mobility = 1`. It
+ * answers D2's mechanism completely — `mixed` piece `bodyBlock`+`self` deaths
+ * FELL 1 -> 0 and `potions` 2 -> 1, `snakes`/`sparse`/`sparse-lean` were
+ * byte-identical, the law sweep's `command.hi` class fell 600 -> 558, and the
+ * parking it was built for collapsed (`potions` longestPark 44 -> 7,
+ * `immobileUnitTurns` 197 -> 83) — and it is refused for a DIFFERENT reason:
+ * every death it adds is a `contest`. An unparked pawn spends its turns in the
+ * open, `contest` prices an enemy ARRIVAL and not the standing exposure of a
+ * piece that now crosses the board instead of hugging a wall, and `mixed`
+ * deaths went 6 -> 7 on seeds 1-3 and 8 -> 9 on seeds 4-6, all of them
+ * `contest`. P1's own counter predicted exactly that and said to refuse it.
+ * See BEHAVIOUR-AUDIT-2.md P1's STATUS for the table.
+ */
 
 /**
  * Half a kind's maximum. A piece at or above it has a movement budget that does
@@ -366,7 +416,7 @@ export const TERRITORY_PROFILE: CriterionProfile = {
   // gated on class properties the rules already carry, so a board with no piece
   // on it is unaffected by either.
   command: COMMAND_KNOBS,
-  healthReserveRatio: HEALTH_RESERVE_RATIO,
+  energyReserveRatio: HEALTH_RESERVE_RATIO,
 };
 
 export const DEFAULT_PROFILE: CriterionProfile = TERRITORY_PROFILE;
@@ -392,7 +442,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     material: 10,
     reach: 0,
     room: 0,
-    healthEconomy: 0,
+    energyEconomy: 0,
     kingMargin: 0,
     command: 0,
     food: 0,
@@ -400,6 +450,7 @@ export const MATERIAL_ONLY_PROFILE: CriterionProfile = {
     contest: 0,
     tier: 0,
     energy: 0,
+    potion: 0,
   },
   reachHorizonTurns: 0,
 };

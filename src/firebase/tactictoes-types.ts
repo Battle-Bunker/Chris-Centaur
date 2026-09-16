@@ -31,6 +31,13 @@ export interface TTGamePlayer {
   unitType?: TTUnitType; // Initial unit type; absent means "snake"
 }
 
+/** One unit kind's configuration group (mirrors shared/types/Game.ts). */
+export interface TTUnitTypeConfig {
+  foodEnergy?: number;
+  maxEnergy?: number;
+  startingWeight?: number;
+}
+
 export interface TTGameSetup {
   teams: TTTeam[];
   snakesPerTeam: number;
@@ -52,19 +59,23 @@ export interface TTGameSetup {
   // The turn limit the game is adjudicated at: absent = the engine's default,
   // null = unlimited (GameSetup.maxTurns upstream).
   maxTurns?: number | null;
-  // Per-unit-type max health (mirrors shared/types/Game.ts maxHealthPerUnit).
-  // A unit's health starts at its type's max and eating restores to it.
-  // Absent map or absent key means the engine default of 100.
-  maxHealthPerUnit?: Partial<Record<TTUnitType, number>>;
+  // The per-unit-type configuration group (mirrors shared/types/Game.ts
+  // unitConfig): food energy, max energy and starting weight per kind. Absent
+  // group or absent field means the engine's default.
+  unitConfig?: Partial<Record<TTUnitType, TTUnitTypeConfig>>;
+  // LEGACY, still on documents written before the group existed. Never read
+  // directly: `unitConfigOf` folds both into `unitConfig` on read.
+  maxEnergyPerUnit?: Partial<Record<TTUnitType, number>>;
+  foodEnergy?: number;
   // Damage a unit takes when it ENTERS a hazard square (mirrors
   // shared/types/Game.ts hazardDamage). Hazards are no longer instant death —
-  // a unit dies only when its health reaches <= 0. Absent means the engine
+  // a unit dies only when its energy reaches <= 0. Absent means the engine
   // default of 100.
   hazardDamage?: number;
 }
 
 export interface TTTurn {
-  playerHealth: Record<string, number>;
+  playerEnergy: Record<string, number>;
   startTime: Timestamp;
   endTime: Timestamp;
   alivePlayers: string[];

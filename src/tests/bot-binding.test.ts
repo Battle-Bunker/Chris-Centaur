@@ -39,9 +39,10 @@ import {
 import { DEFAULT_PROFILE, MATERIAL_ONLY_PROFILE } from '../lobster/evaluate';
 import { clearGeometryCache } from '../lobster/substrate';
 import { TeamDecisionEngine, type TeamDecisionPorts } from '../lobster/team-decision-engine';
-import type { UnitDecisionRow } from '../lobster/telemetry';
+import type { LensDecision } from '../lens/types';
 import type { TurnData } from '../server/active-game-manager';
-import type { Board, CentaurMove, Coord, GameState, Snake } from '../types/battlesnake';
+import type { Board, CentaurMove, GameState } from '../types/battlesnake';
+import { makeSnake } from './board-fixtures';
 
 // ------------------------------------------------------------------ identity
 
@@ -351,23 +352,6 @@ describe('the binding source: most specific wins, default is the floor', () => {
 
 // -------------------------------------------------------------- the seam
 
-function makeSnake(id: string, body: Coord[], teamID: string): Snake {
-  return {
-    id,
-    name: `Snake ${id}`,
-    latency: '0',
-    health: 90,
-    body,
-    head: body[0] as Coord,
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#cc2222', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    teamID,
-  } as Snake;
-}
-
 const TURN = 5;
 
 const board = (): Board =>
@@ -377,8 +361,8 @@ const board = (): Board =>
     food: [{ x: 3, y: 3 }],
     hazards: [],
     snakes: [
-      makeSnake('s1', [{ x: 1, y: 1 }, { x: 1, y: 0 }], 'red'),
-      makeSnake('e1', [{ x: 5, y: 5 }, { x: 5, y: 6 }], 'blue'),
+      makeSnake('s1', [{ x: 1, y: 1 }, { x: 1, y: 0 }], { name: 'Snake s1', health: 90, teamID: 'red', customizations: { color: '#cc2222', head: 'default', tail: 'default' } }),
+      makeSnake('e1', [{ x: 5, y: 5 }, { x: 5, y: 6 }], { name: 'Snake e1', health: 90, teamID: 'blue', customizations: { color: '#cc2222', head: 'default', tail: 'default' } }),
     ],
   }) as Board;
 
@@ -386,7 +370,7 @@ const viewFor = (b: Board, id: string): GameState => ({
   game: { id: 'g1', ruleset: { name: 't', version: 'v', settings: {} }, map: 'm', timeout: 500, source: 't' },
   turn: TURN,
   board: b,
-  you: b.snakes.find((s) => s.id === id) as Snake,
+  you: b.snakes.find((s) => s.id === id)!,
 });
 
 interface Staged {
@@ -394,22 +378,37 @@ interface Staged {
   readonly turnData: TurnData;
 }
 
+/**
+ * THE STAMP IS OBSERVED ON THE LENS, which is where it now lives.
+ *
+ * It used to be read off `logDecision` — one telemetry row per unit per turn,
+ * carrying a `decision` block with the bot's two addresses on it. That port is
+ * gone with the row path it fed: nothing consumed it in production, and the
+ * account it was an account of moved to the `movesets` projection and
+ * `unit_outcomes`. What replaces it as the stamp's carrier is `lensSink`,
+ * which is asked ONCE per decision with the basis the decision actually built
+ * — so this test now watches the shipped path rather than a port with no
+ * other reader.
+ */
 function fakePorts(binding?: TeamDecisionPorts['botBinding']): TeamDecisionPorts & {
   staged: Staged[];
-  logged: UnitDecisionRow[];
+  declared: LensDecision[];
 } {
   const staged: Staged[] = [];
-  const logged: UnitDecisionRow[] = [];
+  const declared: LensDecision[] = [];
   return {
     staged,
-    logged,
+    declared,
     setBotRecommendation: (_g, _s, move, turnData) => {
       staged.push({ move, turnData });
     },
     enableTeamStaging: () => undefined,
     onPinEvent: () => () => undefined,
     pinSnakeIdOf: () => null,
-    logDecision: (row) => logged.push(row),
+    lensSink: (_gameId, _turn, decision) => {
+      declared.push(decision);
+      return { frame: () => undefined, command: () => null, end: () => undefined };
+    },
     botBinding: binding,
     log: () => undefined,
   };
@@ -436,7 +435,7 @@ const decide = (engine: TeamDecisionEngine, b: Board) =>
 describe('the decision seam stamps the bot it actually played', () => {
   afterAll(() => clearGeometryCache());
 
-  test('a bound bot reaches the rows, the UI frame, and agrees with the binding', async () => {
+  test('a bound bot reaches the lens, the UI frame, and agrees with the binding', async () => {
     const registry = registryOn({ [`${BOT_GAME_KEY_PREFIX}g1`]: 'material-only' });
     await registry.refresh();
     const bound = registry.resolveFor('g1', 'red');
@@ -444,17 +443,18 @@ describe('the decision seam stamps the bot it actually played', () => {
     const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 10, sliceMs: 5 } });
     await decide(engine, board());
 
-    expect(ports.logged.length).toBeGreaterThan(0);
-    for (const row of ports.logged) {
-      // The row says WHICH configuration, and it is the one the store bound —
-      // not the process default the engine used to reach for on its own.
-      expect(row.decision.botId).toBe(bound.identity.botId);
-      expect(row.decision.botId).toBe(botIdOf(bound.spec));
-      expect(row.decision.behaviourId).toBe('test-build');
+    expect(ports.declared.length).toBeGreaterThan(0);
+    for (const declared of ports.declared) {
+      // The decision says WHICH configuration it is, and it is the one the
+      // store bound — not the process default the engine used to reach for on
+      // its own.
+      expect(declared.input.botId).toBe(bound.identity.botId);
+      expect(declared.input.botId).toBe(botIdOf(bound.spec));
+      expect(declared.input.behaviourId).toBe('test-build');
       // The old two names are still there; they are simply no longer the only
       // thing a reader has.
-      expect(row.decision.engine).toBe('lobster');
-      expect(row.decision.profile).toBe(MATERIAL_ONLY_PROFILE.name);
+      expect(declared.engine).toBe('lobster');
+      expect(declared.profile).toBe(MATERIAL_ONLY_PROFILE.name);
     }
     // And the live UI is told the same thing, on every frame it is told a move.
     expect(ports.staged.length).toBeGreaterThan(0);
@@ -470,11 +470,11 @@ describe('the decision seam stamps the bot it actually played', () => {
     const ports = fakePorts();
     const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 10, sliceMs: 5 } });
     await decide(engine, board());
-    expect(ports.logged.length).toBeGreaterThan(0);
-    for (const row of ports.logged) {
+    expect(ports.declared.length).toBeGreaterThan(0);
+    for (const declared of ports.declared) {
       // Unwired is not unstamped: the floor is a real bot with a real address.
-      expect(row.decision.botId).toMatch(/^lobster:lobster-territory@[0-9a-f]{12}$/);
-      expect(row.decision.behaviourId.length).toBeGreaterThan(0);
+      expect(declared.input.botId).toMatch(/^lobster:lobster-territory@[0-9a-f]{12}$/);
+      expect(declared.input.behaviourId.length).toBeGreaterThan(0);
     }
   }, 30_000);
 
@@ -485,7 +485,7 @@ describe('the decision seam stamps the bot it actually played', () => {
     const engine = new TeamDecisionEngine(ports, { kernel: { reserveMs: 10, sliceMs: 5 } });
     const result = await decide(engine, board());
     expect(result.report).not.toBeNull();
-    expect(ports.logged.length).toBeGreaterThan(0);
-    expect(ports.logged[0]?.decision.botId).toContain('lobster-territory');
+    expect(ports.declared.length).toBeGreaterThan(0);
+    expect(ports.declared[0]?.input.botId).toContain('lobster-territory');
   }, 30_000);
 });

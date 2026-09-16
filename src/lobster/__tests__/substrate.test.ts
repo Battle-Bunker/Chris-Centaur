@@ -1,62 +1,36 @@
 /**
- * The substrate's four silent failure modes, each pinned.
+ * The substrate's silent failure modes, each pinned.
  *
  *   1. the weight-stack collapse (a grown piece arriving as one cell)
  *   2. the head-start double-count (staleness applied twice)
  *   3. the partial assignment (a live unit nobody named)
- *   4. the leaked slab (which presents as the engine being slow)
+ *   4. the claim view answering the wrong question for a sibling
  *
  * Plus the in-situ differential: a fully-named plan run through the substrate
  * must agree with THIS repo's vendored resolver on the same board, marshalled
- * the same way. That is the only test that can catch a translation bug, because
- * a translation bug is invisible to every test written in one vocabulary.
+ * the same way. That is the only test that can catch a translation bug,
+ * because a translation bug is invisible to every test written in one
+ * vocabulary. After the cut it is also the cheapest of theorems — a settlement
+ * with nothing held IS `settleTurn` — which is exactly why it is worth
+ * writing down: what is being checked is the TRANSLATION, and the translation
+ * is the only thing left on this side of the seam.
  */
 
-import { Board, Coord, Snake } from '../../types/battlesnake';
+import { Snake } from '../../types/battlesnake';
 import { marshalBoard, resolveTurn } from '../../logic/turn-oracle';
-import { Fate, bbTest } from '../../partial-engine/index';
 import {
   EngineSubstrate,
   NO_ORDER_MOVE,
-  TooManyHeldError,
   UnknownUnitError,
-  SharedClaimViewError,
   clearGeometryCache,
   geometryCacheStats,
   makeSubstrate,
   releaseGeometriesFor,
 } from '../substrate';
 import type { Candidate, JointPlan, UnitId } from '../contracts';
+import { makeSnake, piece, boardOf } from '../../tests/board-fixtures';
 
 // --------------------------------------------------------------------- fixtures
-
-function makeSnake(id: string, body: Coord[], extra: Partial<Snake> = {}): Snake {
-  return {
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head: body[0],
-    length: body.length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-    orientation: { dx: 0, dy: -1 },
-    ...extra,
-  } as Snake;
-}
-
-const piece = (
-  id: string,
-  at: Coord,
-  unitType: string,
-  weight: number,
-  extra: Partial<Snake> = {}
-): Snake => makeSnake(id, [at], { unitType, length: weight, ...extra });
-
-const boardOf = (snakes: Snake[], extra: Partial<Board> = {}): Board =>
-  ({ width: 9, height: 9, food: [], hazards: [], snakes, ...extra }) as Board;
 
 const TURN = 20;
 
@@ -70,7 +44,9 @@ function move(sub: EngineSubstrate, unitId: UnitId, to: number): Candidate {
 /** Every unit named, each with its own default. The zero-assumption plan. */
 function defaultPlan(sub: EngineSubstrate): JointPlan {
   const plan = new Map<UnitId, Candidate>();
-  for (const u of sub.roster()) plan.set(u.unitId, { unitId: u.unitId, from: -1, to: NO_ORDER_MOVE, path: [] });
+  for (const u of sub.roster()) {
+    plan.set(u.unitId, { unitId: u.unitId, from: -1, to: NO_ORDER_MOVE, path: [] });
+  }
   return plan;
 }
 
@@ -87,12 +63,11 @@ describe('translation into engine terms', () => {
     });
     const rook = sub.unitOfWireId('R');
     expect(rook).toBeDefined();
-    // The wire says [c,c,c,c,c]; the engine wants one cell plus weight 5.
+    // The wire says [c,c,c,c,c]; the board reads one cell at weight 5, and the
+    // engine record keeps the stack the rules actually adjudicate.
     expect(rook?.cells).toHaveLength(1);
     expect(rook?.weight).toBe(5);
-    const view = sub.viewOf(rook?.unitId as UnitId);
-    expect(view?.weight).toBe(5);
-    expect(view?.cells).toHaveLength(1);
+    expect(sub.recordOf(rook?.unitId as UnitId)?.occupancy).toHaveLength(5);
     sub.release();
   });
 
@@ -102,46 +77,46 @@ describe('translation into engine terms', () => {
       { x: 1, y: 2 },
       { x: 1, y: 3 },
     ];
-    const sub = makeSubstrate({
-      board: boardOf([makeSnake('S', body, { teamID: 'red' })]),
-      turn: TURN,
-      asTeam: 'red',
-    });
-    const m = marshalBoard(boardOf([makeSnake('S', body, { teamID: 'red' })]), TURN);
-    expect(sub.unitOfWireId('S')?.cells).toEqual(body.map(m.toIndex));
-    expect(sub.unitOfWireId('S')?.weight).toBe(3);
+    const board = boardOf([makeSnake('S', body, { teamID: 'red' })]);
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const m = marshalBoard(board, TURN);
+    const snake = sub.unitOfWireId('S');
+    expect(snake?.cells).toEqual(body.map((c) => m.toIndex(c)));
+    expect(snake?.weight).toBe(3);
     sub.release();
   });
 
   test('the deciding team is engine team 0, whatever it is called', () => {
     const sub = makeSubstrate({
       board: boardOf([
-        piece('a', { x: 2, y: 2 }, 'knight', 1, { teamID: 'zulu' }),
-        piece('b', { x: 6, y: 6 }, 'knight', 1, { teamID: 'alpha' }),
+        piece('A', { x: 1, y: 1 }, 'knight', 1, { teamID: 'zebra' }),
+        piece('B', { x: 7, y: 7 }, 'knight', 1, { teamID: 'aardvark' }),
       ]),
       turn: TURN,
-      asTeam: 'zulu',
+      asTeam: 'zebra',
     });
-    expect(sub.teamNumber('zulu')).toBe(0);
-    expect(sub.teamNumber('alpha')).toBe(1);
+    expect(sub.teamNumber('zebra')).toBe(0);
+    expect(sub.teamNumber('aardvark')).toBe(1);
+    expect(sub.teamLabel(0)).toBe('zebra');
     sub.release();
   });
 });
 
-// --------------------------------------------------------------- differential
+// -------------------------------------------------------------- differential
 
 describe('in-situ differential against this repo’s vendored resolver', () => {
-  const cases: Array<{ name: string; snakes: Snake[]; stage: (m: ReturnType<typeof marshalBoard>) => Record<string, number> }> = [
+  const cases: Array<{
+    name: string;
+    snakes: Snake[];
+    stage: (m: ReturnType<typeof marshalBoard>) => Record<string, number>;
+  }> = [
     {
       name: 'two knights racing for one square',
       snakes: [
         piece('K1', { x: 2, y: 2 }, 'knight', 1, { teamID: 'red' }),
         piece('K2', { x: 5, y: 3 }, 'knight', 1, { teamID: 'blue' }),
       ],
-      stage: (m) => ({
-        K1: m.toIndex({ x: 3, y: 4 }),
-        K2: m.toIndex({ x: 3, y: 4 }),
-      }),
+      stage: (m) => ({ K1: m.toIndex({ x: 3, y: 4 }), K2: m.toIndex({ x: 3, y: 4 }) }),
     },
     {
       name: 'a rook raking a lighter queen',
@@ -197,34 +172,29 @@ describe('in-situ differential against this repo’s vendored resolver', () => {
 
       const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
       const plan = new Map<UnitId, Candidate>();
-      for (const u of sub.roster()) plan.set(u.unitId, move(sub, u.unitId, staged[u.wireId] as number));
+      for (const u of sub.roster()) {
+        plan.set(u.unitId, move(sub, u.unitId, staged[u.wireId] as number));
+      }
 
       sub.withResolution(plan, 0, ({ resolution, bounds }) => {
-        // Nothing is held, so the resolution is a PROOF: empty ledger, no
-        // contingency, and the two bounds coincide.
+        // Nothing is held, so the settlement is a PROOF: an empty ledger, no
+        // contingency, no claims, and the two bounds coincide.
         expect(resolution.ledger).toHaveLength(0);
-        expect(resolution.fates.filter((f) => f.fate === Fate.Contingent)).toHaveLength(0);
+        expect(resolution.claims).toHaveLength(0);
+        expect(Object.values(resolution.fates)).not.toContain('contingent');
         expect(bounds.best).toBe(bounds.worst);
 
-        const mine = new Map<string, { cells: number[]; health: number; weight: number }>();
-        for (const v of sub.engine.units(resolution.state)) {
-          if (!v.alive) continue;
-          const wireId = sub.unitOf(v.unitId)?.wireId as string;
-          mine.set(wireId, { cells: [...v.cells], health: v.health, weight: v.weight });
+        const mine = new Map<string, { cells: number[]; energy: number }>();
+        for (const [wireId, settled] of Object.entries(resolution.board)) {
+          mine.set(wireId, { cells: [...settled.occupancy], energy: settled.energy });
         }
-        const theirs = new Map<string, { cells: number[]; health: number; weight: number }>();
+        const theirs = new Map<string, { cells: number[]; energy: number }>();
         for (const [id, unit] of Object.entries(truth.board)) {
-          const trail = m.units.find((u) => u.id === id)?.type === 'snake';
-          theirs.set(id, {
-            cells: trail ? [...unit.occupancy] : [unit.occupancy[0] as number],
-            health: unit.health,
-            weight: unit.occupancy.length,
-          });
+          theirs.set(id, { cells: [...unit.occupancy], energy: unit.energy });
         }
         expect([...mine.keys()].sort()).toEqual([...theirs.keys()].sort());
         for (const [id, a] of mine) expect([id, a]).toEqual([id, theirs.get(id)]);
       });
-      expect(sub.outstanding()).toBe(1); // only the base state
       sub.release();
     });
   }
@@ -235,116 +205,93 @@ describe('in-situ differential against this repo’s vendored resolver', () => {
 describe('a default is a narrowing and must be named', () => {
   test('naming every unit with NO_ORDER keeps them all live and applies the kind default', () => {
     const board = boardOf([
-      makeSnake('S', [{ x: 3, y: 3 }, { x: 2, y: 3 }], {
+      makeSnake('S', [{ x: 3, y: 3 }, { x: 3, y: 4 }], {
         teamID: 'red',
-        orientation: { dx: 1, dy: 0 },
+        orientation: { dx: 0, dy: -1 },
       }),
-      piece('N', { x: 6, y: 6 }, 'knight', 1, { teamID: 'blue' }),
+      piece('P', { x: 6, y: 6 }, 'rook', 1, { teamID: 'blue' }),
     ]);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    sub.withResolution(defaultPlan(sub), 0, ({ resolution }) => {
-      // Nothing HELD: the whole board is modelled, so the field is empty.
-      expect(resolution.state.field.slots).toHaveLength(0);
-      const snake = sub.unitOfWireId('S') as { unitId: UnitId };
-      const view = sub.engine
-        .units(resolution.state)
-        .find((v) => v.unitId === snake.unitId);
-      // A trail unit's default is momentum: it continued along its facing.
-      const m = marshalBoard(board, TURN);
-      expect(view?.cells[0]).toBe(m.toIndex({ x: 4, y: 3 }));
-      // A piece's default is to hold.
-      const knight = sub.unitOfWireId('N') as { unitId: UnitId; cells: ReadonlyArray<number> };
-      const kview = sub.engine.units(resolution.state).find((v) => v.unitId === knight.unitId);
-      expect(kview?.cells[0]).toBe(knight.cells[0]);
-    });
+    const out = sub.resolveBoundedFor(defaultPlan(sub), 0);
+    // Nothing is held, so nothing is a claim and nothing is contingent.
+    expect(out.resolution.claims).toHaveLength(0);
+    expect(out.resolution.ledger).toHaveLength(0);
+    // The trail unit CONTINUED — it has no hold in its grammar — and the piece
+    // held, because it has. Both are RULES, and both come back from settlement
+    // rather than from this layer: the head is one step from where it stood,
+    // wherever the unit was facing, and the piece is where it started.
+    const m = marshalBoard(board, TURN);
+    const snake = sub.unitOfWireId('S') as NonNullable<ReturnType<EngineSubstrate['unitOfWireId']>>;
+    const head = out.resolution.board['S']?.occupancy[0] as number;
+    const start = snake.cells[0] as number;
+    const step = Math.abs(head - start);
+    expect(step === 1 || step === m.fullWidth).toBe(true);
+    expect(out.resolution.board['P']?.occupancy[0]).toBe(m.toIndex({ x: 6, y: 6 }));
     sub.release();
   });
 
   test('omitting a unit HOLDS it — a claim, not a mover — and never throws', () => {
     const board = boardOf([
-      piece('me', { x: 2, y: 4 }, 'rook', 2, { teamID: 'red' }),
-      piece('them', { x: 6, y: 4 }, 'queen', 1, { teamID: 'blue' }),
+      piece('A', { x: 3, y: 3 }, 'knight', 1, { teamID: 'red' }),
+      piece('B', { x: 4, y: 4 }, 'knight', 1, { teamID: 'blue' }),
     ]);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const me = sub.unitOfWireId('me') as { unitId: UnitId };
-    const m = marshalBoard(board, TURN);
-    const plan = new Map<UnitId, Candidate>([
-      [me.unitId, move(sub, me.unitId, m.toIndex({ x: 4, y: 4 }))],
-    ]);
-
-    // The engine refuses a partial assignment; the substrate makes one
-    // impossible by construction rather than by asking the caller to remember.
-    expect(() =>
-      sub.withResolution(plan, 0, ({ resolution }) => {
-        expect(resolution.state.field.slots).toHaveLength(1);
-        expect(resolution.state.field.slots[0]?.record.unitId).toBe(
-          sub.unitOfWireId('them')?.unitId
-        );
-      })
-    ).not.toThrow();
+    const a = sub.unitOfWireId('A')?.unitId as UnitId;
+    const plan = new Map<UnitId, Candidate>([[a, { unitId: a, from: -1, to: NO_ORDER_MOVE, path: [] }]]);
+    const out = sub.resolveBoundedFor(plan, 0);
+    expect(out.resolution.claims.map((c) => c.id)).toEqual(['B']);
+    // A claim's own disposition is the claim, never a ledger entry.
+    expect(out.resolution.ledger.every((e) => e.unitId !== 'B')).toBe(true);
     sub.release();
   });
 
   test('a plan naming a unit that is not on the board is a typed refusal', () => {
     const sub = makeSubstrate({
-      board: boardOf([piece('a', { x: 2, y: 2 }, 'knight', 1, { teamID: 'red' })]),
+      board: boardOf([piece('A', { x: 3, y: 3 }, 'knight', 1, { teamID: 'red' })]),
       turn: TURN,
       asTeam: 'red',
     });
-    const plan = new Map<UnitId, Candidate>([[99, { unitId: 99, from: -1, to: 0, path: [] }]]);
-    expect(() => sub.resolveBoundedFor(plan, 0)).toThrow(UnknownUnitError);
+    const ghost = 99 as UnitId;
+    expect(() =>
+      sub.resolveBoundedFor(new Map([[ghost, { unitId: ghost, from: -1, to: 0, path: [] }]]), 0)
+    ).toThrow(UnknownUnitError);
     sub.release();
   });
 });
 
-// --------------------------------------------------------------- staleness
+// ------------------------------------------------------------------ staleness
 
 describe('staleness is currentTurn − observedTurn, applied exactly once', () => {
-  test('a unit seen this turn is read at turnsHeld 1 — the post-advance field', () => {
-    const board = boardOf([
-      piece('me', { x: 2, y: 2 }, 'knight', 1, { teamID: 'red' }),
-      piece('them', { x: 6, y: 6 }, 'knight', 1, { teamID: 'blue' }),
-    ]);
+  const board = boardOf([
+    piece('A', { x: 1, y: 1 }, 'knight', 1, { teamID: 'red' }),
+    makeSnake('E', [{ x: 5, y: 5 }, { x: 5, y: 6 }], { teamID: 'blue' }),
+  ]);
+
+  test('a unit seen this turn covers one turn of unknown movement, not two', () => {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    expect(sub.unitOfWireId('them')?.staleness).toBe(0);
-    const slot = sub.claimField().slotOf(sub.unitOfWireId('them')?.unitId as UnitId);
-    expect(slot?.cloud.turnsHeld).toBe(1);
+    const claim = sub.claimsOf().find((c) => c.id === 'E');
+    expect(claim).toBeDefined();
+    // The settled turn is `turn + 1` and the observation is `turn`, so the
+    // span is exactly one: the head fronts are this turn's step, and nothing
+    // beyond it.
+    const m = marshalBoard(board, TURN);
+    const front = (claim?.headPossible[claim.headPossible.length - 1] ?? []) as ReadonlyArray<number>;
+    expect(front).toContain(m.toIndex({ x: 5, y: 4 })); // one step on
+    expect(front).not.toContain(m.toIndex({ x: 5, y: 2 })); // two steps on
     sub.release();
   });
 
-  test('a unit last seen three turns ago claims three extra turns of reach, not four', () => {
-    const board = boardOf([
-      piece('me', { x: 2, y: 2 }, 'knight', 1, { teamID: 'red' }),
-      piece('them', { x: 6, y: 6 }, 'knight', 1, { teamID: 'blue' }),
-    ]);
+  test('a unit last seen three turns ago claims three extra turns of reach', () => {
     const fresh = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const stale = makeSubstrate({
       board,
       turn: TURN,
       asTeam: 'red',
-      observedTurns: new Map([['them', TURN - 3]]),
+      observedTurns: new Map([['E', TURN - 3]]),
     });
-    const themFresh = fresh.unitOfWireId('them')?.unitId as UnitId;
-    const themStale = stale.unitOfWireId('them')?.unitId as UnitId;
-    expect(stale.unitOfWireId('them')?.staleness).toBe(3);
-
-    const a = fresh.claimField().slotOf(themFresh);
-    const b = stale.claimField().slotOf(themStale);
-    expect(a?.cloud.turnsHeld).toBe(1);
-    // consumer staleness 3 => turnsHeld 4 = staleness + 1. NOT 5.
-    expect(b?.cloud.turnsHeld).toBe(4);
-
-    // And the reach really grew: the stale claim is a strict superset.
-    let staleOnly = 0;
-    let freshOnly = 0;
-    for (let c = 0; c < fresh.grid.cells; c++) {
-      const inFresh = bbTest(a?.cloud.possible as Uint32Array, c);
-      const inStale = bbTest(b?.cloud.possible as Uint32Array, c);
-      if (inStale && !inFresh) staleOnly++;
-      if (inFresh && !inStale) freshOnly++;
-    }
-    expect(freshOnly).toBe(0);
-    expect(staleOnly).toBeGreaterThan(0);
+    const reachOf = (sub: EngineSubstrate): number =>
+      (sub.claimsOf().find((c) => c.id === 'E')?.everPossible ?? []).length;
+    expect(reachOf(stale)).toBeGreaterThan(reachOf(fresh));
     fresh.release();
     stale.release();
   });
@@ -354,331 +301,197 @@ describe('staleness is currentTurn − observedTurn, applied exactly once', () =
 
 describe('entanglement gates who has to be modelled', () => {
   test('a held unit whose claim cannot reach the path is not named', () => {
-    const board = boardOf(
-      [
-        piece('me', { x: 1, y: 1 }, 'rook', 2, { teamID: 'red' }),
-        piece('near', { x: 3, y: 3 }, 'knight', 1, { teamID: 'blue' }),
-        piece('far', { x: 8, y: 8 }, 'knight', 1, { teamID: 'blue' }),
-      ],
-      { width: 11, height: 11 }
-    );
+    const board = boardOf([
+      piece('A', { x: 1, y: 1 }, 'knight', 1, { teamID: 'red' }),
+      piece('E', { x: 8, y: 8 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const m = marshalBoard(board, TURN);
-    const probe = [
-      { cell: m.toIndex({ x: 2, y: 1 }), fromSubStep: 1, toSubStep: 1 },
-      { cell: m.toIndex({ x: 3, y: 1 }), fromSubStep: 2, toSubStep: 2 },
-    ];
-    const named = sub.entangled(probe).map((id) => sub.unitOf(id)?.wireId);
-    expect(named).toContain('near');
-    expect(named).not.toContain('far');
-    // Our own unit is modelled, so it is never a claim.
-    expect(named).not.toContain('me');
+    const near = m.toIndex({ x: 2, y: 3 });
+    expect(sub.entangled([{ cell: near, fromSubStep: 1, toSubStep: 1 }])).toEqual([]);
     sub.release();
   });
 
-  test('a cell nobody can reach entangles nobody', () => {
-    const board = boardOf(
-      [
-        piece('me', { x: 1, y: 1 }, 'rook', 2, { teamID: 'red' }),
-        piece('far', { x: 9, y: 9 }, 'knight', 1, { teamID: 'blue' }),
-      ],
-      { width: 11, height: 11 }
-    );
+  test('a cell the claim CAN hold names it, and the claim agrees', () => {
+    const board = boardOf([
+      piece('A', { x: 1, y: 1 }, 'knight', 1, { teamID: 'red' }),
+      piece('E', { x: 4, y: 4 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
     const m = marshalBoard(board, TURN);
-    expect(sub.entangled([{ cell: m.toIndex({ x: 1, y: 5 }), fromSubStep: 4, toSubStep: 4 }])).toHaveLength(0);
+    const jump = m.toIndex({ x: 5, y: 6 }); // one knight move from (4,4)
+    const named = sub.entangled([
+      { cell: jump, fromSubStep: 1, toSubStep: Number.MAX_SAFE_INTEGER },
+    ]);
+    expect(named).toEqual([sub.unitOfWireId('E')?.unitId]);
+    // The gate is the CLAIM's own, never a second reading of the grammar.
+    const claim = sub.claimsOf().find((c) => c.id === 'E');
+    expect(claim?.headPossible[claim.headPossible.length - 1]).toContain(jump);
     sub.release();
   });
 });
 
-// --------------------------------------------------------------- footprints
+// ----------------------------------------------------------------- influence
 
 describe('influenceOf over-approximates, in the safe direction', () => {
   test('it contains the unit’s own occupancy and every legal path it has', () => {
-    const board = boardOf([piece('Q', { x: 4, y: 4 }, 'queen', 3, { teamID: 'red' })]);
+    const board = boardOf([
+      makeSnake('S', [{ x: 3, y: 3 }, { x: 3, y: 4 }], { teamID: 'red' }),
+      piece('E', { x: 7, y: 7 }, 'rook', 1, { teamID: 'blue' }),
+    ]);
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const q = sub.unitOfWireId('Q') as { unitId: UnitId; cells: ReadonlyArray<number> };
-    const footprint = sub.influenceOf(q.unitId);
-    for (const c of q.cells) expect(footprint.has(c)).toBe(true);
-    let paths = 0;
-    for (const candidate of sub.enumerate(q.unitId)) {
-      if (candidate.action.kind !== 'move') continue;
-      paths++;
-      for (const c of candidate.action.path) expect(footprint.has(c)).toBe(true);
-    }
-    expect(paths).toBeGreaterThan(0);
-    // A queen on an open 9x9 board influences a good deal of it, and never a
-    // cell outside the board.
-    for (const c of footprint) expect(c).toBeLessThan(sub.grid.cells);
-    sub.release();
-  });
-
-  test('a knight’s footprint is its jumps, which never include its own colour', () => {
-    const board = boardOf([piece('N', { x: 4, y: 4 }, 'knight', 1, { teamID: 'red' })]);
-    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const n = sub.unitOfWireId('N') as { unitId: UnitId; cells: ReadonlyArray<number> };
-    const origin = n.cells[0] as number;
-    const parity = (c: number): number =>
-      ((c % sub.grid.width) + Math.floor(c / sub.grid.width)) % 2;
-    for (const c of sub.influenceOf(n.unitId)) {
-      if (c === origin) continue;
-      expect(parity(c)).not.toBe(parity(origin));
+    const s = sub.unitOfWireId('S') as NonNullable<ReturnType<EngineSubstrate['unitOfWireId']>>;
+    const cells = sub.influenceOf(s.unitId);
+    for (const cell of s.cells) expect(cells.has(cell)).toBe(true);
+    for (const candidate of sub.actionsOf(s.unitId)) {
+      for (const cell of candidate.path) expect(cells.has(cell)).toBe(true);
     }
     sub.release();
   });
 });
 
-// --------------------------------------------------------------- slab hygiene
+// ------------------------------------------------------------------- siblings
 
-describe('every slab is returned', () => {
-  test('a sweep of resolutions leaves exactly the base state outstanding', () => {
-    const board = boardOf([
-      piece('me', { x: 2, y: 4 }, 'rook', 2, { teamID: 'red' }),
-      piece('mate', { x: 3, y: 6 }, 'knight', 1, { teamID: 'red' }),
-      piece('them', { x: 6, y: 4 }, 'queen', 1, { teamID: 'blue' }),
-    ]);
-    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const me = sub.unitOfWireId('me') as { unitId: UnitId };
-    let ran = 0;
-    for (const candidate of sub.enumerate(me.unitId)) {
-      if (candidate.action.kind !== 'move') continue;
-      const plan = new Map<UnitId, Candidate>([
-        [me.unitId, { unitId: me.unitId, from: -1, to: candidate.dest, path: candidate.action.path }],
-      ]);
-      sub.withResolution(plan, 0, () => {
-        ran++;
-      });
-      expect(sub.outstanding()).toBe(1);
-    }
-    expect(ran).toBeGreaterThan(4);
-    expect(sub.resolutions()).toBe(ran);
-    sub.release();
-    expect(sub.outstanding()).toBe(0);
-  });
+describe('a modelled sibling answers its OWN claim question', () => {
+  const board = boardOf([
+    piece('A', { x: 3, y: 3 }, 'knight', 1, { teamID: 'red' }),
+    piece('B', { x: 5, y: 5 }, 'knight', 1, { teamID: 'blue' }),
+    piece('C', { x: 6, y: 2 }, 'knight', 1, { teamID: 'blue' }),
+  ]);
 
-  test('the hold set is interned: one held configuration is built once', () => {
-    const board = boardOf([
-      piece('me', { x: 2, y: 4 }, 'rook', 2, { teamID: 'red' }),
-      piece('them', { x: 6, y: 4 }, 'queen', 1, { teamID: 'blue' }),
-    ]);
+  test('a WIDER sibling holds fewer units, and its claims say so', () => {
     const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
-    const me = sub.unitOfWireId('me') as { unitId: UnitId };
-    const them = sub.unitOfWireId('them') as { unitId: UnitId };
-    const fields: unknown[] = [];
-    for (const candidate of sub.enumerate(me.unitId)) {
-      if (candidate.action.kind !== 'move') continue;
-      const plan = new Map<UnitId, Candidate>([
-        [me.unitId, { unitId: me.unitId, from: -1, to: candidate.dest, path: candidate.action.path }],
-      ]);
-      sub.withResolution(plan, 0, ({ resolution }) => {
-        expect(resolution.state.field.slotOf(them.unitId)).toBeDefined();
-        fields.push(resolution.state.field);
-      });
-    }
-    // The POST-ADVANCE field differs per resolution, but every one of them
-    // descends from the single interned start field — which is what makes the
-    // frozen half cost a pointer copy instead of a rebuild.
-    expect(fields.length).toBeGreaterThan(3);
+    const b = sub.unitOfWireId('B')?.unitId as UnitId;
+    const wider = sub.withModelled([...sub.modeled(), b]) as unknown as EngineSubstrate;
+    expect(sub.claimsOf().map((c) => c.id).sort()).toEqual(['B', 'C']);
+    expect(wider.claimsOf().map((c) => c.id)).toEqual(['C']);
+    wider.release();
+    // The sibling's release must not disturb the parent.
+    expect(sub.claimsOf().map((c) => c.id).sort()).toEqual(['B', 'C']);
     sub.release();
   });
 
-  test('release() is idempotent and closes the door', () => {
+  test('a NARROWER sibling is simply correct — there is no shared claim view', () => {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const narrower = sub.withModelled([]) as unknown as EngineSubstrate;
+    expect(narrower.claimsOf().map((c) => c.id).sort()).toEqual(['A', 'B', 'C']);
+    narrower.release();
+    sub.release();
+  });
+
+  test('a sibling answers its OWN peril, whichever view was asked first', () => {
+    // B and C are two blue knights that can take each other, so with red's
+    // units off the board both are possibly-gone: that is `perilOf`. A sibling
+    // that models B holds only C, which nothing can reach — its peril is empty.
+    //
+    // The regression: `perilCache` used to live only on the family, so a
+    // sibling read the PARENT's memo through the prototype and answered the
+    // parent's question. Asked parent-first it said {B, C}; asked
+    // sibling-first, {} — the same view, two answers, and the decision path
+    // always resolves B0 first.
+    const perilBoard = boardOf([
+      piece('A', { x: 0, y: 0 }, 'knight', 1, { teamID: 'red' }),
+      piece('B', { x: 5, y: 5 }, 'knight', 1, { teamID: 'blue' }),
+      piece('C', { x: 6, y: 3 }, 'knight', 1, { teamID: 'blue' }),
+    ]);
+    const widerPeril = (parentFirst: boolean): ReadonlyArray<string> => {
+      const sub = makeSubstrate({ board: perilBoard, turn: TURN, asTeam: 'red' });
+      try {
+        const b = sub.unitOfWireId('B')?.unitId as UnitId;
+        if (parentFirst) expect([...sub.perilOf()].sort()).toEqual(['B', 'C']);
+        const wider = sub.withModelled([...sub.modeled(), b]) as unknown as EngineSubstrate;
+        return [...wider.perilOf()].sort();
+      } finally {
+        sub.release();
+      }
+    };
+    expect(widerPeril(false)).toEqual([]);
+    expect(widerPeril(true)).toEqual([]);
+  });
+
+  test("a sibling's settlements count into the FAMILY's meter", () => {
+    // `settlements()` is the currency the search's budget is denominated in,
+    // and the bank prices B1/B3 on siblings. The counters used to be own
+    // scalars, so `this.settleCount++` on a sibling read the parent's value
+    // through the prototype and wrote an OWN property: the parent stayed at 0
+    // while the sibling that had just settled read 1.
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const a = sub.unitOfWireId('A')?.unitId as UnitId;
+    const b = sub.unitOfWireId('B')?.unitId as UnitId;
+    const sibling = sub.withModelled([b]) as unknown as EngineSubstrate;
+    const plan = new Map<UnitId, Candidate>([
+      [a, { unitId: a, from: -1, to: NO_ORDER_MOVE, path: [] }],
+    ]);
+    sibling.resolveBoundedFor(plan, 0);
+    expect(sibling.settlements()).toBe(1);
+    expect(sub.settlements()).toBe(1);
+    // The one-mover meter is shared the same way, and stays its own budget.
+    sibling.settleMover(a, sub.pathFor(a, sub.actionsOf(a)[0].to) ?? []);
+    expect(sub.assessments()).toBe(1);
+    expect(sub.settlements()).toBe(1);
+    sibling.release();
+    sub.release();
+  });
+
+  test('resolution on a sibling is unaffected: the plan is the modelled set', () => {
+    const sub = makeSubstrate({ board, turn: TURN, asTeam: 'red' });
+    const a = sub.unitOfWireId('A')?.unitId as UnitId;
+    const sibling = sub.withModelled([a]);
+    const plan = new Map<UnitId, Candidate>([
+      [a, { unitId: a, from: -1, to: NO_ORDER_MOVE, path: [] }],
+    ]);
+    const viaParent = sub.resolveBoundedFor(plan, 0);
+    const viaSibling = sibling.resolveBoundedFor(plan, 0);
+    expect(viaSibling.bounds.worst).toBe(viaParent.bounds.worst);
+    expect(viaSibling.bounds.best).toBe(viaParent.bounds.best);
+    sibling.release();
+    sub.release();
+  });
+});
+
+// ------------------------------------------------------------ geometry cache
+
+describe('the geometry cache has a scope and a lifetime', () => {
+  const board = boardOf([piece('A', { x: 3, y: 3 }, 'knight', 1, { teamID: 'red' })]);
+
+  test('two GAMES on the same board keep their own entries', () => {
+    clearGeometryCache();
+    const one = makeSubstrate({ board, turn: TURN, asTeam: 'red', gameId: 'g1' });
+    const two = makeSubstrate({ board, turn: TURN, asTeam: 'red', gameId: 'g2' });
+    expect(geometryCacheStats().entries).toBe(2);
+    one.release();
+    two.release();
+  });
+
+  test('the same game reuses its geometry turn after turn — the whole point', () => {
+    clearGeometryCache();
+    const a = makeSubstrate({ board, turn: TURN, asTeam: 'red', gameId: 'g1' });
+    const b = makeSubstrate({ board, turn: TURN + 1, asTeam: 'red', gameId: 'g1' });
+    expect(geometryCacheStats().entries).toBe(1);
+    a.release();
+    b.release();
+  });
+
+  test('a game that ends takes its geometry with it', () => {
+    clearGeometryCache();
+    const a = makeSubstrate({ board, turn: TURN, asTeam: 'red', gameId: 'g1' });
+    a.release();
+    expect(releaseGeometriesFor('g1')).toBe(1);
+    expect(geometryCacheStats().entries).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------- release
+
+describe('release closes the door', () => {
+  test('it is idempotent, and settling after it is a refusal', () => {
     const sub = makeSubstrate({
-      board: boardOf([piece('a', { x: 2, y: 2 }, 'knight', 1, { teamID: 'red' })]),
+      board: boardOf([piece('A', { x: 3, y: 3 }, 'knight', 1, { teamID: 'red' })]),
       turn: TURN,
       asTeam: 'red',
     });
     sub.release();
     sub.release();
-    expect(sub.outstanding()).toBe(0);
-    expect(() => sub.resolveBoundedFor(new Map(), 0)).toThrow(/after release/);
-  });
-});
-
-// --------------------------------------------------------------- capacity
-
-describe('capacity is a typed refusal, never a silent truncation', () => {
-  test('more than the cloud field can carry is named as such', () => {
-    const snakes: Snake[] = [];
-    for (let i = 0; i < 34; i++) {
-      snakes.push(
-        piece(`u${i}`, { x: i % 9, y: Math.floor(i / 9) }, 'knight', 1, {
-          teamID: i === 0 ? 'red' : 'blue',
-        })
-      );
-    }
-    const sub = makeSubstrate({ board: boardOf(snakes, { width: 9, height: 9 }), turn: TURN });
-    // Nothing modelled: every unit would be held.
-    expect(() => sub.claimField()).toThrow(TooManyHeldError);
-    sub.release();
-  });
-});
-
-// ------------------------------------------------- the geometry cache (V4 R4)
-
-describe('the geometry cache has a scope, a refcount, and a lifetime', () => {
-  const board = (): Board =>
-    boardOf([
-      piece('a', { x: 2, y: 2 }, 'king', 1, { teamID: 'red' }),
-      piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
-    ]);
-
-  beforeEach(() => clearGeometryCache());
-  afterEach(() => clearGeometryCache());
-
-  test('two GAMES on the same board do not share a slab arena', () => {
-    // Two decisions overlap by design (an early turn resolution starts the
-    // next turn while this one runs), and two games with identical geometry
-    // used to be handed the same PartialEngine — one arena, additive pressure,
-    // entangled lifetimes, for a saving that only ever came from a single
-    // game reusing its own engine turn after turn.
-    const one = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN, asTeam: 'red' });
-    const two = makeSubstrate({ gameId: 'g2', board: board(), turn: TURN, asTeam: 'red' });
-    try {
-      expect(one.engine).not.toBe(two.engine);
-      expect(geometryCacheStats().entries).toBe(2);
-      expect(geometryCacheStats().live).toBe(2);
-    } finally {
-      one.release();
-      two.release();
-    }
-  });
-
-  test('the same game reuses its engine turn after turn — the whole point', () => {
-    const first = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN, asTeam: 'red' });
-    const engine = first.engine;
-    first.release();
-    const second = makeSubstrate({ gameId: 'g1', board: board(), turn: TURN + 1, asTeam: 'red' });
-    try {
-      expect(second.engine).toBe(engine);
-      expect(geometryCacheStats().entries).toBe(1);
-    } finally {
-      second.release();
-    }
-  });
-
-  test('a game that ends takes its engines with it', () => {
-    const sub = makeSubstrate({ gameId: 'g-done', board: board(), turn: TURN, asTeam: 'red' });
-    sub.release();
-    expect(geometryCacheStats().entries).toBe(1);
-    expect(releaseGeometriesFor('g-done')).toBe(1);
-    expect(geometryCacheStats().entries).toBe(0);
-  });
-
-  test('a LIVE engine is retired, never orphaned, when its game ends', () => {
-    const sub = makeSubstrate({ gameId: 'g-live', board: board(), turn: TURN, asTeam: 'red' });
-    try {
-      expect(releaseGeometriesFor('g-live')).toBe(0);
-      // Still cached, because a live substrate is still borrowing slabs from
-      // it — but marked, and it leaves with its last reference.
-      expect(geometryCacheStats().entries).toBe(1);
-      expect(geometryCacheStats().retiring).toBe(1);
-      // And it is not handed out again while it is retiring.
-      const other = makeSubstrate({
-        gameId: 'g-live',
-        board: board(),
-        turn: TURN,
-        asTeam: 'red',
-      });
-      expect(other.engine).not.toBe(sub.engine);
-      other.release();
-    } finally {
-      sub.release();
-    }
-    expect(geometryCacheStats().live).toBe(0);
-  });
-
-  test('pressure never evicts an engine a live substrate is using', () => {
-    // The old cache cleared WHOLESALE at its limit, silently orphaning every
-    // engine a live resolution still held slabs from.
-    const live: EngineSubstrate[] = [];
-    try {
-      for (let i = 0; i < 30; i++) {
-        live.push(
-          makeSubstrate({
-            gameId: `g${i}`,
-            board: boardOf([
-              piece('a', { x: 2, y: 2 }, 'king', 1, { teamID: 'red' }),
-              piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
-              // A distinct food layout per game: a distinct geometry.
-              piece(`f${i}`, { x: 1 + (i % 7), y: 8 }, 'king', 1, { teamID: 'blue' }),
-            ]),
-            turn: TURN,
-            asTeam: 'red',
-          })
-        );
-      }
-      // Every one of them still resolves: not one engine was pulled out from
-      // under a live substrate.
-      for (const sub of live) {
-        expect(sub.outstanding()).toBeGreaterThan(0);
-        expect(() => sub.actionsOf(sub.unitOfWireId('a')?.unitId as UnitId)).not.toThrow();
-      }
-      expect(geometryCacheStats().live).toBe(30);
-    } finally {
-      for (const sub of live) sub.release();
-    }
-    // Released, the over-limit entries can finally go.
-    expect(geometryCacheStats().live).toBe(0);
-  });
-});
-
-// ------------------------------------------- the modelled sibling (V4 H1)
-
-describe('a modelled sibling shares the parent claim view — and says so', () => {
-  const board = (): Board =>
-    boardOf([
-      piece('a', { x: 2, y: 2 }, 'rook', 2, { teamID: 'red' }),
-      piece('b', { x: 6, y: 6 }, 'king', 1, { teamID: 'blue' }),
-      piece('c', { x: 6, y: 2 }, 'king', 1, { teamID: 'blue' }),
-    ]);
-
-  test('resolution on a sibling is unaffected: the plan is the modelled set', () => {
-    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
-    try {
-      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
-      const view = sub.withModelled([enemy]);
-      // The whole reason the shared-state sibling is legal: a resolve derives
-      // its held set from the plan it is given, never from the claim view.
-      expect(view.actionsOf(enemy).length).toBeGreaterThan(0);
-      expect(() => view.pathOf(enemy, view.actionsOf(enemy)[0]?.to as number)).not.toThrow();
-      view.release();
-      // A sibling's release never disturbs the parent.
-      expect(sub.outstanding()).toBeGreaterThan(0);
-    } finally {
-      sub.release();
-    }
-  });
-
-  test('a NARROWER sibling refuses claim questions rather than answering wrong', () => {
-    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
-    try {
-      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
-      // Narrower: our rook is modelled on the parent and not here. The parent's
-      // claim view would report it as a mover, so entanglement would be
-      // UNDER-reported — the direction a floor may not be built on.
-      const view = sub.withModelled([enemy]);
-      expect(() => view.entangled([{ cell: 30, fromSubStep: 0, toSubStep: 0 }])).toThrow(
-        SharedClaimViewError
-      );
-      expect(() => view.influenceOf(enemy)).toThrow(SharedClaimViewError);
-      view.release();
-    } finally {
-      sub.release();
-    }
-  });
-
-  test('a WIDER sibling answers: the shared view over-reports, which is sound', () => {
-    const sub = makeSubstrate({ board: board(), turn: TURN, asTeam: 'red' });
-    try {
-      const ours = sub.unitOfWireId('a')?.unitId as UnitId;
-      const enemy = sub.unitOfWireId('b')?.unitId as UnitId;
-      const view = sub.withModelled([ours, enemy]);
-      expect(() => view.influenceOf(ours)).not.toThrow();
-      expect(view.influenceOf(ours)).toEqual(sub.influenceOf(ours));
-      view.release();
-    } finally {
-      sub.release();
-    }
+    expect(() => sub.resolveBoundedFor(defaultPlan(sub), 0)).toThrow(/after release/);
   });
 });

@@ -363,7 +363,7 @@ describe('clashes and team names on the wire', () => {
 
   function turnWith(clashes: TTTurn['clashes']): TTTurn {
     return {
-      playerHealth: { p1: 100, p2: 100 },
+      playerEnergy: { p1: 100, p2: 100 },
       startTime: null as never,
       endTime: null as never,
       alivePlayers: ['p1', 'p2'],

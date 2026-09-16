@@ -28,7 +28,7 @@
  * tail of staged distances collapses onto one representative.
  *
  *   suffix-collapse        a CERTAIN stop (contest or certain death) at index j
- *   health-horizon         the mover cannot afford cell j+1 in any world
+ *   energy-horizon         the mover cannot afford cell j+1 in any world
  *   certain-edge-horizon   a certain edge exchange at j, which is adjudicated
  *                          before walls, arrivals and bodies in its sub-step
  *
@@ -66,27 +66,33 @@
  * budget is the caller's job, done up front, worst-first inside.
  */
 
-import { profileOf, scalarOf } from '../partial-engine/index';
-import type { EncounterVerdict, RiskAssessor, TraversalVerdict, Trit } from '../partial-engine/index';
+import { COST_PER_CELL } from '../engine-vendor/engine/turnEngine';
 import { EngineSubstrate } from './substrate';
 import type { SubstrateUnit } from './substrate';
-import { TIER_DEFENSE } from './tier-truth';
+import { TIER_DEFENSE } from './postures';
 import { exposureOf, gradePath, selfDebuffOf, selfDebuffRank, tierGradeRank } from './tier-window';
 import type { SelfDebuff, TierExposure, TierGrade } from './tier-window';
 import {
   allyBodyCollision,
+  boardBearsPiece,
   certainlySelfFatal,
   killsOwnKing,
   resolveStagingSafety,
   stagingSafety,
 } from './staging-safety';
-import type { StagingSafety } from './staging-safety';
+import type { ResolvedStagingSafety, StagingSafety } from './staging-safety';
+import { makeSearchCore } from './search/core';
+import { perBoard } from './evaluate/memo';
 import type {
   Candidate,
   CandidateGenerator,
   CandidateSet,
   CellIndex,
+  EncounterVerdict,
+  SearchCore,
   Substrate,
+  TraversalVerdict,
+  Trit,
   UnitId,
 } from './contracts';
 
@@ -97,7 +103,7 @@ import type {
 /** Stable prune ids. The ledger carries these; prose lives in PRUNE_NOTES. */
 export const PRUNE = {
   suffixCollapse: 'suffix-collapse',
-  healthHorizon: 'health-horizon',
+  energyHorizon: 'energy-horizon',
   certainEdgeHorizon: 'certain-edge-horizon',
   quietThinning: 'quiet-thinning',
   fatalNoGain: 'fatal-no-gain',
@@ -135,7 +141,7 @@ export type PruneId = (typeof PRUNE)[keyof typeof PRUNE];
  */
 export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
   [PRUNE.suffixCollapse]: false,
-  [PRUNE.healthHorizon]: true,
+  [PRUNE.energyHorizon]: true,
   [PRUNE.certainEdgeHorizon]: true,
   [PRUNE.quietThinning]: false,
   [PRUNE.fatalNoGain]: false,
@@ -158,7 +164,7 @@ export const PRUNE_EXACT: Readonly<Record<PruneId, boolean>> = {
 export const PRUNE_NOTES: Readonly<Record<PruneId, string>> = {
   [PRUNE.suffixCollapse]:
     'the move ends at a stop the claim layer calls certain before this staged distance — outcome-preserving except where a higher-tier mover severs a living body and continues, which the halt axis does not yet model',
-  [PRUNE.healthHorizon]:
+  [PRUNE.energyHorizon]:
     'the mover cannot afford the next cell in any world, so every longer staging resolves identically',
   [PRUNE.certainEdgeHorizon]:
     'a certain edge exchange settles the move at an earlier sub-step whichever way it goes',
@@ -233,7 +239,7 @@ export interface CandidateKnobs {
    *
    * 1. A MEAL IS FREE AND IS CHARGED FULL PRICE. `resolveTurn` sets an eater's
    *    health to its kind's max, so a nine-cell queen slide onto food costs
-   *    nothing in health. The order sorts on `healthSpent.hi` ascending and
+   *    nothing in health. The order sorts on `energySpent.hi` ascending and
    *    knows nothing about the refund, so a `stay` — zero health, always legal,
    *    always generated — outranks every eat a slider has. With `candidateCap`
    *    at 8 on a queen with two dozen distinct actions, the eat is not merely
@@ -312,6 +318,34 @@ export function flaggedKnobs(): CandidateKnobs {
   return knobsForSafety(stagingSafety());
 }
 
+/**
+ * The safety->generator->core preamble every decision assembly opens with:
+ * resolve the staging-safety level for this board, build a generator tuned to
+ * it, and build a search core whose `rungZeroRepair`/`seedDeconflict` follow
+ * the same resolved level. Those two couplings are RULES (`search/core.ts`
+ * asserts them again as fallbacks), not a call-site choice, so one function
+ * states them once.
+ */
+export interface DecisionRig {
+  readonly safety: ResolvedStagingSafety;
+  readonly gen: GrammarCandidateGenerator;
+  readonly search: SearchCore;
+}
+
+export function rigFor(
+  sub: EngineSubstrate,
+  over?: { level?: StagingSafety; seed?: number; candidates?: CandidateKnobs }
+): DecisionRig {
+  const safety = resolveStagingSafety(over?.level ?? stagingSafety(), boardBearsPiece(sub));
+  const gen = new GrammarCandidateGenerator({ ...knobsForSafety(safety), ...over?.candidates });
+  const search = makeSearchCore({
+    rungZeroRepair: safety === 'full',
+    seedDeconflict: safety !== 'off',
+    ...(over?.seed !== undefined ? { seed: over.seed } : {}),
+  });
+  return { safety, gen, search };
+}
+
 // ---------------------------------------------------------------------------
 // What the risk layer says about one action
 // ---------------------------------------------------------------------------
@@ -339,7 +373,7 @@ export interface AssessedCandidate {
    */
   readonly captureValue: number;
   /** Health the move spends, at its interval endpoints. */
-  readonly healthSpent: { readonly lo: number; readonly hi: number };
+  readonly energySpent: { readonly lo: number; readonly hi: number };
   /**
    * Does the mover run out of health paying for this move? Read straight off
    * the risk fold (`TraversalVerdict.exhaustionFatal`), and for a HOLD off the
@@ -380,6 +414,14 @@ export interface AssessedCandidate {
 // The generator
 // ---------------------------------------------------------------------------
 
+/** Everything generation reads that is a function of the BOARD, not the unit. */
+interface GenerationRig {
+  readonly knobs: Required<CandidateKnobs>;
+  readonly shadows: ReadonlySet<CellIndex>;
+  readonly regicideCells: ReadonlyMap<CellIndex, number> | null;
+  readonly victims: VictimTable;
+}
+
 export class GrammarCandidateGenerator implements CandidateGenerator {
   private readonly knobs: Required<CandidateKnobs>;
   /** Ray-shadow cells, per substrate. An ordering hint, computed once. */
@@ -413,51 +455,36 @@ export class GrammarCandidateGenerator implements CandidateGenerator {
       const candidates = sub.actionsOf(unitId);
       return { unitId, candidates, prunedLedger: [], legalCount: candidates.length };
     }
-    return generate(
-      sub,
-      unitId,
-      this.knobs,
-      this.shadowsFor(sub),
-      this.regicideFor(sub),
-      this.victimsFor(sub)
-    );
+    return generate(sub, unitId, this.rigFor(sub));
   }
 
   /** The assessment behind a candidate set — ordering keys, tiers, ledgers. */
   assess(sub: EngineSubstrate, unitId: UnitId): ReadonlyArray<AssessedCandidate> {
-    return generateAssessed(
-      sub,
-      unitId,
-      this.knobs,
-      this.shadowsFor(sub),
-      this.regicideFor(sub),
-      this.victimsFor(sub)
-    ).kept;
+    return generateAssessed(sub, unitId, this.rigFor(sub)).kept;
+  }
+
+  private rigFor(sub: EngineSubstrate): GenerationRig {
+    return {
+      knobs: this.knobs,
+      shadows: this.shadowsFor(sub),
+      regicideCells: this.regicideFor(sub),
+      victims: this.victimsFor(sub),
+    };
   }
 
   private shadowsFor(sub: EngineSubstrate): ReadonlySet<CellIndex> {
-    const hit = this.shadows.get(sub);
-    if (hit !== undefined) return hit;
-    const made = this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>();
-    this.shadows.set(sub, made);
-    return made;
+    return perBoard(this.shadows, sub, () =>
+      this.knobs.escortShadowOrdering ? rayShadowCells(sub) : new Set<CellIndex>()
+    );
   }
 
   private regicideFor(sub: EngineSubstrate): ReadonlyMap<CellIndex, number> | null {
     if (!this.knobs.gainOrdering) return null;
-    const hit = this.regicideCells.get(sub);
-    if (hit !== undefined) return hit;
-    const made = enemyRegicideCells(sub);
-    this.regicideCells.set(sub, made);
-    return made;
+    return perBoard(this.regicideCells, sub, () => enemyRegicideCells(sub));
   }
 
   private victimsFor(sub: EngineSubstrate): VictimTable {
-    const hit = this.victims.get(sub);
-    if (hit !== undefined) return hit;
-    const made = victimTable(sub);
-    this.victims.set(sub, made);
-    return made;
+    return perBoard(this.victims, sub, () => victimTable(sub));
   }
 }
 
@@ -480,22 +507,8 @@ interface Generated {
   legalCount: number;
 }
 
-function generate(
-  sub: EngineSubstrate,
-  unitId: UnitId,
-  knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  victims: VictimTable
-): CandidateSet {
-  const { kept, pruned, legalCount } = generateAssessed(
-    sub,
-    unitId,
-    knobs,
-    shadows,
-    regicideCells,
-    victims
-  );
+function generate(sub: EngineSubstrate, unitId: UnitId, rig: GenerationRig): CandidateSet {
+  const { kept, pruned, legalCount } = generateAssessed(sub, unitId, rig);
   return {
     unitId,
     candidates: kept.map((k) => k.candidate),
@@ -504,33 +517,18 @@ function generate(
   };
 }
 
-function generateAssessed(
-  sub: EngineSubstrate,
-  unitId: UnitId,
-  knobs: Required<CandidateKnobs>,
-  shadows: ReadonlySet<CellIndex>,
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  victims: VictimTable
-): Generated {
+function generateAssessed(sub: EngineSubstrate, unitId: UnitId, rig: GenerationRig): Generated {
   const unit = sub.unitOf(unitId);
   if (unit === undefined) throw new Error(`candidates: no unit ${unitId} on this board`);
 
-  // THE OPTION SET IS THE ENGINE'S. `enumerateActions` folds every cell of the
-  // board through the kind's ONE interpretation and dedupes by canonical
-  // effect, so `legalCount` counts distinct ACTIONS: two staged cells that mean
-  // the same action are the same option, and the engine proves it rather than
-  // this file asserting it.
-  const actions = sub.enumerate(unitId);
-  const legalCount = actions.length;
+  // THE OPTION SET IS THE ENGINE'S. `legalTargets` folds every cell of the
+  // board through the kind's ONE interpretation — the same `planUnitAction` the
+  // server stages with — so `legalCount` counts exactly the destinations the
+  // server would accept from this unit. A cell it offers that this layer would
+  // rather not take is pruned with a named reason, never quietly absent.
+  const raw: ReadonlyArray<Candidate> = sub.actionsOf(unitId);
+  const legalCount = raw.length;
   const pruned: PrunedEntry[] = [];
-
-  const from = unit.cells[0] as CellIndex;
-  const raw: Candidate[] = actions.map((a) => ({
-    unitId,
-    from,
-    to: a.dest,
-    path: a.action.kind === 'move' ? [...a.action.path] : [],
-  }));
 
   // ---- exact prunes: first-contact termination, per ray -------------------
   const surviving = collapseSuffixes(sub, unit, raw, pruned);
@@ -575,7 +573,7 @@ function generateAssessed(
   // can be broken by it. It only stops a move that cannot survive from being
   // the one the search starts on.
   const assessed = surviving.map((candidate) => {
-    const one = assessOne(sub, unit, candidate, shadows, exposure, knobs, regicideCells, victims);
+    const one = assessOne(sub, unit, candidate, rig, exposure);
     if (one.tier === 'doomed') return one;
     if (certainlySelfFatal(sub, unit, candidate) !== null) {
       return { ...one, tier: 'doomed' as SafetyTier };
@@ -590,10 +588,10 @@ function generateAssessed(
   });
 
   // ---- lossy prunes, each behind its knob ---------------------------------
-  const afterQuiet = thinQuiet(sub, unit, assessed, pruned, knobs);
-  const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, knobs);
-  const afterTier = keepTierSafe(afterPolicy, pruned, knobs);
-  const afterKing = keepBestTier(unit, afterTier, pruned, knobs);
+  const afterQuiet = thinQuiet(sub, assessed, pruned, rig.knobs);
+  const afterPolicy = policyPrunes(sub, unit, afterQuiet, pruned, rig.knobs);
+  const afterTier = keepTierSafe(afterPolicy, pruned, rig.knobs);
+  const afterKing = keepBestTier(unit, afterTier, pruned, rig.knobs);
 
   // ---- the emptiness guarantee -------------------------------------------
   // No combination of knobs may hand the search nothing. If every option was
@@ -601,13 +599,40 @@ function generateAssessed(
   // never restored, because their representatives are still in the set.
   const kept = afterKing.length > 0 ? afterKing : restoreLeastBad(assessed, pruned);
 
-  kept.sort(knobs.gainOrdering ? gainOrderKey : orderKey);
+  kept.sort(rig.knobs.gainOrdering ? gainOrderKey : orderKey);
   return { kept, pruned, legalCount };
 }
 
 // ---------------------------------------------------------------------------
 // Exact prunes
 // ---------------------------------------------------------------------------
+
+/**
+ * Bucket items by the first cell of their path, path-length-zero items passed
+ * straight through as `loose`, and each bucket ("ray") sorted by path length
+ * ascending. This is the preamble `collapseSuffixes` and `thinQuiet` share:
+ * both process one ray of prefixes at a time, nearest first.
+ */
+function byRay<T>(
+  items: ReadonlyArray<T>,
+  pathOf: (t: T) => ReadonlyArray<CellIndex>
+): { rays: Map<CellIndex, T[]>; loose: T[] } {
+  const rays = new Map<CellIndex, T[]>();
+  const loose: T[] = [];
+  for (const item of items) {
+    const path = pathOf(item);
+    if (path.length === 0) {
+      loose.push(item);
+      continue;
+    }
+    const first = path[0] as CellIndex;
+    const group = rays.get(first);
+    if (group === undefined) rays.set(first, [item]);
+    else group.push(item);
+  }
+  for (const group of rays.values()) group.sort((a, b) => pathOf(a).length - pathOf(b).length);
+  return { rays, loose };
+}
 
 /**
  * First-contact termination, applied per ray.
@@ -627,21 +652,10 @@ function collapseSuffixes(
   raw: ReadonlyArray<Candidate>,
   pruned: PrunedEntry[]
 ): Candidate[] {
-  const rays = new Map<CellIndex, Candidate[]>();
-  const kept: Candidate[] = [];
-  for (const candidate of raw) {
-    if (candidate.path.length === 0) {
-      kept.push(candidate);
-      continue;
-    }
-    const first = candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [candidate]);
-    else group.push(candidate);
-  }
+  const { rays, loose } = byRay(raw, (c) => c.path);
+  const kept: Candidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.path.length - b.path.length);
     if (group.length === 1) {
       kept.push(group[0] as Candidate);
       continue;
@@ -709,14 +723,17 @@ function reachHorizonIndex(verdict: TraversalVerdict): number {
  */
 function stopReason(verdict: TraversalVerdict, index: number): PruneId {
   const at = verdict.perCell[index];
-  if (at === undefined) return PRUNE.healthHorizon;
+  if (at === undefined) return PRUNE.energyHorizon;
   if (at.halt === 'yes') {
+    if (at.causes.some((c) => c.role === 'terrain' && c.axis === 'halt')) {
+      return PRUNE.energyHorizon;
+    }
     return at.causes.some((c) => c.role === 'edge' && c.axis === 'halt')
       ? PRUNE.certainEdgeHorizon
       : PRUNE.suffixCollapse;
   }
   if (at.survival === 'no') return PRUNE.suffixCollapse;
-  return PRUNE.healthHorizon;
+  return PRUNE.energyHorizon;
 }
 
 // ---------------------------------------------------------------------------
@@ -728,102 +745,55 @@ function assessPathOf(
   unit: SubstrateUnit,
   path: ReadonlyArray<CellIndex>
 ): TraversalVerdict {
-  const assessor: RiskAssessor = sub.freshAssessor();
-  return assessor.assessPath({
-    unitId: unit.unitId,
-    kind: unit.kind,
-    strength: scalarOf(unit.tier, unit.weight),
-    health: unit.health,
-    path,
-    origin: unit.cells[0] as number,
-  });
+  return sub.assess(unit.unitId, path);
 }
-
-/** The part of a `TraversalVerdict` a resting unit has an answer for. */
-interface RestVerdict {
-  readonly perCell: ReadonlyArray<EncounterVerdict>;
-  readonly survival: Trit;
-  readonly landing: { readonly certain: number | null; readonly cells: ReadonlyArray<number> };
-  readonly healthSpent: { readonly lo: number; readonly hi: number };
-  readonly exhaustionFatal: Trit;
-}
-
-const EMPTY_VERDICT: RestVerdict = {
-  perCell: [],
-  survival: 'yes',
-  landing: { certain: null, cells: [] },
-  healthSpent: { lo: 0, hi: 0 },
-  exhaustionFatal: 'no',
-};
 
 /**
- * WHAT A HOLD COSTS. A stay or a rotation enters no cell, and for everything
- * another unit might do that is the end of it: whatever contests the square
- * contests it either way, so the risk of STANDING is the evaluator's business
- * and not this layer's.
+ * WHAT A HOLD COSTS, AND WHAT IT RISKS.
  *
- * TERRAIN IS NOT LIKE THAT, AND IT IS THE ONE ASYMMETRY THE RULES CONTAIN.
- * `PartialEngine.healthPhase` charges a unit that staged no path a full
- * stationary hazard dose at sub-step 1 — the vendored resolver's
- * `turnEngine.ts` does the same — while stepping onto ordinary ground costs
- * the kind's `costPerCell`, which is one. So on a hazard, holding is strictly
- * dominated by any safe step, by the whole dose minus one; and when the dose
- * is at least the health the mover has LEFT, holding is not a cost at all but
- * a death, indistinguishable from walking into the same cell.
+ * A stay or a rotation enters no cell, and this layer used to read that as
+ * "nothing to assess": whatever contests the square contests it either way, so
+ * the risk of STANDING was the evaluator's business. That was wrong in two
+ * directions at once and the second is the one that bites hardest.
  *
- * Reading a hold as free made both of those invisible at once. It priced the
- * dominated move at zero, which put the hold FIRST in `orderKey` (least health
- * spent) and therefore made it rung 0's seed for every unit standing on a
- * hazard; and it tiered a certainly-fatal hold `safe`, where no policy prune
- * can reach it. Neither is a judgement call — the charge is in the resolver.
+ * TERRAIN IS THE FIRST. The collision engine charges a unit that staged no
+ * path a full stationary hazard dose, while stepping onto ordinary ground
+ * costs one. So on a hazard, holding is strictly dominated by any safe step,
+ * by the whole dose minus one; and when the dose is at least the energy the
+ * mover has LEFT, holding is not a cost at all but a death.
  *
- * Only terrain is priced here, and only the mover's own square. The interval
- * is a point (`lo === hi`) because the charge depends on nothing anyone else
- * chooses. Off a hazard the answer is byte-for-byte the old `EMPTY_VERDICT`,
- * so a board without hazards cannot tell the difference.
+ * THE CONTEST IS THE SECOND. A unit standing still is standing on a square
+ * every other unit's turn can reach, for every sub-step of that turn. Reading
+ * the hold as certainly-safe while grading every STEP `atRisk` — which is what
+ * a board with anything unknown on it produces — puts the hold first in an
+ * ordering that sorts safety before everything else, and a piece that holds
+ * every turn is the whole of the defect `basic-intelligence.test.ts` gates on.
+ *
+ * So a hold is settled like anything else: `assessPath` with an empty path
+ * stands the unit on its square and reads the same divergences at it. Neither
+ * half is a judgement call — both are in the settlement.
  */
-function restVerdict(
-  sub: EngineSubstrate,
-  unit: SubstrateUnit,
-  charge: boolean
-): RestVerdict {
-  const at = unit.cells[0] as CellIndex;
-  if (!charge || !sub.hazardAt(at)) return EMPTY_VERDICT;
-  const dose = sub.engine.config.hazardDamage;
-  if (dose <= 0) return EMPTY_VERDICT;
-  // The food phase runs after the health phase and restores in full, so a unit
-  // standing on food that the dose would exhaust may yet recover — the same
-  // rescue `RiskAssessor.assessPath` grades for a mover. We cannot know here
-  // whether a frozen claim eats it first, so the rescue only ever softens the
-  // verdict to `maybe`; it never proves survival.
-  const fatal: Trit = unit.health - dose > 0 ? 'no' : sub.foodAt(at) ? 'maybe' : 'yes';
-  return {
-    perCell: EMPTY_VERDICT.perCell,
-    survival: 'yes',
-    landing: { certain: at, cells: [at] },
-    healthSpent: { lo: dose, hi: dose },
-    exhaustionFatal: fatal,
-  };
-}
-
 function assessOne(
   sub: EngineSubstrate,
   unit: SubstrateUnit,
   candidate: Candidate,
-  shadows: ReadonlySet<CellIndex>,
-  exposure: TierExposure,
-  knobs: Required<CandidateKnobs>,
-  /** Enemy last-king squares, or null when `gainOrdering` is off — in which
-   * case neither gain key is computed at all, so the shipped path pays nothing
-   * for a key it does not read. */
-  regicideCells: ReadonlyMap<CellIndex, number> | null,
-  /** Head cell → who is standing on it, for the capture ordering's price. */
-  victims: VictimTable
+  /** Enemy last-king squares (null when `gainOrdering` is off, so neither gain
+   *  key is computed at all — the shipped path pays nothing for a key it does
+   *  not read) and the head-cell → occupant table are both functions of the
+   *  BOARD, not the unit, and ride here with the knobs. */
+  rig: GenerationRig,
+  exposure: TierExposure
 ): AssessedCandidate {
-  const verdict =
-    candidate.path.length === 0
-      ? restVerdict(sub, unit, knobs.chargeStandingTerrain)
-      : assessPathOf(sub, unit, candidate.path);
+  const { knobs, shadows, regicideCells, victims } = rig;
+  const settled = assessPathOf(sub, unit, candidate.path);
+  // The stationary terrain charge is behind its own knob, and turning it off
+  // reads a hold's spend as zero — the ORDERING it used to have. The risk
+  // reading is not a knob: a contested square is contested whichever way the
+  // unit came to be standing on it.
+  const verdict: TraversalVerdict =
+    candidate.path.length === 0 && !knobs.chargeStandingTerrain
+      ? { ...settled, energySpent: { lo: 0, hi: 0 }, savedByTruncation: 0 }
+      : settled;
 
   const tier: SafetyTier =
     verdict.survival === 'no' || verdict.exhaustionFatal === 'yes'
@@ -881,7 +851,7 @@ function assessOne(
   // cell of its ray, so a destination-only reading roughly doubles how much
   // room a slider looks to have. The self-debuff reading is over the LANDING
   // set instead, because collection is destination-only by rule.
-  const tierGrade = gradePath(sub, exposure, unit.cells[0] as CellIndex, candidate.path);
+  const tierGrade = gradePath(exposure, unit.cells[0] as CellIndex, candidate.path);
   const selfDebuff = knobs.selfDebuffOrdering
     ? selfDebuffOf(sub, unit, exposure, landing)
     : ('none' as SelfDebuff);
@@ -891,7 +861,7 @@ function assessOne(
     tier,
     capture,
     captureValue,
-    healthSpent: verdict.healthSpent,
+    energySpent: verdict.energySpent,
     exhaustionFatal: verdict.exhaustionFatal,
     landing,
     tierGrade,
@@ -916,27 +886,15 @@ function assessOne(
  */
 function thinQuiet(
   sub: EngineSubstrate,
-  unit: SubstrateUnit,
   assessed: ReadonlyArray<AssessedCandidate>,
   pruned: PrunedEntry[],
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!Number.isFinite(knobs.keepQuiet)) return [...assessed];
-  const rays = new Map<CellIndex, AssessedCandidate[]>();
-  const out: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.candidate.path.length === 0) {
-      out.push(a);
-      continue;
-    }
-    const first = a.candidate.path[0] as CellIndex;
-    const group = rays.get(first);
-    if (group === undefined) rays.set(first, [a]);
-    else group.push(a);
-  }
+  const { rays, loose } = byRay(assessed, (a) => a.candidate.path);
+  const out: AssessedCandidate[] = [...loose];
 
   for (const group of rays.values()) {
-    group.sort((a, b) => a.candidate.path.length - b.candidate.path.length);
     if (group.length <= 1) {
       out.push(...group);
       continue;
@@ -966,7 +924,6 @@ function thinQuiet(
       pruned.push({ candidate: a.candidate, prune: PRUNE.quietThinning, exact: false });
     });
   }
-  void unit;
   return out;
 }
 
@@ -1048,6 +1005,36 @@ function policyPrunes(
 }
 
 /**
+ * KEEP THE BEST CLASS, applied to the SET rather than to each candidate:
+ * partition by `rank`, keep only the minimum-rank class, and record a prune
+ * for everything else — unless that would empty or no-op the set, in which
+ * case nothing is dropped. Monotone by construction (the keeper set is
+ * non-empty before anything is dropped) and it can never hand back fewer
+ * options than it was given when they are all equally bad — which is exactly
+ * the property a per-candidate safety filter lacks.
+ *
+ * This is the emptiness guarantee's unit of work: every lossy prune it makes
+ * is reversible, because the class it keeps is never empty when the input
+ * wasn't.
+ */
+function keepBestClass(
+  assessed: ReadonlyArray<AssessedCandidate>,
+  pruned: PrunedEntry[],
+  rank: (a: AssessedCandidate) => number,
+  prune: PruneId
+): AssessedCandidate[] {
+  let best = Number.POSITIVE_INFINITY;
+  for (const a of assessed) best = Math.min(best, rank(a));
+  const kept = assessed.filter((a) => rank(a) === best);
+  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
+  for (const a of assessed) {
+    if (rank(a) === best) continue;
+    pruned.push({ candidate: a.candidate, prune, exact: false });
+  }
+  return kept;
+}
+
+/**
  * THE TIER FILTER, applied to the SET rather than to each candidate.
  *
  * A contest is decided on TIER FIRST and weight second, so a unit that steps
@@ -1057,10 +1044,9 @@ function policyPrunes(
  * a material advantage that is otherwise the whole point of having it.
  *
  * The filter drops exactly that class, and only when the unit has somewhere
- * else to be. It is monotone by construction (the keeper set is non-empty
- * before anything is dropped) and it is INERT on a board with no live tier,
- * because `gradePath` returns `clear` for every candidate when nothing
- * outranks the unit — which is every decision in a game with potions off.
+ * else to be. It is INERT on a board with no live tier, because `gradePath`
+ * returns `clear` for every candidate when nothing outranks the unit — which
+ * is every decision in a game with potions off.
  *
  * It is DECLARED LOSSY, not exact. What it can cost is a trade: accepting a
  * tier loss to take a piece, block a line, or shield a king. The ledger names
@@ -1072,17 +1058,7 @@ function keepTierSafe(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!knobs.tierSafeStaging) return [...assessed];
-  const kept: AssessedCandidate[] = [];
-  const dropped: AssessedCandidate[] = [];
-  for (const a of assessed) {
-    if (a.tierGrade === 'decisive') dropped.push(a);
-    else kept.push(a);
-  }
-  if (dropped.length === 0 || kept.length === 0) return [...assessed];
-  for (const a of dropped) {
-    pruned.push({ candidate: a.candidate, prune: PRUNE.tierDecisive, exact: false });
-  }
-  return kept;
+  return keepBestClass(assessed, pruned, (a) => (a.tierGrade === 'decisive' ? 1 : 0), PRUNE.tierDecisive);
 }
 
 /**
@@ -1101,16 +1077,8 @@ function keepBestTier(
   knobs: Required<CandidateKnobs>
 ): AssessedCandidate[] {
   if (!unit.isKing || !knobs.kingHardSafety) return [...assessed];
-  for (const tier of TIERS) {
-    const kept = assessed.filter((a) => a.tier === tier);
-    if (kept.length === 0) continue;
-    for (const dropped of assessed) {
-      if (dropped.tier === tier) continue;
-      pruned.push({ candidate: dropped.candidate, prune: PRUNE.kingUnsafe, exact: false });
-    }
-    return knobs.tierSafeStaging ? keepBestKingTier(kept, pruned) : kept;
-  }
-  return [...assessed];
+  const kept = keepBestClass(assessed, pruned, (a) => TIERS.indexOf(a.tier), PRUNE.kingUnsafe);
+  return knobs.tierSafeStaging ? keepBestClass(kept, pruned, kingTierRisk, PRUNE.kingTierUnsafe) : kept;
 }
 
 /**
@@ -1122,26 +1090,9 @@ function keepBestTier(
  * moves a placement by rule rather than by association. The two things it must
  * not do are walk into reach of a higher tier and stand on a potion — the
  * second being entirely self-inflicted and needing no enemy modelling at all.
- *
- * Same shape as the filter above it: keep the best available class, whatever
- * that class is, so the set can never come back empty.
+ * `keepBestTier` applies it above, via `keepBestClass`. Tier exposure and
+ * self-debuff, folded into one comparable number:
  */
-function keepBestKingTier(
-  assessed: ReadonlyArray<AssessedCandidate>,
-  pruned: PrunedEntry[]
-): AssessedCandidate[] {
-  let best = Number.POSITIVE_INFINITY;
-  for (const a of assessed) best = Math.min(best, kingTierRisk(a));
-  const kept = assessed.filter((a) => kingTierRisk(a) === best);
-  if (kept.length === 0 || kept.length === assessed.length) return [...assessed];
-  for (const a of assessed) {
-    if (kingTierRisk(a) === best) continue;
-    pruned.push({ candidate: a.candidate, prune: PRUNE.kingTierUnsafe, exact: false });
-  }
-  return kept;
-}
-
-/** Tier exposure and self-debuff, as one comparable number for a king. */
 const kingTierRisk = (a: AssessedCandidate): number =>
   tierGradeRank(a.tierGrade) + (a.selfDebuff === 'none' ? 0 : 3);
 
@@ -1186,23 +1137,87 @@ function restoreLeastBad(
  * more per millisecond), and finally the destination, so the order is total and
  * reproducible.
  */
-function orderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  // TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made
-  // by walking into something that outranks us is not a capture, it is a
-  // donation. Both terms are identically zero on a board with no live
-  // invulnerability effect, so this comparison is a no-op wherever potions are
-  // off and the order below it is byte-for-byte what it always was.
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  if (a.healthSpent.hi !== b.healthSpent.hi) return a.healthSpent.hi - b.healthSpent.hi;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
+/**
+ * THE SPEND THE ORDER COMPARES, WHICH IS NOT THE SPEND THE RULES CHARGE.
+ *
+ * `turnEngine.ts` charges `COST_PER_CELL` per cell ENTERED and nothing at all
+ * for standing still, and `energySpent` reports exactly that — correctly, and
+ * every reader of the field outside this comparator wants it that way. But an
+ * ordering term that reads it literally is not asking "which move is cheaper",
+ * it is asking "why move": a hold's zero is not thrift, it is abstention, and
+ * it beats every step on the board by exactly one, forever.
+ *
+ * THAT TERM USED TO BE INERT HERE AND THE SEAM MADE IT DECISIVE. The assessor
+ * this file replaced reported a piece's step as spending nothing, so hold and
+ * step tied at zero and the order fell through to the terms that actually
+ * discriminate. Measured on `MIXED_SCENARIO` seed 1 at the budget where the
+ * decision IS the seed: before the cut, 176 of 492 hold-versus-step pairs were
+ * decided below this term and the generator's ordered-first option was a stay
+ * 21.5% of the time; after it, 188 of 418 pairs were decided BY this term,
+ * always for the stay, the ordered-first option was a stay 43.8% of the time,
+ * and the seed spent 43.8% of its unit-turns standing still against 22.7%
+ * before — which is the whole of `basic-intelligence.test.ts`'s "pieces act".
+ *
+ * So a hold is ranked at the price of the cheapest thing it could have done
+ * instead. It ties with a one-cell step and the decision passes to
+ * `contingencies` and the destination, which is where it sat before. The
+ * hazard reading is NOT given back: a stationary dose is a real charge the
+ * rules make and it is larger than a cell, so `max` keeps a hold on a hazard
+ * dominated by any safe step — which was the defect the charge was added for.
+ * Ordering only; `energySpent` itself is untouched and stays the rules'.
+ */
+function spendRank(a: AssessedCandidate): number {
+  if (a.candidate.path.length > 0) return a.energySpent.hi;
+  return Math.max(COST_PER_CELL, a.energySpent.hi);
 }
+
+/** One comparator term: a signed lexicographic tie-break, zero meaning "next". */
+type Term = (a: AssessedCandidate, b: AssessedCandidate) => number;
+
+/** Chain terms into one comparator: the first non-zero term decides. */
+const compareBy =
+  (terms: ReadonlyArray<Term>): Term =>
+  (a, b) => {
+    for (const term of terms) {
+      const d = term(a, b);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+
+const byTier: Term = (a, b) => TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
+// TIER RISK BEFORE CAPTURES, and the order is the argument: a capture made by
+// walking into something that outranks us is not a capture, it is a donation.
+// Both terms are identically zero on a board with no live invulnerability
+// effect, so this comparison is a no-op wherever potions are off and the order
+// below it is byte-for-byte what it always was.
+const byTierRisk: Term = (a, b) => tierRisk(a) - tierRisk(b);
+const byCapture: Term = (a, b) => captureOrder(a, b);
+const byShadow: Term = (a, b) => b.shadowBonus - a.shadowBonus;
+const bySpend: Term = (a, b) => spendRank(a) - spendRank(b);
+const byContingencies: Term = (a, b) => a.contingencies - b.contingencies;
+const byTo: Term = (a, b) => a.candidate.to - b.candidate.to;
+const byRegicideShot: Term = (a, b) => b.regicideShot - a.regicideShot;
+const byFoodGain: Term = (a, b) => b.foodGain - a.foodGain;
+// The gain order's own version of `bySpend`: a move that ate is charged
+// nothing, per the note above `spendRank`.
+const bySpendRefundingFood: Term = (a, b) =>
+  (a.foodGain === 1 ? 0 : spendRank(a)) - (b.foodGain === 1 ? 0 : spendRank(b));
+
+const BASE_ORDER: ReadonlyArray<Term> = [byTier, byTierRisk, byCapture, byShadow, bySpend, byContingencies, byTo];
+const GAIN_ORDER: ReadonlyArray<Term> = [
+  byTier,
+  byTierRisk,
+  byRegicideShot,
+  byCapture,
+  byFoodGain,
+  byShadow,
+  bySpendRefundingFood,
+  byContingencies,
+  byTo,
+];
+
+const orderKey: Term = compareBy(BASE_ORDER);
 
 /**
  * THE CAPTURE ORDER — expected captured weight first, certainty second.
@@ -1251,7 +1266,7 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  *   happens to be worth more — under `applyRegicide` it removes every unit that
  *   team has left, and there is exactly one square on the board where that is
  *   true per enemy team.
- * · `foodGain` above `healthSpent`, and health charged at ZERO when the move
+ * · `foodGain` above `energySpent`, and health charged at ZERO when the move
  *   could eat. That is not a fudge: `resolveTurn` sets an eater's health to its
  *   kind's max, so the health a slider spends reaching food is refunded on
  *   arrival, and charging it is simply wrong about the rules. Everything else
@@ -1276,22 +1291,7 @@ const captureRank = (c: AssessedCandidate['capture']): number =>
  * food-and-king boards I3 measured this comparator is byte-for-byte the one it
  * measured.
  */
-function gainOrderKey(a: AssessedCandidate, b: AssessedCandidate): number {
-  const tier = TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier);
-  if (tier !== 0) return tier;
-  const risk = tierRisk(a) - tierRisk(b);
-  if (risk !== 0) return risk;
-  if (a.regicideShot !== b.regicideShot) return b.regicideShot - a.regicideShot;
-  const capture = captureOrder(a, b);
-  if (capture !== 0) return capture;
-  if (a.foodGain !== b.foodGain) return b.foodGain - a.foodGain;
-  if (a.shadowBonus !== b.shadowBonus) return b.shadowBonus - a.shadowBonus;
-  const ha = a.foodGain === 1 ? 0 : a.healthSpent.hi;
-  const hb = b.foodGain === 1 ? 0 : b.healthSpent.hi;
-  if (ha !== hb) return ha - hb;
-  if (a.contingencies !== b.contingencies) return a.contingencies - b.contingencies;
-  return a.candidate.to - b.candidate.to;
-}
+const gainOrderKey: Term = compareBy(GAIN_ORDER);
 
 /**
  * The one ordering number for everything tier.
@@ -1327,8 +1327,7 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
   const width = sub.grid.width;
   for (const enemy of sub.roster()) {
     if (kings.some((k) => k.team === enemy.team)) continue;
-    const profile = profileOf(enemy.kind);
-    if (profile.rays.length === 0) continue;
+    if (!sub.slides(enemy.unitId)) continue;
     const from = enemy.cells[0] as number;
     for (const king of kings) {
       const to = king.cells[0] as number;
@@ -1340,7 +1339,7 @@ function rayShadowCells(sub: EngineSubstrate): ReadonlySet<CellIndex> {
       const uy = Math.sign(dy);
       // Only a direction the slider actually has, and only a straight line.
       if (dx !== ux * steps || dy !== uy * steps) continue;
-      if (!profile.rays.some(([rx, ry]) => rx === ux && ry === uy)) continue;
+      if (!sub.slidesToward(enemy.unitId, ux, uy)) continue;
       for (let i = 1; i < steps; i++) {
         out.add(from + (uy * i) * width + ux * i);
       }
@@ -1437,7 +1436,10 @@ function isLastKingOfItsTeam(sub: EngineSubstrate, unit: SubstrateUnit): boolean
  * all is `profilesTo` — never a name comparison.
  */
 function promotes(sub: EngineSubstrate, unit: SubstrateUnit, a: AssessedCandidate): boolean {
-  if (profileOf(unit.kind).promotesTo === null) return false;
-  if (unit.weight + 1 < sub.engine.config.pawnPromotionWeight) return false;
+  // WHETHER THIS KIND CAN PROMOTE AT ALL IS THE ENGINE'S ANSWER, not a name
+  // comparison: `Claim.kinds` is the set of kinds a unit could be by the time
+  // the turn settles, and a second entry in it means promotion is reachable.
+  if (!sub.canPromote(unit.unitId)) return false;
+  if (unit.weight + 1 < sub.pawnPromotionWeight) return false;
   return a.landing.some((cell) => sub.foodAt(cell));
 }

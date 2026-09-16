@@ -1,0 +1,32 @@
+
+── lan ──
+  561 samples over 15.3s · 8 presses, 0 late · lag p50 25ms · miss 0% · false 40.5%
+
+── regional ──
+  569 samples over 15.0s · 8 presses, 0 late · lag p50 0ms · miss 0% · false 43.7%
+
+── continental ──
+  479 samples over 14.1s · 8 presses, 0 late · lag p50 22ms · miss 0% · false 45.5%
+
+── mobile ──
+  · turn 5: the surface refused the whole turn — pressed anyway
+  391 samples over 10.7s · 8 presses, 0 late · lag p50 0ms · miss 8.4% · false 52.3%
+
+── saturated ──
+  · turn 2: the surface refused the whole turn — pressed anyway
+  · turn 3: the surface refused the whole turn — pressed anyway
+  · turn 4: the surface refused the whole turn — pressed anyway
+  · turn 5: no press at all (no clickable row)
+  · turn 7: the surface refused the whole turn — pressed anyway
+  · turn 8: the surface refused the whole turn — pressed anyway
+  817 samples over 21.3s · 7 presses, 0 late · lag p50 0ms · miss 11.2% · false 2%
+
+| profile | RTT held p50/p95 | drops ↓/↑ | max queue | presses | late | refused / of those, would have landed | press cost p50/p95 | notch error p50/p95 | ladder lag p50/max | turn visible after | false alarm | MISSED |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lan | 6/6 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 6/8 ms | -27/-8 ms | 25/100 ms | 531/744 ms | 40.5% (10) | 0% (0) |
+| regional | 40/50 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 21/32 ms | -58/-11 ms | 0/100 ms | 553/1182 ms | 43.7% (10) | 0% (0) |
+| continental | 122/148 ms | 0/0 | 0 ms | 8 | 0 | 0 / 0 | 66/76 ms | -90/-64 ms | 22/104 ms | 501/1143 ms | 45.5% (11) | 0% (0) |
+| mobile | 260/1782 ms | 0/0 | 0 ms | 8 | 0 | 1 / 1 | 140/1041 ms | -109/695 ms | 0/0 ms | 589/862 ms | 52.3% (7) | 8.4% (1) |
+| saturated | 3012/8460 ms | 25/0 | 5130 ms | 7 | 0 | 5 / 5 | 33/551 ms | -629/-107 ms | 0/125 ms | 916/1341 ms | 2% (1) | 11.2% (3) |
+
+wrote /tmp/claude-0/-home-user/a18b7986-c57c-575f-b43a-7d659ae5fe7d/scratchpad/sim-before2/latency-sim.json

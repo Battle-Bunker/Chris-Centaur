@@ -30,7 +30,6 @@ import type {
   UnitId,
   Witness,
 } from "../lobster/contracts"
-import type { Resolution, StateHandle } from "../partial-engine/index"
 import { planKey, type Lever, type LeverView, type Refiner } from "../lobster/voc"
 
 // ------------------------------------------------------------------- clock
@@ -99,12 +98,16 @@ export function score(
     ledger?: ReadonlyArray<LedgerEntry>
     assumptions?: ReadonlyArray<Assumption>
     witnesses?: ReadonlyArray<Witness>
+    /** The horizon THIS reading was proved at. Absent ⇒ the field is absent,
+     * which is what a search that says nothing about depth returns. */
+    horizon?: number
   } = {},
 ): PlanScore {
   return {
     plan: p,
     bounds: bounds(worst, best, opts),
     witnesses: opts.witnesses ?? [],
+    ...(opts.horizon === undefined ? {} : { horizon: opts.horizon }),
   }
 }
 
@@ -117,7 +120,6 @@ export function witness(note: string, replies: ReadonlyArray<readonly [number, n
 // ----------------------------------------------------------------- substrate
 
 export class StubSubstrate implements Substrate {
-  readonly state = {} as StateHandle
   resolveCalls = 0
   entangledCalls = 0
   /** Units this stub claims to command. Empty by default — the kernel suites
@@ -150,10 +152,6 @@ export class StubSubstrate implements Substrate {
     throw new Error("StubSubstrate: the kernel must never resolve a board")
   }
 
-  releaseResolution(_resolution: Resolution): void {
-    /* nothing is ever resolved here */
-  }
-
   withResolution<T>(_plan: JointPlan, _asTeam: number, _fn: (r: never) => T): never {
     this.resolveCalls++
     throw new Error("StubSubstrate: the kernel must never resolve a board")
@@ -161,6 +159,10 @@ export class StubSubstrate implements Substrate {
 
   unitIds(): ReadonlyArray<UnitId> {
     return []
+  }
+
+  unitIdOf(_wireId: string): UnitId | undefined {
+    return undefined
   }
 
   commandable(_asTeam: number): ReadonlyArray<UnitId> {
@@ -192,12 +194,8 @@ export class StubSubstrate implements Substrate {
     return this.influence.get(unitId) ?? new Set<number>()
   }
 
-  outstanding(): number {
-    return 0
-  }
-
   release(): void {
-    /* no slab to return */
+    /* nothing is cached here */
   }
 }
 
@@ -236,6 +234,8 @@ export interface ScriptStep {
   readonly ledger?: ReadonlyArray<LedgerEntry>
   readonly assumptions?: ReadonlyArray<Assumption>
   readonly witnesses?: ReadonlyArray<Witness>
+  /** The horizon this step's reading was proved at (06 F-2). */
+  readonly horizon?: number
 }
 
 export interface CallSnapshot {
@@ -288,6 +288,7 @@ export class ScriptedSearchCore implements SearchCore {
       ledger: step.ledger,
       assumptions: step.assumptions,
       witnesses: step.witnesses,
+      horizon: step.horizon,
     })
   }
 

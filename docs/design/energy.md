@@ -280,3 +280,62 @@ SHORTENING and not a freezing: holds rise by two points while the stationary
 share stays at 2.2% against a gate of 12, and one paired game (repeat 2, seed
 1) came out byte-identical between the arms — a whole game in which the price
 never changed a decision.
+
+---
+
+## (f) A meal is not a tank — measured, and reverted
+
+BEHAVIOUR-AUDIT-2 P3, on branch `beh-p3`. This section is about what a move
+COSTS; this is the one recorded case where the other side of the ledger — what
+the bot will pay to refill — turned out to be denominated in the wrong unit, and
+where fixing the unit was still not enough.
+
+`food.ts::pullOf` scales its positional gradient by a hunger term that divided
+the energy shortfall by the kind's TANK. A tank is not an appetite. Every
+scenario in this repo but one sets no `foodEnergy` at all, so the engine reads
+`DEFAULT_FOOD_ENERGY = 100 = defaultMaxEnergy`, one meal fills one tank, and the
+two units coincide — which is why nothing caught it for two audits. On
+`sparse-lean` (`foodEnergy: 20`) they come apart: a unit at 71 of 100 is FIVE
+meals short and read the same 0.29 appetite a one-meal shortfall earns. The
+measured consequence is that the bot ate **13% less often on the board where a
+meal is worth a fifth as much** — 6.25 meals per 100 unit-turns against
+`sparse`'s 7.22 on the identical board — and on seed 2 three of four units were
+still falling at turn 60, ending at 59, 61 and 65.
+
+The rule tried was one knob, `HUNGER_SPAN` in meals, default 1:
+`hunger = min(1, (cap - energy) / max(1, HUNGER_SPAN · foodEnergy))`, with the
+distance term `near` untouched. It works on every number it was gated on.
+`sparse-lean` seeds 1–3: meals/100 **6.25 → 9.01** (the lean board now out-eats
+the rich one), `grownMeals/meals` 0.84 → 0.88, seed 2's turn-41–60 mean energy
+75.6 → 84.6, units finishing at their own minimum 5 of 12 → 2 of 12. The four
+other classes are byte-identical on every counter of every seed, 12 paired
+summaries of 12.
+
+**And it was reverted, on a pre-registered counter: `sparse-lean` deaths 0 → 1.**
+The mechanism is `HUNGER_FLOOR`'s own calibration table (`food.ts`) in a corner
+rather than a spiral. Seed 2's red-A, never below 82 health and in no danger of
+starving, climbed the `x = 1` column for eight turns into the top-left corner
+after the meal at (0,12), ate at turn 48 — 82 → 100, a full tank, so the meal
+GREW it — and died three turns later walled in by the five body cells it had laid
+on the way in. At hp 84 the tank scale reads a gain of `0.15 + 0.85·0.16 = 0.286`
+and the meal scale reads `0.83`: **2.9× the pull**, on the same `near`, toward a
+meal sitting in a two-wide dead end.
+
+**The lesson for anyone re-opening this.** The diagnosis stands — hunger really
+is in the wrong unit, and the containment claim held exactly. What is refuted is
+that the denominator alone repairs it. `foodEnergy` should not reach the appetite
+and stop there: the same lean board that makes a unit hungrier also makes a
+full-tank meal a LENGTHENING, and nothing on the approach priced the pocket that
+length would seal. Carry the meal size into whatever prices the entry — `room`'s
+reading of the cell the meal sits on, or a growth term that knows which meals
+lengthen the eater — and only then re-run this gate.
+
+**One arithmetic note, load-bearing.** Write the rule as
+`(1 - energy/cap) · (cap/span)`, never as the algebraically equal
+`(cap - energy)/span`. `1 - e/c` is not bit-equal to `(c - e)/c` in IEEE 754 —
+they disagree in the last ulp for 188 of the 476 integer energies under this
+repo's kind ceilings (`1 - 7/100` is 0.9299999999999999; `93/100` is 0.93) — so
+the second form perturbs every non-lean board in the last place and the whole
+byte-identity claim fails on a rounding artifact instead of on a rule.
+Multiplying by a `cap/span` of exactly 1.0 is exact. The 12-of-12 result above
+depends on this and on nothing else.

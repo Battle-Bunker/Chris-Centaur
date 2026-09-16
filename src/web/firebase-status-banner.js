@@ -79,9 +79,26 @@
     }
   }
 
+  // Every reading, once, to everyone who asked. The header chip
+  // (page-chrome.js) is a subscriber rather than a second fetcher: this file
+  // already makes exactly the requests that are safe to make (one on load,
+  // one on visibilitychange, plus live pushes where a socket exists), and a
+  // second poller is the thing idle-watcher.js exists to prevent.
+  let lastStatus = null;
+  const subscribers = [];
+  function subscribe(fn) {
+    if (typeof fn !== 'function') return;
+    subscribers.push(fn);
+    if (lastStatus) { try { fn(lastStatus); } catch (e) { console.error(e); } }
+  }
+
   function set(status) {
     if (!status || typeof status !== 'object') return;
     logStatus(status);
+    lastStatus = status;
+    for (const fn of subscribers) {
+      try { fn(status); } catch (e) { console.error('[firebase-status] subscriber failed:', e); }
+    }
     // Keep the bottom-left Firebase bubble (live pages) in sync.
     if (window.FirebaseStatusBadge) window.FirebaseStatusBadge.set(status);
     ensureBanner();
@@ -135,5 +152,5 @@
     refresh();
   }
 
-  window.FirebaseStatusBanner = { set, refresh };
+  window.FirebaseStatusBanner = { set, refresh, subscribe, last: () => lastStatus };
 })();

@@ -1,0 +1,765 @@
+{
+  "label": "coldload-after-nopotion",
+  "runs": 3,
+  "median": {
+    "firstPaint": 92,
+    "firstContentfulPaint": 92,
+    "domInteractive": 209,
+    "domContentLoaded": 215,
+    "loadEvent": 224,
+    "tti": 92
+  },
+  "document": {
+    "transfer": 92614,
+    "decoded": 314959
+  },
+  "scripts": {
+    "count": 15,
+    "transfer": 159569,
+    "decoded": 473643,
+    "rows": [
+      {
+        "url": "/dom-utils.js",
+        "type": "script",
+        "start": 26,
+        "end": 71,
+        "transfer": 2567,
+        "decoded": 4999
+      },
+      {
+        "url": "/board-renderer.js",
+        "type": "script",
+        "start": 29,
+        "end": 128,
+        "transfer": 57781,
+        "decoded": 189083
+      },
+      {
+        "url": "/lens-view.js",
+        "type": "script",
+        "start": 30,
+        "end": 92,
+        "transfer": 17347,
+        "decoded": 58748
+      },
+      {
+        "url": "/idle-policy.js",
+        "type": "script",
+        "start": 30,
+        "end": 80,
+        "transfer": 2260,
+        "decoded": 4219
+      },
+      {
+        "url": "/lens-panel.js",
+        "type": "script",
+        "start": 30,
+        "end": 99,
+        "transfer": 14938,
+        "decoded": 41152
+      },
+      {
+        "url": "/keynav-machine.js",
+        "type": "script",
+        "start": 30,
+        "end": 111,
+        "transfer": 4736,
+        "decoded": 11301
+      },
+      {
+        "url": "/server-status-badge.js",
+        "type": "script",
+        "start": 30,
+        "end": 119,
+        "transfer": 2549,
+        "decoded": 6195
+      },
+      {
+        "url": "/firebase-status-banner.js",
+        "type": "script",
+        "start": 30,
+        "end": 132,
+        "transfer": 2666,
+        "decoded": 6256
+      },
+      {
+        "url": "/idle-watcher.js",
+        "type": "script",
+        "start": 30,
+        "end": 142,
+        "transfer": 5110,
+        "decoded": 13619
+      },
+      {
+        "url": "/connection-debug.js",
+        "type": "script",
+        "start": 30,
+        "end": 146,
+        "transfer": 4984,
+        "decoded": 14839
+      },
+      {
+        "url": "/ws-client.js",
+        "type": "script",
+        "start": 30,
+        "end": 151,
+        "transfer": 3776,
+        "decoded": 9663
+      },
+      {
+        "url": "/latency.js",
+        "type": "script",
+        "start": 30,
+        "end": 196,
+        "transfer": 15136,
+        "decoded": 42313
+      },
+      {
+        "url": "/alerts.js",
+        "type": "script",
+        "start": 30,
+        "end": 204,
+        "transfer": 15421,
+        "decoded": 45169
+      },
+      {
+        "url": "/tour.js",
+        "type": "script",
+        "start": 30,
+        "end": 209,
+        "transfer": 7696,
+        "decoded": 20749
+      },
+      {
+        "url": "/replay-deeplink.js",
+        "type": "script",
+        "start": 174,
+        "end": 221,
+        "transfer": 2602,
+        "decoded": 5338
+      }
+    ]
+  },
+  "other": [
+    {
+      "url": "/api/config",
+      "type": "fetch",
+      "start": 225,
+      "end": 242,
+      "transfer": 520,
+      "decoded": 220
+    },
+    {
+      "url": "/api/play/game/lens-walk",
+      "type": "fetch",
+      "start": 228,
+      "end": 259,
+      "transfer": 1412,
+      "decoded": 5375
+    },
+    {
+      "url": "/api/firebase-status",
+      "type": "fetch",
+      "start": 230,
+      "end": 244,
+      "transfer": 376,
+      "decoded": 76
+    },
+    {
+      "url": "/api/play/game/lens-walk/players?userId=ae057863-7f5e-4aa8-8beb-44cf412b6ecc",
+      "type": "fetch",
+      "start": 325,
+      "end": 348,
+      "transfer": 312,
+      "decoded": 12
+    },
+    {
+      "url": "/invulnerability-potion.png",
+      "type": "img",
+      "start": 345,
+      "end": 363,
+      "transfer": 933986,
+      "decoded": 933686
+    },
+    {
+      "url": "/api/play/game/lens-walk/players?userId=ae057863-7f5e-4aa8-8beb-44cf412b6ecc",
+      "type": "fetch",
+      "start": 5325,
+      "end": 5333,
+      "transfer": 312,
+      "decoded": 12
+    }
+  ],
+  "longTasks": [
+    {
+      "start": 44,
+      "dur": 119
+    },
+    {
+      "start": 257,
+      "dur": 68
+    }
+  ],
+  "all": [
+    {
+      "firstPaint": 72,
+      "firstContentfulPaint": 72,
+      "domInteractive": 209,
+      "domContentLoaded": 215,
+      "loadEvent": 224,
+      "tti": 72,
+      "documentTransfer": 92614,
+      "documentDecoded": 314959,
+      "longTasks": [],
+      "resources": [
+        {
+          "url": "/dom-utils.js",
+          "type": "script",
+          "start": 71,
+          "end": 110,
+          "transfer": 2567,
+          "decoded": 4999
+        },
+        {
+          "url": "/board-renderer.js",
+          "type": "script",
+          "start": 72,
+          "end": 146,
+          "transfer": 57781,
+          "decoded": 189083
+        },
+        {
+          "url": "/lens-view.js",
+          "type": "script",
+          "start": 72,
+          "end": 136,
+          "transfer": 17347,
+          "decoded": 58748
+        },
+        {
+          "url": "/lens-panel.js",
+          "type": "script",
+          "start": 72,
+          "end": 137,
+          "transfer": 14938,
+          "decoded": 41152
+        },
+        {
+          "url": "/keynav-machine.js",
+          "type": "script",
+          "start": 72,
+          "end": 144,
+          "transfer": 4736,
+          "decoded": 11301
+        },
+        {
+          "url": "/idle-policy.js",
+          "type": "script",
+          "start": 72,
+          "end": 143,
+          "transfer": 2260,
+          "decoded": 4219
+        },
+        {
+          "url": "/server-status-badge.js",
+          "type": "script",
+          "start": 72,
+          "end": 153,
+          "transfer": 2549,
+          "decoded": 6195
+        },
+        {
+          "url": "/firebase-status-banner.js",
+          "type": "script",
+          "start": 72,
+          "end": 161,
+          "transfer": 2666,
+          "decoded": 6256
+        },
+        {
+          "url": "/idle-watcher.js",
+          "type": "script",
+          "start": 72,
+          "end": 162,
+          "transfer": 5110,
+          "decoded": 13619
+        },
+        {
+          "url": "/connection-debug.js",
+          "type": "script",
+          "start": 72,
+          "end": 177,
+          "transfer": 4984,
+          "decoded": 14839
+        },
+        {
+          "url": "/ws-client.js",
+          "type": "script",
+          "start": 72,
+          "end": 182,
+          "transfer": 3776,
+          "decoded": 9663
+        },
+        {
+          "url": "/latency.js",
+          "type": "script",
+          "start": 72,
+          "end": 183,
+          "transfer": 15136,
+          "decoded": 42313
+        },
+        {
+          "url": "/alerts.js",
+          "type": "script",
+          "start": 72,
+          "end": 193,
+          "transfer": 15421,
+          "decoded": 45169
+        },
+        {
+          "url": "/tour.js",
+          "type": "script",
+          "start": 73,
+          "end": 192,
+          "transfer": 7696,
+          "decoded": 20749
+        },
+        {
+          "url": "/replay-deeplink.js",
+          "type": "script",
+          "start": 113,
+          "end": 192,
+          "transfer": 2602,
+          "decoded": 5338
+        },
+        {
+          "url": "/api/config",
+          "type": "fetch",
+          "start": 205,
+          "end": 217,
+          "transfer": 520,
+          "decoded": 220
+        },
+        {
+          "url": "/api/play/game/lens-walk",
+          "type": "fetch",
+          "start": 208,
+          "end": 221,
+          "transfer": 1412,
+          "decoded": 5375
+        },
+        {
+          "url": "/api/firebase-status",
+          "type": "fetch",
+          "start": 209,
+          "end": 221,
+          "transfer": 376,
+          "decoded": 76
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=33a6e751-6719-44ca-8731-6f106f7bcc17",
+          "type": "fetch",
+          "start": 229,
+          "end": 245,
+          "transfer": 312,
+          "decoded": 12
+        },
+        {
+          "url": "/favicon.ico",
+          "type": "other",
+          "start": 234,
+          "end": 246,
+          "transfer": 450,
+          "decoded": 150
+        },
+        {
+          "url": "/invulnerability-potion.png",
+          "type": "img",
+          "start": 235,
+          "end": 263,
+          "transfer": 933986,
+          "decoded": 933686
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=33a6e751-6719-44ca-8731-6f106f7bcc17",
+          "type": "fetch",
+          "start": 5229,
+          "end": 5237,
+          "transfer": 312,
+          "decoded": 12
+        }
+      ]
+    },
+    {
+      "firstPaint": 92,
+      "firstContentfulPaint": 92,
+      "domInteractive": 158,
+      "domContentLoaded": 162,
+      "loadEvent": 172,
+      "tti": 92,
+      "documentTransfer": 92614,
+      "documentDecoded": 314959,
+      "longTasks": [],
+      "resources": [
+        {
+          "url": "/dom-utils.js",
+          "type": "script",
+          "start": 28,
+          "end": 41,
+          "transfer": 2567,
+          "decoded": 4999
+        },
+        {
+          "url": "/board-renderer.js",
+          "type": "script",
+          "start": 29,
+          "end": 64,
+          "transfer": 57781,
+          "decoded": 189083
+        },
+        {
+          "url": "/lens-view.js",
+          "type": "script",
+          "start": 29,
+          "end": 53,
+          "transfer": 17347,
+          "decoded": 58748
+        },
+        {
+          "url": "/lens-panel.js",
+          "type": "script",
+          "start": 29,
+          "end": 63,
+          "transfer": 14938,
+          "decoded": 41152
+        },
+        {
+          "url": "/keynav-machine.js",
+          "type": "script",
+          "start": 29,
+          "end": 63,
+          "transfer": 4736,
+          "decoded": 11301
+        },
+        {
+          "url": "/idle-policy.js",
+          "type": "script",
+          "start": 29,
+          "end": 62,
+          "transfer": 2260,
+          "decoded": 4219
+        },
+        {
+          "url": "/server-status-badge.js",
+          "type": "script",
+          "start": 29,
+          "end": 62,
+          "transfer": 2549,
+          "decoded": 6195
+        },
+        {
+          "url": "/firebase-status-banner.js",
+          "type": "script",
+          "start": 29,
+          "end": 74,
+          "transfer": 2666,
+          "decoded": 6256
+        },
+        {
+          "url": "/idle-watcher.js",
+          "type": "script",
+          "start": 29,
+          "end": 74,
+          "transfer": 5110,
+          "decoded": 13619
+        },
+        {
+          "url": "/connection-debug.js",
+          "type": "script",
+          "start": 29,
+          "end": 74,
+          "transfer": 4984,
+          "decoded": 14839
+        },
+        {
+          "url": "/ws-client.js",
+          "type": "script",
+          "start": 30,
+          "end": 74,
+          "transfer": 3776,
+          "decoded": 9663
+        },
+        {
+          "url": "/latency.js",
+          "type": "script",
+          "start": 30,
+          "end": 110,
+          "transfer": 15136,
+          "decoded": 42313
+        },
+        {
+          "url": "/tour.js",
+          "type": "script",
+          "start": 30,
+          "end": 110,
+          "transfer": 7696,
+          "decoded": 20749
+        },
+        {
+          "url": "/alerts.js",
+          "type": "script",
+          "start": 30,
+          "end": 111,
+          "transfer": 15421,
+          "decoded": 45169
+        },
+        {
+          "url": "/replay-deeplink.js",
+          "type": "script",
+          "start": 74,
+          "end": 116,
+          "transfer": 2602,
+          "decoded": 5338
+        },
+        {
+          "url": "/api/config",
+          "type": "fetch",
+          "start": 152,
+          "end": 156,
+          "transfer": 520,
+          "decoded": 220
+        },
+        {
+          "url": "/api/play/game/lens-walk",
+          "type": "fetch",
+          "start": 155,
+          "end": 171,
+          "transfer": 1412,
+          "decoded": 5375
+        },
+        {
+          "url": "/api/firebase-status",
+          "type": "fetch",
+          "start": 159,
+          "end": 173,
+          "transfer": 376,
+          "decoded": 76
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=66e480d7-4f3f-4434-bf40-0ba1ad2ad129",
+          "type": "fetch",
+          "start": 184,
+          "end": 198,
+          "transfer": 312,
+          "decoded": 12
+        },
+        {
+          "url": "/invulnerability-potion.png",
+          "type": "img",
+          "start": 228,
+          "end": 242,
+          "transfer": 933986,
+          "decoded": 933686
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=66e480d7-4f3f-4434-bf40-0ba1ad2ad129",
+          "type": "fetch",
+          "start": 5184,
+          "end": 5190,
+          "transfer": 312,
+          "decoded": 12
+        }
+      ]
+    },
+    {
+      "firstPaint": 176,
+      "firstContentfulPaint": 176,
+      "domInteractive": 230,
+      "domContentLoaded": 233,
+      "loadEvent": 248,
+      "tti": 325,
+      "documentTransfer": 92614,
+      "documentDecoded": 314959,
+      "longTasks": [
+        {
+          "start": 44,
+          "dur": 119
+        },
+        {
+          "start": 257,
+          "dur": 68
+        }
+      ],
+      "resources": [
+        {
+          "url": "/dom-utils.js",
+          "type": "script",
+          "start": 26,
+          "end": 71,
+          "transfer": 2567,
+          "decoded": 4999
+        },
+        {
+          "url": "/board-renderer.js",
+          "type": "script",
+          "start": 29,
+          "end": 128,
+          "transfer": 57781,
+          "decoded": 189083
+        },
+        {
+          "url": "/lens-view.js",
+          "type": "script",
+          "start": 30,
+          "end": 92,
+          "transfer": 17347,
+          "decoded": 58748
+        },
+        {
+          "url": "/idle-policy.js",
+          "type": "script",
+          "start": 30,
+          "end": 80,
+          "transfer": 2260,
+          "decoded": 4219
+        },
+        {
+          "url": "/lens-panel.js",
+          "type": "script",
+          "start": 30,
+          "end": 99,
+          "transfer": 14938,
+          "decoded": 41152
+        },
+        {
+          "url": "/keynav-machine.js",
+          "type": "script",
+          "start": 30,
+          "end": 111,
+          "transfer": 4736,
+          "decoded": 11301
+        },
+        {
+          "url": "/server-status-badge.js",
+          "type": "script",
+          "start": 30,
+          "end": 119,
+          "transfer": 2549,
+          "decoded": 6195
+        },
+        {
+          "url": "/firebase-status-banner.js",
+          "type": "script",
+          "start": 30,
+          "end": 132,
+          "transfer": 2666,
+          "decoded": 6256
+        },
+        {
+          "url": "/idle-watcher.js",
+          "type": "script",
+          "start": 30,
+          "end": 142,
+          "transfer": 5110,
+          "decoded": 13619
+        },
+        {
+          "url": "/connection-debug.js",
+          "type": "script",
+          "start": 30,
+          "end": 146,
+          "transfer": 4984,
+          "decoded": 14839
+        },
+        {
+          "url": "/ws-client.js",
+          "type": "script",
+          "start": 30,
+          "end": 151,
+          "transfer": 3776,
+          "decoded": 9663
+        },
+        {
+          "url": "/latency.js",
+          "type": "script",
+          "start": 30,
+          "end": 196,
+          "transfer": 15136,
+          "decoded": 42313
+        },
+        {
+          "url": "/alerts.js",
+          "type": "script",
+          "start": 30,
+          "end": 204,
+          "transfer": 15421,
+          "decoded": 45169
+        },
+        {
+          "url": "/tour.js",
+          "type": "script",
+          "start": 30,
+          "end": 209,
+          "transfer": 7696,
+          "decoded": 20749
+        },
+        {
+          "url": "/replay-deeplink.js",
+          "type": "script",
+          "start": 174,
+          "end": 221,
+          "transfer": 2602,
+          "decoded": 5338
+        },
+        {
+          "url": "/api/config",
+          "type": "fetch",
+          "start": 225,
+          "end": 242,
+          "transfer": 520,
+          "decoded": 220
+        },
+        {
+          "url": "/api/play/game/lens-walk",
+          "type": "fetch",
+          "start": 228,
+          "end": 259,
+          "transfer": 1412,
+          "decoded": 5375
+        },
+        {
+          "url": "/api/firebase-status",
+          "type": "fetch",
+          "start": 230,
+          "end": 244,
+          "transfer": 376,
+          "decoded": 76
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=ae057863-7f5e-4aa8-8beb-44cf412b6ecc",
+          "type": "fetch",
+          "start": 325,
+          "end": 348,
+          "transfer": 312,
+          "decoded": 12
+        },
+        {
+          "url": "/invulnerability-potion.png",
+          "type": "img",
+          "start": 345,
+          "end": 363,
+          "transfer": 933986,
+          "decoded": 933686
+        },
+        {
+          "url": "/api/play/game/lens-walk/players?userId=ae057863-7f5e-4aa8-8beb-44cf412b6ecc",
+          "type": "fetch",
+          "start": 5325,
+          "end": 5333,
+          "transfer": 312,
+          "decoded": 12
+        }
+      ]
+    }
+  ]
+}

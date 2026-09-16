@@ -206,7 +206,7 @@
       return {
         title, width: 12, height: 12, boardPx,
         snakes: BODY_LADDER_SNAKES(),
-        food: [], potions: [], territory: {},
+        food: [], potions: [],
         hazards: BODY_LADDER_TERRAIN.hazards,
         fertileTiles: BODY_LADDER_TERRAIN.fertileTiles,
         owners: BODY_LADDER_OWNERS,
@@ -241,7 +241,7 @@
       }
       return {
         title, width: 12, height: 12, boardPx, snakes, owners,
-        food: [], potions: [], territory: {}, hazards, fertileTiles,
+        food: [], potions: [], hazards, fertileTiles,
       };
     }
 
@@ -260,7 +260,7 @@
           makeSnake("lex", "Lex", "#ff4d6d", [[1,3],[2,3],[3,3]], 91, 0, { weight: 3 }),
           makeSnake("moe", "Moe", "#ff4d6d", [[6,2]], 12, 0, { weight: 1 }),
         ],
-        food: [], potions: [], territory: {}, hazards: [], fertileTiles: [],
+        food: [], potions: [], hazards: [], fertileTiles: [],
         teams: { ivy: "blue", jon: "blue", kit: "red", lex: "red", moe: "red" },
         controlled: ["ivy", "jon"],
         owners: {
@@ -285,11 +285,7 @@
         food: [[1,1],[9,9],[6,7]],
         hazards: [[0,0],[1,0],[2,0],[0,1],[0,2]],
         fertileTiles: [[9,0],[10,0],[9,1],[10,1],[10,2]],
-        potions: [[7,7]],
-        territory: {
-          s1: [[0,3],[1,3],[2,3],[0,4],[1,4],[2,4],[0,5],[1,5],[2,5],[3,5],[4,5],[5,5],[5,4],[5,3],[4,3],[3,3],[3,4],[0,6],[1,6],[2,6],[3,6],[4,6],[5,6]],
-          s2: [[6,3],[7,3],[8,3],[9,3],[10,3],[6,4],[7,4],[8,4],[9,4],[10,4],[6,5],[7,5],[8,5],[9,5],[10,5],[6,6],[7,6],[8,6],[9,6],[10,6],[6,7],[7,7],[8,7],[9,7],[10,7],[6,8],[7,8],[8,8],[9,8],[10,8]]
-        }
+        potions: [[7,7]]
       },
       {
         title: "2: Snake making tight U-turn (body parallel to itself)",
@@ -306,7 +302,6 @@
         hazards: [[7,0],[7,1]],
         fertileTiles: [[0,6],[0,7],[1,7]],
         potions: [],
-        territory: {}
       },
       {
         title: "3: Food on fertile tiles + hazards (glyph clarity test)",
@@ -320,7 +315,6 @@
         hazards: [[5,5],[6,5],[7,5],[5,6],[6,6],[7,6],[5,7],[6,7],[7,7]],
         fertileTiles: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[1,6],[2,6]],
         potions: [[4,7]],
-        territory: {}
       },
       {
         title: "4: L-shaped snake with invulnerability (corner outline test)",
@@ -336,11 +330,7 @@
         food: [[3,6],[0,0]],
         hazards: [],
         fertileTiles: [],
-        potions: [[2,7]],
-        territory: {
-          s1: [[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3],[0,4],[1,4],[2,4],[3,4],[0,5],[1,5],[2,5],[3,5],[0,6],[1,6],[2,6],[3,6],[0,7],[1,7],[2,7],[3,7]],
-          s2: [[4,0],[5,0],[6,0],[7,0],[4,1],[5,1],[6,1],[7,1],[4,2],[4,3],[4,4],[5,2],[5,3],[5,4],[5,5],[5,6],[6,1],[6,2],[6,3],[6,4],[6,5],[6,6],[7,1],[7,2],[7,3],[7,4],[7,5],[7,6],[7,7],[4,5],[4,6],[4,7]]
-        }
+        potions: [[2,7]]
       },
       {
         title: "5: Orientation eyes — 8 compass directions + knight L-offsets",
@@ -350,7 +340,6 @@
         hazards: [[0,3],[1,3],[2,3]],
         fertileTiles: [[6,3],[7,3],[8,3],[6,4],[7,4],[8,4],[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
         potions: [],
-        territory: {},
         tagMode: 'never'
       },
       {
@@ -376,7 +365,6 @@
           [2,2],[3,2],[5,2],[6,2],[2,3],[3,3],[5,3],[6,3]
         ],
         potions: [[9,9]],
-        territory: {},
         // The rook's legal destinations along its rank and file, plus the
         // selected one — the affordance has to survive every terrain under it.
         makeMoveState: () => pieceCandidates([4, 5],
@@ -404,7 +392,6 @@
         hazards: [],
         fertileTiles: [],
         potions: [],
-        territory: {},
         hoveredUnitId: "a",
         tagHoverUnitId: "b"
       },
@@ -430,7 +417,6 @@
         hazards: [],
         fertileTiles: [],
         potions: [],
-        territory: {},
         tagMode: 'never',
         hoveredUnitId: "long",
         tagHoverUnitId: "long"
@@ -459,7 +445,6 @@
         hazards: [],
         fertileTiles: [],
         potions: [],
-        territory: {},
         // teamID is the client's team rule; ours is the team we control into.
         teams: { ada: "blue", bo: "blue", cy: "blue", dot: "red", eve: "red" },
         controlled: ["ada"],
@@ -508,7 +493,6 @@
         hazards: [],
         fertileTiles: [],
         potions: [],
-        territory: {},
         owners: {},
         controlled: [],
         showTable: true
@@ -563,7 +547,6 @@
         hazards: [],
         fertileTiles: [],
         potions: [],
-        territory: {},
         owners: {},
         controlled: ["ca"],
         showTable: true,
@@ -626,7 +609,6 @@
         hazards: [[1,1]],
         fertileTiles: [],
         potions: [],
-        territory: {},
         owners: {},
         controlled: ["mine"],
         tagMode: "never"
@@ -722,19 +704,16 @@
         div.appendChild(panel);
       }
 
+      // Candidate enumeration only. The hand-built territory grids went with
+      // the overlay they existed to exercise (04 §5.3 #14, #20); the lens's
+      // own ink is exercised by `lens-ink.test.ts`, against a recording
+      // context, where the ORDER of the passes can be asserted as well as
+      // their colour.
       const moveState = test.makeMoveState ? test.makeMoveState() : {
         selectedMove: null,
         moves: {},
-        safeMoves: [],
-        territoryCells: {},
         selectedSnake: null
       };
-
-      if (test.territory && Object.keys(test.territory).length > 0) {
-        Object.entries(test.territory).forEach(([sid, cells]) => {
-          moveState.territoryCells[sid] = cells.map(([x,y]) => ({x,y}));
-        });
-      }
 
       const draw = () => BoardRenderer.renderBoard(canvas, gameState, moveState, {
         snakeId: test.snakes[0]?.id,

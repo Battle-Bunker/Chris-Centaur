@@ -2,10 +2,8 @@ import express from 'express';
 import compression from 'compression';
 import path from 'path';
 import { createServer } from 'http';
-import { VoronoiStrategy } from './logic/voronoi-strategy';
 import { DecisionLogger } from './logic/decision-logger';
 import { CommandLogger } from './logic/command-logger';
-import { DecisionWorkerPool } from './logic/decision-worker-pool';
 import { ActiveGameManager } from './server/active-game-manager';
 import { ActivityController } from './server/activity-controller';
 import { GameWebSocketServer } from './server/websocket-server';
@@ -42,7 +40,6 @@ app.use((req, _res, next) => {
 
 app.use(express.static(path.join(__dirname, '../src/web')));
 
-const voronoiStrategy = new VoronoiStrategy();
 const gameManager = ActiveGameManager.getInstance();
 const serverEventLogger = ServerEventLogger.getInstance();
 const gameRegistry = GameRegistry.getInstance();
@@ -117,6 +114,15 @@ app.get('/connection-debug', markHumanAction, (_req, res) => {
 const httpServer = createServer(app);
 
 const wsServer = new GameWebSocketServer(httpServer);
+// THE LENS ON THE WIRE, both directions.
+//
+// Outbound: the manager is the one `seq` writer, so what it writes is what
+// goes out — a second path to the client would be a second order. Inbound:
+// the inspection port is attached below, once the transport that owns the
+// running decisions exists.
+gameManager.onLensEvents((gameId, turn, events, head) =>
+  wsServer.broadcastLensFrames(gameId, turn, events, head)
+);
 gameManager.startStaleGameCleanup(300000, 600000);
 
 // The TacticToes Firebase interface is the SOLE game transport: it signs in
@@ -126,12 +132,17 @@ gameManager.startStaleGameCleanup(300000, 600000);
 // serves the web UI — see README.md for configuration.
 const ttFirebaseConfig = firebaseInterfaceConfigFromEnv(process.env);
 const ttFirebase = ttFirebaseConfig
-  ? new TacticToesFirebaseInterface(voronoiStrategy, ttFirebaseConfig)
+  ? new TacticToesFirebaseInterface(ttFirebaseConfig)
   : null;
 if (ttFirebase) {
   // Attach the status listener BEFORE start() so a failure during the initial
   // (async) connect is captured and pushed to the UI, not lost.
   ttFirebase.onStatusChange((status) => wsServer.broadcastFirebaseStatus(status));
+  // The inbound half: `lens-conditional` and `lens-breakdown` are questions
+  // for a RUNNING decision, and the transport is what holds one. With nothing
+  // attached every ask is refused as `unknown-cluster`, which is honest and
+  // is what a process serving the UI without a transport should say.
+  wsServer.attachLensPort(ttFirebase.lensInspectionPort());
   ttFirebase.start().catch((err) => {
     console.error('[tt-firebase] Failed to start Firebase interface:', err);
   });
@@ -160,13 +171,6 @@ if (ttFirebase) {
     'and TACTICTOES_FUNCTIONS_REGION (see README.md). Serving the web UI only.'
   );
 }
-
-// Idle teardown, after the Firebase suspend above: terminate the decision
-// worker threads (they are unref'd but still hold memory); the pool respawns
-// lazily on the next decision after a wake.
-activityController.onIdle('decision-worker-pool', () => {
-  DecisionWorkerPool.shutdownSharedIfRunning();
-});
 
 // Firebase connection status surface: the centaur is nonfunctional without its
 // Firebase connection, so the web UI shows a red banner (with a Retry button)
@@ -233,7 +237,7 @@ httpServer.listen(port, '0.0.0.0', () => {
       }
     });
   // Idempotent: only creates games rows for logged games that don't have one.
-  void gameRegistry.backfillFromDecisionLogs();
+  void gameRegistry.backfillFromStoredBoards();
 });
 
 // ── Graceful shutdown: ordering owned by the ActivityController ─────────────
@@ -258,7 +262,6 @@ activityController.onShutdown('command-logger-flush', () => CommandLogger.getIns
 activityController.onShutdown('decision-logger-flush', () => DecisionLogger.getInstance().shutdown());
 activityController.onShutdown('connection-logger-close', () => ConnectionLogger.getInstance().shutdown());
 activityController.onShutdown('pg-pool-end', () => pool.end());
-activityController.onShutdown('decision-worker-pool', () => DecisionWorkerPool.shutdownSharedIfRunning());
 activityController.onShutdown('http-close', () => {
   httpServer.close(() => {
     console.log('Server closed');

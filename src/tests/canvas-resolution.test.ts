@@ -13,6 +13,11 @@
  */
 
 import { GameState, Snake, Coord } from '../types/battlesnake';
+// recordingContext: a 2D context that records every call with its arguments,
+// and every property written to it — the grid's stroke widths and positions
+// are read back from this, since a stroke's crispness is entirely a question
+// of where it landed.
+import { recordingContext, type Op } from './board-fixtures';
 
 const BoardRenderer = require('../web/board-renderer.js');
 
@@ -20,32 +25,6 @@ const BoardRenderer = require('../web/board-renderer.js');
 (globalThis as unknown as { Path2D: unknown }).Path2D = class {
   constructor(public d?: string) {}
 };
-
-type Op = { op: string; args: unknown[] };
-
-// A 2D context that records every call with its arguments, and every property
-// written to it — the grid's stroke widths and positions are read back from
-// this, since a stroke's crispness is entirely a question of where it landed.
-function recordingContext(ops: Op[]) {
-  const state: Record<string, unknown> = {
-    measureText: (t: string) => ({ width: String(t).length * 6 }),
-    createLinearGradient: () => ({ addColorStop: () => {} }),
-  };
-  return new Proxy(state, {
-    get(target, prop: string) {
-      if (prop in target) return target[prop];
-      return (...args: unknown[]) => {
-        ops.push({ op: prop, args });
-        return undefined;
-      };
-    },
-    set(target, prop: string, value) {
-      ops.push({ op: `set:${prop}`, args: [value] });
-      target[prop] = value;
-      return true;
-    },
-  }) as unknown as CanvasRenderingContext2D;
-}
 
 const CSS_SIZE = 550;
 

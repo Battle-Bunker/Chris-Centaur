@@ -29,6 +29,44 @@
 (function (global) {
   'use strict';
 
+  // ── THE TRANSPORT OBSERVATORY ───────────────────────────────────────────
+  //
+  // Every frame this factory sends or receives, announced to whoever asked.
+  // It exists so the latency surface (`latency.js`) can measure the wire
+  // WITHOUT a second socket, a second ping stream or a copy of the page's
+  // message handler: the numbers an operator is shown about the connection
+  // are read off the connection they are about.
+  //
+  // Rules the observatory keeps, because it is on the hot path:
+  //   · an observer that throws is swallowed — a badge must never be able to
+  //     break the socket, and `onmessage` already logs parse failures for the
+  //     PAGE's handler, so an observer's error there would be misreported;
+  //   · inbound is announced AFTER the parse (so the type is known) and
+  //     BEFORE the page handler, with the arrival time taken at the top of
+  //     the handler, so the number is the frame's arrival and not the page's
+  //     finish;
+  //   · outbound is announced before the send, with the parsed envelope for
+  //     small frames only — a command is a couple of hundred bytes and a
+  //     re-parse of one is free; a re-parse of every frame would not be.
+  const observers = new Set();
+  const OUTBOUND_PARSE_LIMIT = 4096;
+  let currentSocket = null;
+
+  function observe(fn) {
+    observers.add(fn);
+    return () => observers.delete(fn);
+  }
+  function announce(event) {
+    for (const fn of observers) {
+      try { fn(event); } catch (e) { /* an observer may not break the wire */ }
+    }
+  }
+  function nowMs() {
+    return typeof performance !== 'undefined' && performance.now
+      ? performance.timeOrigin + performance.now()
+      : Date.now();
+  }
+
   const DEFAULT_STATUS_TEXT = {
     connecting: 'Connecting',
     connected: 'Connected',
@@ -103,6 +141,24 @@
 
       const protocol = global.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${global.location.host}/ws`);
+      currentSocket = ws;
+      // Outbound frames, announced on their way past. The page's own `send`
+      // calls go through this because the page holds THIS object.
+      const rawSend = ws.send.bind(ws);
+      ws.send = function (data) {
+        let msg = null;
+        if (typeof data === 'string' && data.length <= OUTBOUND_PARSE_LIMIT) {
+          try { msg = JSON.parse(data); } catch (e) { msg = null; }
+        }
+        announce({
+          kind: 'out',
+          at: nowMs(),
+          type: msg && msg.type ? msg.type : null,
+          bytes: typeof data === 'string' ? data.length : 0,
+          msg,
+        });
+        return rawSend(data);
+      };
       if (onSocket) onSocket(ws);
 
       let openTimeout = null;
@@ -114,6 +170,7 @@
 
       ws.onopen = () => {
         if (openTimeout) clearTimeout(openTimeout);
+        announce({ kind: 'open', at: nowMs() });
         setStatus('connected');
         ws.send(JSON.stringify(subscribeMessage()));
         if (reconnectTimer) {
@@ -126,14 +183,25 @@
       };
 
       ws.onmessage = (event) => {
+        // The arrival, stamped before anything is done with it.
+        const at = nowMs();
         try {
-          onMessage(JSON.parse(event.data));
+          const msg = JSON.parse(event.data);
+          announce({
+            kind: 'in',
+            at,
+            type: msg && msg.type ? msg.type : null,
+            bytes: typeof event.data === 'string' ? event.data.length : 0,
+            msg,
+          });
+          onMessage(msg);
         } catch (e) {
           console.error('WS message parse error:', e);
         }
       };
 
       ws.onclose = (event) => {
+        announce({ kind: 'close', at: nowMs(), code: event.code, reason: event.reason || '' });
         setStatus('disconnected', event);
         wsDebug.onClose(event);
         const wasIdle = idleWatcher.onClose(event);
@@ -157,6 +225,7 @@
       };
 
       ws.onerror = (event) => {
+        announce({ kind: 'error', at: nowMs() });
         setStatus('error', event);
         wsDebug.onError(event);
       };
@@ -167,7 +236,16 @@
     return { connect };
   }
 
-  const api = { create };
+  const api = {
+    create,
+    // Subscribe to every frame this page sends or receives. Returns an
+    // unsubscribe. See the observatory note at the top of this file.
+    observe,
+    // The socket this factory most recently opened, or null. Read-only in
+    // spirit: it is here so a latency surface can send the transport's own
+    // `ping` envelope on the connection it is measuring, and for nothing else.
+    socket: () => currentSocket,
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

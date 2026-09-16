@@ -8,8 +8,8 @@
  * the proved floor.
  */
 
-import type { Candidate, JointPlan, UnitId } from "../contracts";
-import type { Resolution } from "../../partial-engine/index";
+import type { Candidate, JointPlan, Substrate, UnitId } from "../contracts";
+import type { PartialSettlement } from "../../engine-vendor/engine/settlePartial";
 import { candidateKey } from "../bounds";
 
 /**
@@ -57,17 +57,32 @@ export function planTieKey(plan: JointPlan, salt: number): number {
   return total;
 }
 
-/** Every unit the resolution recorded as removed this turn. */
-export function deadIn(resolution: Resolution): ReadonlySet<UnitId> {
-  const out = new Set<UnitId>();
-  for (const d of resolution.deaths) out.add(d.unitId);
-  return out;
+/**
+ * A settlement speaks the WIRE's ids; everything above the substrate speaks
+ * unit ids. The map is the substrate's and is asked for rather than kept, so
+ * these functions stay pure reads of one settlement.
+ */
+const idsOf = (
+  sub: Substrate,
+  wireIds: Iterable<string>,
+  into: Set<UnitId> = new Set<UnitId>(),
+): Set<UnitId> => {
+  for (const wireId of wireIds) {
+    const unitId = sub.unitIdOf(wireId);
+    if (unitId !== undefined) into.add(unitId);
+  }
+  return into;
+};
+
+/** Every unit the settlement recorded as removed this turn. */
+export function deadIn(sub: Substrate, resolution: PartialSettlement): ReadonlySet<UnitId> {
+  return idsOf(sub, Object.keys(resolution.deaths));
 }
 
-/** Units the resolution named in any collision — dead or merely involved. */
-export function involvedIn(resolution: Resolution): ReadonlySet<UnitId> {
+/** Units the settlement named in any collision — dead or merely involved. */
+export function involvedIn(sub: Substrate, resolution: PartialSettlement): ReadonlySet<UnitId> {
   const out = new Set<UnitId>();
-  for (const clash of resolution.clashes) for (const id of clash.playerIDs) out.add(id);
+  for (const clash of resolution.clashes) idsOf(sub, clash.playerIDs, out);
   return out;
 }
 
@@ -82,12 +97,13 @@ export function involvedIn(resolution: Resolution): ReadonlySet<UnitId> {
  * budget failing.
  */
 export function dangerOrder(
+  sub: Substrate,
   units: ReadonlyArray<UnitId>,
-  resolution: Resolution | null,
+  resolution: PartialSettlement | null,
   frozen: ReadonlySet<UnitId>,
 ): ReadonlyArray<UnitId> {
-  const dead = resolution === null ? new Set<UnitId>() : deadIn(resolution);
-  const involved = resolution === null ? new Set<UnitId>() : involvedIn(resolution);
+  const dead = resolution === null ? new Set<UnitId>() : deadIn(sub, resolution);
+  const involved = resolution === null ? new Set<UnitId>() : involvedIn(sub, resolution);
   return [...units]
     .filter((id) => !frozen.has(id))
     .sort((a, b) => {
@@ -104,20 +120,23 @@ export function dangerOrder(
  * cannot leave.
  */
 export function contestedUnits(
+  sub: Substrate,
   units: ReadonlyArray<UnitId>,
-  resolution: Resolution | null,
+  resolution: PartialSettlement | null,
   frozen: ReadonlySet<UnitId>,
   limit: number,
 ): ReadonlyArray<UnitId> {
   if (resolution === null) return [];
   const weight = new Map<UnitId, number>();
+  const bump = (wireId: string, by: number): void => {
+    const id = sub.unitIdOf(wireId);
+    if (id !== undefined) weight.set(id, (weight.get(id) ?? 0) + by);
+  };
   for (const clash of resolution.clashes) {
-    for (const id of clash.playerIDs) weight.set(id, (weight.get(id) ?? 0) + 1);
-    for (const id of clash.victimIDs) weight.set(id, (weight.get(id) ?? 0) + 3);
+    for (const id of clash.playerIDs) bump(id, 1);
+    for (const id of clash.victimIDs) bump(id, 3);
   }
-  for (const entry of resolution.ledger) {
-    weight.set(entry.liveId, (weight.get(entry.liveId) ?? 0) + 1);
-  }
+  for (const entry of resolution.ledger) bump(entry.unitId, 1);
   return units
     .filter((id) => !frozen.has(id) && (weight.get(id) ?? 0) > 0)
     .sort((a, b) => (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || a - b)
@@ -132,7 +151,8 @@ export function contestedUnits(
  * by the number of accidents rather than by the roster.
  */
 export function selfInflictedPairs(
-  resolution: Resolution,
+  sub: Substrate,
+  resolution: PartialSettlement,
   ours: ReadonlySet<UnitId>,
   plan: JointPlan,
 ): ReadonlyArray<readonly [UnitId, UnitId]> {
@@ -147,9 +167,9 @@ export function selfInflictedPairs(
   };
 
   for (const clash of resolution.clashes) {
-    const involved = clash.playerIDs.filter((id) => ours.has(id));
+    const involved = [...idsOf(sub, clash.playerIDs)].filter((id) => ours.has(id));
     if (involved.length < 2) continue;
-    const victims = clash.victimIDs.filter((id) => ours.has(id));
+    const victims = [...idsOf(sub, clash.victimIDs)].filter((id) => ours.has(id));
     if (victims.length === 0) continue;
     for (const victim of victims) for (const other of involved) push(victim, other);
   }
@@ -159,12 +179,13 @@ export function selfInflictedPairs(
   // of ours died on a cell another of ours was heading for. This MISSES mutual
   // annihilations, where nobody is left standing — a real loss of coverage,
   // not a free substitution.
-  for (const death of resolution.deaths) {
-    if (!ours.has(death.unitId)) continue;
+  for (const [wireId, death] of Object.entries(resolution.deaths)) {
+    const victim = sub.unitIdOf(wireId);
+    if (victim === undefined || !ours.has(victim)) continue;
     for (const [unitId, candidate] of plan) {
-      if (unitId === death.unitId || !ours.has(unitId)) continue;
+      if (unitId === victim || !ours.has(unitId)) continue;
       if (candidate.to === death.cell || candidate.path.includes(death.cell)) {
-        push(death.unitId, unitId);
+        push(victim, unitId);
       }
     }
   }

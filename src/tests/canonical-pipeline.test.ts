@@ -6,47 +6,17 @@
  * endGame produced.
  */
 
-import { ActiveGameManager, TurnData } from '../server/active-game-manager';
-import { BoardSnapshot, Coord, Direction, GameState, Snake } from '../types/battlesnake';
+import { ActiveGameManager } from '../server/active-game-manager';
+import { BoardSnapshot, Snake } from '../types/battlesnake';
 import { buildBoardState, buildGameState, withYou } from '../firebase/translate';
 import { TTGameSetup, TTTurn } from '../firebase/tactictoes-types';
-
-function makeSnake(id: string, head: Coord, length = 3): Snake {
-  const body: Coord[] = [];
-  for (let i = 0; i < length; i++) {
-    body.push({ x: head.x, y: head.y - i });
-  }
-  return {
-    orientation: { dx: 0, dy: -1 },
-    id,
-    name: id,
-    latency: '0',
-    health: 100,
-    body,
-    head,
-    length,
-    shout: '',
-    squad: '',
-    customizations: { color: '#ffffff', head: 'default', tail: 'default' },
-  };
-}
+import { makeSnakeAt as makeSnake, makeTurnData } from './board-fixtures';
 
 function makeBoard(gameId: string, turn: number, snakes: Snake[]): BoardSnapshot {
   return {
     game: { id: gameId, ruleset: { name: 'standard', version: '1', settings: {} }, map: 'standard', timeout: 500, source: 'test' },
     turn,
     board: { width: 11, height: 11, food: [], hazards: [], snakes },
-  };
-}
-
-function makeTurnData(gs: GameState, botMove: Direction): TurnData {
-  return {
-    gameState: gs,
-    moveEvaluations: [],
-    territoryCells: {},
-    safeMoves: ['up', 'down', 'left', 'right'],
-    botRecommendation: botMove,
-    timestamp: Date.now(),
   };
 }
 
@@ -72,7 +42,7 @@ function makeSetup(): TTGameSetup {
 
 function makeTurn(): TTTurn {
   return {
-    playerHealth: { centA: 90, 'centA#2': 80, centB: 70 },
+    playerEnergy: { centA: 90, 'centA#2': 80, centB: 70 },
     startTime: null as any,
     endTime: null as any,
     moves: {},

@@ -33,51 +33,69 @@
     return a < 0 ? a + 2 * Math.PI : a;
   }
 
-  // Per-type legal orientation sets in WIRE coords (y grows DOWNWARD), copied
-  // verbatim from legalOrientations() in src/logic/piece-moves.ts — the
-  // lockstep mirror of the engine's pieceMoves.ts. Keep all three in step;
-  // src/tests/keynav-machine.test.ts asserts the parity.
-  const WIRE_ORTHOGONALS = [
-    { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
-  ];
-  const WIRE_DIAGONALS = [
-    { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: -1, dy: -1 },
-  ];
-  const WIRE_KNIGHT_OFFSETS = [
-    { dx: 1, dy: 2 }, { dx: 2, dy: 1 }, { dx: 2, dy: -1 }, { dx: 1, dy: -2 },
-    { dx: -1, dy: -2 }, { dx: -2, dy: -1 }, { dx: -2, dy: 1 }, { dx: -1, dy: 2 },
-  ];
+  // ── THE AXIS RING IS THE UNIT'S OWN CANDIDATES ────────────────────────────
+  //
+  // There is no per-type axis table here any more, and no `ringFor(unitType)`.
+  // A unit's ring is derived from the candidate list the ENGINE enumerated for
+  // it (`ActiveGameManager.getUnitCandidates` → `legalActions`), reduced to
+  // primitive axes. A knight's ring is its L-offsets because its candidates
+  // are L-offsets; a rook's is four orthogonals because its candidates lie on
+  // four rays. Nothing in this file can hand a unit another kind's move set,
+  // because nothing in this file knows any kind's move set.
 
-  // Axis rings: the same sets as api-coord axes (one y-flip), ordered
-  // clockwise from straight up — the order arrow Right walks. A knight's
-  // "axes" are its eight L-offsets.
-  const ring = (wire) => wire
-    .map((f) => ({ dx: f.dx, dy: -f.dy || 0 }))
-    .sort((a, b) => cwFromUp(a) - cwFromUp(b));
-  const ORTHO_AXES = ring(WIRE_ORTHOGONALS);
-  const DIAG_AXES = ring(WIRE_DIAGONALS);
-  const ALL_AXES = ring(WIRE_ORTHOGONALS.concat(WIRE_DIAGONALS));
-  const KNIGHT_AXES = ring(WIRE_KNIGHT_OFFSETS);
+  const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
 
-  function ringFor(unitType) {
-    switch (unitType) {
-      case 'knight': return KNIGHT_AXES;
-      case 'bishop': return DIAG_AXES;
-      case 'queen':
-      case 'king': return ALL_AXES;
-      default: return ORTHO_AXES; // orthogonally-oriented types (rook, snake, pawn)
-    }
+  // An offset from the head, split into its primitive axis and how many steps
+  // along it — ONE rule for every kind. A slider's (0,-4) is four steps of
+  // (0,-1); a knight's (1,2) is one step of (1,2), because 1 and 2 are
+  // coprime and an L is its own primitive. No unit type is consulted.
+  function axisOf(dx, dy) {
+    if (!dx && !dy) return { axis: null, distance: 0 };
+    const g = gcd(Math.abs(dx), Math.abs(dy)) || 1;
+    return { axis: { dx: dx / g || 0, dy: dy / g || 0 }, distance: g };
   }
 
-  // Numpad digit → ring index, reading the keypad as a compass clockwise
-  // from up (8, then 9 = up-right, and on around). Knights read their
-  // L-ring in the same order, so every key's OPPOSITE key is its exact
-  // negation for every type. 5 is hold, handled inside numpadStep.
-  const NUMPAD_ORDER = [8, 9, 6, 3, 2, 1, 4, 7];
+  // The distinct primitive axes of a set of candidate offsets, ordered
+  // clockwise from straight up — the order arrow Right walks.
+  function ringOf(offsets) {
+    const seen = new Map();
+    for (const o of offsets || []) {
+      const { axis } = axisOf(o.dx, o.dy);
+      if (!axis) continue;
+      const key = axis.dx + ',' + axis.dy;
+      if (!seen.has(key)) seen.set(key, axis);
+    }
+    return [...seen.values()].sort((a, b) => cwFromUp(a) - cwFromUp(b));
+  }
 
-  function numpadAxisFor(unitType, digit) {
-    const axes = unitType === 'knight' ? KNIGHT_AXES : ALL_AXES;
-    return axes[NUMPAD_ORDER.indexOf(digit)] || null;
+  // Numpad digit → clockwise screen bearing, reading the keypad as a compass
+  // from up (8 = 0, 9 = 45°, 6 = 90°, and on around). 5 is hold, handled
+  // inside numpadStep. This is a KEYPAD LAYOUT — where the keys sit under the
+  // hand — and it is the only geometry this file owns.
+  const NUMPAD_ORDER = [8, 9, 6, 3, 2, 1, 4, 7];
+  const QUARTER = Math.PI / 4;
+
+  // The digit's key on THIS unit's ring: the ring axis whose bearing is
+  // nearest the digit's compass bearing, ties broken clockwise, and nothing at
+  // all when the nearest is a full 45° away — so a rook's up-right key is
+  // still unavailable (its ring has no diagonal), a queen's picks its
+  // diagonal, and a knight's picks the L that lies that way. Same answers the
+  // old per-type tables gave, without knowing what a knight is.
+  function numpadAxisFor(digit, ring) {
+    const i = NUMPAD_ORDER.indexOf(digit);
+    if (i < 0 || !ring || ring.length === 0) return null;
+    const want = i * QUARTER;
+    let best = null;
+    let bestDelta = Infinity;
+    for (const axis of ring) {
+      let d = Math.abs(cwFromUp(axis) - want);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      // `<=` breaks a tie in favour of the later (more clockwise) axis, which
+      // is what makes every key's opposite key its exact negation on an
+      // eight-axis ring, L-shaped or compass.
+      if (d <= bestDelta) { bestDelta = d; best = axis; }
+    }
+    return bestDelta < QUARTER - 1e-9 ? best : null;
   }
 
   // Physical numpad keys → digit. e.code names the physical key and is the
@@ -100,8 +118,17 @@
   // candidate-bearing axis. Returns null when no axis has a candidate.
   function nextLegalAxis(from, dir, ctx) {
     const n = ctx.ring.length;
-    const idx = ctx.ring.findIndex((a) => axisEq(a, from));
-    if (idx < 0) throw new Error('keyNav axis off the legal axis ring');
+    if (n === 0) return null;
+    let idx = ctx.ring.findIndex((a) => axisEq(a, from));
+    if (idx < 0) {
+      // The cursor's axis is not on this turn's ring — a seeded orientation
+      // whose candidate is blocked, say. The ring is the unit's live
+      // candidates and is allowed to be smaller than its reach, so the walk
+      // starts from where that axis WOULD sit by bearing rather than throwing.
+      const b = from ? cwFromUp(from) : 0;
+      const after = ctx.ring.findIndex((a) => cwFromUp(a) >= b);
+      idx = dir === 'right' ? (after < 0 ? 0 : after) - 1 : (after < 0 ? n : after);
+    }
     const dirStep = dir === 'right' ? 1 : -1;
     for (let i = 1; i <= n; i++) {
       const a = ctx.ring[(((idx + dirStep * i) % n) + n) % n];
@@ -132,13 +159,9 @@
   // steering picks up seamlessly from a click. A zero/absent offset is the
   // hold candidate: it keeps prevAxis as memory (seedNav fills in the wire
   // orientation when there is none).
-  function deriveFromOffset(unitType, dx, dy, prevAxis) {
+  function deriveFromOffset(dx, dy, prevAxis) {
     if (!dx && !dy) return { axis: prevAxis || null, distance: 0 };
-    if (unitType === 'knight') return { axis: { dx, dy }, distance: 1 };
-    return {
-      axis: { dx: Math.sign(dx), dy: Math.sign(dy) },
-      distance: Math.max(Math.abs(dx), Math.abs(dy)),
-    };
+    return axisOf(dx, dy);
   }
 
   // One signed-distance rule for every extend/retract: the cursor projected
@@ -242,14 +265,11 @@
   }
 
   const api = {
-    ORTHO_AXES,
-    DIAG_AXES,
-    ALL_AXES,
-    KNIGHT_AXES,
     NUMPAD_ORDER,
     NUMPAD_DIGIT_CODES,
     axisEq,
-    ringFor,
+    axisOf,
+    ringOf,
     numpadAxisFor,
     orientationOf,
     seedNav,

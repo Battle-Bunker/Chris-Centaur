@@ -1,0 +1,507 @@
+{
+  "checks": [
+    {
+      "drill": "pointer",
+      "step": "focus — a roster click alone focuses a unit and enumerates its candidates",
+      "ok": true,
+      "saw": {
+        "unit": "red-A",
+        "selected": null,
+        "moves": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ],
+        "staged": {
+          "move": "up",
+          "requestedMove": "up",
+          "committed": false,
+          "color": "#888888",
+          "source": "bot",
+          "fatal": false,
+          "rotation": null
+        },
+        "undoDepth": 0,
+        "foil": "off",
+        "drill": null,
+        "waypoint": null
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "candidates — the focused unit has a destination to click",
+      "ok": true,
+      "saw": {
+        "head": {
+          "x": 2,
+          "y": 2
+        },
+        "key": "up",
+        "cand": {
+          "x": 2,
+          "y": 3
+        },
+        "count": 4
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "candidate — an unmodified left click selects it, and arms the lock",
+      "ok": true,
+      "saw": {
+        "want": "up",
+        "got": "up"
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "lock — the chip is there to press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "pointer",
+      "step": "lock — the unit carries the operator’s own candidate, source manual",
+      "ok": true,
+      "saw": {
+        "unit": "red-A",
+        "selected": "up",
+        "moves": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ],
+        "staged": {
+          "move": "up",
+          "requestedMove": "up",
+          "committed": false,
+          "color": "#156cdd",
+          "source": "manual",
+          "fatal": false,
+          "rotation": null
+        },
+        "undoDepth": 1,
+        "foil": "off",
+        "drill": null,
+        "waypoint": null
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "lock — the determination landed on the undo stack",
+      "ok": true,
+      "saw": {
+        "before": 0,
+        "after": 1
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "undo — the chip is there to press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "pointer",
+      "step": "undo — the stage is taken back and the unit stops carrying it",
+      "ok": true,
+      "saw": {
+        "unit": "red-A",
+        "selected": null,
+        "moves": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ],
+        "staged": {
+          "move": "up",
+          "requestedMove": "up",
+          "committed": false,
+          "color": "#888888",
+          "source": "bot",
+          "fatal": false,
+          "rotation": null
+        },
+        "undoDepth": 0,
+        "foil": "off",
+        "drill": null,
+        "waypoint": null
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "foil — the chip is there to press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "pointer",
+      "step": "foil — the runner-up is on the board, from the pointer alone",
+      "ok": true,
+      "saw": {
+        "before": "off",
+        "after": "latched"
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "drill — the chip is there to press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "pointer",
+      "step": "drill — the pointer reaches the breakdown wherever the key would",
+      "ok": true,
+      "saw": {
+        "clusterMembers": 0,
+        "drill": null
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "goto — the chip is there to press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "pointer",
+      "step": "goto — the chip arms and says the next press will land it",
+      "ok": true,
+      "saw": {
+        "pending": "green",
+        "chip": "◎\ngoto — press a cell\nright-click"
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "goto — an unmodified left click on a cell sets the target",
+      "ok": true,
+      "saw": {
+        "type": "green",
+        "cells": [
+          {
+            "x": 2,
+            "y": 3
+          }
+        ]
+      }
+    },
+    {
+      "drill": "pointer",
+      "step": "goto — and disarms, so the next press is an ordinary press",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "drag",
+      "step": "a drag from the head reaches the same selection a click reaches",
+      "ok": true,
+      "saw": {
+        "byClick": "up",
+        "byDrag": "up"
+      }
+    },
+    {
+      "drill": "drag",
+      "step": "a drag that did not start on the unit selects nothing",
+      "ok": true,
+      "saw": {
+        "stray": null
+      }
+    },
+    {
+      "drill": "drag",
+      "step": "input.moveGesture=click turns the drag off and leaves the click alone",
+      "ok": true,
+      "saw": {
+        "offDrag": null,
+        "offClick": "up",
+        "byClick": "up"
+      }
+    },
+    {
+      "drill": "handedness",
+      "step": "the preference stamps one class on the root",
+      "ok": true,
+      "saw": {
+        "cls": true,
+        "rail": 170,
+        "board": 570
+      }
+    },
+    {
+      "drill": "handedness",
+      "step": "the control column moves to the pointing hand’s side",
+      "ok": true,
+      "saw": {
+        "before": {
+          "rail": 950,
+          "board": 170
+        },
+        "after": {
+          "cls": true,
+          "rail": 170,
+          "board": 570
+        }
+      }
+    },
+    {
+      "drill": "handedness",
+      "step": "and back — the default stamps nothing",
+      "ok": true,
+      "saw": {
+        "back": false
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "layout — the page does not scroll sideways",
+      "ok": true,
+      "saw": {
+        "scrollW": 768,
+        "clientW": 768
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "layout — the command bar is in the viewport with the board",
+      "ok": true,
+      "saw": {
+        "bar": {
+          "top": 910,
+          "bottom": 1024
+        },
+        "board": {
+          "top": -113,
+          "bottom": 437
+        },
+        "vh": 1024
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "targets — every pressed target is at least 44 px on its short side",
+      "ok": true,
+      "saw": []
+    },
+    {
+      "drill": "tablet",
+      "step": "candidates — the focused unit has a destination to tap",
+      "ok": true,
+      "saw": {
+        "head": {
+          "x": 2,
+          "y": 2
+        },
+        "key": "up",
+        "cand": {
+          "x": 2,
+          "y": 3
+        },
+        "count": 4
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "candidate — a tap on the board selects it",
+      "ok": true,
+      "saw": {
+        "want": "up",
+        "got": "up"
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "lock — the chip is there to tap",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "tablet",
+      "step": "lock — the SAME end state the keyboard drill asserts",
+      "ok": true,
+      "saw": {
+        "unit": "red-A",
+        "selected": "up",
+        "moves": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ],
+        "staged": {
+          "move": "up",
+          "requestedMove": "up",
+          "committed": false,
+          "color": "#ff4d6d",
+          "source": "manual",
+          "fatal": false,
+          "rotation": null
+        },
+        "undoDepth": 1,
+        "foil": "off",
+        "drill": null,
+        "waypoint": null
+      }
+    },
+    {
+      "drill": "tablet",
+      "step": "long-press — a held press on a cell sets the goto target",
+      "ok": true,
+      "saw": {
+        "type": "green",
+        "cells": [
+          {
+            "x": 2,
+            "y": 3
+          }
+        ]
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "layout — the page does not scroll sideways",
+      "ok": true,
+      "saw": {
+        "scrollW": 390,
+        "clientW": 390
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "layout — the command bar is in the viewport with the board",
+      "ok": true,
+      "saw": {
+        "bar": {
+          "top": 632,
+          "bottom": 844
+        },
+        "board": {
+          "top": -307,
+          "bottom": 243
+        },
+        "vh": 844
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "targets — every pressed target is at least 44 px on its short side",
+      "ok": true,
+      "saw": []
+    },
+    {
+      "drill": "phone",
+      "step": "candidates — the focused unit has a destination to tap",
+      "ok": true,
+      "saw": {
+        "head": {
+          "x": 2,
+          "y": 2
+        },
+        "key": "up",
+        "cand": {
+          "x": 2,
+          "y": 3
+        },
+        "count": 4
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "candidate — a tap on the board selects it",
+      "ok": true,
+      "saw": {
+        "want": "up",
+        "got": "up"
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "lock — the chip is there to tap",
+      "ok": true,
+      "saw": null
+    },
+    {
+      "drill": "phone",
+      "step": "lock — the SAME end state the keyboard drill asserts",
+      "ok": true,
+      "saw": {
+        "unit": "red-A",
+        "selected": "up",
+        "moves": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ],
+        "staged": {
+          "move": "up",
+          "requestedMove": "up",
+          "committed": false,
+          "color": "#0a7e3a",
+          "source": "manual",
+          "fatal": false,
+          "rotation": null
+        },
+        "undoDepth": 1,
+        "foil": "off",
+        "drill": null,
+        "waypoint": null
+      }
+    },
+    {
+      "drill": "phone",
+      "step": "long-press — a held press on a cell sets the goto target",
+      "ok": true,
+      "saw": {
+        "type": "green",
+        "cells": [
+          {
+            "x": 2,
+            "y": 3
+          }
+        ]
+      }
+    }
+  ],
+  "notes": {
+    "exceptions": []
+  },
+  "shots": [
+    {
+      "name": "p1-locked",
+      "note": "pointer only: a candidate clicked on the board and locked from the chip",
+      "file": "docs/design/ux/input/p1-locked.png"
+    },
+    {
+      "name": "p2-foil",
+      "note": "pointer only: the foil, which was reachable by `F` and nothing else",
+      "file": "docs/design/ux/input/p2-foil.png"
+    },
+    {
+      "name": "p3-goto-armed",
+      "note": "pointer only: goto armed — the next unmodified press sets it",
+      "file": "docs/design/ux/input/p3-goto-armed.png"
+    },
+    {
+      "name": "p4-hand-left",
+      "note": "the control column mirrored for a left-handed operator",
+      "file": "docs/design/ux/input/p4-hand-left.png"
+    },
+    {
+      "name": "t-tablet-locked",
+      "note": "touch (768x1024): the same turn, by taps",
+      "file": "docs/design/ux/input/t-tablet-locked.png"
+    },
+    {
+      "name": "t-phone-locked",
+      "note": "touch (390x844): the same turn, by taps",
+      "file": "docs/design/ux/input/t-phone-locked.png"
+    }
+  ],
+  "exceptions": []
+}

@@ -3,21 +3,17 @@
  *
  * The build's parallel modules (substrate/candidates/evaluate, bounds/search,
  * voc/kernel/postures, pins) depend on each other ONLY through this file plus
- * ../partial-engine/index. Amendments go through the integrator, never by a
+ * the vendored engine. Amendments go through the integrator, never by a
  * module silently redefining a shape. Derived from the synthesis architecture
  * (scratchpad/synthesis-architect-report.md §B) and the deliberation delta;
  * amended once, coherently, at integration from the three builders' proposals
  * (B1 A1–A5, B2 A1–A7, B3's refiner + clock amendments).
  *
- * ── ONE INTERVAL, THREE DIALECTS ───────────────────────────────────────────
+ * ── ONE INTERVAL, TWO DIALECTS ─────────────────────────────────────────────
  *
- * Three interval types cross this file's seams, and they are three enrichment
+ * Two interval types cross this file's seams, and they are two enrichment
  * stages of the SAME quantity, with `worst ≡ lo` and `best ≡ hi` everywhere:
  *
- *   engine ScoreBounds   {worst, best, gapBy, assumptions: AssumptionId[]}
- *                        the raw subject-frame fold the resolver computes, its
- *                        basis a list of NUMERIC engine assumption ids. Never
- *                        renamed — the engine is vendored.
  *   Bound                {lo, est, hi} — the evaluator's triple. lo = worst,
  *                        hi = best, plus the advisory `est` ordering channel
  *                        that exists nowhere below this layer.
@@ -26,17 +22,24 @@
  *                        with a STRUCTURED ledger and named assumptions so
  *                        basis identity and the discharge theorem are typed.
  *
- * The mapping is total and direction-free: engine.worst → Bound.lo →
- * ScoreBounds.worst, engine.best → Bound.hi → ScoreBounds.best. `est` is
- * dropped, never translated, on the way down — it must never gate a decision
- * lo/hi make. No fourth vocabulary may be introduced.
+ * There used to be a third — the resolver's own subject-frame fold, which
+ * arrived as a vendored type nobody here could rename. The fold is bot-side
+ * now (`bounds/material.ts`), so `MaterialBounds` is the same two ends in the
+ * same vocabulary and the dialect is gone. `est` is dropped, never translated,
+ * on the way down — it must never gate a decision lo/hi make. No third
+ * vocabulary may be introduced.
  */
 
-import type {
-  Resolution,
-  ScoreBounds as EngineScoreBounds,
-  StateHandle,
-} from "../partial-engine/index"
+import type { Claim, Divergence, Fate, PartialSettlement } from "../engine-vendor/engine/settlePartial"
+import type { MaterialBounds } from "./bounds/material"
+import type { LoudReading } from "./bounds/loud"
+// THE ONE UPWARD REFERENCE, and it is type-only. `KernelInput.lens` names the
+// lens's own sink type rather than re-declaring its shape here: two
+// declarations of one function type is exactly the drift the lens exists to
+// stop. `import type` is erased, so no runtime cycle exists.
+import type { LensSink, MovesetRung, VerdictReason } from "../lens/types"
+
+export type { Claim, Divergence, Fate, PartialSettlement, MaterialBounds }
 
 // ---------------------------------------------------------------- primitives
 
@@ -132,6 +135,64 @@ export type Turn = number
  */
 export const NO_ORDER_MOVE: CellIndex = -1
 
+// -------------------------------------------------------------- path verdicts
+
+/**
+ * WHY a cell got the grade it got — one entry per contact the fold read off
+ * the settlement, so a human reading a refusal can see which unknown unit and
+ * which rule produced it.
+ */
+export interface RiskCause {
+  readonly role: "head" | "body" | "edge" | "pile" | "terrain" | "item"
+  /** Which axis this cause moved. */
+  readonly axis: "survival" | "defeat" | "halt"
+  /** The unit whose unknown disposition creates the difference, when there is one. */
+  readonly heldId: UnitId | null
+  /** True when the cause is a LEDGERED possibility rather than a settled fact. */
+  readonly contingent: boolean
+  readonly note: string
+}
+
+/** What one cell of a staged ray does to the mover. */
+export interface EncounterVerdict {
+  /** Does the mover survive this cell? (quantified over every world) */
+  readonly survival: Trit
+  /** Does the mover defeat something here? */
+  readonly defeat: Trit
+  /** Does the mover's movement END here (capture-stop, block, or death)? */
+  readonly halt: Trit
+  readonly causes: ReadonlyArray<RiskCause>
+  /** Where the mover could die from this encounter. */
+  readonly deathCells: ReadonlyArray<CellIndex>
+}
+
+/** What one staged ray does to the mover, whole. */
+export interface TraversalVerdict {
+  /** One verdict per cell the mover actually enters, in path order. */
+  readonly perCell: ReadonlyArray<EncounterVerdict>
+  /** Whole-path survival. */
+  readonly survival: Trit
+  /** Does the mover complete its staged path? */
+  readonly completesPath: Trit
+  /**
+   * Where the mover could come to rest. `certain` is set only when the landing
+   * is one cell in every world; otherwise `cells` is the landing SET, and a
+   * possible halt forbids truncating it.
+   */
+  readonly landing: { readonly certain: CellIndex | null; readonly cells: ReadonlyArray<CellIndex> }
+  /** Energy spent, as an interval over the worlds (movement cost + hazards). */
+  readonly energySpent: { readonly lo: number; readonly hi: number }
+  /**
+   * Upper bound on movement energy SAVED by a possible non-fatal truncation.
+   * A mover stopped early is fuller than its staged path priced, and an
+   * unaccounted saving is optimistic in the wrong direction for its opponents.
+   */
+  readonly savedByTruncation: number
+  /** Would exhaustion prove FATAL? */
+  readonly exhaustionFatal: Trit
+  readonly deathCells: ReadonlyArray<CellIndex>
+}
+
 // ------------------------------------------------------------------- pruning
 
 /** A move a unit could stage: destination plus the full path (prefix matters —
@@ -174,6 +235,17 @@ export interface LedgerEntry {
   readonly subStep: SubStep
   readonly polarity: "if_present" | "if_absent"
   readonly note: string
+  /**
+   * `ledgerKey(this)`, PRECOMPUTED — optional, and never load-bearing.
+   *
+   * It is exactly the string `bounds/score.ts` would build and cache against
+   * this object (`unitId:cell:subStep:polarity`, the `note` deliberately
+   * out), filled at construction by the translation that mints the entries the
+   * hot path actually merges. An entry without it — a test fixture, a
+   * hand-built residue — keys through the WeakMap exactly as before, so this
+   * changes no key, no dedup and no order.
+   */
+  readonly canonicalKey?: string
 }
 
 /** Named assumptions ride every score; scores with different assumption bases
@@ -216,6 +288,17 @@ export interface PlanScore {
   readonly plan: JointPlan
   readonly bounds: ScoreBounds
   readonly witnesses: ReadonlyArray<Witness>
+  /**
+   * THE HORIZON THIS PLAN'S READING WAS PROVED AT (06 F-2).
+   *
+   * A property of THIS plan's proof, not of the slice that produced it. The
+   * kernel used to stamp the refinement view's horizon onto every plan it
+   * absorbed in a slice, which attributes one plan's depth to every plan that
+   * happened to be priced beside it — and `deepen` names ONE plan. Absent ⇒ 1:
+   * a search that says nothing about depth searched one ply, which is the
+   * honest default and the one every reading on this build actually has.
+   */
+  readonly horizon?: number
 }
 
 // ---------------------------------------------------------------- pins/epochs
@@ -234,33 +317,6 @@ export type PinEvent =
   | { readonly kind: "pin"; readonly pin: Pin }
   | { readonly kind: "unpin"; readonly unitId: UnitId }
   | { readonly kind: "commit"; readonly unitId: UnitId } // human Submit — permanent for the turn
-
-/**
- * Proved price of an operator pin, offered as advice; never auto-applied.
- *
- * THE PRICE IS AN INTERVAL, because both sides of the subtraction are. With
- * the unconstrained decision proved in [u.lo, u.hi] and the conforming one in
- * [c.lo, c.hi], the cost is proved in [u.lo − c.hi, u.hi − c.lo]: `costLo` is
- * the LEAST the pin can be costing, `costHi` the MOST, and the width is how
- * little the decision knows. Both clamped at zero: a pin that HELPS is free,
- * not negative. A `min`/`max` across the two same-channel deltas is NOT this —
- * it can publish the ceiling's delta as the floor's answer and brackets
- * nothing.
- *
- * Both deltas difference an incumbent's bracket against a speculative
- * context's, so both are subject to basis identity (non-negotiable 5): the
- * consumer that computes them must prove the two sides share a posture and a
- * constraint epoch, or mark the advice degraded and say so.
- */
-export interface PinAdvice {
-  readonly pin: Pin
-  /** floor(best unconstrained) − ceiling(best conforming); ≥ 0. */
-  readonly costLo: number
-  /** ceiling(best unconstrained) − floor(best conforming); ≥ 0. */
-  readonly costHi: number
-  readonly witness: Witness | null // the concrete punishing line, when known
-  readonly alternative: Candidate | null
-}
 
 // ------------------------------------------------------------------ postures
 
@@ -391,45 +447,54 @@ export interface LeverView {
  * pipeline, which the single-pipeline rule forbids.
  */
 export interface BoundedResolution {
-  /** The engine's resolution. Its `state` is a BORROWED slab — see the slab
-   * contract on `Substrate`. */
-  readonly resolution: Resolution
+  /**
+   * The settlement itself — the whole turn, with the plan's movers known and
+   * everything else held. Its `ledger` names every point a concrete world
+   * could differ from it, and an EMPTY ledger is a proof that the held set did
+   * not matter.
+   */
+  readonly resolution: PartialSettlement
   /** Per-team [worst, best] in the subject's frame. */
   readonly perTeam: ReadonlyMap<number, { readonly worst: number; readonly best: number }>
-  /** Subject-frame material bounds, with the field's assumptions as basis. */
-  readonly bounds: EngineScoreBounds
+  /** Subject-frame material bounds, with the narrowed claims as basis. */
+  readonly bounds: MaterialBounds
+  /**
+   * The settlement's divergences in the contract's vocabulary — one entry per
+   * implicated unknown, with the polarity that says which endpoint rides on
+   * it. Translated at the seam, once, because the substrate is the only layer
+   * that knows which wire id is which unit.
+   */
+  readonly ledger: ReadonlyArray<LedgerEntry>
 }
 
-/** B1 owns: engine substrate. One place translates wire state to engine state
- * (weight stacks!), names every live unit on every resolve (silence is a typed
- * refusal upstream — NO_ORDER_MOVE is an explicit statement), and exposes
- * claims.
+/** B1 owns: the engine substrate. One place translates the wire board into
+ * engine terms (weight stacks!), names every live unit on every settlement
+ * (silence is a typed refusal upstream — NO_ORDER_MOVE is an explicit
+ * statement), and exposes the claims the held units carry.
  *
- * THE SLAB CONTRACT. `resolveBoundedFor`'s resolution OWNS an arena slab.
- * Hand it to `releaseResolution` (idempotent), or use `withResolution`, which
- * cannot forget. `release()` reclaims anything a caller forgot. The invariant
- * a test asserts: `outstanding() === 1` (the base state) between decisions,
- * `0` after `release()`. A SearchCore that ignores this exhausts the arena
- * inside one sweep, and it looks like the engine being slow.
+ * THERE IS NO SLAB CONTRACT ANY MORE. Settlement allocates per call and owns
+ * no arena, so a resolution is a plain value: hold it, drop it, keep it in a
+ * memo. `release()` survives as "drop this decision's caches", and it is not
+ * paired with anything.
  *
  * THE PLAN-DOMAIN RULE. The plan's domain IS the modelled set: everything not
- * named in a JointPlan is held with its own observation turn, so the engine's
- * partial-assignment refusal is unreachable by construction. `withModelled`
- * returns a sibling over the SAME position in which every unit in `modelled`
- * is expected LIVE — a plan must name it, and may name it with an explicit
- * action. The sibling's `release()` must not disturb the parent; a substrate
- * whose plan domain already is the modelled set may return a shared-state
- * sibling. */
+ * named in a JointPlan is held with its own observation turn, so a partial
+ * assignment is unreachable by construction. `withModelled` returns a sibling
+ * over the SAME position in which every unit in `modelled` is expected LIVE —
+ * a plan must name it, and may name it with an explicit action. Claims are
+ * derived per call from the sibling's own modelled set, so a NARROWER sibling
+ * is simply correct; the shared-claim-view refusal the arena version carried
+ * has no subject left. */
 export interface Substrate {
-  readonly state: StateHandle
   /** Every live unit, ascending. */
   unitIds(): ReadonlyArray<UnitId>
+  /** The unit a settlement's wire id names — the one direction of the map that
+   * anything reading a settlement needs, and the only place it is done. */
+  unitIdOf(wireId: string): UnitId | undefined
   /** Live units on `asTeam` this decision is entitled to move. */
   commandable(asTeam: number): ReadonlyArray<UnitId>
   resolveBoundedFor(plan: JointPlan, asTeam: number): BoundedResolution
-  /** Return a resolution's slab. Idempotent. */
-  releaseResolution(resolution: Resolution): void
-  /** The scoped, leak-proof door most callers should use instead. */
+  /** Settle, hand the settlement to `fn`, return what `fn` returns. */
   withResolution<T>(plan: JointPlan, asTeam: number, fn: (r: BoundedResolution) => T): T
   /** Every distinct action this unit's own grammar admits. */
   actionsOf(unitId: UnitId): ReadonlyArray<Candidate>
@@ -449,8 +514,7 @@ export interface Substrate {
    * turn — powers tier-2 transfer between pin contexts. Over-approximate is
    * safe (work repeated); under-approximate keeps stale evaluations. */
   influenceOf(unitId: UnitId): ReadonlySet<CellIndex>
-  /** Slabs borrowed and not yet returned (the base state included). */
-  outstanding(): number
+  /** Drop this decision's caches. Not paired with anything. */
   release(): void
 }
 
@@ -579,6 +643,46 @@ export interface SearchCore {
   release?(): void
 }
 
+/**
+ * ONE PRICED TRIAL, at the `better()` call site — the lens's whole input.
+ *
+ * The set-valued reduction is already computed and discarded at the first
+ * comparison; this is where it is handed over instead. It costs the search
+ * `O(k)` numeric comparisons per trial and ZERO evaluations, and it is
+ * present only when a consumer asked for it: `SearchContext.trials` absent ⇒
+ * the search does not build one of these at all.
+ */
+export interface TrialObservation {
+  /** The whole plan that was priced. A trial is never a partial assignment. */
+  readonly plan: JointPlan
+  /** What it was compared AGAINST — the incumbent at that instant. */
+  readonly incumbentPlan: JointPlan
+  readonly bounds: ScoreBounds
+  /** The ordering channel. Never adjudicates. */
+  readonly est: number
+  /** `planTieKey(plan, seed)` — an indifferent order, reproducibly. */
+  readonly tie: number
+  readonly rung: MovesetRung
+  readonly accepted: boolean
+  /** Which branch of `better()` refused it. Null until [CHANGE 1]. */
+  readonly because: VerdictReason | null
+  /** The certificate, when the branch that refused was the witness veto. */
+  readonly witness: Witness | null
+  /** The horizon THIS trial's reading was proved at (06 F-2). Absent ⇒ 1. The
+   * lens's depth column reads it here — from the reading — and never from
+   * `EmitRecord.horizon`, which is a property of an emission. */
+  readonly horizon?: number
+  /**
+   * THE LOUD PRODUCT of this trial's own B3 preamble, or null where the
+   * preamble did not run (`08-DEPTH-VERDICT` §5 step 1). An INSTRUMENT: it is
+   * measured on option lists the bank already built, it settles nothing, and
+   * no comparison on this path reads it.
+   */
+  readonly loud?: LoudReading | null
+}
+
+export type TrialSink = (trial: TrialObservation) => void
+
 export interface SearchContext {
   readonly sub: Substrate
   readonly gen: CandidateGenerator
@@ -593,6 +697,15 @@ export interface SearchContext {
   readonly incumbent: PlanScore | null
   readonly witnesses: ReadonlyArray<Witness>
   readonly budget: BudgetHandle
+  /**
+   * Optional: every priced trial, as it is compared. The retention seam.
+   *
+   * ABSENT ⇒ THE SEARCH BUILDS NOTHING. The core checks one null before each
+   * comparison and does not compute a tie key, a plan key or an observation
+   * object for a trial nobody is watching, which is what keeps 05 §(d) gate
+   * 7(ii) — "the sink is free when absent" — a fact rather than a hope.
+   */
+  readonly trials?: TrialSink
 }
 
 /** B3 owns: clock + emission. All cost estimators are per-decision state —
@@ -650,4 +763,19 @@ export interface KernelInput {
    * not even the final flush.
    */
   readonly abandoned?: () => boolean
+  /**
+   * [CHANGE 3] — THE LENS SINK, and why it is a second channel.
+   *
+   * The frames must not travel on `AsyncIterable<EmitRecord>`: that channel's
+   * consumer is the wire, and a frame arriving there would be a staged plan.
+   * So a separate, optional, SYNCHRONOUS sink, called BETWEEN slices only and
+   * never inside one, wrapped in try/catch by the kernel — a lens consumer
+   * that throws must not be able to take a decision down, which is the rule
+   * telemetry already has.
+   *
+   * ABSENT ⇒ THE LENS COSTS EXACTLY NOTHING, and that is a gate rather than a
+   * claim: with this undefined the decision's evaluator-call and node counts
+   * are byte-identical to the pre-lens recording (05 §(d) gate 7(ii)).
+   */
+  readonly lens?: LensSink
 }

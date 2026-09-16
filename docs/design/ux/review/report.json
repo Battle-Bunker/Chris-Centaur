@@ -1,0 +1,302 @@
+{
+  "game": "lens-walk",
+  "turns": 12,
+  "deaths": [
+    {
+      "turn": 11,
+      "gone": [
+        "green-B"
+      ]
+    }
+  ],
+  "drill": [
+    {
+      "step": "a game with a known death was recorded",
+      "ok": true,
+      "saw": {
+        "turns": 12,
+        "deaths": [
+          "11:green-B"
+        ]
+      }
+    },
+    {
+      "step": "/history offers a review on every row",
+      "ok": true,
+      "saw": {
+        "rows": 2
+      }
+    },
+    {
+      "step": "the strip has one cell per stored turn",
+      "ok": true,
+      "saw": {
+        "cells": 12,
+        "turns": 12
+      }
+    },
+    {
+      "step": "the strip marks a death on exactly the turns a unit disappeared",
+      "ok": true,
+      "saw": {
+        "want": [
+          11
+        ],
+        "saw": [
+          11
+        ]
+      }
+    },
+    {
+      "step": "the headline says where the game was decided",
+      "ok": true,
+      "saw": {
+        "verdict": "·\nUNFINISHED\n· 12 TURNS · FINAL LEAD +5 · DECIDED AT TURN 8 (THE BIGGEST SINGLE SWING IN THE LEAD)"
+      }
+    },
+    {
+      "step": "the strip says how much of the game it read in full",
+      "ok": true,
+      "saw": {
+        "read": "12 of 12 turns read in full"
+      }
+    },
+    {
+      "step": "j walks to the next moment and k walks back",
+      "ok": true,
+      "saw": {
+        "before": 3,
+        "afterJ": 4,
+        "afterK": 3
+      }
+    },
+    {
+      "step": "l steps one turn, moment or not",
+      "ok": true,
+      "saw": {
+        "before": "turn 8 of 12 h / l",
+        "after": "turn 9 of 12 h / l"
+      }
+    },
+    {
+      "step": "the why panel names the chosen moveset",
+      "ok": true,
+      "saw": {
+        "key": "sweep"
+      }
+    },
+    {
+      "step": "and its top member, by name",
+      "ok": true,
+      "saw": {
+        "members": [
+          "red-A",
+          "red-C",
+          "red-A",
+          "red-B"
+        ]
+      }
+    },
+    {
+      "step": "and the bracket it was priced at, with the channel that adjudicates",
+      "ok": true,
+      "saw": {}
+    },
+    {
+      "step": "and the joint residual, drawn whatever it is",
+      "ok": true,
+      "saw": {}
+    },
+    {
+      "step": "and what the leader is betting against, as a foil or as its absence",
+      "ok": true,
+      "saw": {}
+    },
+    {
+      "step": "b bookmarks the turn under the cursor",
+      "ok": true,
+      "saw": {
+        "marks": [
+          "★ turn 7 · red-B"
+        ]
+      }
+    },
+    {
+      "step": "the pasted link reopens the review at the same turn",
+      "ok": true,
+      "saw": {
+        "want": "7",
+        "turn": "turn 7 of 12 h / l",
+        "link": "http://127.0.0.1:5476/history#game=lens-walk&turn=7&focus=red-B"
+      }
+    },
+    {
+      "step": "and the bookmark is still there after the reload",
+      "ok": true,
+      "saw": {
+        "before": [
+          "★ turn 7 · red-B"
+        ],
+        "after": [
+          "★ turn 7 · red-B"
+        ]
+      }
+    }
+  ],
+  "shots": [
+    {
+      "name": "r1-strip",
+      "note": "the moments strip and its legend — shape first, brightness for weight",
+      "bytes": 8990,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r2-index",
+      "note": "the index of moments, ranked and cut",
+      "bytes": 74127,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r3-why",
+      "note": "the why panel at a moment — the chosen moveset, its number, the breakdown, the runner-up, the foil and the threats",
+      "bytes": 153613,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r4-review",
+      "note": "the whole review: strip, index and the turn",
+      "bytes": 255024,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r5-mark",
+      "note": "the index and the bookmark it just took",
+      "bytes": 71906,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r6-link",
+      "note": "the turn as a copyable link, beside the two ways into the lens",
+      "bytes": 5645,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    },
+    {
+      "name": "r7-share",
+      "note": "the export: this turn, as a link anyone can paste",
+      "bytes": 896,
+      "overflowPx": 0,
+      "rail": null,
+      "stage": null,
+      "controls": null,
+      "keys": null,
+      "lane": null,
+      "banner": null,
+      "lock": null,
+      "state": {
+        "viewMode": null,
+        "lensTurn": null,
+        "lensSeq": null,
+        "lensAtHead": null,
+        "events": null,
+        "selected": null,
+        "finished": null
+      }
+    }
+  ]
+}
