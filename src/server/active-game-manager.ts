@@ -64,6 +64,16 @@ import type {
 import { ActivityController, ManagedTimerHandle, transientTimeout } from './activity-controller';
 import { GAME_PROGRESS_WINDOW_MS } from '../shared/idle-policy';
 import { colorForArrivalIndex } from '../shared/player-palette';
+import {
+  EMPTY_DIRECTORY,
+  assignNames,
+  mergeDirectories,
+  namesFromBoard,
+  unitLetter,
+  unitName,
+  type NameDirectory,
+  type OperatorIdentity,
+} from '../logic/naming';
 
 /**
  * ONE CANDIDATE, AS THE ENGINE ENUMERATED IT.
@@ -385,6 +395,12 @@ export interface StagedMoveView {
   color: string;
   source: string;
   fatal: boolean;
+  /** THE UNIT'S HUMAN NAME, from the naming authority. A staged record is read
+   *  aloud by the stage line and by the alert bar, and a unit key is not a
+   *  name (17-NAMING §5). Stamped by `getCommandStateForGame`. */
+  name?: string;
+  /** Its letter, for the compact readings. */
+  letter?: string;
   // Pawn rotation: the NEW orientation (wire convention, dy grows downward) when
   // the requested move is a side-square rotation; null/absent otherwise. The
   // client renders a rotation symbol on the pawn's cell instead of a
@@ -991,9 +1007,19 @@ export class ActiveGameManager {
 
   /** Learn every unit on a snapshot. First write wins: a name is never regressed. */
   private rememberSnakes(game: ActiveGame, snakes: ReadonlyArray<Snake>): void {
+    // NAMED THROUGH THE AUTHORITY. A board that arrives without letters (or
+    // with a name the game server fell back to the player id for) is still
+    // remembered under a human name, because this is the record the review and
+    // every dead-unit reading is taken from.
+    const dir = namesFromBoard({ ...(game.boardState ?? ({} as BoardSnapshot)), board: { ...(game.boardState?.board ?? ({} as BoardSnapshot['board'])), snakes: [...snakes] } });
     for (const snake of snakes) {
       if (!game.snakes.has(snake.id)) {
-        game.snakes.set(snake.id, { id: snake.id, name: snake.name, letter: snake.letter || '' });
+        const named = dir.units[snake.id];
+        game.snakes.set(snake.id, {
+          id: snake.id,
+          name: named ? named.name : snake.name,
+          letter: named ? named.letter : snake.letter || '',
+        });
       }
     }
   }
@@ -2399,7 +2425,7 @@ export class ActiveGameManager {
     // disagree. `logStoredEvent` is what drops it on the way to Postgres.
     this.emitTurnEvent(gameId, {
       kind: 'board.arrived',
-      actor: { kind: 'server', id: null, name: null, color: null },
+      actor: { kind: 'server', id: null, name: 'the server', color: null },
       payload: {
         boardHash,
         deadlineMs: game.gameTimeout,
@@ -2407,9 +2433,62 @@ export class ActiveGameManager {
         roster,
         alive: roster,
         settlement: game.boardState,
+        // EVERY NAME THE TURN HAS, written ONCE, here, by the naming
+        // authority. The anchor is the one event a fold cannot do without, so
+        // a name put here reaches every consumer — live, late-joining and
+        // replayed — and no consumer has to derive one (17-NAMING §5).
+        names: this.namesFor(gameId),
       },
     });
     return writer;
+  }
+
+  /**
+   * THE GAME'S NAMES — teams, units, operators and the game's own title — from
+   * the one naming authority (`src/logic/naming.ts`).
+   *
+   * Built from the board this game is on (every unit the game server has shown
+   * us, with whatever letter it supplied and a deterministically assigned one
+   * where it supplied none), widened by the units this manager still remembers
+   * after the board dropped them, and by the operators holding them.
+   */
+  public namesFor(gameId: string): NameDirectory {
+    const game = this.games.get(gameId);
+    if (!game) return EMPTY_DIRECTORY;
+    const operators: Record<string, OperatorIdentity> = {};
+    for (const user of game.connectedUsers.values()) {
+      operators[user.userId] = { id: user.userId, name: user.name, color: user.color ?? null };
+    }
+    for (const enrolment of game.playerNames.values()) {
+      if (operators[enrolment.userId]) continue;
+      operators[enrolment.userId] = {
+        id: enrolment.userId,
+        name: enrolment.name,
+        color: enrolment.color ?? null,
+      };
+    }
+    const fromBoard = namesFromBoard(game.boardState, {
+      teams: game.ourTeam ? [game.ourTeam] : [],
+      operators,
+    });
+    // THE DEAD KEEP THEIR NAMES. `game.snakes` is every unit this manager has
+    // ever seen; a unit the board has dropped is exactly the one an operator
+    // is reading about in the review, so it must still be nameable.
+    const remembered = [...game.snakes.values()].filter((s) => !fromBoard.units[s.id]);
+    if (remembered.length === 0) return fromBoard;
+    return mergeDirectories(
+      assignNames(
+        Object.values(fromBoard.teams).map((t) => ({ id: t.id, name: t.name, color: t.color })),
+        remembered.map((s) => ({ unit: s.id, teamId: null, letter: s.letter, name: s.name })),
+        { title: fromBoard.title }
+      ),
+      fromBoard
+    );
+  }
+
+  /** The game's own TITLE — "Chris vs Charlie", never its document id. */
+  public titleFor(gameId: string): string {
+    return this.namesFor(gameId).title;
   }
 
   /** The one place an event enters the log. Stamps `seq`, hands the row to the
@@ -3815,6 +3894,19 @@ export class ActiveGameManager {
         delete stagedMoves[snakeId];
       }
       operators[snakeId] = cs.intentBy;
+    }
+
+    // NAMES TRAVEL WITH THE RECORD. The alert bar and the stage line read a
+    // staged move and say something about it out loud; neither should have to
+    // resolve a key, and on a real game neither could (17-NAMING §2).
+    const names = this.namesFor(gameId);
+    for (const snakeId of Object.keys(stagedMoves)) {
+      const view = stagedMoves[snakeId] as StagedMoveView;
+      stagedMoves[snakeId] = {
+        ...view,
+        name: unitName(names, snakeId),
+        letter: unitLetter(names, snakeId),
+      };
     }
 
     return {

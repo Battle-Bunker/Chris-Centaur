@@ -87,6 +87,8 @@
    *  raw sentinel at a reviewer is not naming it — the same rule and the same
    *  words as `src/lens/view/index.ts`'s `namedUnit`. */
   function namedUnit(key) {
+    var view = global.LensView;
+    if (view && view.unitName) return view.unitName(state && state.names, key);
     return String(key) === '#-1' ? 'the evaluator residue' : String(key);
   }
 
@@ -128,6 +130,20 @@
         return team !== null && snake.teamID === team;
       },
     };
+  }
+
+  /** The game's names, off the richest board in the timeline — the one with
+   *  the most units, because a late board has already dropped the dead. */
+  function namesForTurns(rows) {
+    var view = global.LensView;
+    if (!view || !view.namesFromBoard) return null;
+    var best = null;
+    var most = -1;
+    (rows || []).forEach(function (row) {
+      var n = ((row && row.game_state && row.game_state.board && row.game_state.board.snakes) || []).length;
+      if (n > most) { most = n; best = row.game_state; }
+    });
+    return view.namesFromBoard(best || null);
   }
 
   function boardOf(row) {
@@ -238,14 +254,14 @@
       var theirs = gone.filter(function (id) { return !side.isOurs(before[id]); });
       if (ours.length > 0) {
         out.push(moment(turns[i - 1].turn, 'death-ours',
-          ours.length === 1 ? 'we lost ' + ours[0] : 'we lost ' + ours.length + ' units',
-          ours.map(function (id) { return id + ' at ' + fmtCell(headCell(before[id], boardOf(turns[i - 1])), boardOf(turns[i - 1])); }).join(' · '),
+          ours.length === 1 ? 'we lost ' + namedUnit(ours[0]) : 'we lost ' + ours.length + ' units',
+          ours.map(function (id) { return namedUnit(id) + ' at ' + fmtCell(headCell(before[id], boardOf(turns[i - 1])), boardOf(turns[i - 1])); }).join(' · '),
           ours[0], ours.length));
       }
       if (theirs.length > 0) {
         out.push(moment(turns[i - 1].turn, 'death-theirs',
-          theirs.length === 1 ? theirs[0] + ' died' : theirs.length + ' rivals died',
-          theirs.join(' · '), null, theirs.length));
+          theirs.length === 1 ? namedUnit(theirs[0]) + ' died' : theirs.length + ' rivals died',
+          theirs.map(namedUnit).join(' · '), null, theirs.length));
       }
     }
 
@@ -678,6 +694,9 @@
       loading: true,
     };
 
+    // THE TITLE FIRST. `#rvId` is the address line; it gets the name as soon
+    // as the boards land (see `namesForTurns`), and the id stays beside it
+    // because a review is a thing you cite.
     el.id.textContent = group.game_id;
     el.verdict.textContent = 'reading the game…';
     el.read.textContent = '';
@@ -732,6 +751,10 @@
     }))).then(function (answers) {
       var timeline = answers[0] || {};
       state.turns = (timeline.turns || []).slice().sort(function (a, b) { return a.turn - b.turn; });
+      // EVERY NAME THIS REVIEW CAN SHOW, from the boards it already fetched,
+      // through the lens's own naming authority (17-NAMING §5). `namedUnit`
+      // reads this; nothing here derives a name of its own.
+      state.names = namesForTurns(state.turns);
       state.side = ourSideOf(state.group, state.turns);
       state.leads = leadSeries(state.turns, state.side);
 
@@ -1183,7 +1206,7 @@
       var stg = staged[m.unit];
       var agree = res == null || num(res) === num(m.to);
       return '<tr' + (state.focus === m.unit ? ' class="rv-focus"' : '') + '>' +
-        '<td><button type="button" class="rv-unit" data-focus="' + esc(m.unit) + '">' + esc(m.unit) + '</button></td>' +
+        '<td><button type="button" class="rv-unit" data-focus="' + esc(m.unit) + '">' + esc(namedUnit(m.unit)) + '</button></td>' +
         '<td>' + fmtCell(m.to, board) + '</td>' +
         '<td>' + ((m.path || []).length ? (m.path.length - 1) + ' step' + (m.path.length === 2 ? '' : 's') : '—') + '</td>' +
         '<td>' + (stg == null ? '—' : fmtCell(stg, board)) + '</td>' +
@@ -1267,7 +1290,7 @@
 
     var members = (payload.marginals || []).map(function (m) {
       return '<tr' + (state.focus === m.unit ? ' class="rv-focus"' : '') + '>' +
-        '<td><button type="button" class="rv-unit" data-focus="' + esc(m.unit) + '">' + esc(m.unit) + '</button></td>' +
+        '<td><button type="button" class="rv-unit" data-focus="' + esc(m.unit) + '">' + esc(namedUnit(m.unit)) + '</button></td>' +
         '<td>' + fmtNum(m.delta && m.delta.lo) + ' … ' + fmtNum(m.delta && m.delta.hi) + '</td>' +
         '<td>vs ' + fmtCell(m.against && m.against.to, board) + '</td>' +
         '<td>' + (m.features || []).slice(0, 3).map(function (f) {
@@ -1321,7 +1344,7 @@
     (a.moves || []).forEach(function (m) { mine[m.unit] = m.to; });
     var rows = (b.moves || []).filter(function (m) { return num(mine[m.unit]) !== num(m.to); })
       .map(function (m) {
-        return '<tr><td>' + esc(m.unit) + '</td><td>' + fmtCell(mine[m.unit], board) +
+        return '<tr><td>' + esc(namedUnit(m.unit)) + '</td><td>' + fmtCell(mine[m.unit], board) +
           '</td><td>→ ' + fmtCell(m.to, board) + '</td></tr>';
       }).join('');
     return '<table class="rv-table"><thead><tr><th>unit</th><th>played</th><th>would have</th></tr></thead>' +
@@ -1344,7 +1367,7 @@
       return '<table class="rv-table"><thead><tr><th>ply</th><th>their reply</th><th>bracket</th></tr></thead><tbody>' +
         theirs.map(function (p) {
           return '<tr><td>' + esc(p.ply) + '</td><td>' +
-            (p.moves || []).map(function (m) { return esc(m.unit) + ' → ' + fmtCell(m.to, board); }).join(' · ') +
+            (p.moves || []).map(function (m) { return esc(namedUnit(m.unit)) + ' → ' + fmtCell(m.to, board); }).join(' · ') +
             '</td><td>' + fmtNum(p.lo) + ' … ' + fmtNum(p.hi) + '</td></tr>';
         }).join('') + '</tbody></table>';
     }
@@ -1373,13 +1396,13 @@
       var p = e.payload || {};
       var rows = (p.rows || []).slice(0, 4);
       return '<p class="rv-note">cluster ' + esc(p.cluster) + ' · locks ' +
-        ((p.locks || []).map(function (l) { return esc(l.unit) + '→' + fmtCell(l.to, board); }).join(', ') || 'none') +
+        ((p.locks || []).map(function (l) { return esc(namedUnit(l.unit)) + '→' + fmtCell(l.to, board); }).join(', ') || 'none') +
         ' · source <code>' + esc(p.source) + '</code> · ' + (p.final ? 'closed' : 'open') +
         (p.truncated ? ' · truncated (' + esc(p.truncated.why) + ', ' + esc(p.truncated.notRanked) + ' unranked)' : '') +
         '</p><table class="rv-table"><thead><tr><th>#</th><th>assignment</th><th>bracket</th><th>unless</th></tr></thead><tbody>' +
         rows.map(function (r) {
           return '<tr><td>' + esc(r.rank) + '</td><td>' +
-            (r.moves || []).map(function (m) { return esc(m.unit) + '→' + fmtCell(m.to, board); }).join(' · ') +
+            (r.moves || []).map(function (m) { return esc(namedUnit(m.unit)) + '→' + fmtCell(m.to, board); }).join(' · ') +
             '</td><td>' + (r.unpriced ? '—' : fmtNum(r.lo) + ' … ' + fmtNum(r.hi)) + '</td><td>' +
             esc(clauseOf(r.dominance)) + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -1391,7 +1414,7 @@
     events.forEach(function (e) { if (e.kind === 'turn.resolved') res = e; });
     if (res === null) return '';
     return 'What resolved: ' + ((res.payload.moves || []).map(function (m) {
-      return esc(m.unit) + ' → ' + fmtCell(m.to, board);
+      return esc(namedUnit(m.unit)) + ' → ' + fmtCell(m.to, board);
     }).join(' · ') || 'nothing');
   }
 

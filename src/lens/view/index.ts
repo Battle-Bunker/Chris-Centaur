@@ -55,6 +55,26 @@ import type {
   UnitKey,
 } from '../types';
 import type { BoardSnapshot } from '../../types/battlesnake';
+import {
+  EMPTY_DIRECTORY,
+  featureLabel,
+  operatorName,
+  unitLetter,
+  unitName,
+  type NameDirectory,
+} from '../../logic/naming';
+
+export {
+  EMPTY_DIRECTORY,
+  assignNames,
+  featureLabel,
+  gameTitleOf,
+  namesFromBoard,
+  operatorName,
+  unitLetter,
+  unitName,
+} from '../../logic/naming';
+export type { NameDirectory, UnitIdentity } from '../../logic/naming';
 
 export * from './cursor';
 
@@ -447,9 +467,14 @@ export function emptyStateLine(frame: LensFrame, cursor: LensCursor = initialCur
  * null and Rule E's sentence had no author at all.
  */
 function authorOf(frame: LensFrame, unit: UnitKey, declared: OperatorId | null): string | null {
-  if (declared !== null) return declared;
   const row = frame.units.find((u) => u.unit === unit);
-  return row?.operator ?? row?.owner ?? null;
+  const id = declared ?? row?.owner ?? null;
+  const named = row?.operator ?? null;
+  if (id === null && named === null) return null;
+  // AN OPERATOR ID IS NOT AN OPERATOR'S NAME. `declared` is an `OperatorId`
+  // and this sentence is prose — "by <who>" — so it is resolved through the
+  // directory before it is read out loud (17-NAMING §5).
+  return operatorName(frame.names, id, named);
 }
 
 /**
@@ -478,7 +503,14 @@ function boardOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | null
     for (const member of cluster.members) ops.push(call('cluster.chip', member, glyph, cluster.id));
     for (const bound of cluster.boundedBy) {
       ops.push(
-        call('fixed.chip', bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+        call(
+          'fixed.chip',
+          bound.unit,
+          bound.why,
+          authorOf(frame, bound.unit, bound.by),
+          bound.to,
+          unitName(frame.names, bound.unit)
+        )
       );
     }
   });
@@ -665,8 +697,11 @@ function movesetOps(
         // omitted: a row with no clause and a row that leads on the proved
         // floor are two different states and only "always draw it" tells them
         // apart (Law A, applied to the reduction).
-        dominanceClause(row.dominance),
-        row.moves.map((m) => `${m.unit}→${m.to}`),
+        dominanceClause(row.dominance, frame.names),
+        // THE ASSIGNMENT, IN NAMES. The rail diffs these tokens by splitting
+        // on the arrow, so the left half is read aloud — it is prose, and a
+        // twenty-character key is not.
+        row.moves.map((m) => `${unitName(frame.names, m.unit)}→${m.to}`),
         row.complement,
         row.key === selected?.key,
         row.staged,
@@ -688,7 +723,7 @@ function movesetOps(
     ops.push(
       call(
         'panel.movesets.fixed',
-        bound.unit,
+        unitName(frame.names, bound.unit),
         bound.to,
         bound.why,
         authorOf(frame, bound.unit, bound.by)
@@ -774,9 +809,13 @@ function noFoilReason(list: MovesetList): string {
  */
 const RESIDUE_KEY = '#-1';
 
-const namedUnit = (key: string): string => (key === RESIDUE_KEY ? 'the evaluator residue' : key);
+const namedUnit = (key: string, names?: NameDirectory): string =>
+  key === RESIDUE_KEY ? 'the evaluator residue' : unitName(names ?? EMPTY_DIRECTORY, key);
 
-export function dominanceClause(dominance: DominanceCondition | null): string {
+export function dominanceClause(
+  dominance: DominanceCondition | null,
+  names?: NameDirectory
+): string {
   if (dominance === null) return 'unsealed — the barrier has not run';
   switch (dominance.kind) {
     case 'leader':
@@ -793,7 +832,7 @@ export function dominanceClause(dominance: DominanceCondition | null): string {
       // evaluator's own residue rather than any held unit, and it says so.
       return dominance.onUnits.length === 0
         ? `wins on nothing named — ${round1(dominance.atStake)} at stake`
-        : `${dominance.onUnits.map(namedUnit).join(', ')} resolve against us · ` +
+        : `${dominance.onUnits.map((u) => namedUnit(u, names)).join(', ')} resolve against us · ` +
             `${round1(dominance.atStake)} at stake`;
     case 'dominated':
       return `cannot win — dominated by ${round1(dominance.by)}`;
@@ -834,7 +873,11 @@ function breakdownOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | 
       // An evaluator that does not explain is NOT an error state. The panel
       // says so in words rather than drawing thirty zero rows, which is the
       // lesson the deleted per-unit table paid for.
-      breakdown.aggregate === null ? 'this evaluator does not explain' : breakdown.aggregate.profile
+      // THE EVALUATOR'S PROFILE, IN WORDS. `lobster-territory` is a registry
+      // key; the panel head is a sentence a reader says out loud (17-NAMING §3).
+      breakdown.aggregate === null
+        ? 'this evaluator does not explain'
+        : featureLabel(breakdown.aggregate.profile)
     ),
   ];
 
@@ -842,12 +885,13 @@ function breakdownOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | 
     ops.push(
       call(
         'panel.breakdown.member',
-        marginal.unit,
+        unitName(frame.names, marginal.unit),
         marginal.delta,
         marginal.against.to,
+        // THE FEATURE'S WORDS, not its ledger key (17-NAMING §3).
         marginal.unit === cursor.drill
-          ? marginal.features.map((f) => [f.key, f.delta])
-          : marginal.features.slice(0, 2).map((f) => [f.key, f.delta])
+          ? marginal.features.map((f) => [featureLabel(f.key), f.delta])
+          : marginal.features.slice(0, 2).map((f) => [featureLabel(f.key), f.delta])
       )
     );
   }
@@ -860,7 +904,7 @@ function breakdownOps(frame: LensFrame, cursor: LensCursor, selected: Moveset | 
     call(
       'panel.breakdown.residual',
       breakdown.residual.total,
-      breakdown.residual.features.map((f) => [f.key, f.delta]),
+      breakdown.residual.features.map((f) => [featureLabel(f.key), f.delta]),
       '[why?]'
     )
   );
@@ -901,7 +945,10 @@ const LANE_OF: Readonly<Record<TurnEventKind, string>> = {
  * unless the lane is expanded: they are numerous, low-grade, and they fund
  * compute, so they are logged and not thrown in the operator's face.
  */
-export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript {
+export function renderTimeline(
+  events: ReadonlyArray<TurnEvent>,
+  names: NameDirectory = EMPTY_DIRECTORY
+): DrawTranscript {
   const ops: DrawCall[] = [call('timeline', events.length)];
   for (const event of events) {
     // TWO SHAPES THE ATTENTION CHANNEL CAN ARRIVE IN, and both are hollow.
@@ -926,8 +973,11 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
         // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
         // and the operator — and the tick carried the kind and the time and
         // nothing else, because no `pin` / `unpin` row existed to carry a name.
-        event.actor.name,
-        event.unit
+        operatorName(names, event.actor.id, event.actor.name),
+        event.unit,
+        // THE UNIT'S NAME, beside its key: the key addresses, the name is what
+        // the tick's title says out loud.
+        event.unit === null ? null : unitName(names, event.unit)
       )
     );
   }
@@ -951,6 +1001,7 @@ export function renderTimeline(events: ReadonlyArray<TurnEvent>): DrawTranscript
  */
 export function stageSummary(frame: LensFrame): ReadonlyArray<{
   unit: UnitKey;
+  name: string;
   letter: string;
   to: number | null;
   source: 'staged' | 'plan' | 'none';
@@ -959,6 +1010,7 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
 }> {
   const out: Array<{
     unit: UnitKey;
+    name: string;
     letter: string;
     to: number | null;
     source: 'staged' | 'plan' | 'none';
@@ -1001,7 +1053,12 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
           )?.to ?? null);
     out.push({
       unit,
-      letter: row?.letter || unit,
+      // THE NAME, NOT THE KEY. This line printed `row?.letter || unit` — and
+      // on a real game, where a unit key is a twenty-character document id
+      // with a `#n` slot, that fallback WAS the defect (17-NAMING §2). The
+      // frame carries the name; there is nothing to fall back to.
+      name: unitName(frame.names, unit),
+      letter: row?.letter || unitLetter(frame.names, unit),
       to: staged !== null ? staged : planned,
       source: staged !== null ? 'staged' : planned !== null ? 'plan' : 'none',
       fixity,
@@ -1036,7 +1093,7 @@ export function stageSummary(frame: LensFrame): ReadonlyArray<{
   // its current fixity, so nothing the operator does can reorder it.
   return out
     .slice()
-    .sort((a, b) => (a.letter === b.letter ? (a.unit < b.unit ? -1 : 1) : a.letter < b.letter ? -1 : 1));
+    .sort((a, b) => (a.letter === b.letter ? (a.name < b.name ? -1 : a.name > b.name ? 1 : a.unit < b.unit ? -1 : 1) : a.letter < b.letter ? -1 : 1));
 }
 
 export function renderFrame(
@@ -1099,7 +1156,10 @@ export function renderFrame(
         why ??
           (home === null
             ? null
-            : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`)
+            : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`),
+        // THE UNIT'S NAME, appended so every existing positional reader
+        // keeps its index. The focus line prints THIS.
+        unitName(frame.names, cursor.unit)
       )
     );
   }

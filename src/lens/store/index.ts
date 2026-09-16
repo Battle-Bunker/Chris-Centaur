@@ -79,6 +79,12 @@ import type {
   WaypointView,
   RankTruncation,
 } from '../types';
+import {
+  namesFromBoard,
+  unitLetter,
+  unitName,
+  type NameDirectory,
+} from '../../logic/naming';
 
 // ===========================================================================
 // The fold
@@ -189,7 +195,8 @@ function unitRowsOf(
   board: BoardSnapshot,
   roster: ReadonlyArray<UnitKey>,
   fixities: ReadonlyMap<UnitKey, UnitFixity>,
-  dead: ReadonlySet<UnitKey>
+  dead: ReadonlySet<UnitKey>,
+  names: NameDirectory
 ): ReadonlyArray<UnitRow> {
   const snakes: ReadonlyArray<Snake> = board.board.snakes ?? [];
   const keys = snakes.length > 0 ? snakes.map((s) => s.id) : [...roster];
@@ -199,7 +206,12 @@ function unitRowsOf(
     return {
       unit,
       kind: snake?.unitType ?? 'snake',
-      letter: snake?.letter ?? '',
+      // NAMED FROM THE DIRECTORY, NOT FROM THE BOARD. The board is dropped on
+      // the way to storage and is 0×0 in replay; the directory rides on the
+      // anchor and survives, so the same unit reads the same way in both
+      // (Law C, and 17-NAMING §2 on where the name used to be lost).
+      name: unitName(names, unit),
+      letter: unitLetter(names, unit) || snake?.letter || '',
       weight: snake?.length ?? 0,
       health: snake?.health ?? 0,
       orientation: snake?.orientation ?? { dx: 0, dy: 0 },
@@ -298,6 +310,10 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
   const anchor = store.anchor;
   const board = boardOf(anchor);
   const arrival = payloadOf<BoardArrivedPayload>(anchor);
+  // THE TURN'S NAMES. Written by the game manager onto the anchor; derived
+  // from the settlement's own units only for anchors written before the field
+  // existed. Either way this is the ONLY place the frame gets a name from.
+  const names: NameDirectory = arrival?.names ?? namesFromBoard(board);
 
   let partition: ReadonlyArray<ClusterView> = [];
   const movesets: Record<string, ReadonlyArray<Moveset>> = {};
@@ -445,6 +461,18 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     }
   }
 
+  // EVERY STAGED VIEW CARRIES ITS UNIT'S NAME. The stage line is the sentence
+  // read fastest and doubted least, and it used to print whatever key the
+  // payload carried; the name travels with the view so no consumer resolves
+  // one (17-NAMING §5).
+  for (const key of Object.keys(staged)) {
+    staged[key] = {
+      ...(staged[key] as StagedMoveView),
+      name: unitName(names, key),
+      letter: unitLetter(names, key),
+    };
+  }
+
   const at: LensAt = {
     gameId: anchor.gameId,
     turn: store.turn,
@@ -462,7 +490,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
   return {
     at,
     board,
-    units: unitRowsOf(board, arrival?.roster ?? [], fixities, dead),
+    units: unitRowsOf(board, arrival?.roster ?? [], fixities, dead, names),
     partition,
     candidates: candidatesOf(priced),
     movesets,
@@ -475,6 +503,7 @@ export function frameAt(store: FrameStore, seq: number): LensFrame {
     advice,
     events,
     provenance: provenanceOf(input, emissionSeq, quantaSpent),
+    names,
   };
 }
 
@@ -624,7 +653,7 @@ export interface IngestContext {
   readonly botActor?: Actor;
 }
 
-const BOT: Actor = { kind: 'bot', id: null, name: 'lobster', color: null };
+const BOT: Actor = { kind: 'bot', id: null, name: 'the bot', color: null };
 
 /**
  * The kernel's `LensEvent`s, stamped with `seq` by the one writer and
@@ -838,7 +867,7 @@ export function storeFromRows(
         atWall: 0,
         atWorkMs: null,
         kind: 'board.arrived',
-        actor: { kind: 'server', id: null, name: null, color: null },
+        actor: { kind: 'server', id: null, name: 'the server', color: null },
         unit: null,
         causedBy: null,
         answers: null,

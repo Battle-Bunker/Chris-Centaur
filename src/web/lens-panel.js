@@ -195,9 +195,12 @@ const LensPanel = (() => {
   function focusHTML(transcript) {
     const call = firstOf(transcript, 'panel.focus');
     if (!call) return '<div class="lens-empty">No unit focused — click one, or Tab.</div>';
-    const [unit, kind, letter, health, weight, fixity, clusterId, members, free] = ARGS(call);
+    // THE NAME, never the key. The unit key is the FIRST argument and is
+    // deliberately skipped: it addresses the frame, it is not what the line
+    // says (17-NAMING §5).
+    const [, kind, letter, health, weight, fixity, clusterId, members, free, name] = ARGS(call);
     return (
-      `<div class="lens-focus-line"><b>${escapeHTML(letter || unit)}</b> ` +
+      `<div class="lens-focus-line"><b>${escapeHTML(name || letter)}</b> ` +
       `${escapeHTML(kind || '')} · hp ${escapeHTML(health)} · wt ${escapeHTML(weight)}` +
       `<span class="lens-cluster">${clusterId == null ? 'unclustered' : `cluster ${escapeHTML(clusterId)}(${escapeHTML(members)})`}</span></div>` +
       `<div class="lens-sub">${escapeHTML(fixity || 'free')}${free ? ` · ${escapeHTML(free)}` : ''}</div>`
@@ -642,7 +645,7 @@ const LensPanel = (() => {
     // move, and nothing at all for a confirmed staged move — which is the
     // common case and therefore the quiet one.
     const word = (row) => {
-      if (row.to == null) return `<span class="lens-unplanned">${escapeHTML(row.letter)} ◦ no plan</span>`;
+      if (row.to == null) return `<span class="lens-unplanned">${escapeHTML(row.name || row.letter)} ◦ no plan</span>`;
       const mark =
         row.state === 'committed'
           ? '»'
@@ -652,7 +655,7 @@ const LensPanel = (() => {
               ? '~'
               : '';
       return (
-        `<span class="lens-stage-move">${escapeHTML(row.letter)} →&nbsp;${escapeHTML(row.to)}${mark}` +
+        `<span class="lens-stage-move">${escapeHTML(row.name || row.letter)} →&nbsp;${escapeHTML(row.to)}${mark}` +
         `${row.fixity && row.fixity !== 'free' ? ` <span class="lens-stage-why">${escapeHTML(row.fixity)}</span>` : ''}` +
         `</span>`
       );
@@ -753,7 +756,7 @@ const LensPanel = (() => {
           // operator who did it. The tick used to say the kind and the time
           // and nothing else, because no `pin` / `unpin` row existed to carry
           // an operator — so "who did that" was unanswerable even on hover.
-          const what = `${e.kind}${e.unit ? `(${e.unit})` : ''}`;
+          const what = `${e.kind}${e.unit ? `(${e.unitName || e.unit})` : ''}`;
           const who = e.operator ? `${e.operator} ` : '';
           const at = e.atWorkMs == null ? '' : ` · +${e.atWorkMs}ms`;
           // THE OPERATOR LANE'S TICK IS THE OPERATOR'S MARK (11 §5.3). `●` was
@@ -986,27 +989,14 @@ const LensPanel = (() => {
     );
   }
 
-  // ONE NAMING BOUNDARY. Unit keys on the wire are `<playerId>#<n>` — twenty
-  // opaque characters and a slot — and the producers above print them raw.
-  // The page knows the human names (the roster's team name and letter) and
-  // hands a resolver in through `setNames`; every HTML producer this module
-  // exports passes its TEXT through `humanise`, so a key is never shown where
-  // a name is known. Only text between tags is touched: `data-unit="…"` and
-  // every other attribute keeps the key, because handlers look units up by it.
-  let nameOf = null;
-  // A team's FIRST unit is keyed by the bare player id; the rest carry `#n`.
-  // Both shapes are candidates; the resolver decides — an unknown token is
-  // left exactly as it was.
-  const UNIT_KEY = /\b[A-Za-z0-9_-]{16,}(?:#\d+)?\b/g;
-  function setNames(fn) { nameOf = typeof fn === 'function' ? fn : null; }
-  function humanise(html) {
-    if (!nameOf || typeof html !== 'string') return html;
-    return html.replace(/>([^<]*[A-Za-z0-9_-]{16,}[^<]*)</g, (m, text) =>
-      '>' + text.replace(UNIT_KEY, (key) => {
-        const n = nameOf(key);
-        return typeof n === 'string' && n ? escapeHTML(n) : key;
-      }) + '<');
-  }
+  // NO NAMING BOUNDARY LIVES HERE. There used to be one: a regex that rewrote
+  // any 16+ character token in rendered TEXT through a resolver the page
+  // handed in (`setNames` / `humanise`). It worked on the harness — whose ids
+  // are short — and failed on every real game, because a safety net that hides
+  // a defect only hides it where you are looking. Names are now produced ON
+  // THE SERVER by `src/logic/naming.ts`, travel on the frame, and every
+  // producer below reads `.name`. `docs/design/ux/17-NAMING.md`.
+
   const api = {
     inkFromTranscript,
     railHTML,
@@ -1031,14 +1021,7 @@ const LensPanel = (() => {
     keyBinding,
     KEYMAP,
     escapeHTML,
-    setNames,
   };
-  for (const k of Object.keys(api)) {
-    if (k.endsWith('HTML') && k !== 'escapeHTML' && typeof api[k] === 'function') {
-      const f = api[k];
-      api[k] = (...a) => humanise(f(...a));
-    }
-  }
   return api;
 })();
 

@@ -2329,6 +2329,17 @@
       // its resolution.
       'board.arrived': 'anchor', 'turn.resolved': 'anchor',
     };
+    /** A unit's human name, off the frame the page is showing. TOTAL — the
+     *  lens's own `unitName` never returns a key. */
+    function lensNames() {
+      const frame = lensFrame();
+      return (frame && frame.names) || (window.LensView && window.LensView.EMPTY_DIRECTORY) || null;
+    }
+    function lensUnitName(unit) {
+      const view = window.LensView;
+      return view && view.unitName ? view.unitName(lensNames(), unit) : unit;
+    }
+
     function lensLaneRows() {
       return lensEvents.map((e) => ({
         lane: LENS_LANE_OF[e.kind] || 'operator',
@@ -2345,6 +2356,9 @@
         // ever be keyed on a display name. The mark (11 §5.3) prefers the id.
         operatorId: e.actor ? e.actor.id : null,
         unit: e.unit || null,
+        // THE UNIT'S NAME, off the frame's own directory — the key addresses,
+        // the name is what the tick says.
+        unitName: e.unit ? lensUnitName(e.unit) : null,
         // Hollow is the ATTENTION channel: `hover` on a selection, and
         // `tentative` on a pin — a look the search may speculate on, never a
         // determination. Both are numerous and low-grade, so both are hidden
@@ -2921,36 +2935,13 @@
       return out;
     }
 
-    // THE HUMAN NAME OF A UNIT KEY — the roster's own words: team name and
-    // letter ("Chris C"), from the last board that carried the unit, so the
-    // dead keep their names. The lens panel prints every key through this
-    // (`LensPanel.setNames`); a key nobody has seen yet prints as itself.
-    const _unnamedWarned = new Set();
-    function unitDisplayName(unitId) {
-      const rec = snakeLastSeen.get(unitId);
-      const snake = (rec && rec.snake) ||
-        ((currentGameState?.board?.snakes) || []).find((s) => s.id === unitId) || null;
-      if (!snake || !(snake.name || snake.letter)) {
-        // Say so ONCE per key, with what was seen — a raw key on the page is a
-        // defect report, and the next one should name its cause.
-        if (!_unnamedWarned.has(unitId)) {
-          _unnamedWarned.add(unitId);
-          console.warn('[lens] no human name for unit', unitId,
-            snake ? { name: snake.name, letter: snake.letter, teamName: snake.teamName, keys: Object.keys(snake) } : 'not on any board seen',
-            'known:', Array.from(snakeLastSeen.keys()));
-        }
-        return null;
-      }
-      const base = String(snake.name || '').trim();
-      const letter = String(snake.letter || '').trim();
-      // A ROSTER NAME MAY ALREADY CARRY ITS LETTER (the harness names units
-      // `red C`), and saying it twice — "red C C" — is worse than the key it
-      // replaced. The letter is appended only when the name does not end in it.
-      if (!letter) return base || null;
-      if (!base) return letter;
-      return base.split(/\s+/).pop() === letter ? base : `${base} ${letter}`;
-    }
-    if (window.LensPanel && LensPanel.setNames) LensPanel.setNames(unitDisplayName);
+    // NO CLIENT-SIDE NAME RESOLVER. `unitDisplayName` + `LensPanel.setNames`
+    // used to rewrite keys in rendered text here; it worked on the harness and
+    // failed on every real game. Names are produced on the server by
+    // `src/logic/naming.ts` and arrive on the frame — see
+    // `docs/design/ux/17-NAMING.md`. If a key ever reaches the screen again,
+    // the fix is at the source and `src/tests/lens-naming.test.ts` fails first.
+
 
     // The clash inspector: the game server's own account of what collided on
     // the inspected cell — reason, within-turn sub-step, participants and who
@@ -3474,7 +3465,25 @@
     //     locally.
     // ────────────────────────────────────────────────────────────────────────
 
-    document.getElementById('pageTitle').textContent = `Game ${gameId}`;
+    // THE GAME'S TITLE, not its document id. `gameTitle()` reads the name the
+    // server put on the turn's anchor and falls back to the board's own teams;
+    // the id stays in the URL and in `data-` attributes, where it addresses
+    // rather than informs (17-NAMING §5).
+    function gameTitle(suffix) {
+      const names = (typeof lensNames === 'function' && lensNames()) || null;
+      let title = names && names.title ? names.title : '';
+      if (!title || title === 'Game') {
+        const view = window.LensView;
+        const board = currentGameState;
+        if (view && view.namesFromBoard && board) title = view.namesFromBoard(board).title;
+      }
+      return (title || 'Game') + (suffix || '');
+    }
+    function renderPageTitle(suffix) {
+      const el = document.getElementById('pageTitle');
+      if (el) el.textContent = gameTitle(suffix);
+    }
+    renderPageTitle();
 
     // If the WebSocket never opens (or the game turns out to be finished, so the
     // server keeps no live state and pushes no board), don't sit on the
@@ -3591,6 +3600,7 @@
           }
           if (msg.boardState) {
             currentGameState = msg.boardState;
+            renderPageTitle();
             seedTimelineFromLive(currentGameState);
           }
           if (msg.controlledSnakes) {
@@ -3644,6 +3654,7 @@
             previousGameState = currentGameState;
           }
           currentGameState = msg.gameState;
+          renderPageTitle();
           seedTimelineFromLive(currentGameState);
           turnExpiryTime = msg.turnExpiryTime || null;
           if (msg.selections) {
@@ -6485,7 +6496,7 @@
         // unit died early.
         liveMaxTurn = recomputeHistoryMaxTurn();
 
-        document.getElementById('pageTitle').textContent = `Game ${gameId} (finished)`;
+        renderPageTitle(' (finished)');
         showGameUI();
         await enterHistoric(liveMaxTurn);
         // Background: keep force-refreshing the team's log tails until they

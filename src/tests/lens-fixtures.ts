@@ -38,6 +38,7 @@ import type {
   TurnEventKind,
   UnitKey,
 } from '../lens/types';
+import { namesFromBoard, unitLetter, unitName } from '../logic/naming';
 
 export const FIXTURE_GAME: GameId = 'lens-fixture';
 export const OURS = 'A';
@@ -400,13 +401,19 @@ export function lensFrame(over: Partial<LensFrame> = {}): LensFrame {
     moveset({ rank: 1, lo: 12.4, est: 12.9, hi: 15.3, units: [units[0] as UnitKey], staged: true }),
     moveset({ rank: 2, lo: 11.7, est: 12.0, hi: 15.8, units: [units[0] as UnitKey], tie: 1 }),
   ];
+  const board = snapshotOf(SINGLETONS);
+  // NAMED BY THE AUTHORITY, not by the fixture: a fixture frame that invents a
+  // letter is a fixture that cannot reproduce a naming defect (17-NAMING §4).
+  const names = namesFromBoard(board);
   return {
     at: lensAt(),
-    board: snapshotOf(SINGLETONS),
-    units: units.map((unit, i) => ({
+    board,
+    names,
+    units: units.map((unit) => ({
       unit,
       kind: 'snake',
-      letter: String.fromCharCode(65 + i),
+      name: unitName(names, unit),
+      letter: unitLetter(names, unit),
       weight: 1,
       health: 100,
       orientation: { dx: 0, dy: 1 },

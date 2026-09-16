@@ -30,11 +30,13 @@ var LensView = (() => {
   // src/lens/view/index.ts
   var index_exports = {};
   __export(index_exports, {
+    EMPTY_DIRECTORY: () => EMPTY_DIRECTORY,
     LensNoMovesetError: () => LensNoMovesetError,
     LensOffHeadError: () => LensOffHeadError,
     OPERATOR_MARKS: () => OPERATOR_MARKS,
     applyCursorEvent: () => applyCursorEvent,
     arrivalIndexForColor: () => arrivalIndexForColor,
+    assignNames: () => assignNames,
     boundingOf: () => boundingOf,
     bracketWidth: () => bracketWidth,
     checkDivergence: () => checkDivergence,
@@ -44,7 +46,9 @@ var LensView = (() => {
     depthCell: () => depthCell,
     dominanceClause: () => dominanceClause,
     emptyStateLine: () => emptyStateLine,
+    featureLabel: () => featureLabel,
     frameAtSeq: () => frameAtSeq,
+    gameTitleOf: () => gameTitleOf,
     incumbentCandidate: () => incumbentCandidate,
     initialCursor: () => initialCursor,
     makeLiveDecisionSource: () => makeLiveDecisionSource,
@@ -54,6 +58,8 @@ var LensView = (() => {
     modeBadge: () => modeBadge,
     movesetListFor: () => movesetListFor,
     movesetListKey: () => movesetListKey,
+    namesFromBoard: () => namesFromBoard,
+    operatorName: () => operatorName,
     planLock: () => planLock,
     provenanceBadge: () => provenanceBadge,
     rankOne: () => rankOne,
@@ -68,8 +74,167 @@ var LensView = (() => {
     rowsFor: () => rowsFor,
     stageSummary: () => stageSummary,
     stagedCellOf: () => stagedCellOf,
+    unitLetter: () => unitLetter,
+    unitName: () => unitName,
     widenAutoAcceptMs: () => widenAutoAcceptMs
   });
+
+  // src/logic/naming.ts
+  var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  var OPAQUE_KEY_CHARS = 16;
+  function letterAt(index) {
+    if (index < 0) return "?";
+    if (index < LETTERS.length) return LETTERS[index];
+    const first = Math.floor(index / LETTERS.length) - 1;
+    return `${LETTERS[first]}${LETTERS[index % LETTERS.length]}`;
+  }
+  function isOpaqueKey(text) {
+    if (!text) return false;
+    const base = String(text).split("#")[0];
+    return base.length >= OPAQUE_KEY_CHARS && /^[A-Za-z0-9_-]+$/.test(base);
+  }
+  function shortenKey(key) {
+    const text = String(key);
+    const [base, slot] = text.split("#");
+    const head = base.slice(0, 4);
+    return slot === void 0 ? `${head}…` : `${head}…#${slot}`;
+  }
+  function prettify(raw) {
+    if (!raw || !String(raw).trim()) return null;
+    if (isOpaqueKey(raw)) return null;
+    return String(raw).trim().split(/[_\s-]+/).filter(Boolean).map((w) => w.length > 1 && w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(" ");
+  }
+  var EMPTY_DIRECTORY = Object.freeze({
+    title: "Game",
+    teams: Object.freeze({}),
+    units: Object.freeze({}),
+    operators: Object.freeze({})
+  });
+  function teamNameOf(team) {
+    const given = team?.name ? String(team.name).trim() : "";
+    if (given && !isOpaqueKey(given)) return given;
+    const pretty = prettify(team?.id ?? null);
+    if (pretty) return pretty;
+    return team?.id ? `Team ${shortenKey(String(team.id))}` : "Team";
+  }
+  function unitNameOf(teamName, letter) {
+    const team = teamName.trim();
+    const l = letter.trim();
+    if (!team) return l ? `Unit ${l}` : "Unit";
+    if (!l) return team;
+    const words = team.split(/\s+/);
+    return words.length > 1 && words[words.length - 1] === l ? team : `${team} ${l}`;
+  }
+  function gameTitleOf(teams, turn) {
+    const names = teams.map((t) => t.name).filter(Boolean);
+    const base = names.length === 0 ? "Game" : names.join(" vs ");
+    return turn == null || turn < 0 ? base : `${base}, turn ${turn}`;
+  }
+  function assignNames(teams, units, options = {}) {
+    const teamOut = {};
+    const order = [];
+    const noteTeam = (input) => {
+      const held = teamOut[input.id];
+      if (held) return held;
+      const made = {
+        id: input.id,
+        name: teamNameOf(input),
+        color: input.color ?? null
+      };
+      teamOut[input.id] = made;
+      order.push(input.id);
+      return made;
+    };
+    for (const team of teams) noteTeam(team);
+    const teamIdFor = (u) => u.teamId ?? String(u.unit).split("#")[0];
+    const taken = /* @__PURE__ */ new Map();
+    const next = /* @__PURE__ */ new Map();
+    for (const u of units) {
+      const id = teamIdFor(u);
+      const given = u.letter ? String(u.letter).trim() : "";
+      if (!given) continue;
+      let set = taken.get(id);
+      if (!set) {
+        set = /* @__PURE__ */ new Set();
+        taken.set(id, set);
+      }
+      set.add(given);
+    }
+    const unitOut = {};
+    for (const u of units) {
+      const id = teamIdFor(u);
+      const team = teamOut[id] ?? noteTeam({ id });
+      let letter = u.letter ? String(u.letter).trim() : "";
+      if (!letter) {
+        const claimed = taken.get(id) ?? /* @__PURE__ */ new Set();
+        let i = next.get(id) ?? 0;
+        while (claimed.has(letterAt(i))) i++;
+        letter = letterAt(i);
+        claimed.add(letter);
+        taken.set(id, claimed);
+        next.set(id, i + 1);
+      }
+      const supplied = u.name ? String(u.name).trim() : "";
+      const name = supplied && !isOpaqueKey(supplied) ? supplied : unitNameOf(team.name, letter);
+      unitOut[u.unit] = {
+        unit: u.unit,
+        letter,
+        name,
+        teamId: id,
+        teamName: team.name,
+        color: team.color
+      };
+    }
+    const title = options.title && String(options.title).trim() && !isOpaqueKey(options.title) ? String(options.title).trim() : gameTitleOf(order.map((id) => teamOut[id]), options.turn ?? null);
+    return { title, teams: teamOut, units: unitOut, operators: {} };
+  }
+  function namesFromBoard(snapshot, options = {}) {
+    const snakes = snapshot?.board?.snakes ?? [];
+    const teams = [...options.teams ?? []];
+    const seen = new Set(teams.map((t) => t.id));
+    for (const s of snakes) {
+      const id = s.teamID ?? s.squad ?? String(s.id).split("#")[0];
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      teams.push({ id, name: s.teamName ?? null, color: s.customizations?.color ?? null });
+    }
+    const dir = assignNames(
+      teams,
+      snakes.map((s) => ({
+        unit: s.id,
+        teamId: s.teamID ?? s.squad ?? null,
+        letter: s.letter ?? null,
+        name: s.name ?? null
+      })),
+      { title: options.title ?? null, turn: snapshot?.turn ?? null }
+    );
+    return options.operators ? { ...dir, operators: options.operators } : dir;
+  }
+  function unitName(dir, unit) {
+    if (unit == null || unit === "") return "no unit";
+    if (String(unit) === "#-1") return "the evaluator residue";
+    const hit = dir?.units?.[unit];
+    if (hit) return hit.name;
+    return isOpaqueKey(unit) ? `Unit ${shortenKey(String(unit))}` : String(unit);
+  }
+  function unitLetter(dir, unit) {
+    if (unit == null) return "";
+    const hit = dir?.units?.[unit];
+    if (hit) return hit.letter;
+    return isOpaqueKey(unit) ? shortenKey(String(unit)) : String(unit);
+  }
+  function operatorName(dir, id, declared) {
+    const given = declared ? String(declared).trim() : "";
+    if (given && !isOpaqueKey(given)) return given;
+    if (id == null || id === "") return "the bot";
+    const hit = dir?.operators?.[id];
+    if (hit) return hit.name;
+    return isOpaqueKey(id) ? `Operator ${shortenKey(String(id))}` : String(id);
+  }
+  function featureLabel(key) {
+    if (key == null || key === "") return "";
+    return String(key).split(/[-_.]+/).filter(Boolean).join(" ");
+  }
 
   // src/lens/store/index.ts
   function emptyStore(anchor) {
@@ -102,7 +267,7 @@ var LensView = (() => {
       board: { width: 0, height: 0, food: [], hazards: [], snakes: [] }
     };
   }
-  function unitRowsOf(board, roster, fixities, dead) {
+  function unitRowsOf(board, roster, fixities, dead, names) {
     const snakes = board.board.snakes ?? [];
     const keys = snakes.length > 0 ? snakes.map((s) => s.id) : [...roster];
     return keys.map((unit) => {
@@ -111,7 +276,12 @@ var LensView = (() => {
       return {
         unit,
         kind: snake?.unitType ?? "snake",
-        letter: snake?.letter ?? "",
+        // NAMED FROM THE DIRECTORY, NOT FROM THE BOARD. The board is dropped on
+        // the way to storage and is 0×0 in replay; the directory rides on the
+        // anchor and survives, so the same unit reads the same way in both
+        // (Law C, and 17-NAMING §2 on where the name used to be lost).
+        name: unitName(names, unit),
+        letter: unitLetter(names, unit) || snake?.letter || "",
         weight: snake?.length ?? 0,
         health: snake?.health ?? 0,
         orientation: snake?.orientation ?? { dx: 0, dy: 0 },
@@ -163,6 +333,7 @@ var LensView = (() => {
     const anchor = store.anchor;
     const board = boardOf(anchor);
     const arrival = payloadOf(anchor);
+    const names = arrival?.names ?? namesFromBoard(board);
     let partition = [];
     const movesets = {};
     const truncation = {};
@@ -291,6 +462,13 @@ var LensView = (() => {
           break;
       }
     }
+    for (const key of Object.keys(staged)) {
+      staged[key] = {
+        ...staged[key],
+        name: unitName(names, key),
+        letter: unitLetter(names, key)
+      };
+    }
     const at = {
       gameId: anchor.gameId,
       turn: store.turn,
@@ -307,7 +485,7 @@ var LensView = (() => {
     return {
       at,
       board,
-      units: unitRowsOf(board, arrival?.roster ?? [], fixities, dead),
+      units: unitRowsOf(board, arrival?.roster ?? [], fixities, dead, names),
       partition,
       candidates: candidatesOf(priced),
       movesets,
@@ -319,7 +497,8 @@ var LensView = (() => {
       waypoints,
       advice,
       events,
-      provenance: provenanceOf(input, emissionSeq, quantaSpent)
+      provenance: provenanceOf(input, emissionSeq, quantaSpent),
+      names
     };
   }
   function applyCommand(event, routes, waypoints) {
@@ -885,7 +1064,10 @@ var LensView = (() => {
         const bound = after.boundedBy.find((b) => lost.includes(b.unit));
         return {
           cluster: before.id,
-          lost,
+          // NAMED, because the note is a SENTENCE — "<these> left the cluster".
+          // The keys stay addressable in the frame; what the reader is handed is
+          // the names (17-NAMING §5).
+          lost: lost.map((u) => unitName(next.names, u)),
           // A unit leaves a cluster because somebody FIXED it — and also because
           // it died, or resolved, or is simply not on the board any more. Only
           // the first of those has a reason and an author in `boundedBy`, and
@@ -1126,9 +1308,11 @@ var LensView = (() => {
     return `nothing retained for ${unit} at this candidate — ${emissions} emissions by seq ${frame.at.seq} and no priced restriction plays it`;
   }
   function authorOf(frame, unit, declared) {
-    if (declared !== null) return declared;
     const row = frame.units.find((u) => u.unit === unit);
-    return row?.operator ?? row?.owner ?? null;
+    const id = declared ?? row?.owner ?? null;
+    const named = row?.operator ?? null;
+    if (id === null && named === null) return null;
+    return operatorName(frame.names, id, named);
   }
   var FIXITY_VERB = {
     pin: "pinned",
@@ -1145,7 +1329,14 @@ var LensView = (() => {
       for (const member of cluster2.members) ops.push(call("cluster.chip", member, glyph, cluster2.id));
       for (const bound of cluster2.boundedBy) {
         ops.push(
-          call("fixed.chip", bound.unit, bound.why, authorOf(frame, bound.unit, bound.by), bound.to)
+          call(
+            "fixed.chip",
+            bound.unit,
+            bound.why,
+            authorOf(frame, bound.unit, bound.by),
+            bound.to,
+            unitName(frame.names, bound.unit)
+          )
         );
       }
     });
@@ -1270,8 +1461,11 @@ var LensView = (() => {
           // omitted: a row with no clause and a row that leads on the proved
           // floor are two different states and only "always draw it" tells them
           // apart (Law A, applied to the reduction).
-          dominanceClause(row.dominance),
-          row.moves.map((m) => `${m.unit}→${m.to}`),
+          dominanceClause(row.dominance, frame.names),
+          // THE ASSIGNMENT, IN NAMES. The rail diffs these tokens by splitting
+          // on the arrow, so the left half is read aloud — it is prose, and a
+          // twenty-character key is not.
+          row.moves.map((m) => `${unitName(frame.names, m.unit)}→${m.to}`),
           row.complement,
           row.key === selected?.key,
           row.staged,
@@ -1290,7 +1484,7 @@ var LensView = (() => {
       ops.push(
         call(
           "panel.movesets.fixed",
-          bound.unit,
+          unitName(frame.names, bound.unit),
           bound.to,
           bound.why,
           authorOf(frame, bound.unit, bound.by)
@@ -1321,8 +1515,8 @@ var LensView = (() => {
     return list.retained <= 1 ? "no runner-up — the reservoir retained one row for this cluster" : `no runner-up — only 1 of ${list.retained} retained rows plays this candidate`;
   }
   var RESIDUE_KEY = "#-1";
-  var namedUnit = (key) => key === RESIDUE_KEY ? "the evaluator residue" : key;
-  function dominanceClause(dominance) {
+  var namedUnit = (key, names) => key === RESIDUE_KEY ? "the evaluator residue" : unitName(names ?? EMPTY_DIRECTORY, key);
+  function dominanceClause(dominance, names) {
     if (dominance === null) return "unsealed — the barrier has not run";
     switch (dominance.kind) {
       case "leader":
@@ -1332,7 +1526,7 @@ var LensView = (() => {
       case "incomparable-basis":
         return "incomparable basis — not sorted against the leader";
       case "contingent":
-        return dominance.onUnits.length === 0 ? `wins on nothing named — ${round1(dominance.atStake)} at stake` : `${dominance.onUnits.map(namedUnit).join(", ")} resolve against us · ${round1(dominance.atStake)} at stake`;
+        return dominance.onUnits.length === 0 ? `wins on nothing named — ${round1(dominance.atStake)} at stake` : `${dominance.onUnits.map((u) => namedUnit(u, names)).join(", ")} resolve against us · ${round1(dominance.atStake)} at stake`;
       case "dominated":
         return `cannot win — dominated by ${round1(dominance.by)}`;
       case "advisory-only":
@@ -1358,17 +1552,20 @@ var LensView = (() => {
         // An evaluator that does not explain is NOT an error state. The panel
         // says so in words rather than drawing thirty zero rows, which is the
         // lesson the deleted per-unit table paid for.
-        breakdown.aggregate === null ? "this evaluator does not explain" : breakdown.aggregate.profile
+        // THE EVALUATOR'S PROFILE, IN WORDS. `lobster-territory` is a registry
+        // key; the panel head is a sentence a reader says out loud (17-NAMING §3).
+        breakdown.aggregate === null ? "this evaluator does not explain" : featureLabel(breakdown.aggregate.profile)
       )
     ];
     for (const marginal of breakdown.marginals) {
       ops.push(
         call(
           "panel.breakdown.member",
-          marginal.unit,
+          unitName(frame.names, marginal.unit),
           marginal.delta,
           marginal.against.to,
-          marginal.unit === cursor.drill ? marginal.features.map((f) => [f.key, f.delta]) : marginal.features.slice(0, 2).map((f) => [f.key, f.delta])
+          // THE FEATURE'S WORDS, not its ledger key (17-NAMING §3).
+          marginal.unit === cursor.drill ? marginal.features.map((f) => [featureLabel(f.key), f.delta]) : marginal.features.slice(0, 2).map((f) => [featureLabel(f.key), f.delta])
         )
       );
     }
@@ -1376,7 +1573,7 @@ var LensView = (() => {
       call(
         "panel.breakdown.residual",
         breakdown.residual.total,
-        breakdown.residual.features.map((f) => [f.key, f.delta]),
+        breakdown.residual.features.map((f) => [featureLabel(f.key), f.delta]),
         "[why?]"
       )
     );
@@ -1408,7 +1605,7 @@ var LensView = (() => {
     selection: "operator",
     "turn.resolved": "anchor"
   };
-  function renderTimeline(events) {
+  function renderTimeline(events, names = EMPTY_DIRECTORY) {
     const ops = [call("timeline", events.length)];
     for (const event of events) {
       const payload = event.payload;
@@ -1426,8 +1623,11 @@ var LensView = (() => {
           // WHO AND ON WHAT. §2.2 asks for `●Ada near(s2)` — the verb, the unit
           // and the operator — and the tick carried the kind and the time and
           // nothing else, because no `pin` / `unpin` row existed to carry a name.
-          event.actor.name,
-          event.unit
+          operatorName(names, event.actor.id, event.actor.name),
+          event.unit,
+          // THE UNIT'S NAME, beside its key: the key addresses, the name is what
+          // the tick's title says out loud.
+          event.unit === null ? null : unitName(names, event.unit)
         )
       );
     }
@@ -1446,7 +1646,12 @@ var LensView = (() => {
       )?.to ?? null;
       out.push({
         unit,
-        letter: row?.letter || unit,
+        // THE NAME, NOT THE KEY. This line printed `row?.letter || unit` — and
+        // on a real game, where a unit key is a twenty-character document id
+        // with a `#n` slot, that fallback WAS the defect (17-NAMING §2). The
+        // frame carries the name; there is nothing to fall back to.
+        name: unitName(frame.names, unit),
+        letter: row?.letter || unitLetter(frame.names, unit),
         to: staged !== null ? staged : planned,
         source: staged !== null ? "staged" : planned !== null ? "plan" : "none",
         fixity,
@@ -1465,7 +1670,7 @@ var LensView = (() => {
         );
       }
     }
-    return out.slice().sort((a, b) => a.letter === b.letter ? a.unit < b.unit ? -1 : 1 : a.letter < b.letter ? -1 : 1);
+    return out.slice().sort((a, b) => a.letter === b.letter ? a.name < b.name ? -1 : a.name > b.name ? 1 : a.unit < b.unit ? -1 : 1 : a.letter < b.letter ? -1 : 1);
   }
   function renderFrame(frame, cursor = initialCursor(), trails = []) {
     const selected = selectedRow(frame, cursor);
@@ -1500,7 +1705,10 @@ var LensView = (() => {
           home?.members.length ?? 0,
           // "Locking narrows" is the word, everywhere: the header counts what is
           // still free, and a lock moves a unit into the bounded strip.
-          why ?? (home === null ? null : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`)
+          why ?? (home === null ? null : `${home.members.length} of ${home.members.length + home.boundedBy.length} free`),
+          // THE UNIT'S NAME, appended so every existing positional reader
+          // keeps its index. The focus line prints THIS.
+          unitName(frame.names, cursor.unit)
         )
       );
     }

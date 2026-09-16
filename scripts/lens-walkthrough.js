@@ -785,6 +785,43 @@ async function main() {
     { controls: undone.controls, depthBeforeUndo, depthAfterUndo }
   );
   await drillShot('d5-undone', 'the drill: undo — the determination taken back, in one unmodified key');
+
+  // ── D6: NO KEY REACHES THE SCREEN ───────────────────────────────────────
+  //
+  // `docs/design/ux/17-NAMING.md`. The same assertion `src/tests/lens-naming.test.ts`
+  // makes against a frame built through the production translation, made here
+  // against the live DOM: the page header, the rail, the stage line and the
+  // lane are read as TEXT, and no token of 16+ id characters — with or without
+  // a `#n` slot — may appear in any of them. Ids stay in attributes, where the
+  // handlers look units up by them.
+  at = 'drill/naming';
+  const keyed = await page.evaluate(() => {
+    const KEY = /[A-Za-z0-9_-]{16,}(#\d+)?/;
+    const zones = {
+      header: '#pageTitle',
+      'stage line': '.lens-stage-line',
+      'unfinished strip': '.lens-biz',
+      rail: '.lens-rail',
+      lane: '#lensLane',
+      controls: '#lensControls',
+    };
+    const out = [];
+    for (const [where, sel] of Object.entries(zones)) {
+      for (const el of document.querySelectorAll(sel)) {
+        const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+        const hit = KEY.exec(text);
+        if (hit) out.push({ where, token: hit[0], near: text.slice(Math.max(0, hit.index - 50), hit.index + 60) });
+      }
+    }
+    return out;
+  });
+  check(
+    'naming — no opaque key in the header, the rail, the stage line or the lane',
+    keyed.length === 0,
+    { keyed }
+  );
+  await drillShot('d6-naming', 'the drill: every entity named — no key in any visible text');
+
   report.notes.drill = drill;
 
   // ── REPLAY ──────────────────────────────────────────────────────────────

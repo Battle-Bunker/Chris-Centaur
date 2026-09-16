@@ -73,6 +73,7 @@ import type { BotSpec } from '../config/bot-identity';
 // `BUILTIN_BOTS`, which is the set a stored binding may point a live game at.
 import { OPPONENT_BOTS, RANDOM_LEGAL } from './opponents';
 import type { OpponentPolicy } from './opponents';
+import { applyNames, assignNames } from '../logic/naming';
 
 // ---------------------------------------------------------------------------
 // Board construction
@@ -588,10 +589,16 @@ export function decisionShapeOf(board: Board, turn: number, teamId: string): Dec
   }
 }
 
+/**
+ * ONE UNIT, WITHOUT ITS NAME. The harness does NOT hand-write `name`,
+ * `letter` or `teamName`: a fixture board that carries fields a real board
+ * lacks is a fixture that cannot reproduce a naming defect (17-NAMING §4).
+ * `buildBoard` runs the roster through `src/logic/naming.ts` — the same module
+ * production's `translate.ts` runs it through — and stamps them there.
+ */
 function makeUnit(
   id: string,
   teamId: string,
-  letter: string,
   spec: UnitSpec,
   centre: Coord
 ): Snake {
@@ -612,7 +619,8 @@ function makeUnit(
   const dy = Math.abs(ax) >= Math.abs(ay) ? 0 : Math.sign(ay);
   return {
     id,
-    name: `${teamId} ${letter}`,
+    // Named by `buildBoard`, through the naming authority.
+    name: '',
     latency: '0',
     health: spec.health ?? 100,
     body,
@@ -621,9 +629,7 @@ function makeUnit(
     shout: '',
     squad: teamId,
     customizations: { color: '#888888', head: 'default', tail: 'default' },
-    letter,
     teamID: teamId,
-    teamName: teamId,
     unitType: spec.kind,
     maxHealth: 100,
     orientation: dx === 0 && dy === 0 ? { dx: 0, dy: 1 } : { dx, dy },
@@ -635,9 +641,19 @@ export function buildBoard(spec: GameSpec): Board {
   const snakes: Snake[] = [];
   for (const team of spec.teams) {
     team.units.forEach((u, i) => {
-      snakes.push(makeUnit(`${team.id}-${LETTERS[i]}`, team.id, LETTERS[i] as string, u, centre));
+      snakes.push(makeUnit(`${team.id}-${LETTERS[i]}`, team.id, u, centre));
     });
   }
+  // THE HARNESS IS NAMED BY THE SAME AUTHORITY PRODUCTION IS. Letters are
+  // ASSIGNED here (nothing above supplied one), which is exactly what the
+  // Firebase translation does for a game document whose setup names none.
+  const named = applyNames(
+    snakes,
+    assignNames(
+      spec.teams.map((t) => ({ id: t.id, name: t.id })),
+      snakes.map((s) => ({ unit: s.id, teamId: (s.teamID as string) ?? null }))
+    )
+  );
   return {
     width: spec.width,
     height: spec.height,
@@ -653,7 +669,7 @@ export function buildBoard(spec: GameSpec): Board {
     // `translate.ts` copies `setup.maxTurns` onto the board — so a runner that
     // stays silent measures a bot that cannot see its own boundary.
     maxTurns: spec.maxTurns ?? 100,
-    snakes,
+    snakes: named,
     // THE PER-UNIT-TYPE CONFIGURATION, and absent unless the spec names it: a
     // board that states nothing is the input `marshalBoard` has always been
     // handed, and the engine then reads its own defaults. Stating it is what

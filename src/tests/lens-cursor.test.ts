@@ -232,8 +232,8 @@ describe('the pin set is exact, and the count is |P*| with no ≤', () => {
   it('names the units another operator owns rather than issuing across owners', () => {
     const frame = pairFrame({
       units: [
-        { unit: U, kind: 'snake', letter: 'A', weight: 1, health: 100, orientation: { dx: 0, dy: 1 }, fixity: 'free', owner: null, operator: null },
-        { unit: V, kind: 'snake', letter: 'B', weight: 1, health: 100, orientation: { dx: 0, dy: 1 }, fixity: 'free', owner: 'ben', operator: 'ben' },
+        { unit: U, kind: 'snake', name: 'red A', letter: 'A', weight: 1, health: 100, orientation: { dx: 0, dy: 1 }, fixity: 'free', owner: null, operator: null },
+        { unit: V, kind: 'snake', name: 'red B', letter: 'B', weight: 1, health: 100, orientation: { dx: 0, dy: 1 }, fixity: 'free', owner: 'ben', operator: 'ben' },
       ],
       movesets: {
         [`0|${U}|10`]: [

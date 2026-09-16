@@ -105,7 +105,7 @@
       gapMs: 1500,
       notify: true,
       label: 'a unit is one turn from a fatal cell',
-      say: (d) => `${d.unit || 'a unit'} is one turn from a fatal cell and nothing has pinned it`,
+      say: (d) => `${d.name || 'a unit'} is one turn from a fatal cell and nothing has pinned it`,
     },
     'press-window': {
       priority: 2,
@@ -146,7 +146,7 @@
       gapMs: 1500,
       notify: false,
       label: 'the bot re-staged a unit you had determined',
-      say: (d) => `the bot is staging ${d.unit || 'a unit'} you had determined (${d.mode})`,
+      say: (d) => `the bot is staging ${d.name || 'a unit'} you had determined (${d.mode})`,
     },
   };
 
@@ -351,7 +351,9 @@
       const mode = wire.modes[id] || 'heuristic';
 
       if (sm.fatal === true && sm.committed !== true && mode !== 'manual') {
-        raise('fatal-unpinned', { unit: id, mode, key: `${id}:${wire.turn}` });
+        // THE NAME COMES OFF THE RECORD. The server stamps it
+        // (`StagedMoveView.name`); this module never derives one.
+        raise('fatal-unpinned', { unit: id, name: sm.name || null, mode, key: `${id}:${wire.turn}` });
       }
 
       const requested = sm.requestedMove === undefined ? null : String(sm.requestedMove);
@@ -370,6 +372,7 @@
       if (botSourced || changed) {
         raise('stage-drift', {
           unit: id,
+          name: sm.name || null,
           mode,
           from: previous === undefined ? null : previous.move,
           to: requested,
@@ -407,6 +410,7 @@
         // whether or not anybody was looking, and it is always worth saying.
         raise('fatal-unpinned', {
           unit: msg.snakeId || null,
+          name: (wire.staged[msg.snakeId] && wire.staged[msg.snakeId].name) || null,
           move: msg.move || null,
           key: `${msg.snakeId}:${msg.turn}`,
         });

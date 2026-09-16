@@ -48,6 +48,7 @@ import type {
   UnitKey,
   WidenNotice,
 } from '../types';
+import { unitName } from '../../logic/naming';
 
 /** 04 §3 Q8: the 6 s constant became a CAP on a deadline-scaled value. */
 const WIDEN_AUTO_ACCEPT_CAP_MS = 6_000;
@@ -800,7 +801,10 @@ export function reactiveNotice(
       const bound = after.boundedBy.find((b) => lost.includes(b.unit));
       return {
         cluster: before.id,
-        lost,
+        // NAMED, because the note is a SENTENCE — "<these> left the cluster".
+        // The keys stay addressable in the frame; what the reader is handed is
+        // the names (17-NAMING §5).
+        lost: lost.map((u) => unitName(next.names, u)),
         // A unit leaves a cluster because somebody FIXED it — and also because
         // it died, or resolved, or is simply not on the board any more. Only
         // the first of those has a reason and an author in `boundedBy`, and

@@ -55,6 +55,10 @@ const LensPanel = require('../web/lens-panel.js');
 
 const [C, Q] = unitKeysOf(SINGLETONS) as [UnitKey, UnitKey];
 
+/** A unit's name off the frame — the only thing the rail is allowed to print. */
+const nameOf = (f: LensFrame, unit: UnitKey): string =>
+  f.units.find((u) => u.unit === unit)?.name ?? unit;
+
 /** α = {C, Q}, three rows, R fixed by Ada's pin, and a priced breakdown. */
 function frame(over: Partial<LensFrame> = {}): LensFrame {
   const rows: ReadonlyArray<Moveset> = [
@@ -408,8 +412,9 @@ describe('the rail says what the design says it must', () => {
     expect(html).not.toContain('lens-width');
     expect(html).toContain('foil #2');
     expect(html).not.toContain('margin');
-    // The assignment IS the row's content, and it is still drawn.
-    expect(html).toContain(`${C}→10`);
+    // The assignment IS the row's content, and it is still drawn — BY NAME,
+    // never by unit key (`docs/design/ux/17-NAMING.md`).
+    expect(html).toContain(`${nameOf(f, C)}→10`);
   });
 
   /**
@@ -473,6 +478,7 @@ describe('the rail says what the design says it must', () => {
         {
           unit: 'A-R' as UnitKey,
           kind: 'snake',
+          name: 'red R',
           letter: 'R',
           weight: 3,
           health: 99,

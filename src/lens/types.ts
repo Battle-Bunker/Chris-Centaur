@@ -41,6 +41,9 @@ import type { BasisKey, LoudReading } from '../lobster/bounds';
 import type { EmitRefusal } from '../lobster/kernel';
 import type { ConfidenceOrder } from '../lobster/voc';
 import type { BoardSnapshot } from '../types/battlesnake';
+import type { NameDirectory } from '../logic/naming';
+
+export type { NameDirectory };
 
 export type {
   Assumption,
@@ -840,6 +843,16 @@ export interface BoardArrivedPayload {
   readonly turnExpiryTime: number;
   readonly roster: ReadonlyArray<UnitKey>;
   readonly alive: ReadonlyArray<UnitKey>;
+  /**
+   * EVERY NAME THE TURN HAS, written by the game manager from the naming
+   * authority. It rides on the ANCHOR because the anchor is the one event a
+   * fold cannot do without — so a frame that has a board has names, and so
+   * does a frame whose board was dropped on the way to storage.
+   *
+   * Optional only for rows written before this field existed; `frameAt` falls
+   * back to deriving it from the settlement's own snakes.
+   */
+  readonly names?: NameDirectory;
 }
 
 export interface StagePayload {
@@ -966,6 +979,13 @@ export type Fixity = 'free' | 'pinned' | 'held' | 'committed' | 'dead' | 'foreig
 export interface UnitRow {
   readonly unit: UnitKey;
   readonly kind: string;
+  /**
+   * THE UNIT'S HUMAN NAME — `<team name> <letter>`, assigned on the SERVER by
+   * `src/logic/naming.ts` and carried here. REQUIRED, and never a key: a row
+   * that reaches a renderer without one is the defect 17-NAMING records, and
+   * the type is what stops it being reintroduced.
+   */
+  readonly name: string;
   readonly letter: string;
   readonly weight: number;
   readonly health: number;
@@ -989,7 +1009,12 @@ export interface CandidateRow {
  *  dual-source contract to prove a point would be the junk this exercise is
  *  supposed to throw away (02 §2.3). The lens carries them; it does not
  *  re-declare their interiors. */
-export type StagedMoveView = Readonly<Record<string, unknown>>;
+/** The manager's staged-move shape, plus the two naming fields the lens adds
+ *  so a stage line never has to look a unit up (17-NAMING §5). */
+export type StagedMoveView = Readonly<Record<string, unknown>> & {
+  readonly name?: string;
+  readonly letter?: string;
+};
 export type RouteView = Readonly<Record<string, unknown>>;
 export type WaypointView = Readonly<Record<string, unknown>>;
 export type AdviceItem = Readonly<Record<string, unknown>>;
@@ -1050,6 +1075,9 @@ export interface LensFrame {
    *  a view of the frame, so scrubbing is a pure function of one object. */
   readonly events: ReadonlyArray<TurnEvent>;
   readonly provenance: FrameProvenance;
+  /** EVERY NAME THIS FRAME CAN SHOW — teams, units, operators, and the game's
+   *  own title. Required: a renderer that has a frame has names. */
+  readonly names: NameDirectory;
 }
 
 // ------------------------------------------------------- reducer and source

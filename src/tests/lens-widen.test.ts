@@ -127,6 +127,7 @@ describe('a widen is staged, never applied under the reader', () => {
         {
           unit: R as UnitKey,
           kind: 'snake',
+          name: 'red R',
           letter: 'R',
           weight: 3,
           health: 99,

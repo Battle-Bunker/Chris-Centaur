@@ -23,6 +23,7 @@ import { TTClash, TTGameSetup, TTGameStateDoc, TTTurn, TTUnitType } from './tact
 // the same function the server reads it with — so the bot cannot disagree with
 // it about a default or about how an older document maps into the group.
 import { unitConfigOf, unitTypeConfig } from '../engine-vendor/engine/unitConfig';
+import { assignNames, namesFromSetup, unitName as directoryUnitName, type NameDirectory } from '../logic/naming';
 
 export function toApiCoord(index: number, boardWidth: number, boardHeight: number): Coord {
   const x = index % boardWidth;
@@ -305,9 +306,15 @@ function buildSnake(
     : rawPieces.map((i) => toApiCoord(i, w, h));
   const length = isPiece ? rawPieces.length : body.length;
 
+  // THE NAME COMES FROM THE NAMING AUTHORITY, never from this function's own
+  // string concatenation and never from the raw player id. `src/logic/naming.ts`
+  // assigns a letter when the setup gives none and composes `<team> <letter>`
+  // once, for production and for the harness alike (17-NAMING §3).
+  const identity = namesForGame(setup).units[playerID];
+
   const snake: Snake = {
     id: playerID,
-    name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : playerID,
+    name: identity ? identity.name : directoryUnitName(null, playerID),
     latency: '0',
     health: turn.playerEnergy[playerID] ?? 0,
     body,
@@ -326,7 +333,8 @@ function buildSnake(
     // orientation and keyNav movement behaviour on this wire orientation.
     orientation: { ...turn.orientation[playerID] },
   };
-  if (gamePlayer) snake.letter = gamePlayer.letter;
+  if (identity) snake.letter = identity.letter;
+  else if (gamePlayer) snake.letter = gamePlayer.letter;
   snake.unitType = unitType;
   // Per-type max health from the setup config, resolved against the unit's
   // CURRENT type (promotion moves a pawn onto the queen's max). Engine
@@ -337,7 +345,8 @@ function buildSnake(
   if (gamePlayer?.teamID) snake.teamID = gamePlayer.teamID;
   // The team's human name (the controlling centaur's, snapshotted into the
   // setup) rides on every unit so the UI never has to show the opaque team id.
-  if (team?.name) snake.teamName = team.name;
+  snake.teamName = identity ? identity.teamName : (team?.name ?? '');
+  if (!snake.teamName) delete snake.teamName;
   return snake;
 }
 
@@ -498,10 +507,26 @@ export function controlledSnakeIDs(setup: TTGameSetup, centaurId: string): strin
  * playerPieces). Same naming rule buildSnake applies.
  */
 export function snakeIdentity(setup: TTGameSetup, snakeId: string): { name: string; letter: string } {
-  const gamePlayer = setup.gamePlayers.find((gp) => gp.id === snakeId);
-  const team = gamePlayer && setup.teams.find((t) => t.id === gamePlayer.teamID);
+  const identity = namesForGame(setup).units[snakeId];
   return {
-    name: team && gamePlayer ? `${team.name} ${gamePlayer.letter}` : snakeId,
-    letter: gamePlayer?.letter ?? '',
+    name: identity ? identity.name : directoryUnitName(null, snakeId),
+    letter: identity ? identity.letter : '',
   };
 }
+
+/** THE GAME'S OWN NAMES, from the document that defines them. The title, every
+ *  team, every unit — including units the board has since dropped.
+ *
+ *  Memoised per setup object: `buildBoardState` asks once per unit per turn and
+ *  the answer is a pure function of the setup. */
+const NAME_MEMO = new WeakMap<TTGameSetup, NameDirectory>();
+export function namesForGame(setup: TTGameSetup, turn: number | null = null): NameDirectory {
+  if (turn !== null) return namesFromSetup(setup, { turn });
+  const held = NAME_MEMO.get(setup);
+  if (held) return held;
+  const made = namesFromSetup(setup);
+  NAME_MEMO.set(setup, made);
+  return made;
+}
+
+export { assignNames };
